@@ -12,6 +12,7 @@ type NewsItem = {
   published_at: string | null;
   kratom_topic: string | null;
   ai_relevance_score: number | null;
+  duplicate_count?: number | null;
 };
 
 const STATES = [
@@ -190,6 +191,14 @@ export function NewsList({ items, userState }: { items: NewsItem[]; userState: s
                     <span className="text-zinc-500">{Math.round(i.ai_relevance_score * 100)}% match</span>
                   )}
                   {i.source_name && <span className="text-zinc-500">{i.source_name}</span>}
+                  {i.duplicate_count != null && i.duplicate_count > 0 && (
+                    <span
+                      className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400"
+                      title="The same story was syndicated to other states"
+                    >
+                      +{i.duplicate_count} more
+                    </span>
+                  )}
                   {i.published_at && (
                     <span className="ml-auto text-zinc-600">{new Date(i.published_at).toLocaleDateString()}</span>
                   )}

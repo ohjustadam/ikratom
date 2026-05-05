@@ -8,8 +8,11 @@ type Bill = {
   bill_number: string;
   title: string | null;
   summary: string | null;
+  summary_ai: string | null;
+  advocacy_callout: string | null;
   status: string | null;
   kratom_relevance: string | null;
+  relevance_confidence: number | null;
   last_action: string | null;
   last_action_at: string | null;
   source_url: string | null;
@@ -226,8 +229,15 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
                 <h3 className="mt-2 text-sm font-medium leading-snug">
                   {b.title || "(untitled)"}
                 </h3>
-                {b.summary && (
-                  <p className="mt-1 line-clamp-2 text-xs text-zinc-500">{b.summary}</p>
+                {/* Prefer AI summary when available; fall back to OpenStates raw. */}
+                {(b.summary_ai || b.summary) && (
+                  <p className="mt-1 text-sm text-zinc-300">{b.summary_ai || b.summary}</p>
+                )}
+                {b.advocacy_callout && (
+                  <p className="mt-2 rounded-md border border-emerald-900/30 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-200">
+                    <span className="font-semibold text-emerald-400">For advocates: </span>
+                    {b.advocacy_callout}
+                  </p>
                 )}
                 {b.last_action && (
                   <p className="mt-1 text-xs text-zinc-500">

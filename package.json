@@ -14,6 +14,8 @@
     "sync:news:rss": "node --env-file=.env.local scripts/sync-news-rss.mjs",
     "enrich:news": "node --env-file=.env.local scripts/enrich-news.mjs",
     "sync:bills": "node --env-file=.env.local scripts/sync-bills.mjs",
+    "enrich:bills": "node --env-file=.env.local scripts/enrich-bills.mjs",
+    "dedupe:news": "node --env-file=.env.local scripts/dedupe-news.mjs",
     "dedupe:locals": "node --env-file=.env.local scripts/dedupe-locals.mjs",
     "db:push": "node --env-file=.env.local scripts/db-push.mjs",
     "test": "vitest run",

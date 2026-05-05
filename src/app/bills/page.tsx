@@ -3,14 +3,37 @@ import { BillsBrowser } from "./BillsBrowser";
 
 export const metadata = { title: "Bill tracker" };
 
+// Shape returned by the page query. Supabase generated types lag the
+// migration that added summary_ai/advocacy_callout/relevance_confidence,
+// so we declare the row shape here and cast at the boundary.
+type BillRow = {
+  id: string;
+  state: string;
+  bill_number: string;
+  title: string | null;
+  summary: string | null;
+  summary_ai: string | null;
+  advocacy_callout: string | null;
+  status: string | null;
+  kratom_relevance: string | null;
+  relevance_confidence: number | null;
+  last_action: string | null;
+  last_action_at: string | null;
+  source_url: string | null;
+};
+
 export default async function BillsPage() {
   const supabase = await createClient();
-  const { data: bills } = await supabase
+  const { data: billsRaw } = await supabase
     .from("bills")
-    .select("id, state, bill_number, title, summary, status, kratom_relevance, last_action, last_action_at, source_url")
+    .select(
+      "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
+      "status, kratom_relevance, relevance_confidence, last_action, last_action_at, source_url"
+    )
     .eq("active", true)
     .order("last_action_at", { ascending: false, nullsFirst: false })
     .limit(500);
+  const bills = (billsRaw ?? []) as unknown as BillRow[];
 
   const { data: { user } } = await supabase.auth.getUser();
   let userState: string | null = null;
@@ -36,7 +59,7 @@ export default async function BillsPage() {
         </p>
       </header>
 
-      <BillsBrowser bills={bills ?? []} userState={userState} />
+      <BillsBrowser bills={bills} userState={userState} />
     </div>
   );
 }
