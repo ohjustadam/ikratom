@@ -186,7 +186,7 @@ export function ThreadView({
 
               {/* One level of replies under this post */}
               {(repliesByParent.get(p.id) ?? []).map((r) => (
-                <div key={r.id} className="ml-8 mt-3">
+                <div key={r.id} className="ml-3 mt-3 sm:ml-8">
                   <PostCard
                     post={r}
                     authorName={authorNamesLocal[r.author_id ?? ""] ?? "Member"}

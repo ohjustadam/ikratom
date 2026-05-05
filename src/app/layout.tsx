@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { siteConfig } from "@/config/site.config";
 import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
 import { CookieBanner } from "@/components/CookieBanner";
+import { MobileNav } from "@/components/MobileNav";
 import "./globals.css";
 
 const geist = Geist({
@@ -28,6 +29,12 @@ export const metadata: Metadata = {
     "kratom community",
     "contact legislators kratom",
   ],
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: siteConfig.name,
+  },
+  formatDetection: { telephone: false },
   openGraph: {
     type: "website",
     siteName: siteConfig.name,
@@ -44,19 +51,36 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: "#0a0a0a",
+  viewportFit: "cover",  // iPhone notch / safe-area support
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geist.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
-        <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-            <a href="/" className="flex items-center gap-2 text-lg font-bold">
+        <header
+          className="sticky top-0 z-30 border-b border-zinc-800 bg-zinc-950/85 backdrop-blur"
+          style={{ paddingTop: "env(safe-area-inset-top)" }}
+        >
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+            <a
+              href="/"
+              className="flex items-center gap-1 text-lg font-bold leading-none"
+              aria-label="iKratom home"
+            >
               <span className="text-emerald-400">i</span>
               <span>Kratom</span>
             </a>
-            <nav className="flex items-center gap-5 text-sm">
+
+            {/* Desktop nav (md+) */}
+            <nav className="hidden md:flex items-center gap-5 text-sm">
               <a href="/campaigns" className="hover:text-emerald-400">Campaigns</a>
               <a href="/legislators" className="hover:text-emerald-400">Legislators</a>
               <a href="/bills" className="hover:text-emerald-400">Bills</a>
@@ -65,6 +89,9 @@ export default function RootLayout({
               <a href="/forum" className="hover:text-emerald-400">Forum</a>
               <HeaderAuth />
             </nav>
+
+            {/* Mobile hamburger (<md) */}
+            <MobileNav authSlot={<HeaderAuth />} />
           </div>
         </header>
 
