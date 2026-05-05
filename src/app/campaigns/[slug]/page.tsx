@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators, type Legislator } from "@/lib/legislators";
 import { buildVars, renderTemplate } from "@/modules/campaigns/templates";
 import { getMyCampaignProgress } from "@/modules/campaigns/actions";
+import { getMyWaveStatus } from "@/modules/waves/actions";
 import { CampaignAction } from "@/modules/campaigns/components/CampaignAction";
+import { WavePanel } from "@/modules/waves/components/WavePanel";
 
 export async function generateMetadata({
   params,
@@ -98,6 +100,39 @@ export default async function CampaignPage({
   // What this user has already sent for this campaign (spam-prevention UI)
   const myProgress = await getMyCampaignProgress(campaign.id);
 
+  // Active wave for this campaign (or most recent fired one to show summary)
+  const { data: waveRaw } = await supabase
+    .from("campaign_waves")
+    .select("id, campaign_id, title, description, scheduled_at, fired_at, target_signups, sent_count, failed_count, active")
+    .eq("campaign_id", campaign.id)
+    .order("scheduled_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const wave = waveRaw as unknown as {
+    id: string;
+    campaign_id: string;
+    title: string;
+    description: string | null;
+    scheduled_at: string;
+    fired_at: string | null;
+    target_signups: number | null;
+    sent_count: number;
+    failed_count: number;
+    active: boolean;
+  } | null;
+
+  let waveCount = 0;
+  let waveJoined = false;
+  if (wave) {
+    // SECURITY DEFINER function: bypasses RLS to expose the aggregate
+    // count without leaking per-user signup identity.
+    const { data: cnt } = await supabase
+      .rpc("get_wave_signup_count", { p_wave_id: wave.id });
+    waveCount = typeof cnt === "number" ? cnt : 0;
+    const myStatus = await getMyWaveStatus(wave.id);
+    waveJoined = myStatus.joined;
+  }
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <a href="/campaigns" className="text-xs text-zinc-500 hover:text-emerald-400">
@@ -125,6 +160,18 @@ export default async function CampaignPage({
           <p className="mt-3 text-lg text-zinc-300">{campaign.blurb}</p>
         )}
       </header>
+
+      {/* Wave panel — render above the per-user action card so users see the
+          coordinated option first when an active wave exists. */}
+      {wave && (wave.active || wave.fired_at) && (
+        <WavePanel
+          wave={wave}
+          initialCount={waveCount}
+          initialJoined={waveJoined}
+          signedIn={!!user}
+          gmailConnected={gmailConnected}
+        />
+      )}
 
       {/* Action card — the killer feature */}
       <CampaignAction

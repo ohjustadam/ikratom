@@ -43,14 +43,22 @@ export default async function EditCampaignPage({
             <span className="font-mono">{campaign.slug}</span>
           </p>
         </div>
-        <a
-          href={`/campaigns/${campaign.slug}`}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm hover:border-emerald-500"
-        >
-          Preview ↗
-        </a>
+        <div className="flex gap-2">
+          <a
+            href={`/admin/campaigns/${campaign.id}/waves/new`}
+            className="rounded-md border border-amber-700/50 bg-amber-950/20 px-3 py-1.5 text-sm text-amber-300 hover:border-amber-500"
+          >
+            ⚡ Schedule wave
+          </a>
+          <a
+            href={`/campaigns/${campaign.slug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm hover:border-emerald-500"
+          >
+            Preview ↗
+          </a>
+        </div>
       </header>
 
       <BriefingPanel
