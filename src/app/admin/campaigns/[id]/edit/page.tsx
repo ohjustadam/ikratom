@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { CampaignForm } from "@/modules/admin/components/CampaignForm";
+import { listWavesForCampaign } from "@/modules/waves/actions-admin";
 
 export const metadata = { title: "Edit campaign" };
 
@@ -68,8 +69,94 @@ export default async function EditCampaignPage({
         generatedAt={campaign.briefing_generated_at}
       />
 
+      <WaveHistoryPanel campaignId={campaign.id} />
+
       <CampaignForm initial={campaign} />
     </div>
+  );
+}
+
+async function WaveHistoryPanel({ campaignId }: { campaignId: string }) {
+  const waves = await listWavesForCampaign(campaignId);
+  if (waves.length === 0) {
+    return (
+      <section className="mb-8 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Coalition waves</h2>
+            <p className="text-xs text-zinc-500">
+              No waves scheduled yet. Schedule one to coordinate a coalition send.
+            </p>
+          </div>
+          <a
+            href={`/admin/campaigns/${campaignId}/waves/new`}
+            className="shrink-0 rounded-md border border-amber-700/50 bg-amber-950/20 px-3 py-1.5 text-sm text-amber-300 hover:border-amber-500"
+          >
+            ⚡ Schedule wave
+          </a>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section className="mb-8 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Coalition waves</h2>
+          <p className="text-xs text-zinc-500">
+            Click a wave to see signups, retry failures, or cancel.
+          </p>
+        </div>
+        <a
+          href={`/admin/campaigns/${campaignId}/waves/new`}
+          className="shrink-0 rounded-md border border-amber-700/50 bg-amber-950/20 px-3 py-1.5 text-sm text-amber-300 hover:border-amber-500"
+        >
+          + New wave
+        </a>
+      </div>
+      <ul className="overflow-hidden rounded-md border border-zinc-800">
+        {waves.map((w, i) => {
+          const status = w.fired_at
+            ? { label: "Fired", cls: "bg-emerald-950/40 text-emerald-300" }
+            : !w.active
+              ? { label: "Cancelled", cls: "bg-zinc-900 text-zinc-500" }
+              : { label: "Scheduled", cls: "bg-amber-950/40 text-amber-300" };
+          return (
+            <li
+              key={w.id}
+              className={`flex flex-wrap items-center gap-3 bg-zinc-950/40 px-4 py-3 text-sm ${
+                i > 0 ? "border-t border-zinc-900" : ""
+              }`}
+            >
+              <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${status.cls}`}>
+                {status.label}
+              </span>
+              <a
+                href={`/admin/campaigns/${campaignId}/waves/${w.id}`}
+                className="flex-1 truncate text-zinc-200 hover:text-emerald-400"
+              >
+                {w.title}
+              </a>
+              <span className="text-xs text-zinc-500">
+                {new Date(w.scheduled_at).toLocaleDateString()}
+              </span>
+              <span className="text-xs tabular-nums text-zinc-400">
+                {w.signup_count} signup{w.signup_count === 1 ? "" : "s"}
+                {w.fired_at && (
+                  <>
+                    {" · "}
+                    <span className="text-emerald-400">{w.sent_count} sent</span>
+                    {w.failed_count > 0 && (
+                      <span className="text-red-400"> · {w.failed_count} failed</span>
+                    )}
+                  </>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

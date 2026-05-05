@@ -1,12 +1,49 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { getDistrictsForAddress } from "@/lib/civic";
 import { isPasswordPwned } from "@/lib/pwned-passwords";
 import { recordSignIn } from "./actions-devices";
 import type { AuthResult } from "./types";
+
+/**
+ * Look up the most recent active campaign for a state and return its slug.
+ * Used by post-signin routing when a `landing_state` cookie is present
+ * (set by the proxy when the user arrived via an embed widget or shared
+ * state-specific link).
+ */
+async function findCampaignForState(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  stateCode: string,
+): Promise<string | null> {
+  // FED → no state-specific campaign yet; fall back to /campaigns list
+  if (stateCode === "FED") return null;
+  const { data } = await supabase
+    .from("campaigns")
+    .select("slug")
+    .eq("active", true)
+    .eq("state", stateCode)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as { slug: string } | null)?.slug ?? null;
+}
+
+/** Read the landing-state cookie and clear it (one-shot routing). */
+async function consumeLandingState(): Promise<string | null> {
+  try {
+    const c = await cookies();
+    const v = c.get("landing_state")?.value;
+    if (!v) return null;
+    c.delete("landing_state");
+    return /^([A-Z]{2}|FED)$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Accepts only same-origin relative paths. Prevents open-redirect. */
 function safeRelative(raw: string | null | undefined): string | null {
@@ -105,6 +142,18 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
       .eq("id", data.user.id)
       .single();
     if (!prof?.onboarded_at) dest = "/onboarding";
+  }
+
+  // Embed / state-share auto-routing: if the user arrived via an embed
+  // widget or a state-specific shared link, the proxy stashed a
+  // landing_state cookie. Try to route them into a matched active
+  // campaign instead of /dashboard. Onboarding still wins.
+  if (dest === "/dashboard" && data.user) {
+    const landingState = await consumeLandingState();
+    if (landingState) {
+      const slug = await findCampaignForState(supabase, landingState);
+      if (slug) dest = `/campaigns/${slug}`;
+    }
   }
 
   // MFA step-up: if the user has a verified TOTP factor but the current

@@ -98,13 +98,53 @@ export async function recordSignIn(userId: string): Promise<RecordSignInResult> 
 
   if ((count ?? 0) > 1) {
     const browser = describeBrowser(ua);
+    const title = "New device signed in to your account";
+    const body = `${browser} from ${ip || "unknown IP"}. If this wasn't you, change your password immediately and sign out other devices at /account/security.`;
+
+    // In-app notification (always)
     await admin.from("notifications").insert({
       user_id: userId,
       kind: "new_device",
-      title: "New device signed in to your account",
-      body: `${browser} from ${ip || "unknown IP"}. If this wasn't you, change your password immediately and sign out other devices at /account/security.`,
+      title,
+      body,
       link: "/account/security",
     });
+
+    // Best-effort transactional email (no-op when RESEND_API_KEY not set;
+    // ships fully when domain + Resend are wired up)
+    try {
+      const { data: userRow } = await admin
+        .from("profiles")
+        .select("id, email")
+        .eq("id", userId)
+        .single();
+      // profiles.email is mirrored from auth.users.email at signup; if
+      // missing, look it up via admin auth.
+      let to: string | null = (userRow as { email: string | null } | null)?.email ?? null;
+      if (!to) {
+        const { data: au } = await admin.auth.admin.getUserById(userId);
+        to = au?.user?.email ?? null;
+      }
+      if (to) {
+        const { sendTransactionalEmail, brandedHtml } = await import("@/lib/email/transactional");
+        const html = brandedHtml({
+          headline: title,
+          body: `<p>${body.replace(/\n/g, "<br>")}</p>`,
+          ctaLabel: "Review my devices",
+          ctaHref: `${process.env.APP_URL ?? "https://ikratom.app"}/account/security`,
+        });
+        await sendTransactionalEmail({
+          to,
+          subject: title,
+          text: body,
+          html,
+          tag: "new_device",
+        });
+      }
+    } catch (e) {
+      // Email path failures never block the in-app path
+      console.error("[recordSignIn] email notify failed:", e);
+    }
   }
 
   return { isNewDevice: (count ?? 0) > 1 };
