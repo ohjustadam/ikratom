@@ -104,14 +104,50 @@ makes the platform feel like a real product instead of a Supabase project.
 
 ---
 
-## 3. Magic link (optional — only if you enable magic-link signin later)
+## 3. Magic link (only used if you enable magic-link signin later — paste anyway, harmless)
 
 **Subject:** Sign in to iKratom
 
+**Body (HTML):**
+
 ```html
-<!-- Same template as above with copy: -->
-<!-- "Click below to sign in. The link works for one hour." -->
-<!-- Button: "Sign in →" -->
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Sign in to iKratom</title></head>
+<body style="margin:0;padding:0;background:#0a0a0a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fafafa;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;">
+    <tr><td align="center" style="padding:40px 20px;">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;">
+        <tr><td>
+          <p style="font-size:24px;font-weight:bold;color:#10b981;margin:0;">
+            <span style="color:#10b981;">i</span><span style="color:#fafafa;">Kratom</span>
+          </p>
+        </td></tr>
+        <tr><td style="padding:32px 0 16px 0;">
+          <h1 style="font-size:28px;font-weight:bold;color:#fafafa;margin:0;line-height:1.2;">
+            One click and you're in.
+          </h1>
+        </td></tr>
+        <tr><td style="padding:0 0 24px 0;color:#a1a1aa;font-size:15px;line-height:1.6;">
+          Click below to sign in to your iKratom account. The link works for one hour and can only be used once.
+        </td></tr>
+        <tr><td style="padding:8px 0 32px 0;">
+          <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:14px 32px;border-radius:6px;font-weight:bold;font-size:16px;text-decoration:none;">
+            Sign in →
+          </a>
+        </td></tr>
+        <tr><td style="padding:24px 0 0 0;border-top:1px solid #27272a;color:#52525b;font-size:12px;line-height:1.6;">
+          If the button doesn't work, copy this link into your browser:<br>
+          <a href="{{ .ConfirmationURL }}" style="color:#10b981;word-break:break-all;">{{ .ConfirmationURL }}</a>
+        </td></tr>
+        <tr><td style="padding:24px 0 0 0;color:#52525b;font-size:11px;">
+          Didn't request this? Someone may have entered your email by accident — no action needed. Your account is safe.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
 ```
 
 ---
@@ -120,10 +156,97 @@ makes the platform feel like a real product instead of a Supabase project.
 
 **Subject:** Confirm your new iKratom email
 
+**Body (HTML):**
+
 ```html
-<!-- Same template structure, copy: -->
-<!-- "Click below to confirm {{ .NewEmail }} as your new iKratom email address." -->
-<!-- Button: "Confirm new email →" -->
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Confirm your new iKratom email</title></head>
+<body style="margin:0;padding:0;background:#0a0a0a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fafafa;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;">
+    <tr><td align="center" style="padding:40px 20px;">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;">
+        <tr><td>
+          <p style="font-size:24px;font-weight:bold;color:#10b981;margin:0;">
+            <span style="color:#10b981;">i</span><span style="color:#fafafa;">Kratom</span>
+          </p>
+        </td></tr>
+        <tr><td style="padding:32px 0 16px 0;">
+          <h1 style="font-size:28px;font-weight:bold;color:#fafafa;margin:0;line-height:1.2;">
+            Confirm your new email
+          </h1>
+        </td></tr>
+        <tr><td style="padding:0 0 16px 0;color:#a1a1aa;font-size:15px;line-height:1.6;">
+          You asked to change your iKratom email to <strong style="color:#fafafa;">{{ .NewEmail }}</strong>. Click below to confirm — the link expires in one hour.
+        </td></tr>
+        <tr><td style="padding:0 0 24px 0;color:#a1a1aa;font-size:14px;line-height:1.6;">
+          Until you confirm, your account stays signed in with your previous email. Nothing changes if you ignore this message.
+        </td></tr>
+        <tr><td style="padding:8px 0 32px 0;">
+          <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:14px 32px;border-radius:6px;font-weight:bold;font-size:16px;text-decoration:none;">
+            Confirm new email →
+          </a>
+        </td></tr>
+        <tr><td style="padding:24px 0 0 0;border-top:1px solid #27272a;color:#52525b;font-size:12px;line-height:1.6;">
+          If the button doesn't work, copy this link into your browser:<br>
+          <a href="{{ .ConfirmationURL }}" style="color:#10b981;word-break:break-all;">{{ .ConfirmationURL }}</a>
+        </td></tr>
+        <tr><td style="padding:24px 0 0 0;color:#52525b;font-size:11px;">
+          Didn't request a change? Someone may have access to your iKratom account — sign in immediately and reset your password.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+```
+
+---
+
+## 5. Invite user (only used if you invite someone via Supabase admin tools — paste anyway)
+
+**Subject:** You've been invited to iKratom
+
+**Body (HTML):**
+
+```html
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>You've been invited to iKratom</title></head>
+<body style="margin:0;padding:0;background:#0a0a0a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fafafa;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;">
+    <tr><td align="center" style="padding:40px 20px;">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;">
+        <tr><td>
+          <p style="font-size:24px;font-weight:bold;color:#10b981;margin:0;">
+            <span style="color:#10b981;">i</span><span style="color:#fafafa;">Kratom</span>
+          </p>
+        </td></tr>
+        <tr><td style="padding:32px 0 16px 0;">
+          <h1 style="font-size:28px;font-weight:bold;color:#fafafa;margin:0;line-height:1.2;">
+            You've been invited to the war room.
+          </h1>
+        </td></tr>
+        <tr><td style="padding:0 0 24px 0;color:#a1a1aa;font-size:15px;line-height:1.6;">
+          iKratom is a nonpartisan platform for the kratom community — one-click emails to your legislators, real-time bill tracking, encrypted DMs with other advocates. Click below to accept your invite and finish creating your account.
+        </td></tr>
+        <tr><td style="padding:8px 0 32px 0;">
+          <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:14px 32px;border-radius:6px;font-weight:bold;font-size:16px;text-decoration:none;">
+            Accept invite →
+          </a>
+        </td></tr>
+        <tr><td style="padding:24px 0 0 0;border-top:1px solid #27272a;color:#52525b;font-size:12px;line-height:1.6;">
+          If the button doesn't work, copy this link into your browser:<br>
+          <a href="{{ .ConfirmationURL }}" style="color:#10b981;word-break:break-all;">{{ .ConfirmationURL }}</a>
+        </td></tr>
+        <tr><td style="padding:24px 0 0 0;color:#52525b;font-size:11px;">
+          Not expecting an invite? You can ignore this email — no account is created until you click.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
 ```
 
 ---
