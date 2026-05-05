@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listMfa } from "@/modules/auth/actions-mfa";
 import { MfaPanel } from "@/modules/auth/components/MfaPanel";
+import { ChangePasswordForm } from "@/modules/auth/components/ChangePasswordForm";
 
 export const metadata = { title: "Security" };
 
@@ -48,6 +49,16 @@ export default async function SecurityPage() {
           </p>
         </div>
       )}
+
+      <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold">Password</h2>
+          <p className="text-xs text-zinc-500">
+            Change the password used to sign in to iKratom.
+          </p>
+        </div>
+        <ChangePasswordForm />
+      </section>
 
       <section className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <div className="mb-4 flex items-center justify-between">
