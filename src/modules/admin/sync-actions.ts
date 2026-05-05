@@ -1,0 +1,27 @@
+"use server";
+
+import { createClient } from "@/lib/supabase/server";
+import { syncStateLegislators } from "@/lib/sync/openstates";
+import { getAdminContext } from "./actions";
+
+/**
+ * Re-sync legislators for one state from OpenStates.
+ * Admin-only. Uses the user's session — RLS policy `legislators_admin_all`
+ * authorizes the writes, no service role needed.
+ */
+export async function syncOneStateLegislators(state: string) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+
+  const abbr = state.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(abbr)) return { error: "Invalid state code." };
+
+  const apiKey = process.env.OPENSTATES_API_KEY;
+  if (!apiKey) return { error: "OPENSTATES_API_KEY not set on server." };
+
+  const supabase = await createClient();
+  const result = await syncStateLegislators(abbr, supabase, apiKey);
+
+  if (result.error) return { error: result.error };
+  return { count: result.count };
+}

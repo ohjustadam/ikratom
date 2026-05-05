@@ -1,0 +1,141 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+export type Legislator = {
+  id: string;
+  state: string;
+  role: string;
+  district: string | null;
+  full_name: string;
+  party: string | null;
+  email: string | null;
+  phone: string | null;
+  office_address: string | null;
+  website: string | null;
+  // Local-officials fields (nullable for state/federal)
+  level?: string | null;     // 'federal' | 'state' | 'county' | 'municipal'
+  locality?: string | null;  // 'Austin, TX' | 'Travis County, TX'
+  body?: string | null;      // 'Austin City Council'
+  title?: string | null;     // 'Mayor' | 'Council Member, District 4'
+};
+
+export type UserCivicProfile = {
+  state: string | null;
+  congressional_district: string | null;
+  state_senate_district: string | null;
+  state_house_district: string | null;
+  city?: string | null;
+  county?: string | null;
+};
+
+/**
+ * Find the specific legislators that represent this user, based on their
+ * state + district numbers (set by the Civic Info lookup on profile save).
+ *
+ * Returns up to 6: 2 US senators (state-wide), 1 US rep, 1 state senator,
+ * 1 state rep — depending on what's matched in the legislators table.
+ */
+export async function getUserLegislators(
+  supabase: SupabaseClient,
+  profile: UserCivicProfile
+): Promise<Legislator[]> {
+  if (!profile.state) return [];
+
+  const { data: stateLegs } = await supabase
+    .from("legislators")
+    .select("id,state,role,district,full_name,party,email,phone,office_address,website,level,locality,body,title")
+    .eq("state", profile.state)
+    .eq("active", true);
+
+  if (!stateLegs) return [];
+
+  const matches: Legislator[] = [];
+
+  // Both US senators (state-wide — match all in role=us_senate)
+  matches.push(...stateLegs.filter((l) => l.role === "us_senate"));
+
+  // US House: match by district
+  if (profile.congressional_district) {
+    matches.push(
+      ...stateLegs.filter(
+        (l) => l.role === "us_house" && l.district === profile.congressional_district
+      )
+    );
+  }
+
+  // State senate: match by district
+  if (profile.state_senate_district) {
+    matches.push(
+      ...stateLegs.filter(
+        (l) => l.role === "state_senate" && l.district === profile.state_senate_district
+      )
+    );
+  }
+
+  // State house: match by district
+  if (profile.state_house_district) {
+    matches.push(
+      ...stateLegs.filter(
+        (l) => l.role === "state_house" && l.district === profile.state_house_district
+      )
+    );
+  }
+
+  // Local officials: match by locality string. We expect locality to be saved
+  // in a consistent format like "Austin, TX" or "Travis County, TX".
+  const localityMatches: string[] = [];
+  if (profile.city) localityMatches.push(`${profile.city}, ${profile.state}`);
+  if (profile.county) localityMatches.push(`${profile.county}, ${profile.state}`);
+  for (const loc of localityMatches) {
+    matches.push(
+      ...stateLegs.filter(
+        (l) =>
+          (l.level === "municipal" || l.level === "county") &&
+          l.locality === loc
+      )
+    );
+  }
+
+  return matches;
+}
+
+export const ROLE_LABEL: Record<string, string> = {
+  us_senate: "U.S. Senate",
+  us_house: "U.S. House",
+  state_senate: "State Senate",
+  state_house: "State House",
+  mayor: "Mayor",
+  city_council: "City Council",
+  county_executive: "County Executive",
+  county_commissioner: "County Commissioner",
+  school_board: "School Board",
+  other_local: "Other Local",
+};
+
+export const ROLE_SHORT: Record<string, string> = {
+  us_senate: "US Sen.",
+  us_house: "US Rep.",
+  state_senate: "State Sen.",
+  state_house: "State Rep.",
+  mayor: "Mayor",
+  city_council: "Council",
+  county_executive: "Co. Exec.",
+  county_commissioner: "Commissioner",
+  school_board: "School Bd.",
+  other_local: "Local",
+};
+
+export const LEVEL_LABEL: Record<string, string> = {
+  federal: "Federal",
+  state: "State",
+  county: "County",
+  municipal: "Municipal",
+};
+
+export const LOCAL_ROLES = [
+  "mayor",
+  "city_council",
+  "county_executive",
+  "county_commissioner",
+  "school_board",
+  "other_local",
+] as const;
