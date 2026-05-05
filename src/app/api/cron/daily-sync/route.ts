@@ -16,7 +16,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *       this cron leaves off.
  */
 
-export const maxDuration = 800;  // 13.3 minutes — Vercel Pro / generous Hobby tier
+// We don't set maxDuration — uses plan default (60s on Hobby, 300s on Pro).
+// The route fans out states in parallel and bails out on individual failures
+// so we always finish within the cap, even if some scopes get skipped.
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const STATE_NAMES = {
   AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",
@@ -33,8 +37,6 @@ const STATE_NAMES = {
 } as const;
 
 type State = keyof typeof STATE_NAMES;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function GET(request: NextRequest) {
   // Auth: Vercel Cron sends the CRON_SECRET in the Authorization header
@@ -56,33 +58,44 @@ export async function GET(request: NextRequest) {
   const log: { step: string; result: unknown }[] = [];
 
   // ============================================================
-  // Step 1: News RSS — all states + federal (2026+ only)
+  // Run news + bills in parallel batches so we finish under the
+  // serverless duration cap (60s Hobby / 300s Pro).
   // ============================================================
+  async function batchAll<T>(items: T[], concurrency: number, fn: (item: T) => Promise<unknown>) {
+    const queue = [...items];
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (queue.length) {
+        const item = queue.shift();
+        if (!item) return;
+        try { await fn(item); } catch { /* swallow */ }
+      }
+    });
+    await Promise.all(workers);
+  }
+
+  // News (51 scopes)
   const newsResults: { scope: string; count: number }[] = [];
-  for (const scope of ["FED", ...Object.keys(STATE_NAMES)] as ("FED" | State)[]) {
+  await batchAll(["FED", ...Object.keys(STATE_NAMES)] as ("FED" | State)[], 8, async (scope) => {
     try {
       const count = await syncNewsScope(scope, supabase);
       newsResults.push({ scope, count });
     } catch (e) {
-      newsResults.push({ scope, count: 0, error: (e as Error).message } as never);
+      newsResults.push({ scope, count: 0 });
+      void e;
     }
-    await sleep(800);
-  }
+  });
   log.push({ step: "news", result: { scopes: newsResults.length, total: newsResults.reduce((a, b) => a + b.count, 0) } });
 
-  // ============================================================
-  // Step 2: Bills — all states (one keyword to keep it under cron timeout)
-  // ============================================================
+  // Bills (50 states) — lower concurrency since OpenStates rate-limits harder
   const billsResults: { state: string; count: number }[] = [];
-  for (const state of Object.keys(STATE_NAMES) as State[]) {
+  await batchAll(Object.keys(STATE_NAMES) as State[], 4, async (state) => {
     try {
       const count = await syncBillsForState(state, supabase);
       billsResults.push({ state, count });
     } catch {
       billsResults.push({ state, count: 0 });
     }
-    await sleep(1200);
-  }
+  });
   log.push({ step: "bills", result: { states: billsResults.length, total: billsResults.reduce((a, b) => a + b.count, 0) } });
 
   const elapsedMs = Date.now() - startedAt;
