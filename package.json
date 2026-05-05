@@ -12,6 +12,7 @@
     "sync:capitals": "node --env-file=.env.local scripts/sync-state-capitals.mjs",
     "sync:news": "node --env-file=.env.local scripts/sync-news.mjs",
     "dedupe:locals": "node --env-file=.env.local scripts/dedupe-locals.mjs",
+    "db:push": "node --env-file=.env.local scripts/db-push.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
