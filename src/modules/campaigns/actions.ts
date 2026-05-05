@@ -1,9 +1,26 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getGmailIntegration, sendViaGmail } from "@/lib/email/gmail";
 import { renderTemplate, buildVars } from "./templates";
 import type { Legislator } from "@/lib/legislators";
+
+/**
+ * Read the embed referral cookie set by the proxy when a user arrived
+ * via the embed widget. Returns null if no cookie is present. Value is
+ * the embedding site's hostname (lowercase, ascii-only, capped at 80
+ * chars by the proxy regex).
+ */
+async function getEmbedRef(): Promise<string | null> {
+  try {
+    const c = await cookies();
+    const v = c.get("embed_ref")?.value;
+    return v && v.length > 0 && v.length < 100 ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Log a campaign action — one row per legislator the user contacted.
@@ -104,6 +121,8 @@ export async function logCampaignAction(input: {
     return { error: `Already sent this campaign to all selected legislators in the last ${Math.round(RESEND_COOLDOWN_HOURS / 24)} days.` };
   }
 
+  const referredFrom = await getEmbedRef();
+
   const rows = newTargets.map((lid) => ({
     user_id: user.id,
     campaign_id: campaignId,
@@ -112,6 +131,7 @@ export async function logCampaignAction(input: {
     subject: subject?.slice(0, 200) ?? null,
     body: body?.slice(0, 5000) ?? null,
     is_non_resident: !!isNonResident,
+    referred_from: referredFrom,
   }));
 
   const { error } = await supabase.from("campaign_actions").insert(rows);
@@ -223,6 +243,7 @@ export async function sendCampaignViaGmail(input: {
 
   // Log successful sends to campaign_actions
   if (successfulIds.length > 0) {
+    const referredFrom = await getEmbedRef();
     const rows = successfulIds.map((lid) => ({
       user_id: user.id,
       campaign_id: campaignId,
@@ -231,6 +252,7 @@ export async function sendCampaignViaGmail(input: {
       subject: subject.slice(0, 200),
       body: bodyTemplate.slice(0, 5000),
       is_non_resident: !!isNonResident,
+      referred_from: referredFrom,
     }));
     await supabase.from("campaign_actions").insert(rows);
   }

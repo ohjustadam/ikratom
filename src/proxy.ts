@@ -8,8 +8,32 @@ import { createServerClient } from "@supabase/ssr";
 
 const protectedRoutes = ["/dashboard", "/account", "/admin", "/notifications", "/messages"];
 
+const EMBED_REF_COOKIE = "embed_ref";
+const EMBED_REF_TTL_DAYS = 60;
+// Hostnames are restricted to lowercase letters, digits, dots, hyphens. This
+// prevents an attacker from setting an arbitrary cookie value via a crafted
+// URL (which would later land in the database).
+const HOST_RE = /^[a-z0-9.-]{1,80}$/;
+
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
+
+  // ── Embed referral capture ──────────────────────────────────────
+  // When a user lands via the embed widget, the URL contains
+  //   ?ref=embed&host=<hostname>
+  // We persist the host in an HTTPOnly cookie so subsequent campaign
+  // actions can be credited back to the embedding site.
+  const ref = request.nextUrl.searchParams.get("ref");
+  const host = request.nextUrl.searchParams.get("host");
+  if (ref === "embed" && host && HOST_RE.test(host.toLowerCase())) {
+    response.cookies.set(EMBED_REF_COOKIE, host.toLowerCase(), {
+      maxAge: EMBED_REF_TTL_DAYS * 24 * 60 * 60,
+      path: "/",
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+    });
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
