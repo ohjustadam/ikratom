@@ -20,10 +20,16 @@ type Person = {
   public_key: string | null;
 };
 
-export function NewConversation({ myUserId }: { myUserId: string }) {
+export function NewConversation({
+  myUserId,
+  prefilled,
+}: {
+  myUserId: string;
+  prefilled?: Person | null;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Person[]>([]);
+  const [results, setResults] = useState<Person[]>(prefilled ? [prefilled] : []);
   const [searching, startSearch] = useTransition();
   const [creating, startCreate] = useTransition();
   const [error, setError] = useState<string | null>(null);

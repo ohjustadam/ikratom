@@ -71,6 +71,12 @@ export function AuthForm({ redirectTo }: { redirectTo?: string }) {
           ? "Sign in"
           : "Create account"}
       </button>
+
+      {mode === "signin" && (
+        <p className="text-center text-xs text-zinc-500">
+          <a href="/forgot" className="hover:text-emerald-400">Forgot password?</a>
+        </p>
+      )}
     </form>
   );
 }

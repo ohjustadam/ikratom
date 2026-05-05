@@ -191,7 +191,13 @@ function PostCard({
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
       <div className="flex items-center gap-2 text-xs text-zinc-500">
-        <span className="font-medium text-zinc-300">{authorName}</span>
+        {post.author_id ? (
+          <a href={`/profile/${post.author_id}`} className="font-medium text-zinc-300 hover:text-emerald-400">
+            {authorName}
+          </a>
+        ) : (
+          <span className="font-medium text-zinc-300">{authorName}</span>
+        )}
         {isFromOutOfState && (
           <span className="rounded bg-purple-950/40 px-1.5 py-0.5 text-purple-300">
             From {post.author_state}

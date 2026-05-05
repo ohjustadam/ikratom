@@ -69,6 +69,56 @@ export async function signOut() {
   redirect("/");
 }
 
+/** Send a password-reset email via Supabase. */
+export async function requestPasswordReset(formData: FormData): Promise<AuthResult> {
+  const email = (formData.get("email") as string)?.trim().slice(0, 254);
+  if (!email) return { error: "Email is required." };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "Email is invalid." };
+
+  // Rate limit: 3 reset emails per IP per hour
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`pwreset:ip:${ip}`, 3, 3600))) {
+    return { error: "Too many reset requests. Try again later." };
+  }
+  if (!(await checkRateLimit(`pwreset:email:${email.toLowerCase()}`, 3, 3600))) {
+    return { error: "Too many reset requests for this email. Try again later." };
+  }
+
+  const supabase = await createClient();
+  const appUrl = process.env.APP_URL ?? "http://localhost:3001";
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${appUrl}/auth/callback?next=/reset-password`,
+  });
+
+  // We always return success to prevent email enumeration. The user will get
+  // the email if their account exists; otherwise nothing happens.
+  if (error) {
+    console.error("[pwreset]", error.message);
+  }
+  return { success: true };
+}
+
+/** Set a new password for the currently-authenticated session. */
+export async function setNewPassword(formData: FormData): Promise<AuthResult> {
+  const password = formData.get("password") as string;
+  const confirm = formData.get("confirm") as string;
+
+  if (!password || password.length < 10) {
+    return { error: "Password must be at least 10 characters." };
+  }
+  if (password.length > 200) return { error: "Password is too long." };
+  if (password !== confirm) return { error: "Passwords don't match." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in. The reset link may have expired." };
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: error.message };
+
+  return { success: true };
+}
+
 /** Get the current user + their profile row. */
 export async function getProfile() {
   const supabase = await createClient();

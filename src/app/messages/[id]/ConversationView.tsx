@@ -180,10 +180,22 @@ export function ConversationView({
       </a>
 
       <header className="mt-2 mb-4 flex items-center gap-3 border-b border-zinc-800 pb-4">
-        <Avatar name={display} group={isGroup} />
+        {!isGroup && other ? (
+          <a href={`/profile/${other.id}`} className="block">
+            <Avatar name={display} group={false} />
+          </a>
+        ) : (
+          <Avatar name={display} group={isGroup} />
+        )}
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold">{display}</h1>
+            {!isGroup && other ? (
+              <a href={`/profile/${other.id}`} className="hover:text-emerald-400">
+                <h1 className="text-xl font-bold">{display}</h1>
+              </a>
+            ) : (
+              <h1 className="text-xl font-bold">{display}</h1>
+            )}
             {isGroup ? (
               <span className="rounded bg-purple-950/40 px-1.5 py-0.5 text-[10px] text-purple-300">
                 Group

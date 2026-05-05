@@ -145,7 +145,14 @@ export default async function ThreadPage({
         </div>
         <h1 className="mt-3 text-2xl font-bold sm:text-3xl">{thread.title}</h1>
         <p className="mt-1 text-xs text-zinc-500">
-          {authorNames[thread.author_id ?? ""] ?? "Member"} ·{" "}
+          {thread.author_id ? (
+            <a href={`/profile/${thread.author_id}`} className="text-zinc-300 hover:text-emerald-400">
+              {authorNames[thread.author_id] ?? "Member"}
+            </a>
+          ) : (
+            <span>Member</span>
+          )}
+          {" · "}
           {new Date(thread.created_at).toLocaleString()}
         </p>
       </header>
