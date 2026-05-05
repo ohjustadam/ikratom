@@ -11,3 +11,6 @@ next-env.d.ts
 tsconfig.tsbuildinfo
 
 .vercel
+
+# Skill symlinks (machine-specific — actual content lives in .agents/skills/)
+.claude/skills/
