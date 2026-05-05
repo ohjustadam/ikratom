@@ -152,10 +152,30 @@ export async function softDeletePost(postId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
+  // Look up the post's author so we can tell whether this is a self-delete
+  // or moderation action (logged for accountability if so).
+  const { data: post } = await supabase
+    .from("forum_posts")
+    .select("author_id")
+    .eq("id", postId)
+    .single();
+
   const { error } = await supabase
     .from("forum_posts")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", postId);
   if (error) return { error: error.message };
+
+  // Audit-log only when an admin/leader removes someone else's post.
+  if (post && post.author_id !== user.id) {
+    const { recordAdminAction } = await import("@/lib/audit");
+    await recordAdminAction({
+      action: "post_deleted",
+      targetType: "post",
+      targetId: postId,
+      details: { author_id: post.author_id },
+    });
+  }
+
   return { ok: true };
 }

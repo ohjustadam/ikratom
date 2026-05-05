@@ -3,11 +3,31 @@
 import { createClient } from "@/lib/supabase/server";
 
 export type AdminCheck =
-  | { ok: true; userId: string; email: string | null; isOwner: boolean; isAdmin: boolean; isLeader: boolean }
+  | {
+      ok: true;
+      userId: string;
+      email: string | null;
+      isOwner: boolean;
+      isAdmin: boolean;
+      isLeader: boolean;
+      /** Current session AAL ("aal1" or "aal2"). */
+      aal: "aal1" | "aal2" | null;
+      /** Highest AAL the user could reach. "aal2" iff they have a verified factor. */
+      aalNext: "aal1" | "aal2" | null;
+    }
   | { ok: false; reason: "not_signed_in" | "not_admin" };
 
 export type CreatorCheck =
-  | { ok: true; userId: string; email: string | null; isOwner: boolean; isAdmin: boolean; isLeader: boolean }
+  | {
+      ok: true;
+      userId: string;
+      email: string | null;
+      isOwner: boolean;
+      isAdmin: boolean;
+      isLeader: boolean;
+      aal: "aal1" | "aal2" | null;
+      aalNext: "aal1" | "aal2" | null;
+    }
   | { ok: false; reason: "not_signed_in" | "not_creator" };
 
 /**
@@ -33,7 +53,18 @@ export async function getAdminContext(): Promise<AdminCheck> {
 
   if (!isAdmin && !isOwner) return { ok: false, reason: "not_admin" };
 
-  return { ok: true, userId: user.id, email: user.email ?? null, isOwner, isAdmin, isLeader };
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+  return {
+    ok: true,
+    userId: user.id,
+    email: user.email ?? null,
+    isOwner,
+    isAdmin,
+    isLeader,
+    aal: (aal?.currentLevel as "aal1" | "aal2" | null) ?? null,
+    aalNext: (aal?.nextLevel as "aal1" | "aal2" | null) ?? null,
+  };
 }
 
 /**
@@ -59,5 +90,17 @@ export async function getCreatorContext(): Promise<CreatorCheck> {
 
   if (!isAdmin && !isOwner && !isLeader) return { ok: false, reason: "not_creator" };
 
-  return { ok: true, userId: user.id, email: user.email ?? null, isOwner, isAdmin, isLeader };
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+  return {
+    ok: true,
+    userId: user.id,
+    email: user.email ?? null,
+    isOwner,
+    isAdmin,
+    isLeader,
+    aal: (aal?.currentLevel as "aal1" | "aal2" | null) ?? null,
+    aalNext: (aal?.nextLevel as "aal1" | "aal2" | null) ?? null,
+  };
 }
+

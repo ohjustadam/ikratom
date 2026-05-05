@@ -149,9 +149,15 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
             </p>
             <h2 className="mt-2 text-3xl font-bold">Where do you live?</h2>
             <p className="mt-2 text-sm text-zinc-400">
-              Used only to match you to your specific U.S. House and state legislative districts.
-              <strong className="text-zinc-200"> Never shown publicly.</strong>
+              Used <strong className="text-zinc-200">only</strong> to match you to your
+              specific U.S. House and state legislative districts so the right
+              legislators get your emails.
             </p>
+            <ul className="mt-3 space-y-1 rounded-md border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-400">
+              <li>· Other users never see your address — only your city + state if you choose.</li>
+              <li>· We don&apos;t sell, share, or transfer it to advocacy orgs.</li>
+              <li>· You can delete it anytime from <span className="font-mono text-zinc-300">/account</span>.</li>
+            </ul>
           </div>
 
           <Field name="full_name" label="Full name" defaultValue={initialProfile.full_name} required />

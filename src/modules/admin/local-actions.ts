@@ -3,7 +3,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeLocality } from "@/lib/locality";
+import { recordAdminAction } from "@/lib/audit";
 import { getCreatorContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 
 const LOCAL_ROLES = [
   "mayor", "city_council", "county_executive",
@@ -58,20 +60,36 @@ function validate(d: ReturnType<typeof readForm>): string | null {
 export async function createLocalOfficial(formData: FormData) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage local officials." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const data = readForm(formData);
   const err = validate(data);
   if (err) return { error: err };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("legislators").insert(data);
+  const { data: row, error } = await supabase
+    .from("legislators")
+    .insert(data)
+    .select("id")
+    .single();
   if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "local_official_created",
+    targetType: "legislator",
+    targetId: row?.id,
+    details: { full_name: data.full_name, locality: data.locality, role: data.role },
+  });
+
   redirect("/admin/locals");
 }
 
 export async function updateLocalOfficial(id: string, formData: FormData) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage local officials." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!id) return { error: "Missing id." };
 
   const data = readForm(formData);
@@ -81,12 +99,22 @@ export async function updateLocalOfficial(id: string, formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase.from("legislators").update(data).eq("id", id);
   if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "local_official_updated",
+    targetType: "legislator",
+    targetId: id,
+    details: { full_name: data.full_name, locality: data.locality, role: data.role },
+  });
+
   redirect("/admin/locals");
 }
 
 export async function deleteLocalOfficial(id: string) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage local officials." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -95,5 +123,12 @@ export async function deleteLocalOfficial(id: string) {
     .eq("id", id)
     .in("level", ["municipal", "county"]); // safety: never delete federal/state via this
   if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "local_official_deleted",
+    targetType: "legislator",
+    targetId: id,
+  });
+
   return { ok: true };
 }

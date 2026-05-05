@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { signIn, signUp } from "../actions";
 
 type Mode = "signin" | "signup";
@@ -11,11 +11,19 @@ export function AuthForm({ redirectTo }: { redirectTo?: string }) {
   const [success, setSuccess] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Anti-bot: capture how long the form was visible before submit.
+  // Bots typically POST instantly; humans take >2s.
+  const mountedAt = useRef<number>(0);
+  useEffect(() => {
+    mountedAt.current = Date.now();
+  }, []);
+
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
     const formData = new FormData(e.currentTarget);
+    formData.set("form_elapsed_ms", String(Date.now() - mountedAt.current));
     startTransition(async () => {
       const result =
         mode === "signin" ? await signIn(formData) : await signUp(formData);
@@ -46,6 +54,21 @@ export function AuthForm({ redirectTo }: { redirectTo?: string }) {
         required
         hint={mode === "signup" ? "Minimum 10 characters." : undefined}
       />
+
+      {/* Honeypot: hidden from humans, attractive to dumb form bots.
+          If anything ends up in this field, the server treats the submission
+          as spam and silently drops it. */}
+      <div aria-hidden="true" style={{ position: "absolute", left: "-10000px", height: 0, width: 0, overflow: "hidden" }}>
+        <label htmlFor="website_url">Website (leave blank)</label>
+        <input
+          id="website_url"
+          name="website_url"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+          defaultValue=""
+        />
+      </div>
 
       {redirectTo && <input type="hidden" name="redirect" value={redirectTo} />}
 

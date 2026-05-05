@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { syncStateLegislators } from "@/lib/sync/openstates";
+import { recordAdminAction } from "@/lib/audit";
 import { getAdminContext } from "./actions";
 
 /**
@@ -23,5 +24,12 @@ export async function syncOneStateLegislators(state: string) {
   const result = await syncStateLegislators(abbr, supabase, apiKey);
 
   if (result.error) return { error: result.error };
+
+  await recordAdminAction({
+    action: "sync_legislators",
+    targetType: "legislator",
+    details: { state: abbr, count: result.count },
+  });
+
   return { count: result.count };
 }

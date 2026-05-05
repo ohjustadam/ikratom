@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { recordAdminAction } from "@/lib/audit";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 
 /**
  * Set a user's role flags.
@@ -18,6 +19,8 @@ export async function setUserRoles(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!input.userId) return { error: "Missing user id." };
   if (input.userId === ctx.userId && !input.isAdmin && !input.isOwner) {
     return { error: "You cannot demote yourself. Ask another owner/admin." };

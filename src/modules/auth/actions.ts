@@ -19,6 +19,22 @@ function safeRelative(raw: string | null | undefined): string | null {
 export async function signUp(formData: FormData): Promise<AuthResult> {
   const email = (formData.get("email") as string)?.trim().slice(0, 254);
   const password = formData.get("password") as string;
+  const honeypot = (formData.get("website_url") as string) ?? "";
+  const elapsedMs = Number(formData.get("form_elapsed_ms")) || 0;
+
+  // ── Anti-bot ────────────────────────────────────────────────────────
+  // Honeypot: real users never see this field. If it's filled, it's a bot.
+  // Return the same shape as success so the bot can't tell it failed.
+  if (honeypot.trim().length > 0) {
+    console.warn("[signup] honeypot triggered", { ip: await getClientIp() });
+    return { success: true };
+  }
+  // Timing trap: humans take >2s to read+fill+submit. Bots POST instantly.
+  // Skip when elapsedMs is 0 (e.g. progressive enhancement / no JS).
+  if (elapsedMs > 0 && elapsedMs < 2000) {
+    console.warn("[signup] timing trap triggered", { elapsedMs, ip: await getClientIp() });
+    return { success: true };
+  }
 
   if (!email || !password) return { error: "Email and password are required." };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "Email is invalid." };
@@ -69,6 +85,14 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
       .eq("id", data.user.id)
       .single();
     if (!prof?.onboarded_at) dest = "/onboarding";
+  }
+
+  // MFA step-up: if the user has a verified TOTP factor but the current
+  // session is only at aal1, force the second factor before they go further.
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aal?.nextLevel === "aal2" && aal?.currentLevel !== "aal2") {
+    const params = new URLSearchParams({ redirect: dest });
+    redirect(`/login/mfa?${params.toString()}`);
   }
 
   redirect(dest);

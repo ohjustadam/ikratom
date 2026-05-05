@@ -2,7 +2,9 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { recordAdminAction } from "@/lib/audit";
 import { getCreatorContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 
 const ROLE_OPTIONS = ["us_senate", "us_house", "state_senate", "state_house"] as const;
 
@@ -76,6 +78,8 @@ function validate(d: ReturnType<typeof readForm>): string | null {
 export async function createCampaign(formData: FormData): Promise<CampaignFormResult> {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const data = readForm(formData);
   const err = validate(data);
@@ -85,10 +89,18 @@ export async function createCampaign(formData: FormData): Promise<CampaignFormRe
   const { data: row, error } = await supabase
     .from("campaigns")
     .insert(data)
-    .select("slug")
+    .select("id, slug")
     .single();
 
   if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "campaign_created",
+    targetType: "campaign",
+    targetId: row.id,
+    details: { slug: row.slug, title: data.title, state: data.state, active: data.active },
+  });
+
   redirect(`/campaigns/${row.slug}`);
 }
 
@@ -98,6 +110,8 @@ export async function updateCampaign(
 ): Promise<CampaignFormResult> {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!id) return { error: "Missing id." };
 
   const data = readForm(formData);
@@ -113,14 +127,31 @@ export async function updateCampaign(
     .single();
 
   if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "campaign_updated",
+    targetType: "campaign",
+    targetId: id,
+    details: { slug: row.slug, title: data.title, state: data.state, active: data.active },
+  });
+
   redirect(`/campaigns/${row.slug}`);
 }
 
 export async function setCampaignActive(id: string, active: boolean) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const supabase = await createClient();
   const { error } = await supabase.from("campaigns").update({ active }).eq("id", id);
   if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: active ? "campaign_activated" : "campaign_archived",
+    targetType: "campaign",
+    targetId: id,
+  });
+
   return { ok: true };
 }

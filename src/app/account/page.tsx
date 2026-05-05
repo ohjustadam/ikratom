@@ -27,7 +27,10 @@ export default async function AccountPage({
       <header className="mb-8">
         <h1 className="text-3xl font-bold">Your account</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Civic info is used to autofill emails to your legislators. We never share this publicly.
+          Civic info is used <strong className="text-zinc-200">only</strong> to match
+          you to your specific legislators so emails go to the right offices.
+          Other users see your <span className="text-zinc-200">city + state</span>, never
+          your street address. We don&apos;t sell or share this with advocacy orgs.
         </p>
       </header>
 
@@ -45,6 +48,25 @@ export default async function AccountPage({
           flashError={sp.gmail_error ?? null}
           flashConnected={sp.gmail_connected === "1"}
         />
+      </div>
+
+      <header className="mb-6 mt-12">
+        <h2 className="text-2xl font-bold">Security</h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Two-factor authentication and sign-in protections.
+        </p>
+      </header>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <a
+          href="/account/security"
+          className="inline-flex items-center gap-2 rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium hover:border-emerald-500 hover:text-emerald-400"
+        >
+          Manage 2FA →
+        </a>
+        <p className="mt-3 text-xs text-zinc-500">
+          Add an authenticator app for a second sign-in step. Required for admin and
+          advocate-leader accounts.
+        </p>
       </div>
 
       <header className="mb-6 mt-12">
