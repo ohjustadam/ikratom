@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listMfa } from "@/modules/auth/actions-mfa";
+import { listBackupCodes } from "@/modules/auth/actions-backup-codes";
 import { MfaPanel } from "@/modules/auth/components/MfaPanel";
+import { BackupCodes } from "@/modules/auth/components/BackupCodes";
 import { ChangePasswordForm } from "@/modules/auth/components/ChangePasswordForm";
 
 export const metadata = { title: "Security" };
@@ -24,6 +26,7 @@ export default async function SecurityPage() {
 
   const summary = await listMfa();
   const verifiedCount = summary.factors.filter((f) => f.status === "verified").length;
+  const backupCodes = await listBackupCodes();
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
@@ -82,13 +85,26 @@ export default async function SecurityPage() {
         <MfaPanel summary={summary} />
       </section>
 
+      {verifiedCount > 0 && (
+        <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold">Backup codes</h2>
+            <p className="text-xs text-zinc-500">
+              Single-use codes for signing in if you lose your authenticator. Each
+              code redeems for a 1-hour bypass of 2FA.
+            </p>
+          </div>
+          <BackupCodes initial={backupCodes} />
+        </section>
+      )}
+
       <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 text-sm text-zinc-400">
-        <h3 className="mb-2 font-semibold text-zinc-200">If you lose your phone</h3>
+        <h3 className="mb-2 font-semibold text-zinc-200">If you lose everything</h3>
         <p>
-          Right now, the only recovery is asking the platform owner to manually
-          remove your 2FA factor (which they can do from the Supabase dashboard).
-          If you&apos;re the owner, save your TOTP secret in a password manager
-          when you enroll, so you can re-add it on a new device.
+          If you lose your phone <em>and</em> your backup codes, the platform owner
+          can manually clear your 2FA factor from the Supabase dashboard. Save your
+          TOTP secret in a password manager during enrollment so you can re-add it
+          on a new device without owner intervention.
         </p>
       </section>
     </div>

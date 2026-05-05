@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { hasMfaBypass } from "@/modules/auth/actions-backup-codes";
 
 export type AdminCheck =
   | {
@@ -14,6 +15,8 @@ export type AdminCheck =
       aal: "aal1" | "aal2" | null;
       /** Highest AAL the user could reach. "aal2" iff they have a verified factor. */
       aalNext: "aal1" | "aal2" | null;
+      /** True if user redeemed a backup code in the last hour (cookie-based). */
+      mfaBypass: boolean;
     }
   | { ok: false; reason: "not_signed_in" | "not_admin" };
 
@@ -27,6 +30,7 @@ export type CreatorCheck =
       isLeader: boolean;
       aal: "aal1" | "aal2" | null;
       aalNext: "aal1" | "aal2" | null;
+      mfaBypass: boolean;
     }
   | { ok: false; reason: "not_signed_in" | "not_creator" };
 
@@ -54,6 +58,7 @@ export async function getAdminContext(): Promise<AdminCheck> {
   if (!isAdmin && !isOwner) return { ok: false, reason: "not_admin" };
 
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  const mfaBypass = await hasMfaBypass();
 
   return {
     ok: true,
@@ -64,6 +69,7 @@ export async function getAdminContext(): Promise<AdminCheck> {
     isLeader,
     aal: (aal?.currentLevel as "aal1" | "aal2" | null) ?? null,
     aalNext: (aal?.nextLevel as "aal1" | "aal2" | null) ?? null,
+    mfaBypass,
   };
 }
 
@@ -91,6 +97,7 @@ export async function getCreatorContext(): Promise<CreatorCheck> {
   if (!isAdmin && !isOwner && !isLeader) return { ok: false, reason: "not_creator" };
 
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  const mfaBypass = await hasMfaBypass();
 
   return {
     ok: true,
@@ -101,6 +108,7 @@ export async function getCreatorContext(): Promise<CreatorCheck> {
     isLeader,
     aal: (aal?.currentLevel as "aal1" | "aal2" | null) ?? null,
     aalNext: (aal?.nextLevel as "aal1" | "aal2" | null) ?? null,
+    mfaBypass,
   };
 }
 

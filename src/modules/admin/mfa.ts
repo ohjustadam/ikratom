@@ -22,7 +22,10 @@
 export function requireMfaForMutation(ctx: {
   aal: "aal1" | "aal2" | null;
   aalNext: "aal1" | "aal2" | null;
+  mfaBypass?: boolean;
 }): string | null {
+  // Backup-code redemption grants a 1-hour bypass for the current session.
+  if (ctx.mfaBypass) return null;
   if (ctx.aalNext === "aal2" && ctx.aal !== "aal2") {
     return "Two-factor verification required. Visit /login/mfa to enter your code, then try again.";
   }
