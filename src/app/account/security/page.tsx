@@ -2,9 +2,11 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listMfa } from "@/modules/auth/actions-mfa";
 import { listBackupCodes } from "@/modules/auth/actions-backup-codes";
+import { listMySessions } from "@/modules/auth/actions-sessions";
 import { MfaPanel } from "@/modules/auth/components/MfaPanel";
 import { BackupCodes } from "@/modules/auth/components/BackupCodes";
 import { ChangePasswordForm } from "@/modules/auth/components/ChangePasswordForm";
+import { SessionsPanel } from "@/modules/auth/components/SessionsPanel";
 
 export const metadata = { title: "Security" };
 
@@ -27,6 +29,7 @@ export default async function SecurityPage() {
   const summary = await listMfa();
   const verifiedCount = summary.factors.filter((f) => f.status === "verified").length;
   const backupCodes = await listBackupCodes();
+  const sessions = await listMySessions();
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
@@ -97,6 +100,18 @@ export default async function SecurityPage() {
           <BackupCodes initial={backupCodes} />
         </section>
       )}
+
+      <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold">Active sessions</h2>
+          <p className="text-xs text-zinc-500">
+            Every device currently signed in to your account. Sign out devices
+            you don&apos;t recognize. New-device sign-ins also create an in-app
+            notification.
+          </p>
+        </div>
+        <SessionsPanel initial={sessions} />
+      </section>
 
       <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 text-sm text-zinc-400">
         <h3 className="mb-2 font-semibold text-zinc-200">If you lose everything</h3>

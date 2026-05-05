@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { getDistrictsForAddress } from "@/lib/civic";
+import { isPasswordPwned } from "@/lib/pwned-passwords";
+import { recordSignIn } from "./actions-devices";
 import type { AuthResult } from "./types";
 
 /** Accepts only same-origin relative paths. Prevents open-redirect. */
@@ -47,6 +49,16 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
     return { error: "Too many signup attempts from this network. Try again later." };
   }
 
+  // Block passwords that have appeared in known breaches. Plaintext is
+  // never sent to HIBP — see src/lib/pwned-passwords.ts. Fails open on
+  // network error, so a HIBP outage doesn't lock signups.
+  if (await isPasswordPwned(password)) {
+    return {
+      error:
+        "This password has appeared in a known data breach. Please pick a different one — even if you've never used this account before, attackers will try this password first.",
+    };
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signUp({ email, password });
   if (error) return { error: error.message };
@@ -74,6 +86,14 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   const supabase = await createClient();
   const { error, data } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { error: error.message };
+
+  // Record device + maybe insert new-device notification. Best-effort —
+  // never blocks sign-in on failure.
+  if (data.user) {
+    try { await recordSignIn(data.user.id); } catch (e) {
+      console.error("[signIn] recordSignIn failed:", e);
+    }
+  }
 
   // First-time signin: if onboarding not done yet, route through /onboarding.
   // Honors explicit redirect param (e.g. ?redirect=/messages) — only swaps dashboard.
@@ -144,6 +164,13 @@ export async function setNewPassword(formData: FormData): Promise<AuthResult> {
   }
   if (password.length > 200) return { error: "Password is too long." };
   if (password !== confirm) return { error: "Passwords don't match." };
+
+  if (await isPasswordPwned(password)) {
+    return {
+      error:
+        "This password has appeared in a known data breach. Please pick a different one.",
+    };
+  }
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

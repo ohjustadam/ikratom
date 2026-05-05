@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { recordAdminAction } from "@/lib/audit";
+import { isPasswordPwned } from "@/lib/pwned-passwords";
 
 export type ChangePasswordResult = { ok: true } | { error: string };
 
@@ -32,6 +33,13 @@ export async function changePassword(formData: FormData): Promise<ChangePassword
   if (next !== confirm) return { error: "New passwords don't match." };
   if (current === next) {
     return { error: "New password must be different from your current password." };
+  }
+
+  if (await isPasswordPwned(next)) {
+    return {
+      error:
+        "This password has appeared in a known data breach. Please pick a different one.",
+    };
   }
 
   const supabase = await createClient();
