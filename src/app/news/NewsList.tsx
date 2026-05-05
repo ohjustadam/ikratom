@@ -44,9 +44,22 @@ export function NewsList({ items, userState }: { items: NewsItem[]; userState: s
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-12 text-center">
-        <p className="text-sm text-zinc-400">No news indexed yet.</p>
-        <p className="mt-2 text-xs text-zinc-500">
-          The daily AI scraper hasn&apos;t run yet — admin can trigger via{" "}
+        <p className="text-3xl">📰</p>
+        <h2 className="mt-3 text-lg font-semibold">News is queued — first scrape pending</h2>
+        <p className="mx-auto mt-2 max-w-lg text-sm text-zinc-400">
+          Every day, an AI agent scans real news sources for kratom-related coverage in every
+          state + federal — bills, busts, science, business — summarizes each story, and tags
+          it by topic. The first run hasn&apos;t completed yet.
+        </p>
+        <div className="mt-5 flex flex-wrap justify-center gap-2 text-xs">
+          <span className="rounded bg-emerald-950/40 px-2 py-1 text-emerald-300">Legislation</span>
+          <span className="rounded bg-blue-950/40 px-2 py-1 text-blue-300">Science</span>
+          <span className="rounded bg-amber-950/40 px-2 py-1 text-amber-300">Business</span>
+          <span className="rounded bg-red-950/40 px-2 py-1 text-red-300">Enforcement</span>
+          <span className="rounded bg-purple-950/40 px-2 py-1 text-purple-300">Culture</span>
+        </div>
+        <p className="mt-5 text-xs text-zinc-500">
+          Admin can trigger the first run via{" "}
           <code className="rounded bg-zinc-900 px-2 py-0.5">npm run sync:news</code>.
         </p>
       </div>

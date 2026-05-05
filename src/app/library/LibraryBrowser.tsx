@@ -44,9 +44,20 @@ export function LibraryBrowser({ items }: { items: Item[] }) {
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-12 text-center">
-        <p className="text-sm text-zinc-400">The library is empty for now.</p>
-        <p className="mt-2 text-xs text-zinc-500">
-          Admins and advocate leaders can add videos, books, podcasts, and articles here.
+        <p className="text-3xl">📚</p>
+        <h2 className="mt-3 text-lg font-semibold">The library is just getting started</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
+          Videos explaining kratom science and policy, books by advocates, podcasts, and
+          court-case documents. As we add them, this becomes the canonical reference for the community.
+        </p>
+        <div className="mt-5 flex flex-wrap justify-center gap-2 text-xs">
+          <span className="rounded bg-zinc-900 px-2 py-1 text-zinc-400">▶️ Videos</span>
+          <span className="rounded bg-zinc-900 px-2 py-1 text-zinc-400">🎙️ Podcasts</span>
+          <span className="rounded bg-zinc-900 px-2 py-1 text-zinc-400">📖 Books</span>
+          <span className="rounded bg-zinc-900 px-2 py-1 text-zinc-400">📰 Articles</span>
+        </div>
+        <p className="mt-5 text-xs text-zinc-500">
+          Advocate leaders + admins can seed the first items via the button above.
         </p>
       </div>
     );

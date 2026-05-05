@@ -56,10 +56,22 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error, data } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { error: error.message };
 
-  redirect(safeRelative(redirectTo) || "/dashboard");
+  // First-time signin: if onboarding not done yet, route through /onboarding.
+  // Honors explicit redirect param (e.g. ?redirect=/messages) — only swaps dashboard.
+  let dest = safeRelative(redirectTo) || "/dashboard";
+  if (dest === "/dashboard" && data.user) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("onboarded_at")
+      .eq("id", data.user.id)
+      .single();
+    if (!prof?.onboarded_at) dest = "/onboarding";
+  }
+
+  redirect(dest);
 }
 
 /** Sign out and return to home. */

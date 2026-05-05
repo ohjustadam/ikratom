@@ -38,5 +38,21 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // First-time signup confirmation? Route through /onboarding instead of next.
+  // Password resets explicitly use next=/reset-password so we honor that.
+  if (safeNext === "/dashboard") {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("onboarded_at")
+        .eq("id", user.id)
+        .single();
+      if (!prof?.onboarded_at) {
+        return NextResponse.redirect(new URL("/onboarding", request.url));
+      }
+    }
+  }
+
   return NextResponse.redirect(new URL(safeNext, request.url));
 }

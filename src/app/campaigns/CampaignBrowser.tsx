@@ -115,7 +115,7 @@ export function CampaignBrowser({
       )}
 
       {filtered.length === 0 ? (
-        <EmptyState query={query} />
+        <EmptyState query={query} scope={filter} userState={userState} />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((c) => {
@@ -194,16 +194,48 @@ function FilterChip({
   );
 }
 
-function EmptyState({ query }: { query: string }) {
+function EmptyState({ query, scope, userState }: { query: string; scope: string; userState: string | null }) {
+  if (query) {
+    return (
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-12 text-center">
+        <p className="text-sm text-zinc-400">
+          No campaigns matched &ldquo;<span className="text-zinc-200">{query}</span>&rdquo;.
+        </p>
+      </div>
+    );
+  }
+
+  if (scope === "yours" && userState) {
+    return (
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-10 text-center">
+        <p className="text-3xl">🎯</p>
+        <h3 className="mt-3 text-lg font-semibold">No active campaigns in {userState} right now</h3>
+        <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
+          Quiet doesn&apos;t mean inactive. Check what&apos;s happening federally and in
+          neighboring states — your voice carries weight on out-of-state campaigns when you
+          have a stake.
+        </p>
+        <div className="mt-5 flex justify-center gap-2">
+          <a
+            href="/campaigns?scope=federal"
+            className="rounded-md border border-zinc-700 px-4 py-2 text-sm hover:border-emerald-500"
+          >
+            Federal campaigns →
+          </a>
+          <a
+            href="/forum"
+            className="rounded-md border border-zinc-700 px-4 py-2 text-sm hover:border-emerald-500"
+          >
+            Visit your state forum →
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-12 text-center">
-      <p className="text-sm text-zinc-400">
-        {query ? (
-          <>No campaigns matched &ldquo;<span className="text-zinc-200">{query}</span>&rdquo;.</>
-        ) : (
-          "No campaigns under that filter."
-        )}
-      </p>
+      <p className="text-sm text-zinc-400">No campaigns under that filter.</p>
     </div>
   );
 }
