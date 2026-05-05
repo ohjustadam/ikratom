@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeLocality } from "@/lib/locality";
 import { getCreatorContext } from "./actions";
 
 const LOCAL_ROLES = [
@@ -14,7 +15,7 @@ function readForm(formData: FormData) {
   const fullName = cap(String(formData.get("full_name") ?? ""), 120);
   const stateRaw = cap(String(formData.get("state") ?? ""), 2).toUpperCase();
   const role = cap(String(formData.get("role") ?? ""), 30);
-  const localityRaw = cap(String(formData.get("locality") ?? ""), 120);
+  const localityRawInput = cap(String(formData.get("locality") ?? ""), 120);
   const body = cap(String(formData.get("body") ?? ""), 200) || null;
   const title = cap(String(formData.get("title") ?? ""), 120) || null;
   const district = cap(String(formData.get("district") ?? ""), 30) || null;
@@ -25,10 +26,8 @@ function readForm(formData: FormData) {
   const party = cap(String(formData.get("party") ?? ""), 60) || null;
   const level = role.startsWith("county_") ? "county" : "municipal";
 
-  // Auto-suffix locality with state if missing — keeps matching consistent with Census output
-  const locality = localityRaw && !/, [A-Z]{2}$/.test(localityRaw)
-    ? `${localityRaw}, ${stateRaw}`
-    : localityRaw;
+  // Canonical locality: title-case city, uppercase state, ", " separator
+  const locality = normalizeLocality(localityRawInput, stateRaw) ?? "";
 
   return {
     full_name: fullName,

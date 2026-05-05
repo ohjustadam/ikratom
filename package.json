@@ -11,6 +11,7 @@
     "sync:congress": "node --env-file=.env.local scripts/sync-congress.mjs",
     "sync:capitals": "node --env-file=.env.local scripts/sync-state-capitals.mjs",
     "sync:news": "node --env-file=.env.local scripts/sync-news.mjs",
+    "dedupe:locals": "node --env-file=.env.local scripts/dedupe-locals.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

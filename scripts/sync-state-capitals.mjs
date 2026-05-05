@@ -121,15 +121,16 @@ async function syncCapital(state, city) {
   const locality = `${city}, ${state}`;
   process.stdout.write(`  ${state} (${city}): `);
 
-  // Skip if already populated
-  const { count: existing } = await supabase
+  // Skip if already populated — case-insensitive match prevents double-adds
+  // even when older runs may have used different locality casing.
+  const { data: existingRows } = await supabase
     .from("legislators")
-    .select("id", { count: "exact", head: true })
-    .eq("locality", locality)
+    .select("id")
+    .ilike("locality", locality)
     .in("level", ["municipal", "county"]);
 
-  if ((existing ?? 0) > 0) {
-    console.log(`skip (already ${existing} on file)`);
+  if ((existingRows?.length ?? 0) > 0) {
+    console.log(`skip (already ${existingRows.length} on file)`);
     return { state, count: 0, skipped: true };
   }
 

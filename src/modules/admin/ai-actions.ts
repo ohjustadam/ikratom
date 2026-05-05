@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { suggestLocalOfficials, type SuggestedOfficial } from "@/lib/ai/suggest-officials";
+import { normalizeLocality } from "@/lib/locality";
 import { getCreatorContext } from "./actions";
 
 export async function suggestOfficialsAction(input: { city: string; state: string }) {
@@ -25,9 +26,8 @@ export async function acceptSuggestions(input: {
   const stateRaw = input.state.trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(stateRaw)) return { error: "Invalid state code." };
 
-  const localityNorm = input.locality.includes(", ")
-    ? input.locality
-    : `${input.locality}, ${stateRaw}`;
+  const localityNorm = normalizeLocality(input.locality, stateRaw) ?? "";
+  if (!localityNorm) return { error: "Invalid locality." };
 
   const cap = (s: string | null | undefined, n: number) =>
     s ? s.slice(0, n).trim() || null : null;
