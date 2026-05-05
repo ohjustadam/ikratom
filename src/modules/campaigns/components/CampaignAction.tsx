@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import type { Legislator } from "@/lib/legislators";
 import { ROLE_SHORT } from "@/lib/legislators";
 import { logCampaignAction, sendCampaignViaGmail } from "../actions";
+import { CallActionPanel } from "./CallActionPanel";
 
 type SendMethod = "mailto" | "gmail" | "outlook" | "copy" | "platform_gmail";
 
@@ -460,6 +461,14 @@ export function CampaignAction({
       <p className="mt-3 text-center text-xs text-zinc-500">
         The email comes from <em>your</em> address — what legislators actually read.
       </p>
+
+      {/* One-click phone call section — only renders if any target has a phone */}
+      <CallActionPanel
+        campaignId={campaignId}
+        targets={targets}
+        body={body}
+        isNonResident={isNonResident}
+      />
     </Card>
   );
 }

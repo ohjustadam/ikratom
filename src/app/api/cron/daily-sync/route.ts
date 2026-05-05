@@ -98,6 +98,17 @@ export async function GET(request: NextRequest) {
   });
   log.push({ step: "bills", result: { states: billsResults.length, total: billsResults.reduce((a, b) => a + b.count, 0) } });
 
+  // Auto-create campaigns for newly-detected anti-kratom bills. This fires
+  // the existing notify_users_for_campaign trigger so matched users get
+  // an in-app notification within seconds of the cron run finishing.
+  try {
+    const { autoCreateCampaignsForNewAntiBills } = await import("@/modules/campaigns/auto-create");
+    const auto = await autoCreateCampaignsForNewAntiBills(supabase);
+    log.push({ step: "auto_campaigns", result: auto });
+  } catch (e) {
+    log.push({ step: "auto_campaigns", result: { error: String(e) } });
+  }
+
   const elapsedMs = Date.now() - startedAt;
   return NextResponse.json({
     ok: true,

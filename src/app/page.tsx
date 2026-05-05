@@ -1,6 +1,7 @@
 import { siteConfig } from "@/config/site.config";
 import { createClient } from "@/lib/supabase/server";
 import { USMap } from "@/components/USMap";
+import { ImpactStats } from "@/components/ImpactStats";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -40,6 +41,9 @@ export default async function HomePage() {
           </a>
         </div>
       </section>
+
+      {/* Live impact dashboard — hides itself if no data yet */}
+      <ImpactStats />
 
       {/* Pillars */}
       <section className="mt-24 grid gap-6 sm:grid-cols-3">
