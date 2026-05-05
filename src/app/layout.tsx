@@ -4,6 +4,8 @@ import { siteConfig } from "@/config/site.config";
 import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
 import { CookieBanner } from "@/components/CookieBanner";
 import { MobileNav } from "@/components/MobileNav";
+import { MobileTabBar } from "@/components/MobileTabBar";
+import { RegisterSW } from "@/components/RegisterSW";
 import "./globals.css";
 
 const geist = Geist({
@@ -95,7 +97,8 @@ export default function RootLayout({
           </div>
         </header>
 
-        <main className="flex-1">{children}</main>
+        {/* Mobile gets pb-20 so tab bar doesn't cover the bottom of pages */}
+        <main className="flex-1 pb-20 md:pb-0">{children}</main>
 
         <footer className="border-t border-zinc-800 bg-zinc-950 py-8">
           <div className="mx-auto max-w-6xl px-4 text-center text-xs text-zinc-500 sm:px-6 lg:px-8">
@@ -116,6 +119,8 @@ export default function RootLayout({
         </footer>
 
         <CookieBanner />
+        <MobileTabBar />
+        <RegisterSW />
       </body>
     </html>
   );
