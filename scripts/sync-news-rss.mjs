@@ -38,10 +38,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * Build a Google News RSS URL for a given query.
  * hl=en-US gl=US ceid=US:en restricts to US English sources.
+ * when:1y captures most of 2026 (we filter for 2026-only after fetching).
  */
 function rssUrl(query) {
   const q = encodeURIComponent(query);
-  return `https://news.google.com/rss/search?q=${q}+when:30d&hl=en-US&gl=US&ceid=US:en`;
+  return `https://news.google.com/rss/search?q=${q}+when:1y&hl=en-US&gl=US&ceid=US:en`;
+}
+
+/**
+ * Keep only items published in 2026 (or newer).
+ * Items without a published_at are accepted (Google sometimes omits it).
+ */
+function isCurrentYear(item) {
+  if (!item.published_at) return true;
+  const year = new Date(item.published_at).getUTCFullYear();
+  return year >= 2026;
 }
 
 /**
@@ -133,6 +144,7 @@ async function syncScope(scope) {
     }
 
     for (const item of parseRss(xml)) {
+      if (!isCurrentYear(item)) continue;  // 2026+ only
       if (!items.has(item.url)) items.set(item.url, item);
     }
     await sleep(500);

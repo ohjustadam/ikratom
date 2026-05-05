@@ -35,13 +35,29 @@ if (!supabaseUrl || !serviceKey) { console.error("Missing Supabase env"); proces
 const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
 const SYSTEM = `You analyze news headlines about kratom for an advocacy platform.
-Given a headline + source, return a JSON object with these exact fields:
-- summary: a 2-sentence neutral summary based ONLY on the headline (don't fabricate details)
-- relevance: number 0.00 to 1.00, how directly the article is about kratom (1.00 = headline mentions kratom/mitragynine/7-OH; 0.00 = barely related)
-- topic: one of "legislation", "science", "business", "enforcement", "culture", or "other"
 
-Return ONLY the JSON, no prose. Example:
-{"summary":"Oklahoma lawmakers introduced a bill to regulate kratom sales. The bill targets the 7-OH alkaloid specifically.","relevance":0.95,"topic":"legislation"}`;
+Given a headline + source, return a JSON object with these EXACT fields:
+
+1. summary — 2 short sentences based ONLY on the headline (don't fabricate details beyond what's there)
+
+2. relevance — number 0.00 to 1.00. SCORING RULES:
+   - 1.00: headline names kratom, mitragynine, mitragyna, kratomite, or 7-OH/7-hydroxymitragynine
+   - 0.85: headline mentions "kratom retailers", "kratom shop", "kratom ban", "kratom regulation"
+   - 0.70: headline references kratom industry, vendors, or specific kratom products
+   - 0.30: weakly related ("herbal supplement" with no kratom mention)
+   - 0.00: completely unrelated
+   IMPORTANT: if "kratom" appears anywhere in the headline, relevance MUST be 0.70 or higher.
+
+3. topic — exactly one of these strings (no others, no quotes-of-quotes):
+   "legislation" — bills, laws, regulation, bans
+   "science" — research, studies, medical findings
+   "business" — vendors, retailers, sales, market, lawsuits over commerce
+   "enforcement" — police actions, busts, FDA seizures, court cases
+   "culture" — community, individual stories, lifestyle
+   "other" — anything else kratom-related
+
+Return ONLY the JSON object, nothing else. Example:
+{"summary":"Oklahoma lawmakers introduced a bill regulating kratom sales. The bill targets the 7-OH alkaloid specifically.","relevance":0.95,"topic":"legislation"}`;
 
 async function checkOllama() {
   try {
