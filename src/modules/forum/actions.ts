@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { moderateNewContent } from "@/lib/moderation";
+import { recordAdminAction } from "@/lib/audit";
 
 const VALID_TAGS = ["general", "legislation", "news", "event", "meetup", "market"] as const;
 
@@ -26,12 +28,22 @@ export async function createThread(formData: FormData) {
   if (!title) return { error: "Title is required." };
   if (title.length < 4) return { error: "Title must be at least 4 characters." };
 
-  // Pull author's state for the badge
+  // Pull author's state + privileges + post count for moderation decision
   const { data: profile } = await supabase
     .from("profiles")
-    .select("state")
+    .select("state, is_admin, is_owner, is_advocate_leader, forum_post_count")
     .eq("id", user.id)
     .single();
+
+  const isPrivileged =
+    !!profile?.is_admin || !!profile?.is_owner || !!profile?.is_advocate_leader;
+
+  // Moderate the title + body together
+  const decision = moderateNewContent({
+    body: `${title}\n\n${body ?? ""}`,
+    authorPostCount: profile?.forum_post_count ?? 0,
+    isPrivileged,
+  });
 
   const { data: row, error } = await supabase
     .from("forum_threads")
@@ -44,6 +56,9 @@ export async function createThread(formData: FormData) {
       body,
       tag,
       residents_only: residentsOnly,
+      moderation_status: decision.status,
+      flag_reason: decision.reason,
+      auto_flag_signals: decision.signals,
     })
     .select("id, state")
     .single();
@@ -75,10 +90,10 @@ export async function createPost(formData: FormData) {
   if (!thread) return { error: "Thread not found." };
   if (thread.locked) return { error: "Thread is locked." };
 
-  // Load author profile + role for the badge + residents_only check
+  // Load author profile + role + post count
   const { data: profile } = await supabase
     .from("profiles")
-    .select("state, is_admin, is_owner, is_advocate_leader, is_shop_owner, is_medical_professional")
+    .select("state, is_admin, is_owner, is_advocate_leader, is_shop_owner, is_medical_professional, forum_post_count")
     .eq("id", user.id)
     .single();
 
@@ -94,17 +109,35 @@ export async function createPost(formData: FormData) {
     }
   }
 
+  const isPrivileged =
+    !!profile?.is_admin || !!profile?.is_owner || !!profile?.is_advocate_leader;
+
+  const decision = moderateNewContent({
+    body,
+    authorPostCount: profile?.forum_post_count ?? 0,
+    isPrivileged,
+  });
+
   const { error } = await supabase.from("forum_posts").insert({
     thread_id: threadId,
     parent_post_id: parentPostId,
     author_id: user.id,
     author_state: profile?.state ?? null,
     body,
+    moderation_status: decision.status,
+    flag_reason: decision.reason,
+    auto_flag_signals: decision.signals,
   });
 
   if (error) return { error: error.message };
   revalidatePath(`/forum/${thread.state ?? "national"}/${threadId}`);
-  return { ok: true };
+
+  // Tell the user what happened — the UI can show a clear "in review" banner
+  return {
+    ok: true,
+    moderationStatus: decision.status,
+    moderationReason: decision.reason,
+  };
 }
 
 /** Toggle a reaction (upvote / helpful) on a thread or post. */
@@ -168,7 +201,6 @@ export async function softDeletePost(postId: string) {
 
   // Audit-log only when an admin/leader removes someone else's post.
   if (post && post.author_id !== user.id) {
-    const { recordAdminAction } = await import("@/lib/audit");
     await recordAdminAction({
       action: "post_deleted",
       targetType: "post",
@@ -178,4 +210,173 @@ export async function softDeletePost(postId: string) {
   }
 
   return { ok: true };
+}
+
+// ============================================================
+// Moderation actions (admin/leader only)
+// ============================================================
+
+const VALID_REPORT_CATEGORIES = [
+  "spam", "commercial", "harassment", "off_topic", "misinformation", "other",
+] as const;
+
+/** User-submitted report. Sets target moderation_status to user_flagged
+ *  (unless it's already in a stronger flag state). */
+export async function reportContent(input: {
+  targetType: "post" | "thread";
+  targetId: string;
+  reasonCategory: typeof VALID_REPORT_CATEGORIES[number];
+  reason: string;
+}) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Sign in to report content." };
+
+  if (!["post", "thread"].includes(input.targetType)) return { error: "Invalid target." };
+  if (!VALID_REPORT_CATEGORIES.includes(input.reasonCategory)) return { error: "Invalid category." };
+  const reason = (input.reason || "").trim().slice(0, 500);
+
+  // Insert the report
+  const insert: Record<string, unknown> = {
+    reporter_id: user.id,
+    reason: reason || input.reasonCategory,
+    reason_category: input.reasonCategory,
+  };
+  if (input.targetType === "post") insert.post_id = input.targetId;
+  else insert.thread_id = input.targetId;
+
+  const { error: reportErr } = await supabase.from("forum_post_reports").insert(insert);
+  if (reportErr) return { error: reportErr.message };
+
+  // Promote target to user_flagged unless already in a flag state.
+  // (Don't downgrade auto_flagged → user_flagged.)
+  const table = input.targetType === "post" ? "forum_posts" : "forum_threads";
+  const { data: current } = await supabase
+    .from(table)
+    .select("moderation_status")
+    .eq("id", input.targetId)
+    .single();
+
+  if (current && current.moderation_status === "approved") {
+    await supabase
+      .from(table)
+      .update({ moderation_status: "user_flagged" })
+      .eq("id", input.targetId);
+  }
+
+  return { ok: true };
+}
+
+/** Approve a flagged post or thread. Admin/leader only. */
+export async function approveContent(input: {
+  targetType: "post" | "thread";
+  targetId: string;
+}) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, is_owner, is_advocate_leader")
+    .eq("id", user.id)
+    .single();
+  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) {
+    return { error: "Moderators only." };
+  }
+
+  const table = input.targetType === "post" ? "forum_posts" : "forum_threads";
+  const { error } = await supabase
+    .from(table)
+    .update({
+      moderation_status: "approved",
+      flag_reason: null,
+      auto_flag_signals: null,
+    })
+    .eq("id", input.targetId);
+  if (error) return { error: error.message };
+
+  // Resolve any open reports
+  const reportFilter = input.targetType === "post" ? "post_id" : "thread_id";
+  await supabase
+    .from("forum_post_reports")
+    .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "approved" })
+    .eq(reportFilter, input.targetId)
+    .is("resolved_at", null);
+
+  await recordAdminAction({
+    action: `${input.targetType}_approved`,
+    targetType: input.targetType,
+    targetId: input.targetId,
+  });
+
+  revalidatePath("/admin/forum");
+  return { ok: true };
+}
+
+/** Remove (hide) a post or thread. Admin/leader only. */
+export async function removeContent(input: {
+  targetType: "post" | "thread";
+  targetId: string;
+  reason?: string;
+}) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, is_owner, is_advocate_leader")
+    .eq("id", user.id)
+    .single();
+  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) {
+    return { error: "Moderators only." };
+  }
+
+  const table = input.targetType === "post" ? "forum_posts" : "forum_threads";
+  const reason = (input.reason || "Removed by moderator").slice(0, 500);
+  const { error } = await supabase
+    .from(table)
+    .update({
+      moderation_status: "removed",
+      flag_reason: reason,
+    })
+    .eq("id", input.targetId);
+  if (error) return { error: error.message };
+
+  // Resolve any open reports
+  const reportFilter = input.targetType === "post" ? "post_id" : "thread_id";
+  await supabase
+    .from("forum_post_reports")
+    .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "removed" })
+    .eq(reportFilter, input.targetId)
+    .is("resolved_at", null);
+
+  await recordAdminAction({
+    action: `${input.targetType}_removed`,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    details: { reason },
+  });
+
+  revalidatePath("/admin/forum");
+  return { ok: true };
+}
+
+/** Count of items needing review. Admin/leader only. */
+export async function moderationQueueCount(): Promise<number> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return 0;
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, is_owner, is_advocate_leader")
+    .eq("id", user.id)
+    .single();
+  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) return 0;
+
+  const flagged = ["pending", "auto_flagged", "user_flagged"];
+  const [posts, threads] = await Promise.all([
+    supabase.from("forum_posts").select("id", { count: "exact", head: true }).in("moderation_status", flagged),
+    supabase.from("forum_threads").select("id", { count: "exact", head: true }).in("moderation_status", flagged),
+  ]);
+  return (posts.count ?? 0) + (threads.count ?? 0);
 }

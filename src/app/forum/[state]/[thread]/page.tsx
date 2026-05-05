@@ -35,13 +35,29 @@ export default async function ThreadPage({
     .single();
   if (!thread) notFound();
 
-  // Fetch posts
-  const { data: posts } = await supabase
+  // Fetch posts. RLS hides non-approved posts from non-authors / non-admins,
+  // so the author still sees their own pending/flagged posts (and the
+  // PostCard shows a "your post is in review" banner for those).
+  const { data: postsRaw } = await supabase
     .from("forum_posts")
-    .select("id, thread_id, parent_post_id, author_id, author_state, body, upvote_count, helpful_count, deleted_at, created_at")
+    .select("id, thread_id, parent_post_id, author_id, author_state, body, upvote_count, helpful_count, deleted_at, moderation_status, created_at")
     .eq("thread_id", threadId)
     .is("deleted_at", null)
+    .neq("moderation_status", "removed")
     .order("created_at", { ascending: true });
+  const posts = postsRaw as unknown as Array<{
+    id: string;
+    thread_id: string;
+    parent_post_id: string | null;
+    author_id: string | null;
+    author_state: string | null;
+    body: string;
+    upvote_count: number;
+    helpful_count: number;
+    deleted_at: string | null;
+    moderation_status: "approved" | "pending" | "auto_flagged" | "user_flagged" | "removed";
+    created_at: string;
+  }> | null;
 
   // Fetch author display names (from profiles for everyone involved)
   const userIds = new Set<string>();

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPost, toggleReaction } from "@/modules/forum/actions";
 import type { PostRow, ThreadRow } from "@/modules/forum/types";
 import { Markdown } from "@/components/Markdown";
+import { ReportButton } from "@/modules/forum/components/ReportButton";
 import { createClient } from "@/lib/supabase/client";
 
 type ReactionRow = { target_type: string; target_id: string; reaction: string };
@@ -95,8 +96,15 @@ export function ThreadView({
     });
   }
 
-  // Top-level posts vs replies — sourced from live state (initialPosts + realtime appends)
-  const visiblePosts = livePosts.filter((p) => !p.deleted_at);
+  // Top-level posts vs replies — sourced from live state (initialPosts + realtime appends).
+  // Filter out: self-deletes, mod removals (RLS already handles non-author non-mod
+  // visibility, but a fresh realtime append could include a removed row from the
+  // author's own session).
+  const visiblePosts = livePosts.filter((p) => {
+    if (p.deleted_at) return false;
+    if (p.moderation_status === "removed") return false;
+    return true;
+  });
   const topLevel = visiblePosts.filter((p) => !p.parent_post_id);
   const repliesByParent = new Map<string, PostRow[]>();
   for (const p of visiblePosts) {
@@ -182,6 +190,7 @@ export function ThreadView({
                 onReact={(reaction) => react("post", p.id, reaction)}
                 canReply={canReply}
                 currentUserId={currentUserId}
+                isOwnPost={p.author_id === currentUserId}
               />
 
               {/* One level of replies under this post */}
@@ -196,6 +205,7 @@ export function ThreadView({
                     onReact={(reaction) => react("post", r.id, reaction)}
                     canReply={false}  // no nested replies (Reddit-flat = one level)
                     currentUserId={currentUserId}
+                    isOwnPost={r.author_id === currentUserId}
                   />
                 </div>
               ))}
@@ -216,6 +226,7 @@ function PostCard({
   onReact,
   canReply,
   currentUserId,
+  isOwnPost,
 }: {
   post: PostRow;
   authorName: string;
@@ -225,12 +236,29 @@ function PostCard({
   onReact: (reaction: "upvote" | "helpful") => void;
   canReply: boolean;
   currentUserId: string | null;
+  isOwnPost: boolean;
 }) {
   const [showReply, setShowReply] = useState(false);
   const isFromOutOfState = post.author_state && post.author_state !== threadState;
+  const isInReview = isOwnPost && post.moderation_status && post.moderation_status !== "approved";
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+    <div
+      className={`rounded-lg border p-4 ${
+        isInReview
+          ? "border-amber-700/40 bg-amber-950/10"
+          : "border-zinc-800 bg-zinc-950/40"
+      }`}
+    >
+      {isInReview && (
+        <div className="mb-3 rounded-md border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+          ⏳ Your post is in review
+          {post.moderation_status === "auto_flagged" && " — looks like it contains a link or contact info that needs a moderator's OK"}
+          {post.moderation_status === "pending" && " — first few posts are reviewed before they go live"}
+          {post.moderation_status === "user_flagged" && " — another member reported this; a moderator will check"}
+          . Only you and moderators can see it.
+        </div>
+      )}
       <div className="flex items-center gap-2 text-xs text-zinc-500">
         {post.author_id ? (
           <a href={`/profile/${post.author_id}`} className="font-medium text-zinc-300 hover:text-emerald-400">
@@ -250,7 +278,7 @@ function PostCard({
       <div className="mt-2 text-sm text-zinc-200">
         <Markdown>{post.body}</Markdown>
       </div>
-      <div className="mt-3 flex items-center gap-3 text-xs">
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
         <ReactionBtn
           type="post"
           id={post.id}
@@ -280,6 +308,9 @@ function PostCard({
           >
             {showReply ? "Cancel" : "Reply"}
           </button>
+        )}
+        {currentUserId && !isOwnPost && (
+          <ReportButton targetType="post" targetId={post.id} />
         )}
       </div>
 

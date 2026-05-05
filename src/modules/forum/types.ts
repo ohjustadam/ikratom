@@ -53,5 +53,7 @@ export type PostRow = {
   upvote_count: number;
   helpful_count: number;
   deleted_at: string | null;
+  /** Optional — only set when client query selects it. */
+  moderation_status?: "approved" | "pending" | "auto_flagged" | "user_flagged" | "removed";
   created_at: string;
 };

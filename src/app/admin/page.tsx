@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import { moderationQueueCount } from "@/modules/forum/actions";
 
 export const metadata = { title: "Admin" };
 
@@ -16,12 +17,14 @@ export default async function AdminPage() {
     { count: legislatorCount },
     { count: billCount },
     { count: actionCount },
+    queueCount,
   ] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }),
     supabase.from("campaigns").select("id", { count: "exact", head: true }),
     supabase.from("legislators").select("id", { count: "exact", head: true }),
     supabase.from("bills").select("id", { count: "exact", head: true }),
     supabase.from("campaign_actions").select("id", { count: "exact", head: true }),
+    moderationQueueCount(),
   ]);
 
   return (
@@ -78,14 +81,12 @@ export default async function AdminPage() {
             disabled
           />
         )}
-        {adminOnly && (
-          <AdminCard
-            href="/admin/forum"
-            title="Forum moderation"
-            body="Pin, lock, remove threads. Per-state."
-            disabled
-          />
-        )}
+        <AdminCard
+          href="/admin/forum"
+          title={queueCount > 0 ? `Forum moderation (${queueCount})` : "Forum moderation"}
+          body="Review flagged posts + threads. New-account posts and links are auto-flagged."
+          accent={queueCount > 0}
+        />
         {adminOnly && (
           <AdminCard
             href="/admin/audit"
