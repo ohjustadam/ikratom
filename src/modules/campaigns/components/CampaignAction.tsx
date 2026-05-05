@@ -214,14 +214,17 @@ export function CampaignAction({
     );
   }
 
-  if (targetsWithEmail.length === 0) {
+  // Only show "no public emails" when no rep EVER had a sendable email.
+  // If `allWithEmail.length > 0` but `targetsWithEmail.length === 0`, that
+  // means everyone's in the cooldown window — handled by allAlreadySent below.
+  if (allWithEmail.length === 0) {
     return (
       <Card>
         <h2 className="text-lg font-semibold text-amber-300">
           No public emails on file for your reps yet
         </h2>
         <p className="mt-2 text-sm text-zinc-400">
-          OpenStates doesn&apos;t have email addresses for these legislators. Use the
+          Public sources don&apos;t have email addresses for these legislators. Use the
           phone numbers and websites on the legislators page in the meantime.
         </p>
         <a

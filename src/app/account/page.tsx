@@ -4,6 +4,7 @@ import { getGmailStatus } from "@/modules/auth/actions-gmail";
 import { GmailConnect } from "@/modules/auth/components/GmailConnect";
 import { E2EFingerprint } from "@/modules/auth/components/E2EFingerprint";
 import { BlockedUsersList } from "@/modules/auth/components/BlockedUsersList";
+import { DangerZone } from "@/modules/auth/components/DangerZone";
 import { listBlockedUsers } from "@/modules/dm/block-actions";
 import { getNotificationPrefs } from "@/modules/notifications/actions";
 import { NotificationPrefsForm } from "@/modules/notifications/components/NotificationPrefsForm";
@@ -69,6 +70,16 @@ export default async function AccountPage({
       </header>
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <NotificationPrefsForm initial={notifPrefs} />
+      </div>
+
+      <header className="mb-6 mt-12">
+        <h2 className="text-2xl font-bold">Your data</h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Export everything we have on you, or permanently delete your account.
+        </p>
+      </header>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <DangerZone />
       </div>
     </div>
   );

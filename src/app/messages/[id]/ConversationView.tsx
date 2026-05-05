@@ -11,6 +11,7 @@ import {
 } from "@/lib/crypto/e2e";
 import { sendMessage } from "@/modules/dm/actions";
 import { blockUser } from "@/modules/dm/block-actions";
+import { createClient } from "@/lib/supabase/client";
 
 type MessageRow = {
   id: string;
@@ -85,6 +86,8 @@ export function ConversationView({
   const [, startSend] = useTransition();
   const [otherFingerprint, setOtherFingerprint] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Live message list — starts with initialMessages and appends new ones via Supabase Realtime
+  const [messages, setMessages] = useState<MessageRow[]>(initialMessages);
 
   // 1) Decrypt the session key on mount
   useEffect(() => {
@@ -116,13 +119,13 @@ export function ConversationView({
     return () => { cancelled = true; };
   }, [encryptedSessionKey, sessionKeyNonce, senderPublicKey, other?.public_key]);
 
-  // 2) Decrypt all messages once we have the session key
+  // 2) Decrypt all messages whenever the live message list or session key changes
   useEffect(() => {
     if (!sessionKey) return;
     let cancelled = false;
     (async () => {
       const out: Record<string, DecryptedMessage> = {};
-      for (const m of initialMessages) {
+      for (const m of messages) {
         try {
           const pt = await decryptMessage({
             ciphertextB64: m.ciphertext,
@@ -137,7 +140,36 @@ export function ConversationView({
       if (!cancelled) setDecryptedById(out);
     })();
     return () => { cancelled = true; };
-  }, [sessionKey, initialMessages]);
+  }, [sessionKey, messages]);
+
+  // 2b) Subscribe to live new messages via Supabase Realtime
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`dm:${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "dm_messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const newMsg = payload.new as MessageRow;
+          setMessages((prev) => {
+            // Skip if we already have this message (e.g. our own send echo)
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversationId]);
 
   // 3) Auto-scroll to bottom when new messages decrypt
   useEffect(() => {
@@ -147,8 +179,8 @@ export function ConversationView({
   }, [decryptedById]);
 
   const orderedMessages = useMemo(
-    () => initialMessages.map((m) => decryptedById[m.id] ?? { ...m }),
-    [initialMessages, decryptedById]
+    () => messages.map((m) => decryptedById[m.id] ?? { ...m }),
+    [messages, decryptedById]
   );
 
   async function send() {

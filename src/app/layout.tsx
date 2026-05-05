@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import { siteConfig } from "@/config/site.config";
 import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
+import { CookieBanner } from "@/components/CookieBanner";
 import "./globals.css";
 
 const geist = Geist({
@@ -71,6 +72,12 @@ export default function RootLayout({
 
         <footer className="border-t border-zinc-800 bg-zinc-950 py-8">
           <div className="mx-auto max-w-6xl px-4 text-center text-xs text-zinc-500 sm:px-6 lg:px-8">
+            <nav className="mb-4 flex flex-wrap justify-center gap-x-4 gap-y-2">
+              <a href="/terms" className="hover:text-emerald-400">Terms</a>
+              <a href="/privacy" className="hover:text-emerald-400">Privacy</a>
+              <a href="/cookies" className="hover:text-emerald-400">Cookies</a>
+              <a href={`mailto:${siteConfig.links.support}`} className="hover:text-emerald-400">Contact</a>
+            </nav>
             <p>
               {siteConfig.name} is a nonpartisan advocacy tool. Not affiliated with any
               kratom organization. Kratom statements have not been evaluated by the FDA.
@@ -80,6 +87,8 @@ export default function RootLayout({
             </p>
           </div>
         </footer>
+
+        <CookieBanner />
       </body>
     </html>
   );

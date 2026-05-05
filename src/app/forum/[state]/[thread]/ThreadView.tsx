@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createPost, toggleReaction } from "@/modules/forum/actions";
 import type { PostRow, ThreadRow } from "@/modules/forum/types";
 import { Markdown } from "@/components/Markdown";
+import { createClient } from "@/lib/supabase/client";
 
 type ReactionRow = { target_type: string; target_id: string; reaction: string };
 
@@ -32,6 +33,45 @@ export function ThreadView({
   const router = useRouter();
   const [reactions, setReactions] = useState<ReactionRow[]>(initialReactions);
   const [, startTransition] = useTransition();
+  // Live posts list — appends new replies via Supabase Realtime
+  const [livePosts, setLivePosts] = useState<PostRow[]>(posts);
+  const [authorNamesLocal, setAuthorNamesLocal] = useState<Record<string, string>>(authorNames);
+
+  // Subscribe to new posts on this thread
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`thread:${thread.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "forum_posts",
+          filter: `thread_id=eq.${thread.id}`,
+        },
+        async (payload) => {
+          const newPost = payload.new as PostRow;
+          setLivePosts((prev) => {
+            if (prev.some((p) => p.id === newPost.id)) return prev;
+            return [...prev, newPost];
+          });
+          // Fetch author display name lazily
+          if (newPost.author_id && !authorNamesLocal[newPost.author_id]) {
+            const { data } = await supabase.rpc("get_public_profile", { p_id: newPost.author_id });
+            const name = data?.[0]?.full_name;
+            if (name) {
+              setAuthorNamesLocal((prev) => ({ ...prev, [newPost.author_id!]: name }));
+            }
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [thread.id, authorNamesLocal]);
 
   function hasReaction(type: "thread" | "post", id: string, reaction: "upvote" | "helpful") {
     return reactions.some(
@@ -55,10 +95,11 @@ export function ThreadView({
     });
   }
 
-  // Top-level posts vs replies
-  const topLevel = posts.filter((p) => !p.parent_post_id);
+  // Top-level posts vs replies — sourced from live state (initialPosts + realtime appends)
+  const visiblePosts = livePosts.filter((p) => !p.deleted_at);
+  const topLevel = visiblePosts.filter((p) => !p.parent_post_id);
   const repliesByParent = new Map<string, PostRow[]>();
-  for (const p of posts) {
+  for (const p of visiblePosts) {
     if (p.parent_post_id) {
       if (!repliesByParent.has(p.parent_post_id)) repliesByParent.set(p.parent_post_id, []);
       repliesByParent.get(p.parent_post_id)!.push(p);
@@ -134,7 +175,7 @@ export function ThreadView({
             <li key={p.id}>
               <PostCard
                 post={p}
-                authorName={authorNames[p.author_id ?? ""] ?? "Member"}
+                authorName={authorNamesLocal[p.author_id ?? ""] ?? "Member"}
                 threadState={threadState}
                 hasUpvote={hasReaction("post", p.id, "upvote")}
                 hasHelpful={hasReaction("post", p.id, "helpful")}
@@ -148,7 +189,7 @@ export function ThreadView({
                 <div key={r.id} className="ml-8 mt-3">
                   <PostCard
                     post={r}
-                    authorName={authorNames[r.author_id ?? ""] ?? "Member"}
+                    authorName={authorNamesLocal[r.author_id ?? ""] ?? "Member"}
                     threadState={threadState}
                     hasUpvote={hasReaction("post", r.id, "upvote")}
                     hasHelpful={hasReaction("post", r.id, "helpful")}
