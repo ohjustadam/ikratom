@@ -1,0 +1,13 @@
+Contact: mailto:ohjustadam@proton.me
+Expires: 2027-01-01T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://ikratom.vercel.app/.well-known/security.txt
+Policy: https://ikratom.vercel.app/security
+
+# We welcome responsible disclosure of security issues. Please:
+#  - Do not access data belonging to other users
+#  - Do not run automated scanners against /api/* or /auth/*
+#  - Do not perform attacks that degrade service for real users
+#  - Give us a reasonable window to fix issues before public disclosure
+#
+# Acknowledgements for valid reports are listed at /security once a fix ships.

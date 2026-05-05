@@ -1,5 +1,39 @@
 import type { NextConfig } from "next";
 
+// Build a CSP scoped to our specific Supabase project at build time so the
+// connect-src can't be abused by any other supabase.co subdomain.
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const SUPABASE_HOST = (() => {
+  try { return new URL(SUPABASE_URL).host; } catch { return ""; }
+})();
+const SUPABASE_HTTPS = SUPABASE_HOST ? `https://${SUPABASE_HOST}` : "";
+const SUPABASE_WSS = SUPABASE_HOST ? `wss://${SUPABASE_HOST}` : "";
+
+const csp = [
+  "default-src 'self'",
+  // Tailwind/Next.js inline some bootstrap styles; scripts use 'unsafe-inline'
+  // because Next 16's RSC payload requires inline script. Tightening to nonces
+  // requires Next-side support; tracked as a future upgrade.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https:",
+  "font-src 'self' data:",
+  // Allow our exact Supabase project (HTTPS for REST, WSS for Realtime). No
+  // wildcard — limits exfiltration to one specific origin.
+  `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com`.trim(),
+  // No <iframe> may embed our pages
+  "frame-ancestors 'none'",
+  // No <iframe> may be embedded by us either (admins can opt into specific
+  // sources later via library embed_html, which is admin-only).
+  "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com",
+  "base-uri 'self'",
+  "form-action 'self'",
+  // Disable Adobe Flash etc. (legacy plugin types)
+  "object-src 'none'",
+  // Force any HTTP subresources to upgrade to HTTPS
+  "upgrade-insecure-requests",
+].filter(Boolean).join("; ");
+
 const securityHeaders = [
   // Force HTTPS for 2 years once deployed (browsers ignore on http:// dev)
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
@@ -10,23 +44,15 @@ const securityHeaders = [
   // Don't leak full URLs in Referer
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   // Lock down browser features
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
-  // Minimal CSP — restrictive but allows our needs (Supabase API + Google Fonts via Next/font self-hosting).
-  // 'unsafe-inline' for styles is required by Tailwind/Next.js. Scripts are 'self' only.
-  {
-    key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: https:",
-      "font-src 'self' data:",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-    ].join("; "),
-  },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=(), browsing-topics=()" },
+  // Block legacy Flash/Java cross-domain policy lookups
+  { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+  // Modern process isolation — Spectre-class defense in depth
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  // Limit who can embed our resources cross-origin
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  // Content Security Policy
+  { key: "Content-Security-Policy", value: csp },
 ];
 
 const nextConfig: NextConfig = {
@@ -36,6 +62,11 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+      // Static security advertisements served at well-known paths
+      {
+        source: "/.well-known/security.txt",
+        headers: [{ key: "Content-Type", value: "text/plain; charset=utf-8" }],
       },
     ];
   },
