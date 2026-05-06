@@ -75,10 +75,9 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
-            href="/admin/bills"
-            title="Bills"
-            body="Trigger LegiScan sync, mark relevance."
-            disabled
+            href="/admin/bills/new"
+            title="Add a bill (manual)"
+            body="For county / municipal bills OpenStates doesn't track. State + federal auto-sync daily."
           />
         )}
         <AdminCard

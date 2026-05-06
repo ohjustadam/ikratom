@@ -19,6 +19,10 @@ type BillRow = {
   last_action: string | null;
   last_action_at: string | null;
   source_url: string | null;
+  official_url: string | null;
+  session_id: string | null;
+  scope: string | null;
+  locality: string | null;
   enriched_at: string | null;
   last_synced_at: string | null;
 };
@@ -64,7 +68,8 @@ export default async function BillDetailPage({
     .select(
       "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
       "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
-      "source_url, enriched_at, last_synced_at",
+      "source_url, official_url, session_id, scope, locality, " +
+      "enriched_at, last_synced_at",
     )
     .eq("id", id)
     .single();
@@ -96,8 +101,12 @@ export default async function BillDetailPage({
     : { count: 0 };
 
   // Live fetch from OpenStates — cached 1 hour. Returns null on quota /
-  // network error and we fall back to DB-only fields.
-  const detail = await fetchOpenStatesBillDetail(bill.state, bill.bill_number);
+  // network error and we fall back to DB-only fields. Skip for non-state
+  // scopes (OpenStates doesn't cover county/municipal).
+  const isLocal = bill.scope === "county" || bill.scope === "municipal";
+  const detail = isLocal
+    ? null
+    : await fetchOpenStatesBillDetail(bill.state, bill.bill_number);
 
   // Staleness assessment
   const lastActionMs = bill.last_action_at ? new Date(bill.last_action_at).getTime() : null;
@@ -121,6 +130,24 @@ export default async function BillDetailPage({
           <span className="rounded bg-zinc-900 px-2 py-1 font-mono text-zinc-300">
             {bill.state} · {bill.bill_number}
           </span>
+          {bill.scope && bill.scope !== "state" && (
+            <span className="rounded bg-purple-950/40 px-2 py-1 capitalize text-purple-300">
+              {bill.scope}
+            </span>
+          )}
+          {bill.locality && (
+            <span className="rounded bg-zinc-900 px-2 py-1 text-zinc-300">
+              📍 {bill.locality}
+            </span>
+          )}
+          {bill.session_id && (
+            <span
+              className="rounded bg-zinc-900 px-2 py-1 text-zinc-400"
+              title="Legislative session this bill belongs to"
+            >
+              Session {bill.session_id}
+            </span>
+          )}
           <span className={`rounded border px-2 py-1 font-semibold ${relevance.cls}`}>
             {relevance.label}
           </span>
@@ -306,20 +333,35 @@ export default async function BillDetailPage({
           <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Official sources
           </p>
+          {/* Direct state-legislature link is the most credible — show first */}
+          {bill.official_url && (
+            <p>
+              <a
+                href={bill.official_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-emerald-400 hover:underline"
+              >
+                ⭐ Official state legislature page ↗
+              </a>
+            </p>
+          )}
           {detail?.sources && detail.sources.length > 0 ? (
             <ul className="space-y-1">
-              {detail.sources.map((s, i) => (
-                <li key={i}>
-                  <a
-                    href={s.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-emerald-400 hover:underline"
-                  >
-                    {s.note ?? s.url}
-                  </a>
-                </li>
-              ))}
+              {detail.sources
+                .filter((s) => s.url !== bill.official_url) // dedupe
+                .map((s, i) => (
+                  <li key={i}>
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-emerald-400 hover:underline"
+                    >
+                      {s.note || s.url}
+                    </a>
+                  </li>
+                ))}
             </ul>
           ) : null}
           {bill.source_url && (

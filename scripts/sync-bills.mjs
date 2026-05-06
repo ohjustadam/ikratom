@@ -39,7 +39,7 @@ async function fetchPage(state, query, page = 1, attempt = 0) {
   url.searchParams.set("page", String(page));
   url.searchParams.set("per_page", "20");
   url.searchParams.set("sort", "updated_desc");
-  url.searchParams.set("include", "abstracts");
+  url.searchParams.set("include", "abstracts,sources");
 
   const res = await fetch(url.toString(), {
     headers: { "X-API-Key": apiKey },
@@ -120,6 +120,12 @@ async function syncState(state) {
   const rows = [];
   for (const b of all.values()) {
     const abstract = b.abstracts?.[0]?.abstract ?? null;
+    // The state legislature URL — preferred over OpenStates for "see the
+    // official source". Pick the first non-OpenStates source.
+    const officialUrl =
+      b.sources?.find((s) => s.url && !/openstates\.org/i.test(s.url))?.url ??
+      b.sources?.[0]?.url ??
+      null;
     rows.push({
       state,
       bill_number: cap(b.identifier, 60) ?? "—",
@@ -130,6 +136,9 @@ async function syncState(state) {
       last_action: cap(b.latest_action_description, 500),
       last_action_at: b.latest_action_date ?? null,
       source_url: b.openstates_url ?? null,
+      official_url: cap(officialUrl, 1000),
+      session_id: cap(b.session ?? null, 40),
+      scope: "state",
       active: true,
       last_synced_at: new Date().toISOString(),
     });

@@ -33,6 +33,40 @@
  *  silence reliably means the bill died with the session. */
 const STALE_AFTER_DAYS = 365;
 
+/**
+ * Compute the "current session" for a state — the highest-string session_id
+ * that has any bill activity within the last STALE_AFTER_DAYS. Bills from
+ * any other session for that state are considered closed and ineligible
+ * for auto-campaigns. We compute this in JS rather than SQL because session
+ * identifiers are non-numeric (e.g. "2025-2026", "89R") and need
+ * lexicographic max with last-action-date as tiebreak.
+ */
+function pickCurrentSessions(
+  rows: Array<{ state: string; session_id: string | null; last_action_at: string | null }>,
+): Map<string, string> {
+  const cutoff = new Date(Date.now() - STALE_AFTER_DAYS * 86400_000).toISOString().slice(0, 10);
+  // For each (state, session_id), track the max last_action_at
+  const max = new Map<string, { state: string; session: string; lastAction: string }>();
+  for (const r of rows) {
+    if (!r.session_id || !r.last_action_at) continue;
+    if (r.last_action_at < cutoff) continue;
+    const key = `${r.state}::${r.session_id}`;
+    const prev = max.get(key);
+    if (!prev || r.last_action_at > prev.lastAction) {
+      max.set(key, { state: r.state, session: r.session_id, lastAction: r.last_action_at });
+    }
+  }
+  // For each state, pick the session with the most recent activity
+  const current = new Map<string, { session: string; lastAction: string }>();
+  for (const v of max.values()) {
+    const prev = current.get(v.state);
+    if (!prev || v.lastAction > prev.lastAction) {
+      current.set(v.state, { session: v.session, lastAction: v.lastAction });
+    }
+  }
+  return new Map(Array.from(current.entries()).map(([s, v]) => [s, v.session]));
+}
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type Bill = {
@@ -48,6 +82,8 @@ type Bill = {
   status: string | null;
   last_action: string | null;
   last_action_at: string | null;
+  session_id: string | null;
+  scope: string | null;
 };
 
 const slugify = (s: string): string =>
@@ -134,16 +170,36 @@ export async function autoCreateCampaignsForNewAntiBills(
     .toISOString()
     .slice(0, 10);
 
+  // Step 1: figure out the current session per state by looking at recent
+  // activity across all bills (not just anti). Bills from any other
+  // session are filtered out below.
+  const { data: sessionRows } = await supabase
+    .from("bills")
+    .select("state, session_id, last_action_at")
+    .eq("active", true)
+    .not("state", "is", null)
+    .not("session_id", "is", null)
+    .gte("last_action_at", staleCutoff);
+  const currentSessionByState = pickCurrentSessions(
+    (sessionRows ?? []) as Array<{ state: string; session_id: string | null; last_action_at: string | null }>,
+  );
+
+  // Step 2: load anti-bill candidates that pass all the prior filters
+  // PLUS have a session_id (post-fix data only — legacy null-session
+  // rows are skipped to avoid zombie campaigns).
   const { data: billsRaw, error: billsErr } = await supabase
     .from("bills")
     .select(
       "id, state, bill_number, title, summary_ai, summary, advocacy_callout, " +
-      "kratom_relevance, relevance_confidence, status, last_action, last_action_at",
+      "kratom_relevance, relevance_confidence, status, last_action, last_action_at, " +
+      "session_id, scope",
     )
     .eq("active", true)
+    .eq("scope", "state")
     .eq("kratom_relevance", "anti")
     .gte("relevance_confidence", 0.6)
     .not("state", "is", null)
+    .not("session_id", "is", null)
     .not("status", "in", "(enacted,dead)")
     .gte("last_action_at", staleCutoff);
 
@@ -152,7 +208,13 @@ export async function autoCreateCampaignsForNewAntiBills(
     return result;
   }
 
-  const bills = (billsRaw ?? []) as unknown as Bill[];
+  const allBills = (billsRaw ?? []) as unknown as Bill[];
+  // Step 3: drop any bill whose session_id isn't the current session for
+  // its state. This is the real session-awareness gate.
+  const bills = allBills.filter((b) => {
+    const current = currentSessionByState.get(b.state);
+    return current != null && b.session_id === current;
+  });
   result.considered = bills.length;
   if (bills.length === 0) return result;
 

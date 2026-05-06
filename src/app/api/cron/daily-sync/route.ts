@@ -198,14 +198,24 @@ async function syncBillsForState(state: State, supabase: SupabaseClient): Promis
   url.searchParams.set("q", "kratom");
   url.searchParams.set("per_page", "20");
   url.searchParams.set("sort", "updated_desc");
-  url.searchParams.set("include", "abstracts");
+  url.searchParams.set("include", "abstracts,sources");
 
   const res = await fetch(url.toString(), {
     headers: { "X-API-Key": apiKey },
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) return 0;
-  const data = await res.json() as { results?: Array<{ id: string; identifier: string; title: string; abstracts?: { abstract: string }[]; latest_action_description?: string; latest_action_date?: string; openstates_url?: string }> };
+  const data = await res.json() as { results?: Array<{
+    id: string;
+    identifier: string;
+    title: string;
+    session?: string;
+    abstracts?: { abstract: string }[];
+    sources?: { url: string; note?: string | null }[];
+    latest_action_description?: string;
+    latest_action_date?: string;
+    openstates_url?: string;
+  }> };
   const results = data.results ?? [];
   if (results.length === 0) return 0;
 
@@ -230,8 +240,24 @@ async function syncBillsForState(state: State, supabase: SupabaseClient): Promis
   }
 
   const seen = new Map<string, ReturnType<typeof rowFromBill>>();
-  function rowFromBill(b: { id: string; identifier: string; title: string; abstracts?: { abstract: string }[]; latest_action_description?: string; latest_action_date?: string; openstates_url?: string }) {
+  function rowFromBill(b: {
+    id: string;
+    identifier: string;
+    title: string;
+    session?: string;
+    abstracts?: { abstract: string }[];
+    sources?: { url: string; note?: string | null }[];
+    latest_action_description?: string;
+    latest_action_date?: string;
+    openstates_url?: string;
+  }) {
     const abstract = b.abstracts?.[0]?.abstract ?? null;
+    // The state legislature URL — preferred over OpenStates for "see the
+    // official source". Pick the first non-OpenStates source.
+    const officialUrl =
+      b.sources?.find((s) => s.url && !/openstates\.org/i.test(s.url))?.url ??
+      b.sources?.[0]?.url ??
+      null;
     return {
       state: state as string,
       bill_number: cap(b.identifier, 60) ?? "—",
@@ -242,6 +268,9 @@ async function syncBillsForState(state: State, supabase: SupabaseClient): Promis
       last_action: cap(b.latest_action_description ?? null, 500),
       last_action_at: b.latest_action_date ?? null,
       source_url: b.openstates_url ?? null,
+      official_url: cap(officialUrl, 1000),
+      session_id: cap(b.session ?? null, 40),
+      scope: "state",
       active: true,
       last_synced_at: new Date().toISOString(),
     };

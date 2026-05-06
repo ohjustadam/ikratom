@@ -22,6 +22,10 @@ type BillRow = {
   last_action: string | null;
   last_action_at: string | null;
   source_url: string | null;
+  official_url: string | null;
+  session_id: string | null;
+  scope: string | null;
+  locality: string | null;
 };
 
 export default async function BillsPage() {
@@ -30,7 +34,8 @@ export default async function BillsPage() {
     .from("bills")
     .select(
       "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
-      "status, kratom_relevance, relevance_confidence, last_action, last_action_at, source_url"
+      "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
+      "source_url, official_url, session_id, scope, locality"
     )
     .eq("active", true)
     .order("last_action_at", { ascending: false, nullsFirst: false })

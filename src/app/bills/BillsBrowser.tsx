@@ -16,6 +16,10 @@ type Bill = {
   last_action: string | null;
   last_action_at: string | null;
   source_url: string | null;
+  official_url: string | null;
+  session_id: string | null;
+  scope: string | null;
+  locality: string | null;
 };
 
 const RELEVANCE: Record<string, { label: string; cls: string }> = {
@@ -223,6 +227,27 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
                     <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
                       {b.state} · {b.bill_number}
                     </span>
+                    {b.scope && b.scope !== "state" && (
+                      <span
+                        className="rounded bg-purple-950/40 px-1.5 py-0.5 capitalize text-purple-300"
+                        title={`${b.scope}-level bill`}
+                      >
+                        {b.scope}
+                      </span>
+                    )}
+                    {b.locality && (
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-300">
+                        📍 {b.locality}
+                      </span>
+                    )}
+                    {b.session_id && (
+                      <span
+                        className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-500"
+                        title="Legislative session"
+                      >
+                        {b.session_id}
+                      </span>
+                    )}
                     <span className={`rounded px-1.5 py-0.5 font-semibold ${tag.cls}`}>{tag.label}</span>
                     {status && (
                       <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">{status}</span>
