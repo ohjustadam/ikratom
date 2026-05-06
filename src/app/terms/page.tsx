@@ -8,7 +8,7 @@ export default function TermsPage() {
       <header className="mb-8">
         <h1 className="text-3xl font-bold">Terms of Service</h1>
         <p className="mt-2 text-sm text-zinc-500">
-          Last updated: 2026-05-05
+          Last updated: 2026-05-06
         </p>
       </header>
 
@@ -91,7 +91,44 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="mb-2 text-lg font-semibold text-zinc-100">7. Changes to these terms</h2>
+          <h2 className="mb-2 text-lg font-semibold text-zinc-100">7. Intellectual property + scraping</h2>
+          <p>
+            All content, code, design, copy, layout, brand marks, and curated data on
+            {" "}{siteConfig.name} (collectively, the &quot;Platform&quot;) are
+            owned by the operators of {siteConfig.name} and protected under U.S.
+            and international copyright, trademark, and database-protection law.
+            User-submitted content (forum posts, stories, profiles) remains owned
+            by the author who submits it; by submitting, you grant {siteConfig.name}
+            {" "}a non-exclusive, worldwide license to display, distribute, and
+            archive that content as part of the Platform.
+          </p>
+          <p className="mt-3 font-semibold text-zinc-100">You may NOT, without prior written permission:</p>
+          <ul className="mt-2 list-disc space-y-1 pl-6">
+            <li>Copy, clone, mirror, fork, or republish any part of the Platform&apos;s frontend, backend, or data — in whole or in part — for any commercial purpose</li>
+            <li>Re-use Platform code, layout, copy, or visual design in any product that competes with or substantially resembles {siteConfig.name}</li>
+            <li>Scrape, crawl, harvest, or otherwise systematically extract data from the Platform — including bills, legislators, news, forum content, stories, or any aggregate data — by automated or manual means</li>
+            <li>Use Platform content to train, fine-tune, or evaluate any machine-learning model, including large language models, without explicit written permission</li>
+            <li>Reverse-engineer, decompile, or disassemble Platform code or attempt to derive its source code</li>
+            <li>Remove, obscure, or alter any copyright, trademark, watermark, or attribution notice</li>
+            <li>Use {siteConfig.name} branding (name, logo, color palette, copy) in a way that suggests endorsement, partnership, or affiliation that does not exist</li>
+          </ul>
+          <p className="mt-3">
+            Aggregate, transformed, or quoted use of <em>publicly accessible bill data</em>
+            and news headlines (which {siteConfig.name} sources from third-party APIs and
+            does not itself create) is permitted under fair use, with attribution to
+            {" "}{siteConfig.name} and to the original source (OpenStates, Census,
+            Google News, etc.).
+          </p>
+          <p className="mt-3">
+            We reserve the right to pursue all available legal remedies — including
+            DMCA takedowns, copyright actions, trademark actions under the Lanham Act,
+            CFAA claims for unauthorized scraping, and breach-of-contract — against
+            anyone who copies the Platform or its data in violation of these terms.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="mb-2 text-lg font-semibold text-zinc-100">8. Changes to these terms</h2>
           <p>
             We may update these terms occasionally. We&apos;ll notify active users in-app at least 30
             days before material changes take effect. Continued use after that constitutes acceptance.
@@ -99,7 +136,7 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="mb-2 text-lg font-semibold text-zinc-100">8. Contact</h2>
+          <h2 className="mb-2 text-lg font-semibold text-zinc-100">9. Contact</h2>
           <p>
             Questions, bugs, abuse reports:{" "}
             <a href={`mailto:${siteConfig.links.support}`} className="text-emerald-400 hover:underline">

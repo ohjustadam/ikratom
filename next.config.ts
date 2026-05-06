@@ -57,6 +57,10 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false, // Hide "X-Powered-By: Next.js"
+  // Don't ship JS source maps to production browsers — keeps minified
+  // bundle the only artifact a copycat sees. (Server-side stack-trace
+  // decoding still works via the build's hidden source maps.)
+  productionBrowserSourceMaps: false,
   async headers() {
     return [
       {

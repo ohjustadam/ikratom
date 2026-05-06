@@ -1,0 +1,23 @@
+iKratom — The Advocate's Toolbelt
+Copyright (c) 2026 ohjustadam@proton.me. All rights reserved.
+
+The source code, design, copy, layout, and curated data of this
+project are proprietary. They are NOT licensed for re-use, copying,
+mirroring, cloning, scraping, or AI-training without explicit written
+permission. See /terms on the deployed application for the full
+intellectual-property terms.
+
+User-submitted content (forum posts, stories, profile data) belongs
+to the submitting user; iKratom holds a non-exclusive license to
+display + archive that content as part of the platform.
+
+Third-party data sourced from public APIs (OpenStates legislative
+data, U.S. Census Geocoder, Google News headlines, FDA / DEA / state
+legislature public sites) is used under those sources' respective
+terms and remains attributable to them.
+
+Open-source dependencies retain their original licenses (see
+package.json + node_modules). This NOTICE applies only to the
+original code + content authored by the iKratom project.
+
+For licensing inquiries: ohjustadam@proton.me

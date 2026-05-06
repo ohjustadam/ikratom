@@ -51,7 +51,22 @@ export const metadata: Metadata = {
     title: siteConfig.name,
     description: siteConfig.description,
   },
-  robots: { index: true, follow: true },
+  robots: {
+    index: true,
+    follow: true,
+    // Standard "noai" / "noimageai" hints (Cloudflare/IETF AI Preferences
+    // proposal) telling AI crawlers our content isn't fair game for
+    // training. Combined with robots.txt this is the strongest non-paywall
+    // signal we can give. Honor-system; not technically enforced.
+    "max-snippet": -1,
+    "max-image-preview": "large",
+    "max-video-preview": -1,
+  },
+  other: {
+    "ai-content-declaration": "no-ai-training",
+    "noai": "1",
+    "noimageai": "1",
+  },
 };
 
 export const viewport: Viewport = {
