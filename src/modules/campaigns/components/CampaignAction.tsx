@@ -5,6 +5,7 @@ import type { Legislator } from "@/lib/legislators";
 import { ROLE_SHORT } from "@/lib/legislators";
 import { logCampaignAction, sendCampaignViaGmail } from "../actions";
 import { CallActionPanel } from "./CallActionPanel";
+import { AttachmentRecorder } from "./AttachmentRecorder";
 
 type SendMethod = "mailto" | "gmail" | "outlook" | "copy" | "platform_gmail";
 
@@ -299,6 +300,14 @@ export function CampaignAction({
               Personal touches get read. A sentence about why this matters to you doubles your impact.
             </p>
           </div>
+          {/* Personal video / audio attachment */}
+          <AttachmentRecorder
+            onAttached={(att) => {
+              const link = `\n\n${att.kind === "video" ? "📹" : "🎙"} My personal message: ${att.url}\n`;
+              const transcript = att.transcript ? `\n(transcript: ${att.transcript})\n` : "";
+              setBody((b) => b + link + transcript);
+            }}
+          />
         </div>
       )}
 

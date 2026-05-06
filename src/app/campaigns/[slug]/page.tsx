@@ -5,6 +5,9 @@ import { buildVars, renderTemplate } from "@/modules/campaigns/templates";
 import { getMyCampaignProgress } from "@/modules/campaigns/actions";
 import { getMyWaveStatus } from "@/modules/waves/actions";
 import { CampaignAction } from "@/modules/campaigns/components/CampaignAction";
+import { ShareButtons } from "@/components/ShareButtons";
+
+const APP_URL = process.env.APP_URL ?? "https://ikratom.app";
 import { WavePanel } from "@/modules/waves/components/WavePanel";
 
 export async function generateMetadata({
@@ -226,6 +229,25 @@ export default async function CampaignPage({
         initialSubject={subject}
         initialBody={body}
       />
+
+      {/* Share to your network — distributed organic mobilization */}
+      <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          📣 Share with your people
+        </p>
+        <p className="mt-1 text-sm text-zinc-300">
+          Post this campaign to your FB group, X, Reddit, or send to a friend.
+          Your voice on your accounts matters more than ours.
+        </p>
+        <div className="mt-3">
+          <ShareButtons
+            url={`${APP_URL}/campaigns/${campaign.slug}`}
+            title={campaign.title}
+            text={campaign.blurb ?? ""}
+            target={{ kind: "campaign", campaignId: campaign.id }}
+          />
+        </div>
+      </section>
 
       {/* The ask / context */}
       {campaign.body_md && (

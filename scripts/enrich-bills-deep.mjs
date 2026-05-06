@@ -29,7 +29,10 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import pdf from "pdf-parse";
+// pdf-parse v2 exports a PDFParse class via CJS — bridge with createRequire
+import { createRequire } from "module";
+const requireCjs = createRequire(import.meta.url);
+const { PDFParse } = requireCjs("pdf-parse");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const args = process.argv.slice(2);
@@ -124,8 +127,9 @@ async function downloadPdfText(url) {
   const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`PDF fetch ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
-  const data = await pdf(buf);
-  return data.text || "";
+  const parser = new PDFParse({ data: buf });
+  const result = await parser.getText();
+  return result.text || "";
 }
 
 async function analyzeWithOllama(bill, pdfText) {

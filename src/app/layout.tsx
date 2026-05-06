@@ -93,6 +93,7 @@ export default function RootLayout({
               <a href="/news" className="hover:text-emerald-400">News</a>
               <a href="/library" className="hover:text-emerald-400">Library</a>
               <a href="/forum" className="hover:text-emerald-400">Forum</a>
+              <a href="/communities" className="hover:text-emerald-400">Communities</a>
               <HeaderAuth />
             </nav>
 

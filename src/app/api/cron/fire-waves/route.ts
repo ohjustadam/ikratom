@@ -34,13 +34,20 @@ export async function GET(request: NextRequest) {
   );
 
   const startedAt = Date.now();
-  const { fireDueWaves } = await import("@/modules/waves/fire");
-  const result = await fireDueWaves(supabase);
-  const elapsedMs = Date.now() - startedAt;
 
+  // 1. Fire waves whose scheduled_at <= now
+  const { fireDueWaves } = await import("@/modules/waves/fire");
+  const fireResult = await fireDueWaves(supabase);
+
+  // 2. Send 1-hour-prior reminder emails (no-ops cleanly without Resend)
+  const { sendWaveReminders } = await import("@/modules/waves/reminders");
+  const reminderResult = await sendWaveReminders(supabase);
+
+  const elapsedMs = Date.now() - startedAt;
   return NextResponse.json({
     ok: true,
     elapsed_seconds: Math.round(elapsedMs / 1000),
-    ...result,
+    fire: fireResult,
+    reminders: reminderResult,
   });
 }
