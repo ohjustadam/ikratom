@@ -200,61 +200,75 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
             const tag = RELEVANCE[b.kratom_relevance ?? "neutral"] ?? RELEVANCE.neutral;
             const status = b.status ? (STATUS_LABELS[b.status] ?? b.status) : null;
             const isMine = userState === b.state;
+            const daysSinceAction = b.last_action_at
+              ? Math.floor((Date.now() - new Date(b.last_action_at).getTime()) / 86400_000)
+              : null;
+            const isStale = daysSinceAction != null && daysSinceAction > 365;
             return (
               <li
                 key={b.id}
-                className={`rounded-lg border bg-zinc-950/40 p-4 ${
-                  isMine ? "border-emerald-700/40" : "border-zinc-800"
+                className={`rounded-lg border ${
+                  isStale
+                    ? "border-zinc-900 bg-zinc-950/20 opacity-70"
+                    : isMine
+                    ? "border-emerald-700/40 bg-zinc-950/40"
+                    : "border-zinc-800 bg-zinc-950/40"
                 }`}
               >
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
-                    {b.state} · {b.bill_number}
-                  </span>
-                  <span className={`rounded px-1.5 py-0.5 font-semibold ${tag.cls}`}>{tag.label}</span>
-                  {status && (
-                    <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">{status}</span>
-                  )}
-                  {isMine && (
-                    <span className="rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-zinc-950">
-                      YOUR STATE
+                <a
+                  href={`/bills/${b.id}`}
+                  className="block p-4 transition hover:bg-zinc-950/60"
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
+                      {b.state} · {b.bill_number}
                     </span>
+                    <span className={`rounded px-1.5 py-0.5 font-semibold ${tag.cls}`}>{tag.label}</span>
+                    {status && (
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">{status}</span>
+                    )}
+                    {isStale && (
+                      <span
+                        className="rounded bg-amber-950/40 px-1.5 py-0.5 text-amber-300"
+                        title="No legislative activity in over a year — likely from a closed session"
+                      >
+                        Closed session
+                      </span>
+                    )}
+                    {isMine && !isStale && (
+                      <span className="rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-zinc-950">
+                        YOUR STATE
+                      </span>
+                    )}
+                    {b.last_action_at && (
+                      <span className="ml-auto text-zinc-500">
+                        {new Date(b.last_action_at).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="mt-2 text-sm font-medium leading-snug">
+                    {b.title || "(untitled)"}
+                  </h3>
+                  {/* Prefer AI summary when available; fall back to OpenStates raw. */}
+                  {(b.summary_ai || b.summary) && (
+                    <p className="mt-1 text-sm text-zinc-300">{b.summary_ai || b.summary}</p>
                   )}
-                  {b.last_action_at && (
-                    <span className="ml-auto text-zinc-500">
-                      {new Date(b.last_action_at).toLocaleDateString()}
-                    </span>
+                  {b.advocacy_callout && !isStale && (
+                    <p className="mt-2 rounded-md border border-emerald-900/30 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-200">
+                      <span className="font-semibold text-emerald-400">For advocates: </span>
+                      {b.advocacy_callout}
+                    </p>
                   )}
-                </div>
-                <h3 className="mt-2 text-sm font-medium leading-snug">
-                  {b.title || "(untitled)"}
-                </h3>
-                {/* Prefer AI summary when available; fall back to OpenStates raw. */}
-                {(b.summary_ai || b.summary) && (
-                  <p className="mt-1 text-sm text-zinc-300">{b.summary_ai || b.summary}</p>
-                )}
-                {b.advocacy_callout && (
-                  <p className="mt-2 rounded-md border border-emerald-900/30 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-200">
-                    <span className="font-semibold text-emerald-400">For advocates: </span>
-                    {b.advocacy_callout}
+                  {b.last_action && (
+                    <p className="mt-1 text-xs text-zinc-500">
+                      <span className="text-zinc-600">Last action: </span>
+                      {b.last_action}
+                    </p>
+                  )}
+                  <p className="mt-2 text-xs text-emerald-400">
+                    View bill detail →
                   </p>
-                )}
-                {b.last_action && (
-                  <p className="mt-1 text-xs text-zinc-500">
-                    <span className="text-zinc-600">Last action: </span>
-                    {b.last_action}
-                  </p>
-                )}
-                {b.source_url && (
-                  <a
-                    href={b.source_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-2 inline-block text-xs text-emerald-400 hover:underline"
-                  >
-                    Read on OpenStates ↗
-                  </a>
-                )}
+                </a>
               </li>
             );
           })}

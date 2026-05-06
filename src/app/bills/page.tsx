@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { BillsBrowser } from "./BillsBrowser";
 
 export const metadata = { title: "Bill tracker" };
+// Force fresh — bills sync hourly via the cron + we don't want stale renders
+export const dynamic = "force-dynamic";
 
 // Shape returned by the page query. Supabase generated types lag the
 // migration that added summary_ai/advocacy_callout/relevance_confidence,

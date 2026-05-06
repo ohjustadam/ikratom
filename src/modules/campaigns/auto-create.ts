@@ -11,6 +11,11 @@
  *       default for non-AI-enriched bills is null and these are skipped —
  *       they'll be picked up after enrichment runs locally)
  *   - bill.status NOT IN ('enacted', 'dead')
+ *   - bill.last_action_at >= today − STALE_AFTER_DAYS  (prevents creating
+ *       campaigns about bills from closed legislative sessions; without
+ *       this guard, OpenStates' kratom search returns historical anti-bills
+ *       that have effectively died with their session — emailing
+ *       legislators about a dead bill makes the platform look unserious)
  *   - no existing campaign already linked via bill_id (auto OR manual)
  *
  * Templates: standardized "I'm a constituent, please vote NO" letter with
@@ -22,6 +27,11 @@
  * on campaign INSERT and fans out in-app notifications respecting each
  * user's preferences. We don't need to do that here.
  */
+
+/** Treat a bill as stale (closed-session) when its last action is older
+ *  than this. Most US legislative sessions span 12 months; a year of
+ *  silence reliably means the bill died with the session. */
+const STALE_AFTER_DAYS = 365;
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -37,6 +47,7 @@ type Bill = {
   relevance_confidence: number | null;
   status: string | null;
   last_action: string | null;
+  last_action_at: string | null;
 };
 
 const slugify = (s: string): string =>
@@ -119,17 +130,22 @@ export async function autoCreateCampaignsForNewAntiBills(
   };
 
   // Eligible bills
+  const staleCutoff = new Date(Date.now() - STALE_AFTER_DAYS * 86400_000)
+    .toISOString()
+    .slice(0, 10);
+
   const { data: billsRaw, error: billsErr } = await supabase
     .from("bills")
     .select(
       "id, state, bill_number, title, summary_ai, summary, advocacy_callout, " +
-      "kratom_relevance, relevance_confidence, status, last_action",
+      "kratom_relevance, relevance_confidence, status, last_action, last_action_at",
     )
     .eq("active", true)
     .eq("kratom_relevance", "anti")
     .gte("relevance_confidence", 0.6)
     .not("state", "is", null)
-    .not("status", "in", "(enacted,dead)");
+    .not("status", "in", "(enacted,dead)")
+    .gte("last_action_at", staleCutoff);
 
   if (billsErr) {
     result.errors.push({ bill_id: "(query)", reason: billsErr.message });
