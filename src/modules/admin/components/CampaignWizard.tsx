@@ -53,22 +53,24 @@ Sincerely,
 export function CampaignWizard({
   legislators,
   localities,
+  prefill,
 }: {
   legislators: WizardLegislator[];
   localities: string[];
+  prefill?: { state: string | null; title: string; bodyMd: string };
 }) {
   const [step, setStep] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  // Step 1: Basics
-  const [title, setTitle] = useState("");
+  // Step 1: Basics — accept prefill from /admin/campaigns/new?from_thread=
+  const [title, setTitle] = useState(prefill?.title ?? "");
   const [blurb, setBlurb] = useState("");
-  const [bodyMd, setBodyMd] = useState("");
+  const [bodyMd, setBodyMd] = useState(prefill?.bodyMd ?? "");
 
   // Step 2: Geography + targets
   const [geo, setGeo] = useState<Geography>("state");
-  const [state, setState] = useState("OK");
+  const [state, setState] = useState(prefill?.state ?? "OK");
   const [locality, setLocality] = useState("");
   const [pickedRoles, setPickedRoles] = useState<Set<string>>(
     new Set(["state_senate", "state_house"])

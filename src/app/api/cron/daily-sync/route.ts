@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractBillDates } from "@/lib/bill-dates";
+import { upsertBillSponsors } from "@/lib/bill-sponsors";
 
 /**
  * Daily auto-sync cron — wakes once per day, refreshes news + bills.
@@ -199,7 +200,7 @@ async function syncBillsForState(state: State, supabase: SupabaseClient): Promis
   url.searchParams.set("q", "kratom");
   url.searchParams.set("per_page", "20");
   url.searchParams.set("sort", "updated_desc");
-  url.searchParams.set("include", "abstracts,sources");
+  url.searchParams.set("include", "abstracts,sources,sponsorships");
 
   const res = await fetch(url.toString(), {
     headers: { "X-API-Key": apiKey },
@@ -296,5 +297,26 @@ async function syncBillsForState(state: State, supabase: SupabaseClient): Promis
   }
   const deduped = Array.from(seen.values());
   await supabase.from("bills").upsert(deduped, { onConflict: "state,bill_number" });
+
+  // Upsert sponsorships per bill — best-effort, never blocks the sync.
+  // OpenStates returned `sponsorships` on each result when we requested it.
+  try {
+    // Re-fetch ids for the rows we just upserted so we can attach sponsors
+    const { data: idMap } = await supabase
+      .from("bills")
+      .select("id, bill_number")
+      .eq("state", state)
+      .in("bill_number", deduped.map((r) => r.bill_number));
+    const byNumber = new Map<string, string>(
+      ((idMap ?? []) as Array<{ id: string; bill_number: string }>).map((b) => [b.bill_number, b.id]),
+    );
+    for (const result of results) {
+      const billId = byNumber.get(String(result.identifier));
+      if (!billId) continue;
+      const sponsorships = (result as { sponsorships?: { name?: string; classification?: string; primary?: boolean }[] }).sponsorships;
+      await upsertBillSponsors(supabase, billId, state as string, sponsorships);
+    }
+  } catch { /* non-fatal */ }
+
   return deduped.length;
 }

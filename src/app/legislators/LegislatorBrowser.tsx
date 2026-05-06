@@ -325,7 +325,9 @@ function Card({ legislator: l, mine }: { legislator: Legislator; mine: boolean }
           {initials || "?"}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate font-semibold leading-tight">{l.full_name}</h3>
+          <h3 className="truncate font-semibold leading-tight">
+            <a href={`/legislators/${l.id}`} className="hover:text-emerald-400">{l.full_name}</a>
+          </h3>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
             {l.title ? (
               <span className="text-zinc-500">{l.title}</span>

@@ -8,12 +8,36 @@ export const metadata = { title: "New campaign" };
 export default async function NewCampaignPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mode?: string }>;
+  searchParams: Promise<{ mode?: string; from_thread?: string }>;
 }) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) redirect("/dashboard");
 
+  const sp = await searchParams;
   const supabase = await createClient();
+
+  // Forum thread → campaign: when a leader hits "Turn into campaign" on a
+  // hot thread, prefill the wizard with the thread's state + draft body.
+  let prefill: { state: string | null; title: string; bodyMd: string } | null = null;
+  if (sp.from_thread && /^[0-9a-f-]{36}$/i.test(sp.from_thread)) {
+    const { data: thread } = await supabase
+      .from("forum_threads")
+      .select("title, body, state, locality")
+      .eq("id", sp.from_thread)
+      .single();
+    if (thread) {
+      const t = thread as { title: string; body: string | null; state: string | null; locality: string | null };
+      prefill = {
+        state: t.state,
+        title: `Take action: ${t.title.slice(0, 160)}`,
+        bodyMd: [
+          t.body?.trim() || "",
+          "",
+          `(Spawned from a ${t.state ?? "national"} forum discussion. Edit before publishing.)`,
+        ].join("\n").trim(),
+      };
+    }
+  }
 
   // Pull all legislators with metadata the wizard needs
   const { data: legislators } = await supabase
@@ -52,7 +76,16 @@ export default async function NewCampaignPage({
           UI up so users can send with one click.
         </p>
       </header>
-      <CampaignWizard legislators={wizardData} localities={localities} />
+      {prefill && (
+        <div className="mb-6 rounded-md border border-emerald-700/40 bg-emerald-950/20 p-3 text-xs text-emerald-200">
+          📨 Prefilled from a forum thread. Tweak the message and ship it.
+        </div>
+      )}
+      <CampaignWizard
+        legislators={wizardData}
+        localities={localities}
+        prefill={prefill ?? undefined}
+      />
     </div>
   );
 }

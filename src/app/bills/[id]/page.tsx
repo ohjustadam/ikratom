@@ -108,6 +108,21 @@ export default async function BillDetailPage({
     ? null
     : await fetchOpenStatesBillDetail(bill.state, bill.bill_number);
 
+  // Sponsors (synced into bill_sponsors). Linked to legislator detail when
+  // we matched their full_name during sync; otherwise just shown as a name.
+  const { data: sponsorsRaw } = await supabase
+    .from("bill_sponsors")
+    .select("legislator_id, name, classification, party, district")
+    .eq("bill_id", bill.id)
+    .order("classification", { ascending: true });
+  const sponsors = (sponsorsRaw ?? []) as Array<{
+    legislator_id: string | null;
+    name: string;
+    classification: string;
+    party: string | null;
+    district: string | null;
+  }>;
+
   // Staleness assessment
   const lastActionMs = bill.last_action_at ? new Date(bill.last_action_at).getTime() : null;
   const daysSinceAction = lastActionMs
@@ -327,6 +342,37 @@ export default async function BillDetailPage({
             </p>
           )}
         </div>
+
+        {/* Sponsors */}
+        {sponsors.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Sponsors ({sponsors.length})
+            </p>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {sponsors.map((s, i) => {
+                const inner = (
+                  <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${
+                    s.classification === "primary"
+                      ? "border-amber-700/50 bg-amber-950/20 text-amber-200"
+                      : "border-zinc-800 bg-zinc-950/40 text-zinc-300"
+                  }`}>
+                    {s.classification === "primary" && <span title="Primary sponsor">★</span>}
+                    <span>{s.name}</span>
+                    {s.party && <span className="text-zinc-500">({s.party}{s.district ? ` · D${s.district}` : ""})</span>}
+                  </span>
+                );
+                return (
+                  <li key={`${s.name}-${i}`}>
+                    {s.legislator_id ? (
+                      <a href={`/legislators/${s.legislator_id}`} className="hover:opacity-80">{inner}</a>
+                    ) : inner}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         {/* Sources */}
         <div className="mt-4 space-y-1">
