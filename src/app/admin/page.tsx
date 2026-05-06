@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { moderationQueueCount } from "@/modules/forum/actions";
+import { pendingCampaignCount } from "@/modules/admin/campaign-review-actions";
 
 export const metadata = { title: "Admin" };
 
@@ -18,6 +19,7 @@ export default async function AdminPage() {
     { count: billCount },
     { count: actionCount },
     queueCount,
+    pendingCampaigns,
   ] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }),
     supabase.from("campaigns").select("id", { count: "exact", head: true }),
@@ -25,6 +27,7 @@ export default async function AdminPage() {
     supabase.from("bills").select("id", { count: "exact", head: true }),
     supabase.from("campaign_actions").select("id", { count: "exact", head: true }),
     moderationQueueCount(),
+    pendingCampaignCount(),
   ]);
 
   return (
@@ -54,6 +57,14 @@ export default async function AdminPage() {
           body="Create, edit, archive call-to-action campaigns."
           accent
         />
+        {adminOnly && (
+          <AdminCard
+            href="/admin/campaigns/pending"
+            title={pendingCampaigns > 0 ? `Campaign review (${pendingCampaigns})` : "Campaign review"}
+            body="Approve or reject auto-generated campaigns flagged for human review."
+            accent={pendingCampaigns > 0}
+          />
+        )}
         <AdminCard
           href="/admin/locals"
           title="Local officials"

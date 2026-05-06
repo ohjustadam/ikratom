@@ -39,6 +39,12 @@ export default async function HomePage() {
           >
             Browse active campaigns
           </a>
+          <a
+            href="/how-it-works"
+            className="rounded-md border border-zinc-700 px-6 py-3 font-semibold hover:border-emerald-500 hover:text-emerald-400"
+          >
+            See what it does
+          </a>
         </div>
       </section>
 

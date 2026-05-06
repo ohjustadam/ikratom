@@ -33,6 +33,11 @@
  *  silence reliably means the bill died with the session. */
 const STALE_AFTER_DAYS = 365;
 
+/** Confidence floor for auto-publishing (active=true). Below → pending review. */
+const AUTO_PUBLISH_CONFIDENCE = 0.85;
+/** Confidence floor for considering at all. Below → skip entirely. */
+const MIN_CONSIDER_CONFIDENCE = 0.6;
+
 /**
  * Compute the "current session" for a state — the highest-string session_id
  * that has any bill activity within the last STALE_AFTER_DAYS. Bills from
@@ -84,6 +89,9 @@ type Bill = {
   last_action_at: string | null;
   session_id: string | null;
   scope: string | null;
+  targets_natural_leaf: boolean | null;
+  targets_synthetic_only: boolean | null;
+  deep_analyzed_at: string | null;
 };
 
 const slugify = (s: string): string =>
@@ -151,7 +159,9 @@ function buildCampaign(bill: Bill) {
 export type AutoCreateResult = {
   considered: number;
   created: number;
+  pending: number;
   skippedExisting: number;
+  skippedSyntheticOnly: number;
   errors: { bill_id: string; reason: string }[];
 };
 
@@ -161,7 +171,9 @@ export async function autoCreateCampaignsForNewAntiBills(
   const result: AutoCreateResult = {
     considered: 0,
     created: 0,
+    pending: 0,
     skippedExisting: 0,
+    skippedSyntheticOnly: 0,
     errors: [],
   };
 
@@ -192,12 +204,12 @@ export async function autoCreateCampaignsForNewAntiBills(
     .select(
       "id, state, bill_number, title, summary_ai, summary, advocacy_callout, " +
       "kratom_relevance, relevance_confidence, status, last_action, last_action_at, " +
-      "session_id, scope",
+      "session_id, scope, targets_natural_leaf, targets_synthetic_only, deep_analyzed_at",
     )
     .eq("active", true)
     .eq("scope", "state")
     .eq("kratom_relevance", "anti")
-    .gte("relevance_confidence", 0.6)
+    .gte("relevance_confidence", MIN_CONSIDER_CONFIDENCE)
     .not("state", "is", null)
     .not("session_id", "is", null)
     .not("status", "in", "(enacted,dead)")
@@ -237,7 +249,31 @@ export async function autoCreateCampaignsForNewAntiBills(
       result.skippedExisting++;
       continue;
     }
-    const row = buildCampaign(bill);
+
+    // PROTECTIVE GATE: a bill that's been deep-analyzed and explicitly
+    // targets only synthetics (NH SB 557 case) shouldn't auto-fire an
+    // anti campaign — even if shallow classifier said 'anti'.
+    if (bill.targets_synthetic_only === true && bill.targets_natural_leaf === false) {
+      result.skippedSyntheticOnly++;
+      continue;
+    }
+
+    // PUBLISH vs REVIEW gate:
+    //   - High confidence (≥ 0.85) AND deep-analysis confirms anti-leaf
+    //     OR no deep-analysis yet (legacy backwards compat)
+    //     → publish active immediately
+    //   - Anything else → land in pending_review queue (active=false)
+    const isHighConfidence = (bill.relevance_confidence ?? 0) >= AUTO_PUBLISH_CONFIDENCE;
+    const isDeepConfirmedAntiLeaf =
+      bill.deep_analyzed_at !== null && bill.targets_natural_leaf === true;
+    const passesShallowOnly = bill.deep_analyzed_at === null; // not yet deep-analyzed
+    const shouldAutoPublish = isHighConfidence && (isDeepConfirmedAntiLeaf || passesShallowOnly);
+
+    const baseRow = buildCampaign(bill);
+    const row = shouldAutoPublish
+      ? { ...baseRow, active: true, review_state: "auto_active" }
+      : { ...baseRow, active: false, review_state: "pending_review" };
+
     const { error } = await supabase.from("campaigns").insert(row);
     if (error) {
       // Slug collision / unique-violation path — try a numeric suffix once
@@ -246,14 +282,15 @@ export async function autoCreateCampaignsForNewAntiBills(
         const { error: retryErr } = await supabase.from("campaigns").insert(altRow);
         if (retryErr) {
           result.errors.push({ bill_id: bill.id, reason: retryErr.message });
-        } else {
-          result.created++;
-        }
+        } else if (shouldAutoPublish) result.created++;
+        else result.pending++;
       } else {
         result.errors.push({ bill_id: bill.id, reason: error.message });
       }
-    } else {
+    } else if (shouldAutoPublish) {
       result.created++;
+    } else {
+      result.pending++;
     }
   }
 

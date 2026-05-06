@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { extractBillDates } from "@/lib/bill-dates";
 
 /**
  * Daily auto-sync cron — wakes once per day, refreshes news + bills.
@@ -258,6 +259,14 @@ async function syncBillsForState(state: State, supabase: SupabaseClient): Promis
       b.sources?.find((s) => s.url && !/openstates\.org/i.test(s.url))?.url ??
       b.sources?.[0]?.url ??
       null;
+
+    // Auto-extract signed + effective dates from action descriptions.
+    // Pure regex; no Ollama.
+    const dates = extractBillDates([
+      b.latest_action_description ?? null,
+      abstract,
+    ]);
+
     return {
       state: state as string,
       bill_number: cap(b.identifier, 60) ?? "—",
@@ -271,6 +280,8 @@ async function syncBillsForState(state: State, supabase: SupabaseClient): Promis
       official_url: cap(officialUrl, 1000),
       session_id: cap(b.session ?? null, 40),
       scope: "state",
+      signed_at: dates.signedAt,
+      effective_date: dates.effectiveDate,
       active: true,
       last_synced_at: new Date().toISOString(),
     };

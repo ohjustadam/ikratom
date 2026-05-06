@@ -24,10 +24,13 @@ export async function generateMetadata({
 
 export default async function CampaignPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ story?: string }>;
 }) {
   const { slug } = await params;
+  const sp = await searchParams;
   const supabase = await createClient();
 
   const { data: campaign } = await supabase
@@ -89,7 +92,27 @@ export default async function CampaignPage({
   // representative for {{legislator_name}}. The body field gets edited client-side.
   const vars = buildVars(profile, targets[0] ?? null, targets);
   const subject = renderTemplate(campaign.subject_template, vars);
-  const body = renderTemplate(campaign.body_template, vars);
+  let body = renderTemplate(campaign.body_template, vars);
+
+  // Story → Letter: if ?story=<id> is present and points to an approved
+  // story, prepend it to the email body so the user can use someone's
+  // first-person testimony as their letter's opener.
+  let attachedStoryTitle: string | null = null;
+  if (sp.story && /^[0-9a-f-]{36}$/i.test(sp.story)) {
+    const { data: story } = await supabase
+      .from("kratom_stories")
+      .select("title, body, anonymous, display_name")
+      .eq("id", sp.story)
+      .eq("moderation_status", "approved")
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (story) {
+      const s = story as { title: string; body: string; anonymous: boolean; display_name: string | null };
+      attachedStoryTitle = s.title;
+      const author = s.anonymous ? "an iKratom advocate" : (s.display_name ?? "an iKratom advocate");
+      body = `Dear Senator/Representative,\n\nI'm sharing the story of ${author}, which spoke to me:\n\n"${s.body}"\n\n— Below is my own message —\n\n${body}`;
+    }
+  }
 
   // Action count for this campaign (social proof)
   const { count: totalActions } = await supabase
@@ -160,6 +183,17 @@ export default async function CampaignPage({
           <p className="mt-3 text-lg text-zinc-300">{campaign.blurb}</p>
         )}
       </header>
+
+      {/* Story attached banner — when ?story=<id> auto-populated the body */}
+      {attachedStoryTitle && (
+        <div className="mb-6 rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-4 text-sm">
+          <p className="font-semibold text-emerald-300">📖 Story attached: {attachedStoryTitle}</p>
+          <p className="mt-1 text-emerald-200/80">
+            We&apos;ve prepended this advocate&apos;s story to your email. Edit anything you
+            want before hitting Send — the more personal it gets, the more it lands.
+          </p>
+        </div>
+      )}
 
       {/* Wave panel — render above the per-user action card so users see the
           coordinated option first when an active wave exists. */}
