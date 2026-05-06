@@ -104,6 +104,11 @@ export default async function AdminPage() {
             body="Sensitive actions, role changes, sync history."
           />
         )}
+        <AdminCard
+          href="/admin/exports"
+          title="Data exports"
+          body="Download CSVs: campaigns, actions, advocates, bills."
+        />
         {adminOnly && (
           <AdminCard
             href="/admin/events/new"

@@ -1,10 +1,13 @@
-import { siteConfig } from "@/config/site.config";
 import { createClient } from "@/lib/supabase/server";
 import { USMap } from "@/components/USMap";
 import { ImpactStats } from "@/components/ImpactStats";
+import { readLocale } from "@/modules/auth/actions-locale";
+import { getMessages } from "@/i18n/messages";
 
 export default async function HomePage() {
   const supabase = await createClient();
+  const locale = await readLocale();
+  const t = getMessages(locale);
   const { data: states } = await supabase
     .from("states")
     .select("abbr, kratom_status");
@@ -12,32 +15,39 @@ export default async function HomePage() {
   for (const s of states ?? []) {
     if (s.kratom_status) statusByAbbr[s.abbr] = s.kratom_status;
   }
+  const isIntl = locale !== "en";
   return (
     <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
+      {/* International callout — only when locale is non-English */}
+      {isIntl && (
+        <div className="mb-8 rounded-lg border border-amber-700/40 bg-amber-950/20 p-4 text-center text-sm text-amber-100">
+          🌏 {t.intl.farmerCallout}
+        </div>
+      )}
+
       {/* Hero */}
       <section className="text-center">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          The advocate&apos;s toolbelt
+          {t.hero.eyebrow}
         </p>
         <h1 className="mt-4 text-5xl font-bold leading-tight sm:text-6xl">
-          Strap in. Send <span className="text-emerald-400">100 emails</span>{" "}
-          across <span className="text-emerald-400">50 states</span> in one click.
+          {t.hero.headline}
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg text-zinc-400">
-          {siteConfig.description}
+          {t.hero.sub}
         </p>
         <div className="mt-10 flex items-center justify-center gap-4">
           <a
             href="/signup"
             className="rounded-md bg-emerald-500 px-6 py-3 font-semibold text-zinc-950 hover:bg-emerald-400"
           >
-            Join the war room
+            {t.hero.ctaJoin}
           </a>
           <a
             href="/campaigns"
             className="rounded-md border border-zinc-700 px-6 py-3 font-semibold hover:border-emerald-500 hover:text-emerald-400"
           >
-            Browse active campaigns
+            {t.hero.ctaBrowse}
           </a>
           <a
             href="/how-it-works"

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { InviteFriends } from "@/components/InviteFriends";
+import { AnnotatedScreenshot, type Pin } from "@/components/AnnotatedScreenshot";
 
 export const metadata = { title: "How iKratom works" };
 
@@ -90,10 +91,45 @@ function Onboarding() {
 function Sections() {
   return (
     <Block title="What you can actually do" eyebrow="02 — Capabilities">
-      <Cap title="Dashboard" body="One view: your matched legislators, your active campaigns, what's happening in your state, what's happening federally." img="/how-it-works/dashboard.PNG" />
-      <Cap title="One-click campaigns" body="Pre-written email, your data autofilled. Send via Gmail (one click sends to all your reps in a batch), Outlook, Apple Mail, or copy-paste. Add a personal video or audio clip." img="/how-it-works/campaigns.PNG" />
-      <Cap title="Bill tracker" body="Every kratom + 7-OH bill across all 50 states, AI-summarized, sponsor list, official-source link, key dates. Auto-updated daily." img="/how-it-works/billtracker.PNG" />
-      <Cap title="Legislators" body="Find your specific senators + reps + state legislators. See their kratom record (anti / pro / leaf-targeting) before you contact them." img="/how-it-works/legislators.PNG" />
+      <CapAnnotated
+        title="Dashboard"
+        body="One view: your matched legislators, your active campaigns, what's happening in your state."
+        src="/how-it-works/dashboard.PNG"
+        pins={[
+          { x: 50, y: 12, n: 1, caption: "Your action streak — 'don't break it' is real motivation" },
+          { x: 50, y: 45, n: 2, caption: "Your specific reps load here based on your address" },
+          { x: 50, y: 80, n: 3, caption: "One-click open campaign cards for active issues in your state" },
+        ]}
+      />
+      <CapAnnotated
+        title="One-click campaigns"
+        body="Pre-written email, your data autofilled. Send via Gmail (one click sends to all your reps in a batch), Outlook, Apple Mail, or copy-paste. Attach a personal video or audio clip."
+        src="/how-it-works/campaigns.PNG"
+        pins={[
+          { x: 18, y: 22, n: 1, caption: "Browse campaigns by state, stance, status, or full-text search" },
+          { x: 50, y: 50, n: 2, caption: "Each card shows urgency badges + bill # + 'Take action' CTA" },
+          { x: 80, y: 30, n: 3, caption: "Your-state campaigns float to the top automatically" },
+        ]}
+      />
+      <CapAnnotated
+        title="Bill tracker"
+        body="Every kratom + 7-OH bill across all 50 states, AI-summarized, sponsor list, official-source link, key dates. Auto-updated daily."
+        src="/how-it-works/billtracker.PNG"
+        pins={[
+          { x: 25, y: 18, n: 1, caption: "Filter by state, stance, status, or session — never read a dead bill" },
+          { x: 75, y: 40, n: 2, caption: "AI summary in plain English + advocacy callout in emerald" },
+          { x: 50, y: 75, n: 3, caption: "Closed-session bills get an amber flag so you don't waste time" },
+        ]}
+      />
+      <CapAnnotated
+        title="Legislators"
+        body="Find your specific senators + reps + state legislators. See their kratom record (anti / pro / leaf-targeting) before you contact them."
+        src="/how-it-works/legislators.PNG"
+        pins={[
+          { x: 30, y: 25, n: 1, caption: "Filter by state, role, party — find the right person fast" },
+          { x: 70, y: 55, n: 2, caption: "Each card links to a profile with sponsor record + contact info" },
+        ]}
+      />
       <Cap title="News" body="Daily Google News scrape, deduplicated across states (no more reading the same AP wire 8 times), AI relevance score + topic tag." img="/how-it-works/news.PNG" />
       <Cap title="Forum (per state)" body="Each state has its own threads. Coordinate with people watching the same fights. Moderated — spam, vendor pushes, and harassment land in the queue, not on your feed." img="/how-it-works/forum1.PNG" />
       <Cap title="Encrypted DMs" body="End-to-end encrypted (libsodium). Even the platform owner can't read your messages. Coordinate sensitively without leaks." img="/how-it-works/messages.PNG" />
@@ -282,6 +318,20 @@ function Cap({ title, body, img }: { title: string; body: string; img: string })
       <a href={img} target="_blank" rel="noreferrer" className="block">
         <Screenshot src={img} alt={title} />
       </a>
+    </div>
+  );
+}
+
+function CapAnnotated({
+  title, body, src, pins,
+}: { title: string; body: string; src: string; pins: Pin[] }) {
+  return (
+    <div className="mt-6 grid gap-5 sm:grid-cols-[1fr_1.4fr] sm:items-start">
+      <div>
+        <h3 className="text-lg font-bold">{title}</h3>
+        <p className="mt-1 text-sm text-zinc-300">{body}</p>
+      </div>
+      <AnnotatedScreenshot src={src} alt={title} pins={pins} />
     </div>
   );
 }

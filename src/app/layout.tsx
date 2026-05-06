@@ -7,6 +7,8 @@ import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
+import { LocaleSwitcher } from "@/components/LocaleSwitcher";
+import { readLocale } from "@/modules/auth/actions-locale";
 import "./globals.css";
 
 const geist = Geist({
@@ -77,11 +79,12 @@ export const viewport: Viewport = {
   viewportFit: "cover",  // iPhone notch / safe-area support
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const locale = await readLocale();
   return (
-    <html lang="en" className={`${geist.variable} h-full antialiased`}>
+    <html lang={locale} className={`${geist.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
         {/* Site-wide emergency banner — renders only when admin toggles emergency_mode on */}
         <EmergencyBanner />
@@ -131,6 +134,10 @@ export default function RootLayout({
               <a href="/cookies" className="hover:text-emerald-400">Cookies</a>
               <a href={`mailto:${siteConfig.links.support}`} className="hover:text-emerald-400">Contact</a>
             </nav>
+            <div className="mb-4 flex items-center justify-center gap-2">
+              <span className="text-zinc-600">🌐</span>
+              <LocaleSwitcher current={locale} />
+            </div>
             <p>
               {siteConfig.name} is a nonpartisan advocacy tool. Not affiliated with any
               kratom organization. Kratom statements have not been evaluated by the FDA.
