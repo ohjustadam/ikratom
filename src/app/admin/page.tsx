@@ -93,6 +93,27 @@ export default async function AdminPage() {
             body="Sensitive actions, role changes, sync history."
           />
         )}
+        {adminOnly && (
+          <AdminCard
+            href="/admin/events/new"
+            title="Town halls + hearings"
+            body="Add upcoming public events where advocates can show up."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
+            href="/admin/stories"
+            title="Story moderation"
+            body="Review user-submitted advocacy stories before they go public."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
+            href="/admin/emergency"
+            title="🚨 Emergency mode"
+            body="Site-wide red banner. Use for FDA action, hostile federal bills, scheduling rumors."
+          />
+        )}
       </section>
 
       <p className="mt-8 text-xs text-zinc-500">

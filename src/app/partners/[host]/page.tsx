@@ -27,32 +27,70 @@ export default async function PartnerStatsPage({
   if (!HOST_RE.test(host)) notFound();
 
   const supabase = await createClient();
+  // 30-day daily series helper
+  function buildDailySeries(rows: { sent_at: string }[]): { day: string; count: number }[] {
+    const buckets: Record<string, number> = {};
+    const now = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      buckets[d.toISOString().slice(0, 10)] = 0;
+    }
+    for (const r of rows) {
+      const day = r.sent_at.slice(0, 10);
+      if (day in buckets) buckets[day]++;
+    }
+    return Object.entries(buckets).map(([day, count]) => ({ day, count }));
+  }
 
-  // All-time totals + per-method breakdown for this referrer
-  const [{ count: totalActions }, { count: emailActions }, { count: callActions }, byCampaign] =
-    await Promise.all([
-      supabase
-        .from("campaign_actions")
-        .select("id", { count: "exact", head: true })
-        .eq("referred_from", host),
-      supabase
-        .from("campaign_actions")
-        .select("id", { count: "exact", head: true })
-        .eq("referred_from", host)
-        .neq("method", "call"),
-      supabase
-        .from("campaign_actions")
-        .select("id", { count: "exact", head: true })
-        .eq("referred_from", host)
-        .eq("method", "call"),
-      // Top campaigns by referred actions (need a join — Supabase will
-      // handle it via the FK)
-      supabase
-        .from("campaign_actions")
-        .select("campaign_id, campaigns(slug, title, state)")
-        .eq("referred_from", host)
-        .limit(500),
-    ]);
+
+  // Last 30 days cutoff for the activity sparkline
+  const since30 = new Date(Date.now() - 30 * 86400_000).toISOString();
+
+  // All-time totals + per-method breakdown for this referrer + last-30-day series
+  const [
+    { count: totalActions },
+    { count: emailActions },
+    { count: callActions },
+    byCampaign,
+    last30,
+    recentRows,
+  ] = await Promise.all([
+    supabase
+      .from("campaign_actions")
+      .select("id", { count: "exact", head: true })
+      .eq("referred_from", host),
+    supabase
+      .from("campaign_actions")
+      .select("id", { count: "exact", head: true })
+      .eq("referred_from", host)
+      .neq("method", "call"),
+    supabase
+      .from("campaign_actions")
+      .select("id", { count: "exact", head: true })
+      .eq("referred_from", host)
+      .eq("method", "call"),
+    // Top campaigns by referred actions (need a join — Supabase will
+    // handle it via the FK)
+    supabase
+      .from("campaign_actions")
+      .select("campaign_id, campaigns(slug, title, state)")
+      .eq("referred_from", host)
+      .limit(500),
+    // Daily counts last 30 days
+    supabase
+      .from("campaign_actions")
+      .select("sent_at, method")
+      .eq("referred_from", host)
+      .gte("sent_at", since30),
+    // Last 10 actions (for the recent-activity feed)
+    supabase
+      .from("campaign_actions")
+      .select("sent_at, method, campaigns(slug, title, state)")
+      .eq("referred_from", host)
+      .order("sent_at", { ascending: false })
+      .limit(10),
+  ]);
 
   // If the partner has zero actions, we still render a "preview" page
   // explaining how the widget works — it's a marketing page even before
@@ -131,11 +169,89 @@ export default async function PartnerStatsPage({
       {hasAnyActivity && (
         <>
           {/* Totals */}
-          <section className="mb-10 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <section className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Stat value={totalActions ?? 0} label="Total actions" accent />
             <Stat value={emailActions ?? 0} label="Emails sent" />
             <Stat value={callActions ?? 0} label="Calls made" />
           </section>
+
+          {/* 30-day sparkline */}
+          {(() => {
+            const series = buildDailySeries((last30.data ?? []) as { sent_at: string }[]);
+            const max = Math.max(1, ...series.map((s) => s.count));
+            const last30Total = series.reduce((a, b) => a + b.count, 0);
+            return (
+              <section className="mb-8">
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+                  Last 30 days · {last30Total.toLocaleString()} actions
+                </h2>
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+                  <div className="flex h-24 items-end gap-1">
+                    {series.map((s) => {
+                      const h = Math.round((s.count / max) * 88);
+                      return (
+                        <div
+                          key={s.day}
+                          title={`${s.day}: ${s.count} action${s.count === 1 ? "" : "s"}`}
+                          className="flex-1 rounded-t bg-emerald-700/40 hover:bg-emerald-500"
+                          style={{ height: `${Math.max(2, h)}px` }}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 flex justify-between text-[10px] text-zinc-600">
+                    <span>{series[0].day.slice(5)}</span>
+                    <span>{series[Math.floor(series.length / 2)].day.slice(5)}</span>
+                    <span>today</span>
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
+
+          {/* Recent activity feed */}
+          {(recentRows.data ?? []).length > 0 && (
+            <section className="mb-8">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+                Recent actions
+              </h2>
+              <ul className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/40">
+                {(recentRows.data ?? []).map((r: { sent_at: string; method: string; campaigns: { slug: string; title: string; state: string | null }[] | { slug: string; title: string; state: string | null } | null }, i: number) => {
+                  const c = Array.isArray(r.campaigns) ? r.campaigns[0] : r.campaigns;
+                  return (
+                    <li
+                      key={i}
+                      className={`flex items-center gap-3 px-4 py-2 text-sm ${
+                        i > 0 ? "border-t border-zinc-900" : ""
+                      }`}
+                    >
+                      <span className="text-zinc-500">
+                        {new Date(r.sent_at).toLocaleString()}
+                      </span>
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
+                        {r.method === "call" ? "📞 call" : "✉ email"}
+                      </span>
+                      {c && (
+                        <a
+                          href={`/campaigns/${c.slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex-1 truncate text-zinc-200 hover:text-emerald-400"
+                        >
+                          {c.title}
+                        </a>
+                      )}
+                      {c?.state && (
+                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                          {c.state}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
           {/* Top campaigns */}
           {topCampaigns.length > 0 && (

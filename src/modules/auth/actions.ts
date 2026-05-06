@@ -15,17 +15,54 @@ import type { AuthResult } from "./types";
  * (set by the proxy when the user arrived via an embed widget or shared
  * state-specific link).
  */
-async function findCampaignForState(
+async function findBestCampaignForUser(
   supabase: Awaited<ReturnType<typeof createClient>>,
   stateCode: string,
+  userCity: string | null,
+  userCounty: string | null,
 ): Promise<string | null> {
   // FED → no state-specific campaign yet; fall back to /campaigns list
   if (stateCode === "FED") return null;
+
+  // Prefer most-local match: if user has city + the state has an active
+  // campaign with target_locality matching that city, route there.
+  // Then fall back to county, then state-only.
+  const cityKey = userCity ? `${userCity}, ${stateCode}` : null;
+  const countyKey = userCounty ? `${userCounty}, ${stateCode}` : null;
+
+  // 1. City-specific
+  if (cityKey) {
+    const { data } = await supabase
+      .from("campaigns")
+      .select("slug")
+      .eq("active", true)
+      .eq("state", stateCode)
+      .eq("target_locality", cityKey)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) return (data as { slug: string }).slug;
+  }
+  // 2. County-specific
+  if (countyKey) {
+    const { data } = await supabase
+      .from("campaigns")
+      .select("slug")
+      .eq("active", true)
+      .eq("state", stateCode)
+      .eq("target_locality", countyKey)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) return (data as { slug: string }).slug;
+  }
+  // 3. State-only (no target_locality)
   const { data } = await supabase
     .from("campaigns")
     .select("slug")
     .eq("active", true)
     .eq("state", stateCode)
+    .is("target_locality", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -148,10 +185,21 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   // widget or a state-specific shared link, the proxy stashed a
   // landing_state cookie. Try to route them into a matched active
   // campaign instead of /dashboard. Onboarding still wins.
+  // Prefers city > county > state-level match using the user's profile.
   if (dest === "/dashboard" && data.user) {
     const landingState = await consumeLandingState();
     if (landingState) {
-      const slug = await findCampaignForState(supabase, landingState);
+      const { data: locInfo } = await supabase
+        .from("profiles")
+        .select("city, county")
+        .eq("id", data.user.id)
+        .single();
+      const slug = await findBestCampaignForUser(
+        supabase,
+        landingState,
+        (locInfo as { city: string | null; county: string | null } | null)?.city ?? null,
+        (locInfo as { city: string | null; county: string | null } | null)?.county ?? null,
+      );
       if (slug) dest = `/campaigns/${slug}`;
     }
   }

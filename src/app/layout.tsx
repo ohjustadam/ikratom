@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import { siteConfig } from "@/config/site.config";
 import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
 import { CookieBanner } from "@/components/CookieBanner";
+import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
@@ -67,6 +68,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
+        {/* Site-wide emergency banner — renders only when admin toggles emergency_mode on */}
+        <EmergencyBanner />
+
         <header
           className="sticky top-0 z-30 border-b border-zinc-800 bg-zinc-950/85 backdrop-blur"
           style={{ paddingTop: "env(safe-area-inset-top)" }}
