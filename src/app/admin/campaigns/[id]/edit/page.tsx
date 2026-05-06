@@ -44,7 +44,13 @@ export default async function EditCampaignPage({
             <span className="font-mono">{campaign.slug}</span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={`/admin/campaigns/${campaign.id}/stats`}
+            className="rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-sm text-emerald-300 hover:border-emerald-500"
+          >
+            📊 Analytics
+          </a>
           <a
             href={`/admin/campaigns/${campaign.id}/waves/new`}
             className="rounded-md border border-amber-700/50 bg-amber-950/20 px-3 py-1.5 text-sm text-amber-300 hover:border-amber-500"

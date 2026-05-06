@@ -3,10 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { listMfa } from "@/modules/auth/actions-mfa";
 import { listBackupCodes } from "@/modules/auth/actions-backup-codes";
 import { listMySessions } from "@/modules/auth/actions-sessions";
+import { getPushVapidPublicKey } from "@/modules/auth/actions-push";
 import { MfaPanel } from "@/modules/auth/components/MfaPanel";
 import { BackupCodes } from "@/modules/auth/components/BackupCodes";
 import { ChangePasswordForm } from "@/modules/auth/components/ChangePasswordForm";
 import { SessionsPanel } from "@/modules/auth/components/SessionsPanel";
+import { PushSubscribe } from "@/modules/auth/components/PushSubscribe";
 
 export const metadata = { title: "Security" };
 
@@ -30,6 +32,7 @@ export default async function SecurityPage() {
   const verifiedCount = summary.factors.filter((f) => f.status === "verified").length;
   const backupCodes = await listBackupCodes();
   const sessions = await listMySessions();
+  const vapidPublicKey = await getPushVapidPublicKey();
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
@@ -111,6 +114,18 @@ export default async function SecurityPage() {
           </p>
         </div>
         <SessionsPanel initial={sessions} />
+      </section>
+
+      {/* Push notifications */}
+      <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold">Push notifications</h2>
+          <p className="text-xs text-zinc-500">
+            Get a browser/phone notification the moment a hostile bill drops in
+            your state, or when a wave you joined is firing.
+          </p>
+        </div>
+        <PushSubscribe vapidPublicKey={vapidPublicKey} />
       </section>
 
       <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 text-sm text-zinc-400">

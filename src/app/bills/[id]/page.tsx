@@ -133,6 +133,26 @@ export default async function BillDetailPage({
   const relevance = RELEVANCE_STYLE[bill.kratom_relevance ?? "neutral"] ?? RELEVANCE_STYLE.neutral;
   const status = bill.status ? (STATUS_LABEL[bill.status] ?? bill.status) : null;
 
+  // Similar bills: same stance + active + within last 365 days, excluding
+  // this bill. Surfaces "this anti-kratom bill is moving in 4 states this
+  // session" insight.
+  const since = new Date(Date.now() - 365 * 86400_000).toISOString().slice(0, 10);
+  const { data: similarRaw } = bill.kratom_relevance
+    ? await supabase
+        .from("bills")
+        .select("id, state, bill_number, title, status, last_action_at, scope")
+        .eq("kratom_relevance", bill.kratom_relevance)
+        .eq("active", true)
+        .neq("id", bill.id)
+        .gte("last_action_at", since)
+        .order("last_action_at", { ascending: false })
+        .limit(8)
+    : { data: [] };
+  const similar = (similarRaw ?? []) as Array<{
+    id: string; state: string; bill_number: string; title: string | null;
+    status: string | null; last_action_at: string | null; scope: string | null;
+  }>;
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <a href={`/bills?state=${bill.state}`} className="text-xs text-zinc-500 hover:text-emerald-400">
@@ -461,6 +481,49 @@ export default async function BillDetailPage({
               </li>
             ))}
           </ol>
+        </section>
+      )}
+
+      {/* Similar bills (same stance, active in last 365d) */}
+      {similar.length > 0 && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+            Similar bills moving now ({similar.length})
+          </h2>
+          <p className="mt-1 text-xs text-zinc-400">
+            Other {bill.kratom_relevance}-classified bills active in the last
+            12 months. Often the same template legislation moving through
+            multiple states at once.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {similar.map((s) => (
+              <li key={s.id} className="rounded-md border border-zinc-900 bg-zinc-950 p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
+                    {s.state} · {s.bill_number}
+                  </span>
+                  {s.scope && s.scope !== "state" && (
+                    <span className="rounded bg-purple-950/40 px-1.5 py-0.5 capitalize text-purple-300">
+                      {s.scope}
+                    </span>
+                  )}
+                  {s.status && (
+                    <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">
+                      {STATUS_LABEL[s.status] ?? s.status}
+                    </span>
+                  )}
+                  {s.last_action_at && (
+                    <span className="ml-auto text-zinc-500">
+                      {new Date(s.last_action_at).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+                <a href={`/bills/${s.id}`} className="mt-1 block text-zinc-200 hover:text-emerald-400">
+                  {s.title ?? "(untitled)"}
+                </a>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

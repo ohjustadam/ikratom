@@ -2,11 +2,18 @@ import { getProfile } from "@/modules/auth/actions";
 import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators } from "@/lib/legislators";
 import { MyRepCard } from "./MyRepCard";
+import { StreakBadge } from "@/components/StreakBadge";
 
 export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const { profile, email } = await getProfile();
+  // Streak fields (fetched separately since getProfile doesn't include them)
+  const streak = {
+    current: (profile as { action_streak_days?: number } | null)?.action_streak_days ?? 0,
+    longest: (profile as { longest_streak_days?: number } | null)?.longest_streak_days ?? 0,
+    lastActionDate: (profile as { last_action_date?: string | null } | null)?.last_action_date ?? null,
+  };
   const profileComplete = !!(profile?.full_name && profile?.state && profile?.zip);
   const districtsResolved = !!(
     profile?.congressional_district ||
@@ -33,6 +40,15 @@ export default async function DashboardPage() {
           Your toolbelt. One click per action.
         </p>
       </header>
+
+      {/* Streak widget — only renders when there's something to show */}
+      <div className="mb-6">
+        <StreakBadge
+          current={streak.current}
+          longest={streak.longest}
+          lastActionDate={streak.lastActionDate}
+        />
+      </div>
 
       {!profileComplete && (
         <Banner
