@@ -3,18 +3,28 @@ import { getAdminContext } from "@/modules/admin/actions";
 import {
   listRecentChatMessages,
   listMutedChatUsers,
+  listBanReviewQueue,
 } from "@/modules/admin/lounge-actions";
 import { LoungeModerationPanel } from "./LoungeModerationPanel";
 
+/**
+ * /admin/lounge — central moderation surface for the Lounge chat.
+ *
+ * Top section: ban-review queue (≥72h cumulative mutes). Middle section:
+ * currently-muted users with one-click unmute. Bottom: latest 200
+ * messages with bulk-delete + per-row mute. Server-side data fetch so
+ * the admin always lands on a fresh snapshot.
+ */
 export const metadata = { title: "Lounge moderation" };
 
 export default async function AdminLoungePage() {
   const ctx = await getAdminContext();
   if (!ctx.ok) redirect("/dashboard");
 
-  const [msgs, muted] = await Promise.all([
+  const [msgs, muted, banReview] = await Promise.all([
     listRecentChatMessages({ limit: 200, room: "lounge" }),
     listMutedChatUsers(),
+    listBanReviewQueue(),
   ]);
 
   const messages = "ok" in msgs ? msgs.rows : [];
@@ -22,6 +32,13 @@ export default async function AdminLoungePage() {
     id: string;
     full_name: string | null;
     chat_muted_until: string | null;
+  }[];
+  const banReviewRows = ("ok" in banReview ? banReview.rows : []) as {
+    user_id: string;
+    full_name: string | null;
+    mute_count: number;
+    total_capped_hours: number;
+    current_mute_until: string | null;
   }[];
 
   return (
@@ -38,7 +55,11 @@ export default async function AdminLoungePage() {
         </p>
       </header>
 
-      <LoungeModerationPanel initialMessages={messages} initialMuted={mutedUsers} />
+      <LoungeModerationPanel
+        initialMessages={messages}
+        initialMuted={mutedUsers}
+        initialBanReview={banReviewRows}
+      />
     </div>
   );
 }

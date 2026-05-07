@@ -76,18 +76,18 @@ export function Lounge({
         (payload) => {
           const m = payload.new as ChatMessage;
           setMessages((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, m]));
-          // Lazy-fetch the author name if we don't have it yet
+          // Lazy-fetch the author name via the SECURITY DEFINER RPC so we
+          // can resolve names regardless of viewer's RLS scope. (Direct
+          // profiles SELECT only works for admins or self.)
           if (m.user_id && !(m.user_id in authorMap)) {
             supabase
-              .from("profiles")
-              .select("id, full_name, is_admin")
-              .eq("id", m.user_id)
-              .single()
-              .then(({ data }: { data: { id: string; full_name: string | null; is_admin: boolean | null } | null }) => {
-                if (cancelled || !data) return;
+              .rpc("get_public_profile", { p_id: m.user_id })
+              .then((res: { data: { id: string; full_name: string | null; is_admin: boolean | null }[] | null }) => {
+                const row = res.data?.[0];
+                if (cancelled || !row) return;
                 setAuthorMap((cur) => ({
                   ...cur,
-                  [data.id]: { name: data.full_name ?? "(no name)", isAdmin: !!data.is_admin },
+                  [row.id]: { name: row.full_name ?? "(no name)", isAdmin: !!row.is_admin },
                 }));
               });
           }

@@ -116,16 +116,20 @@ export async function muteUserFromChat(input: {
   if (!/^[0-9a-f-]{36}$/i.test(userId)) return { error: "Invalid user id." };
 
   let until: string | null;
+  let durationHours: number | null;
   if (input.hours === "forever") {
     until = new Date(Date.now() + MAX_HOURS * 3600_000).toISOString();
+    durationHours = MAX_HOURS;
   } else if (input.hours === 0) {
     until = null;
+    durationHours = null;
   } else {
     const h = Number(input.hours);
     if (!Number.isFinite(h) || h <= 0 || h > MAX_HOURS) {
       return { error: `Hours must be between 1 and ${MAX_HOURS}.` };
     }
     until = new Date(Date.now() + h * 3600_000).toISOString();
+    durationHours = h;
   }
 
   const supabase = await createClient();
@@ -134,6 +138,18 @@ export async function muteUserFromChat(input: {
     .update({ chat_muted_until: until })
     .eq("id", userId);
   if (error) return { error: error.message };
+
+  // Log mute event so we can compute cumulative mute time → ban-review.
+  // Unmutes (durationHours=null) don't add a row — the trail is only of
+  // restrictive actions, not their reversal.
+  if (durationHours !== null) {
+    await supabase.from("chat_mute_history").insert({
+      user_id: userId,
+      muted_by: ctx.userId,
+      duration_hours: durationHours,
+      reason: input.reason ?? null,
+    });
+  }
 
   await recordAdminAction({
     action: until ? "mod.chat_mute" : "mod.chat_unmute",
@@ -191,4 +207,53 @@ export async function listMutedChatUsers() {
     .order("chat_muted_until", { ascending: false });
   if (error) return { error: error.message };
   return { ok: true, rows: data ?? [] };
+}
+
+/**
+ * Users whose cumulative mute history (capped at 168h per event) is at
+ * or above the 72-hour ban-review threshold. Surfaces in /admin/lounge so
+ * the owner can decide: revoke, permaban, or reset history.
+ */
+export async function listBanReviewQueue() {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admins only." };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("chat_ban_review_queue");
+  if (error) return { error: error.message };
+  return {
+    ok: true,
+    rows: (data ?? []) as {
+      user_id: string;
+      full_name: string | null;
+      mute_count: number;
+      total_capped_hours: number;
+      current_mute_until: string | null;
+    }[],
+  };
+}
+
+/**
+ * Wipe a user's mute history without unmuting them. Use after reviewing
+ * — "warning given, fresh slate" — so a 4th offense isn't compared to
+ * historical sins. The current mute (if any) is untouched.
+ */
+export async function clearMuteHistory(userId: string) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admins only." };
+  if (!/^[0-9a-f-]{36}$/i.test(userId)) return { error: "Invalid user id." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("chat_mute_history")
+    .delete()
+    .eq("user_id", userId);
+  if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "mod.chat_history_clear",
+    targetType: "user",
+    targetId: userId,
+  });
+  revalidatePath("/admin/lounge");
+  return { ok: true };
 }

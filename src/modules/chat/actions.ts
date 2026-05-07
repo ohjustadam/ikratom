@@ -91,8 +91,11 @@ export async function postChatMessage(input: { body: string; room?: string }) {
   }
 
   // Rate limit: graduated. Privileged users get a generous cap; very new
-  // accounts get a tight one; everyone else the default.
-  const limit = isPrivileged ? 30 : accountHours < NEW_ACCOUNT_HOURS_TIGHT ? 2 : 10;
+  // accounts get a tighter one (so a stuck-finger newcomer doesn't get
+  // permabanned by a few duplicates); everyone else the default.
+  // 5/min for <1h accounts is enough for normal banter without making the
+  // experience feel hostile to genuine new users.
+  const limit = isPrivileged ? 30 : accountHours < NEW_ACCOUNT_HOURS_TIGHT ? 5 : 10;
   if (!(await checkRateLimit(`chat:user:${user.id}`, limit, 60))) {
     return { error: `Slow down — ${limit} messages a minute.` };
   }
