@@ -73,6 +73,25 @@ export default async function AccountPage({
       </div>
 
       <header className="mb-6 mt-12">
+        <h2 className="text-2xl font-bold">Verified vendor</h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          For business owners — get verified to send advocacy emails as your shop or brand,
+          in addition to as yourself.
+        </p>
+      </header>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <a
+          href="/account/vendor"
+          className="inline-flex items-center gap-2 rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium hover:border-emerald-500 hover:text-emerald-400"
+        >
+          Manage vendor status →
+        </a>
+        <p className="mt-3 text-xs text-zinc-500">
+          Apply to be verified, view approval status, and see your business representation.
+        </p>
+      </div>
+
+      <header className="mb-6 mt-12">
         <h2 className="text-2xl font-bold">Privacy</h2>
         <p className="mt-1 text-sm text-zinc-400">
           Your direct messages are end-to-end encrypted by default. No setup needed.
