@@ -16,6 +16,7 @@
     "sync:bills": "node --env-file=.env.local scripts/sync-bills.mjs",
     "enrich:bills": "node --env-file=.env.local scripts/enrich-bills.mjs",
     "enrich:bills:deep": "node --env-file=.env.local scripts/enrich-bills-deep.mjs",
+    "translate:content": "node --env-file=.env.local scripts/translate-content.mjs",
     "dedupe:news": "node --env-file=.env.local scripts/dedupe-news.mjs",
     "dedupe:locals": "node --env-file=.env.local scripts/dedupe-locals.mjs",
     "research:campaign": "node --env-file=.env.local scripts/research-campaign.mjs",
@@ -26,13 +27,15 @@
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.103.2",
+    "@types/web-push": "^3.6.4",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "libsodium-wrappers": "^0.8.4",
     "marked": "^18.0.3",
     "next": "16.2.3",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

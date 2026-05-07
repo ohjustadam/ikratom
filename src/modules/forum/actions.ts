@@ -361,6 +361,120 @@ export async function removeContent(input: {
   return { ok: true };
 }
 
+/** Bulk approve N items at once. Admin/leader only. */
+export async function bulkApproveContent(input: {
+  posts?: string[];
+  threads?: string[];
+}) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, is_owner, is_advocate_leader")
+    .eq("id", user.id)
+    .single();
+  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) {
+    return { error: "Moderators only." };
+  }
+
+  const postIds = (input.posts ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
+  const threadIds = (input.threads ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
+
+  let approved = 0;
+  if (postIds.length > 0) {
+    const { error } = await supabase
+      .from("forum_posts")
+      .update({ moderation_status: "approved", flag_reason: null, auto_flag_signals: null })
+      .in("id", postIds);
+    if (!error) approved += postIds.length;
+    await supabase
+      .from("forum_post_reports")
+      .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "approved" })
+      .in("post_id", postIds)
+      .is("resolved_at", null);
+  }
+  if (threadIds.length > 0) {
+    const { error } = await supabase
+      .from("forum_threads")
+      .update({ moderation_status: "approved", flag_reason: null, auto_flag_signals: null })
+      .in("id", threadIds);
+    if (!error) approved += threadIds.length;
+    await supabase
+      .from("forum_post_reports")
+      .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "approved" })
+      .in("thread_id", threadIds)
+      .is("resolved_at", null);
+  }
+
+  await recordAdminAction({
+    action: "bulk_approve",
+    targetType: "post",
+    details: { posts: postIds.length, threads: threadIds.length },
+  });
+
+  revalidatePath("/admin/forum");
+  return { ok: true, count: approved };
+}
+
+/** Bulk remove N items at once. Admin/leader only. */
+export async function bulkRemoveContent(input: {
+  posts?: string[];
+  threads?: string[];
+  reason?: string;
+}) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, is_owner, is_advocate_leader")
+    .eq("id", user.id)
+    .single();
+  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) {
+    return { error: "Moderators only." };
+  }
+
+  const postIds = (input.posts ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
+  const threadIds = (input.threads ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
+  const reason = (input.reason || "Bulk removal").slice(0, 500);
+
+  let removed = 0;
+  if (postIds.length > 0) {
+    const { error } = await supabase
+      .from("forum_posts")
+      .update({ moderation_status: "removed", flag_reason: reason })
+      .in("id", postIds);
+    if (!error) removed += postIds.length;
+    await supabase
+      .from("forum_post_reports")
+      .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "removed" })
+      .in("post_id", postIds)
+      .is("resolved_at", null);
+  }
+  if (threadIds.length > 0) {
+    const { error } = await supabase
+      .from("forum_threads")
+      .update({ moderation_status: "removed", flag_reason: reason })
+      .in("id", threadIds);
+    if (!error) removed += threadIds.length;
+    await supabase
+      .from("forum_post_reports")
+      .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "removed" })
+      .in("thread_id", threadIds)
+      .is("resolved_at", null);
+  }
+
+  await recordAdminAction({
+    action: "bulk_remove",
+    targetType: "post",
+    details: { posts: postIds.length, threads: threadIds.length, reason },
+  });
+
+  revalidatePath("/admin/forum");
+  return { ok: true, count: removed };
+}
+
 /** Count of items needing review. Admin/leader only. */
 export async function moderationQueueCount(): Promise<number> {
   const supabase = await createClient();

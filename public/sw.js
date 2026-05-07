@@ -106,6 +106,51 @@ async function cacheFirst(req) {
   }
 }
 
+// ── Web Push ──────────────────────────────────────────────────────
+// Server sends a JSON payload like { title, body, link } via web-push;
+// we surface it as a system notification. Click opens the link (or the
+// notifications page as a fallback) and focuses an existing tab if one
+// is already open to that URL.
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { title: "iKratom", body: event.data ? event.data.text() : "" };
+  }
+  const title = payload.title || "iKratom";
+  const options = {
+    body: payload.body || "",
+    icon: "/icon",
+    badge: "/icon",
+    data: { link: payload.link || "/notifications" },
+    tag: payload.tag || undefined,
+    renotify: !!payload.tag,
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.link) || "/notifications";
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const url = new URL(target, self.location.origin).href;
+      for (const c of all) {
+        if (c.url === url && "focus" in c) return c.focus();
+      }
+      for (const c of all) {
+        if ("navigate" in c && "focus" in c) {
+          await c.navigate(url).catch(() => {});
+          return c.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    })(),
+  );
+});
+
 async function networkFirst(req) {
   try {
     const res = await fetch(req);

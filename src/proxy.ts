@@ -19,7 +19,26 @@ const HOST_RE = /^[a-z0-9.-]{1,80}$/;
 // State codes: 2 ASCII letters, or "FED" for federal.
 const STATE_RE = /^([A-Z]{2}|FED)$/;
 
+// Hard-block declared AI-training crawlers + abusive scrapers at the
+// edge. Vercel WAF would be cleaner but it's a paid feature; this is the
+// free substitute. Honor system + cheap to update — paste a UA into the
+// list and it gets a 403 within seconds of redeploy.
+const BLOCKED_UA_RE = /(GPTBot|ClaudeBot|Claude-Web|anthropic-ai|CCBot|Google-Extended|PerplexityBot|YouBot|Bytespider|Meta-ExternalAgent|Meta-ExternalFetcher|Diffbot|ImagesiftBot|DataForSeoBot|cohere-ai|ai2bot|Timpibot|MJ12bot|AhrefsBot|SemrushBot|DotBot|MegaIndex|PetalBot|BLEXBot|SeznamBot|SerendeputyBot)/i;
+
 export async function proxy(request: NextRequest) {
+  // ── Bot block at the edge — runs before any Supabase setup ───────
+  // Don't bother with Supabase + cookies for crawlers we'd block anyway.
+  const ua = request.headers.get("user-agent") ?? "";
+  if (ua && BLOCKED_UA_RE.test(ua)) {
+    return new NextResponse("Forbidden", {
+      status: 403,
+      headers: {
+        "Content-Type": "text/plain",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    });
+  }
+
   let response = NextResponse.next({ request });
 
   // ── Embed referral capture ──────────────────────────────────────
