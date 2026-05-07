@@ -8,6 +8,8 @@ import { DangerZone } from "@/modules/auth/components/DangerZone";
 import { listBlockedUsers } from "@/modules/dm/block-actions";
 import { getNotificationPrefs } from "@/modules/notifications/actions";
 import { NotificationPrefsForm } from "@/modules/notifications/components/NotificationPrefsForm";
+import { getPushVapidPublicKey } from "@/modules/auth/actions-push";
+import { PushSubscribe } from "@/modules/auth/components/PushSubscribe";
 
 export const metadata = { title: "Account" };
 
@@ -21,6 +23,7 @@ export default async function AccountPage({
   const notifPrefs = await getNotificationPrefs();
   const gmailStatus = await getGmailStatus();
   const blocked = await listBlockedUsers();
+  const vapidPublicKey = await getPushVapidPublicKey();
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
@@ -92,6 +95,15 @@ export default async function AccountPage({
       </header>
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <NotificationPrefsForm initial={notifPrefs} />
+      </div>
+
+      <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <h3 className="mb-1 text-sm font-semibold">Push notifications</h3>
+        <p className="mb-3 text-xs text-zinc-500">
+          Get a browser/phone alert the moment a hostile bill drops in your state,
+          or when a wave you joined is firing.
+        </p>
+        <PushSubscribe vapidPublicKey={vapidPublicKey} />
       </div>
 
       <header className="mb-6 mt-12">

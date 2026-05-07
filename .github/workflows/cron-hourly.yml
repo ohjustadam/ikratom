@@ -1,0 +1,45 @@
+name: Hourly cron
+
+# Vercel Hobby plan only allows daily crons. We use GitHub Actions to hit the
+# /api/cron/fire-waves endpoint hourly, which fires due email waves, sends
+# 1-hour reminders, and fans out web push notifications. The endpoint is
+# bearer-token gated by CRON_SECRET so this is safe to invoke from CI.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   - CRON_SECRET   same value as Vercel env var
+#   - APP_URL       the deployed origin, e.g. https://ikratom.app
+#
+# GitHub Actions cron is best-effort — runs may be skipped or delayed by a
+# few minutes during high load on github.com. That's acceptable for this
+# workload (waves are scheduled at hour boundaries; ±5 min is fine).
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: {}
+
+# Don't pile up runs if a previous one is still going (or if GitHub is
+# delayed and queued multiple).
+concurrency:
+  group: hourly-cron
+  cancel-in-progress: false
+
+jobs:
+  fire-waves:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Hit /api/cron/fire-waves
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
+            echo "::error::Missing CRON_SECRET or APP_URL repo secret"
+            exit 1
+          fi
+          # -fsS: fail on HTTP error, silent progress, still show errors
+          # --max-time 240: matches the function timeout headroom
+          curl -fsS --max-time 240 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/fire-waves"

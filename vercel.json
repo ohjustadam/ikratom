@@ -4,10 +4,6 @@
     {
       "path": "/api/cron/daily-sync",
       "schedule": "0 12 * * *"
-    },
-    {
-      "path": "/api/cron/fire-waves",
-      "schedule": "0 * * * *"
     }
   ]
 }
