@@ -113,6 +113,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/vendor-applications"
+            title="Vendor applications"
+            body="Review users applying to be verified vendors. Approve to unlock business-signature on advocacy actions."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/audit"
             title="Audit log"
             body="Sensitive actions, role changes, sync history."
