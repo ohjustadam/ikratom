@@ -113,6 +113,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/ai-control"
+            title="AI Command Center"
+            body="Live status of Ollama / Gemini / Groq + email provider quotas. 24-hour activity, cost tracking, recent job log."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/vendor-applications"
             title="Vendor applications"
             body="Review users applying to be verified vendors. Approve to unlock business-signature on advocacy actions."
