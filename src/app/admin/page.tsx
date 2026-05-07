@@ -120,6 +120,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/discord-integrations"
+            title="Discord integrations"
+            body="Connect partner server webhooks. Bill alerts and campaign launches auto-post to their channels."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/vendor-applications"
             title="Vendor applications"
             body="Review users applying to be verified vendors. Approve to unlock business-signature on advocacy actions."
