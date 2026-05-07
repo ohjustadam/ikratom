@@ -296,7 +296,7 @@ function FbMigration() {
         <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
           Invite specific people you trust
         </p>
-        <InviteFriends inviteUrl={process.env.APP_URL ?? "https://ikratom.app"} />
+        <InviteFriends inviteUrl={process.env.APP_URL ?? "https://ikratom.org"} />
       </div>
     </Block>
   );

@@ -27,7 +27,7 @@ Make sure these are live and stable:
 
 ## Step 1 — Get a real domain (if not already)
 
-1. Buy a domain (Cloudflare Registrar = cheapest, no markup): `ikratom.com`, `ikratom.org`, `ikratom.app`, etc.
+1. Buy a domain (Cloudflare Registrar = cheapest, no markup): `ikratom.com`, `ikratom.org`, `ikratom.org`, etc.
 2. In Vercel: project → **Settings → Domains** → add the domain → Vercel gives you DNS records to set
 3. Set them at your registrar
 4. Wait ~10 min for propagation

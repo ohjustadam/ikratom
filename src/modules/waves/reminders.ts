@@ -71,7 +71,7 @@ export async function sendWaveReminders(supabase: SupabaseClient): Promise<{
     const headline = `Wave fires in less than 2 hours: ${campaign.title}`;
     const body = `Reminder: the coalition wave you joined fires at ${fireTime}.
 
-Make sure your Gmail is still connected at https://${process.env.APP_URL ?? "ikratom.app"}/account — that's where the email goes from. If anything looks off, you can pull out anytime before fire time at the campaign page.`;
+Make sure your Gmail is still connected at https://${process.env.APP_URL ?? "ikratom.org"}/account — that's where the email goes from. If anything looks off, you can pull out anytime before fire time at the campaign page.`;
 
     for (const s of signups as Array<{ id: string; user_id: string }>) {
       const target = emailById.get(s.user_id);
@@ -81,7 +81,7 @@ Make sure your Gmail is still connected at https://${process.env.APP_URL ?? "ikr
         headline,
         body: `<p>${body.replace(/\n/g, "<br>")}</p>`,
         ctaLabel: "Open campaign",
-        ctaHref: `${process.env.APP_URL ?? "https://ikratom.app"}/campaigns/${campaign.slug}`,
+        ctaHref: `${process.env.APP_URL ?? "https://ikratom.org"}/campaigns/${campaign.slug}`,
       });
       const r = await sendTransactionalEmail({
         to: target.email,

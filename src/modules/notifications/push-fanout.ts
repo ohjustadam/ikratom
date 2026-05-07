@@ -16,7 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 
 const MAX_PER_RUN = 500;
-const SITE_URL = process.env.APP_URL || "https://ikratom.app";
+const SITE_URL = process.env.APP_URL || "https://ikratom.org";
 
 type Notification = {
   id: string;

@@ -136,7 +136,7 @@ export function brandedHtml(input: { headline: string; body: string; ctaLabel?: 
         </td></tr>
         <tr><td style="padding:24px 32px;border-top:1px solid #27272a;font-size:11px;color:#71717a;">
           You are receiving this because of activity on your iKratom account.
-          Manage notifications at <a href="https://ikratom.app/account" style="color:#10b981;">/account</a>.
+          Manage notifications at <a href="https://ikratom.org/account" style="color:#10b981;">/account</a>.
         </td></tr>
       </table>
     </td></tr>
