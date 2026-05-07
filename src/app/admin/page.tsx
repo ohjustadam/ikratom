@@ -106,6 +106,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/partners"
+            title="Partner shops"
+            body="Add a shop, print a counter-kit (poster + card + window cling + stickers) with a QR code that credits sign-ups back."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/audit"
             title="Audit log"
             body="Sensitive actions, role changes, sync history."
