@@ -300,7 +300,7 @@ export default async function PartnerStatsPage({
         </p>
         <div className="mt-3 overflow-x-auto rounded-md border border-zinc-800 bg-zinc-950 p-3">
           <code className="font-mono text-xs text-emerald-300">
-            https://ikratom.org/partners/{host}
+            https://www.ikratom.org/partners/{host}
           </code>
         </div>
       </section>

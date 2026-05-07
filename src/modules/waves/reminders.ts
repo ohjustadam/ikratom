@@ -81,7 +81,7 @@ Make sure your Gmail is still connected at https://${process.env.APP_URL ?? "ikr
         headline,
         body: `<p>${body.replace(/\n/g, "<br>")}</p>`,
         ctaLabel: "Open campaign",
-        ctaHref: `${process.env.APP_URL ?? "https://ikratom.org"}/campaigns/${campaign.slug}`,
+        ctaHref: `${process.env.APP_URL ?? "https://www.ikratom.org"}/campaigns/${campaign.slug}`,
       });
       const r = await sendTransactionalEmail({
         to: target.email,

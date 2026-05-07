@@ -6,7 +6,7 @@ import type { MetadataRoute } from "next";
  * limits + CSP for stuff that matters.
  */
 export default function robots(): MetadataRoute.Robots {
-  const base = process.env.APP_URL ?? "https://ikratom.org";
+  const base = process.env.APP_URL ?? "https://www.ikratom.org";
   return {
     rules: [
       // Normal search engines

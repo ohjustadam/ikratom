@@ -18,8 +18,8 @@ Owner-side runbook. Steps in order. Tick each as you complete.
 
 ## ☐ Update `APP_URL` in 3 places
 
-A. **Vercel Production env** → Settings → Environment Variables → `APP_URL` = `https://ikratom.org`
-B. **GitHub Actions repo secret** → Settings → Secrets → `APP_URL` = `https://ikratom.org`
+A. **Vercel Production env** → Settings → Environment Variables → `APP_URL` = `https://www.ikratom.org`
+B. **GitHub Actions repo secret** → Settings → Secrets → `APP_URL` = `https://www.ikratom.org`
 C. **Local `.env.local`** — leave at `http://localhost:3001` for dev (or comment-noted)
 
 Then trigger a Vercel redeploy (env changes don't auto-redeploy): Deployments → ⋯ on latest → **Redeploy**.
@@ -57,11 +57,11 @@ Already configured for `localhost`; needs prod domain added.
 
 1. https://console.cloud.google.com → existing OAuth project
 2. **APIs & Services** → **OAuth consent screen**
-   - **App domain:** `https://ikratom.org`
+   - **App domain:** `https://www.ikratom.org`
    - **Authorized domains:** add `ikratom.org`
    - **Developer contact:** `support@ikratom.org`
 3. **Credentials** → click your OAuth client ID
-   - **Authorized redirect URIs:** add `https://ikratom.org/api/oauth/google/callback`
+   - **Authorized redirect URIs:** add `https://www.ikratom.org/api/oauth/google/callback`
 4. **OAuth consent screen** → **Publish App**
 5. Submit for verification (4-6 weeks for `gmail.send` scope)
 
@@ -76,14 +76,14 @@ Already configured for `localhost`; needs prod domain added.
 
 After all the above:
 
-- [ ] `https://ikratom.org` loads the site with a valid SSL cert (green padlock)
+- [ ] `https://www.ikratom.org` loads the site with a valid SSL cert (green padlock)
 - [ ] `https://www.ikratom.org` redirects to root
-- [ ] `http://ikratom.org` upgrades to HTTPS automatically
+- [ ] `http://www.ikratom.org` upgrades to HTTPS automatically
 - [ ] `/api/cron/fire-waves` responds with JSON when called with bearer token (GitHub Actions cron path)
 - [ ] Password change on `/account/security` triggers an email to your inbox within 30s
 - [ ] Email sent from `alerts@ikratom.org` is delivered, not in spam
 - [ ] `support@ikratom.org` forwards to your Proton inbox
-- [ ] Existing partner kits' QR codes (e.g. `/admin/partners/test-shop/kit`) now show URLs starting with `https://ikratom.org`
+- [ ] Existing partner kits' QR codes (e.g. `/admin/partners/test-shop/kit`) now show URLs starting with `https://www.ikratom.org`
 
 ## Stale-asset notes
 
