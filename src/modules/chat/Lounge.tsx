@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { createBrowserClient } from "@supabase/ssr";
+import { createClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { postChatMessage, deleteChatMessage, type ChatMessage } from "./actions";
 
@@ -48,64 +48,77 @@ export function Lounge({
   // Realtime: subscribe to inserts + deletes in this room and presence
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
+    const supabase = createClient();
 
     let cancelled = false;
-    const channel: RealtimeChannel = supabase.channel(`lounge:${room}`, {
-      config: { presence: { key: me?.id ?? `anon-${Math.random().toString(36).slice(2, 8)}` } },
-    });
+    let activeChannel: RealtimeChannel | null = null;
 
-    channel.on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "chat_messages", filter: `room=eq.${room}` },
-      (payload) => {
-        const m = payload.new as ChatMessage;
-        setMessages((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, m]));
-        // Lazy-fetch the author name if we don't have it yet
-        if (m.user_id && !(m.user_id in authorMap)) {
-          supabase
-            .from("profiles")
-            .select("id, full_name, is_admin")
-            .eq("id", m.user_id)
-            .single()
-            .then(({ data }: { data: { id: string; full_name: string | null; is_admin: boolean | null } | null }) => {
-              if (cancelled || !data) return;
-              setAuthorMap((cur) => ({
-                ...cur,
-                [data.id]: { name: data.full_name ?? "(no name)", isAdmin: !!data.is_admin },
-              }));
-            });
-        }
-      },
-    );
-
-    channel.on(
-      "postgres_changes",
-      { event: "DELETE", schema: "public", table: "chat_messages", filter: `room=eq.${room}` },
-      (payload) => {
-        const id = (payload.old as { id?: string })?.id;
-        if (!id) return;
-        setMessages((cur) => cur.filter((x) => x.id !== id));
-      },
-    );
-
-    channel.on("presence", { event: "sync" }, () => {
-      const state = channel.presenceState();
-      setPresenceCount(Object.keys(state).length);
-    });
-
-    channel.subscribe(async (status) => {
-      if (status === "SUBSCRIBED" && me) {
-        await channel.track({ user_id: me.id, name: me.name, online_at: new Date().toISOString() });
+    // chat_messages SELECT policy is `to authenticated` — Realtime evaluates
+    // RLS for the receiving WebSocket, so we must attach the user's JWT
+    // before subscribing or every postgres_changes payload is silently
+    // dropped. (forum_posts has `to public` SELECT so realtime there
+    // "just works" without this — that's the diff that hid this bug.)
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (session) {
+        supabase.realtime.setAuth(session.access_token);
       }
-    });
+
+      const channel: RealtimeChannel = supabase.channel(`lounge:${room}`, {
+        config: { presence: { key: me?.id ?? `anon-${Math.random().toString(36).slice(2, 8)}` } },
+      });
+      activeChannel = channel;
+
+      channel.on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_messages", filter: `room=eq.${room}` },
+        (payload) => {
+          const m = payload.new as ChatMessage;
+          setMessages((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, m]));
+          // Lazy-fetch the author name if we don't have it yet
+          if (m.user_id && !(m.user_id in authorMap)) {
+            supabase
+              .from("profiles")
+              .select("id, full_name, is_admin")
+              .eq("id", m.user_id)
+              .single()
+              .then(({ data }: { data: { id: string; full_name: string | null; is_admin: boolean | null } | null }) => {
+                if (cancelled || !data) return;
+                setAuthorMap((cur) => ({
+                  ...cur,
+                  [data.id]: { name: data.full_name ?? "(no name)", isAdmin: !!data.is_admin },
+                }));
+              });
+          }
+        },
+      );
+
+      channel.on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "chat_messages", filter: `room=eq.${room}` },
+        (payload) => {
+          const id = (payload.old as { id?: string })?.id;
+          if (!id) return;
+          setMessages((cur) => cur.filter((x) => x.id !== id));
+        },
+      );
+
+      channel.on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        setPresenceCount(Object.keys(state).length);
+      });
+
+      channel.subscribe(async (status) => {
+        if (status === "SUBSCRIBED" && me) {
+          await channel.track({ user_id: me.id, name: me.name, online_at: new Date().toISOString() });
+        }
+      });
+    })();
 
     return () => {
       cancelled = true;
-      supabase.removeChannel(channel);
+      if (activeChannel) supabase.removeChannel(activeChannel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room, me?.id]);
