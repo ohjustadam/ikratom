@@ -21,6 +21,7 @@
     "dedupe:locals": "node --env-file=.env.local scripts/dedupe-locals.mjs",
     "research:campaign": "node --env-file=.env.local scripts/research-campaign.mjs",
     "db:push": "node --env-file=.env.local scripts/db-push.mjs",
+    "docs:schema": "node --env-file=.env.local scripts/dump-schema.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
