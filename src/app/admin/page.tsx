@@ -99,6 +99,13 @@ export default async function AdminPage() {
         />
         {adminOnly && (
           <AdminCard
+            href="/admin/lounge"
+            title="Lounge moderation"
+            body="Delete chat messages, mute users from the live community room (1h / 24h / forever)."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/audit"
             title="Audit log"
             body="Sensitive actions, role changes, sync history."
