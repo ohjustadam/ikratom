@@ -13,14 +13,19 @@ export function ChangePasswordForm() {
     e.preventDefault();
     setError(null);
     setSuccess(false);
-    const fd = new FormData(e.currentTarget);
+    // Capture the form node synchronously — by the time the transition's
+    // async callback runs, React has nullified e.currentTarget and calling
+    // .reset() on null was throwing past the error boundary into a global
+    // crash page even though the password change itself succeeded.
+    const formEl = e.currentTarget;
+    const fd = new FormData(formEl);
     startTransition(async () => {
       const r = await changePassword(fd);
       if ("error" in r) {
         setError(r.error);
       } else {
         setSuccess(true);
-        e.currentTarget.reset();
+        formEl.reset();
         // Close after a moment so the success message is visible
         setTimeout(() => setOpen(false), 2000);
       }
