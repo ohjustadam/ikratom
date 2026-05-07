@@ -7,7 +7,7 @@ name: Hourly cron
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
 #   - CRON_SECRET   same value as Vercel env var
-#   - APP_URL       the deployed origin, e.g. https://ikratom.app
+#   - APP_URL       the deployed origin, e.g. https://ikratom.org
 #
 # GitHub Actions cron is best-effort — runs may be skipped or delayed by a
 # few minutes during high load on github.com. That's acceptable for this

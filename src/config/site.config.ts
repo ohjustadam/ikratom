@@ -4,7 +4,7 @@ export const siteConfig = {
   description:
     "iKratom is a nonpartisan political action platform for the kratom community. One-click legislator emails, real-time bill tracking, and tools that turn advocacy into a few minutes a day.",
   links: {
-    support: "support@ikratom.app",
+    support: "support@ikratom.org",
   },
   features: {
     forum: true,

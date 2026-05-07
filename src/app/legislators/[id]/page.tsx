@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ROLE_LABEL } from "@/lib/legislators";
 import { ShareButtons } from "@/components/ShareButtons";
 
-const APP_URL = process.env.APP_URL ?? "https://ikratom.app";
+const APP_URL = process.env.APP_URL ?? "https://ikratom.org";
 
 type Legislator = {
   id: string;

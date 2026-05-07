@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { recordAdminAction } from "@/lib/audit";
 import { isPasswordPwned } from "@/lib/pwned-passwords";
+import { sendTransactionalEmail, brandedHtml } from "@/lib/email/transactional";
 
 export type ChangePasswordResult = { ok: true } | { error: string };
 
@@ -95,5 +96,42 @@ export async function changePassword(formData: FormData): Promise<ChangePassword
     });
   }
 
+  // Notify the email on file. This is the "if it wasn't you, click here"
+  // safety net so a session-cookie thief who happens to know the password
+  // can't silently lock the user out. Best-effort; no-ops cleanly when
+  // RESEND_API_KEY isn't set.
+  const ipShort = ip.slice(0, 64);
+  const when = new Date().toLocaleString("en-US", { timeZone: "UTC" });
+  await sendTransactionalEmail({
+    to: user.email,
+    subject: "Your iKratom password was just changed",
+    text:
+      `Hi,\n\n` +
+      `The password on your iKratom account was just changed.\n\n` +
+      `When: ${when} UTC\n` +
+      `IP:   ${ipShort}\n\n` +
+      `If this was you, you can ignore this email.\n\n` +
+      `If this WASN'T you:\n` +
+      `  1. Sign in at https://ikratom.org/login (you'll need the new password the attacker set, OR use Supabase's "Forgot password?" link to reset it via your email).\n` +
+      `  2. Once back in, go to /account/security → enable two-factor authentication if you haven't.\n` +
+      `  3. Reply to this email — we'll help.\n\n` +
+      `— iKratom`,
+    html: brandedHtml({
+      headline: "Your password was just changed",
+      body:
+        `<p>The password on your iKratom account was just changed.</p>` +
+        `<table style="margin-top:16px;font-size:13px;color:#a1a1aa;"><tr><td style="padding-right:16px;">When</td><td style="color:#e4e4e7;">${escapeForTable(when)} UTC</td></tr><tr><td style="padding-right:16px;">IP</td><td style="color:#e4e4e7;font-family:monospace;">${escapeForTable(ipShort)}</td></tr></table>` +
+        `<p style="margin-top:16px;">If this was you, you can ignore this email.</p>` +
+        `<p>If it <strong>wasn't</strong> you, sign in to lock things back down — or use the password-reset link to take the account back via your email.</p>`,
+      ctaLabel: "Sign in",
+      ctaHref: "https://ikratom.org/login",
+    }),
+    tag: "password_changed",
+  });
+
   return { ok: true };
+}
+
+function escapeForTable(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

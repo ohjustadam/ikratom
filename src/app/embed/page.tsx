@@ -26,7 +26,7 @@ export default async function EmbedDemoPage({
   const h = await headers();
   // Build the absolute URL so the snippet works regardless of dev/prod host
   const proto = (h.get("x-forwarded-proto") ?? "https").split(",")[0];
-  const host = (h.get("x-forwarded-host") ?? h.get("host") ?? "ikratom.app").split(",")[0];
+  const host = (h.get("x-forwarded-host") ?? h.get("host") ?? "ikratom.org").split(",")[0];
   const scriptSrc = `${proto}://${host}/embed/v1/email-rep.js`;
 
   const snippet = `<script src="${scriptSrc}" data-state="${state}" data-tone="${tone}"></script>`;

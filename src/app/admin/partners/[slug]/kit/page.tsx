@@ -47,7 +47,7 @@ export default async function PartnerKitPage({
   // Determine origin from the request — falls back to APP_URL env in dev.
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
-  const host = h.get("host") ?? "ikratom.app";
+  const host = h.get("host") ?? "ikratom.org";
   const origin = process.env.APP_URL ?? `${proto}://${host}`;
 
   const qrTarget = partnerQrUrl({ origin, slug: partner.slug });
@@ -126,7 +126,7 @@ export default async function PartnerKitPage({
               dangerouslySetInnerHTML={{ __html: qrCling }}
             />
             <p className="cling-shop">{partner.shop_name}</p>
-            <p className="cling-url">scan or visit ikratom.app</p>
+            <p className="cling-url">scan or visit ikratom.org</p>
           </div>
         </section>
 
