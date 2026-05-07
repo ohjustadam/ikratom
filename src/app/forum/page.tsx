@@ -44,17 +44,20 @@ export default async function ForumIndexPage() {
     isAdmin = !!prof?.is_admin;
   }
 
-  // Lounge: load last 30 messages and resolve author names in one round-trip
+  // Lounge: load last 30 messages and resolve author names in one round-trip.
+  //
+  // We must use the public.get_public_profiles() SECURITY DEFINER RPC here,
+  // not a direct `from('profiles').select()`. The profiles SELECT RLS only
+  // lets users read their own row + admins read all — so non-admin viewers
+  // were seeing blanks for everyone else's chat names. The RPC bypasses
+  // RLS but is whitelisted to public-safe columns only (no email/addr).
   const initialChat = await loadInitialChat("lounge", 30);
   const chatAuthorIds = Array.from(new Set(initialChat.map((m) => m.user_id)));
   const { data: chatAuthorRows } = chatAuthorIds.length
-    ? await supabase
-        .from("profiles")
-        .select("id, full_name, is_admin")
-        .in("id", chatAuthorIds)
+    ? await supabase.rpc("get_public_profiles", { p_ids: chatAuthorIds })
     : { data: [] as { id: string; full_name: string | null; is_admin: boolean | null }[] };
   const chatAuthors: Record<string, { name: string; isAdmin: boolean }> = {};
-  for (const a of chatAuthorRows ?? []) {
+  for (const a of (chatAuthorRows ?? []) as { id: string; full_name: string | null; is_admin: boolean | null }[]) {
     chatAuthors[a.id] = { name: a.full_name ?? "(no name)", isAdmin: !!a.is_admin };
   }
 
