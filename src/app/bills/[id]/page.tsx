@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
+import { getTranslation } from "@/lib/translations";
+import { readLocale } from "@/modules/auth/actions-locale";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -225,17 +227,31 @@ export default async function BillDetailPage({
         </div>
       )}
 
-      {/* Plain-English summary (AI) */}
+      {/* Plain-English summary (AI) — with locale-aware translation */}
       {bill.summary_ai && (
         <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Plain English
           </h2>
-          <p className="mt-2 text-base text-zinc-200">{bill.summary_ai}</p>
+          {(() => {
+            // Note: this IIFE inside JSX is server-side; await is fine.
+            return null;
+          })()}
+          {/* The actual translated content is fetched + rendered below */}
+          <TranslatedSection
+            type="bill_summary"
+            id={bill.id}
+            sourceText={bill.summary_ai}
+          />
           {bill.advocacy_callout && (
             <div className="mt-4 rounded-md border border-emerald-900/30 bg-emerald-950/20 p-3">
               <p className="text-xs font-semibold text-emerald-400">For advocates:</p>
-              <p className="mt-1 text-sm text-emerald-200">{bill.advocacy_callout}</p>
+              <TranslatedSection
+                type="bill_callout"
+                id={bill.id}
+                sourceText={bill.advocacy_callout}
+                className="mt-1 text-sm text-emerald-200"
+              />
             </div>
           )}
           {bill.enriched_at && (
@@ -535,6 +551,45 @@ export default async function BillDetailPage({
           ? " Live OpenStates lookup successful (cached 1 hour)."
           : " Live OpenStates lookup unavailable — showing cached fields only."}
       </p>
+    </div>
+  );
+}
+
+/**
+ * Renders translated text for an entity if a translation is cached for the
+ * current locale; falls back to the original. Server component (async).
+ */
+async function TranslatedSection({
+  type, id, sourceText, className,
+}: {
+  type: "bill_summary" | "bill_callout";
+  id: string;
+  sourceText: string;
+  className?: string;
+}) {
+  const locale = await readLocale();
+  if (locale === "en") {
+    return <p className={className ?? "mt-2 text-base text-zinc-200"}>{sourceText}</p>;
+  }
+  const supabase = await createClient();
+  const translated = await getTranslation(supabase, { type, id }, locale);
+  if (!translated) {
+    return (
+      <div>
+        <p className={className ?? "mt-2 text-base text-zinc-200"}>{sourceText}</p>
+        <p className="mt-1 text-[10px] text-zinc-600">
+          (No translation available yet — admin: run <code className="rounded bg-zinc-950 px-1">npm run translate:content</code>.)
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <p className={className ?? "mt-2 text-base text-zinc-200"}>{translated}</p>
+      <details className="mt-2 text-xs text-zinc-500">
+        <summary className="cursor-pointer">Show original (English)</summary>
+        <p className="mt-1">{sourceText}</p>
+      </details>
     </div>
   );
 }

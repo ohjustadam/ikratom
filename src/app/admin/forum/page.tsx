@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { ModerationActions } from "./ModerationActions";
+import { BulkBar } from "./BulkBar";
 
 export const metadata = { title: "Forum moderation" };
 
@@ -136,6 +137,8 @@ export default async function ForumModerationPage() {
         </div>
       )}
 
+      {total > 0 && <BulkBar />}
+
       {threads.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-lg font-semibold">Threads ({threads.length})</h2>
@@ -147,6 +150,14 @@ export default async function ForumModerationPage() {
               return (
                 <li key={t.id} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      data-mod-select=""
+                      data-mod-kind="thread"
+                      data-mod-id={t.id}
+                      className="h-4 w-4 rounded border-zinc-700 bg-zinc-950"
+                      aria-label="Select thread for bulk action"
+                    />
                     <span className={`rounded px-1.5 py-0.5 font-semibold ${tag.cls}`}>{tag.label}</span>
                     {t.state && <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">{t.state}</span>}
                     <span className="text-zinc-500">{new Date(t.created_at).toLocaleString()}</span>
@@ -191,6 +202,14 @@ export default async function ForumModerationPage() {
               return (
                 <li key={p.id} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      data-mod-select=""
+                      data-mod-kind="post"
+                      data-mod-id={p.id}
+                      className="h-4 w-4 rounded border-zinc-700 bg-zinc-950"
+                      aria-label="Select post for bulk action"
+                    />
                     <span className={`rounded px-1.5 py-0.5 font-semibold ${tag.cls}`}>{tag.label}</span>
                     <span className="text-zinc-500">{new Date(p.created_at).toLocaleString()}</span>
                   </div>

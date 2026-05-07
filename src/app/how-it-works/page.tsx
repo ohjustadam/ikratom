@@ -130,11 +130,51 @@ function Sections() {
           { x: 70, y: 55, n: 2, caption: "Each card links to a profile with sponsor record + contact info" },
         ]}
       />
-      <Cap title="News" body="Daily Google News scrape, deduplicated across states (no more reading the same AP wire 8 times), AI relevance score + topic tag." img="/how-it-works/news.PNG" />
-      <Cap title="Forum (per state)" body="Each state has its own threads. Coordinate with people watching the same fights. Moderated — spam, vendor pushes, and harassment land in the queue, not on your feed." img="/how-it-works/forum1.PNG" />
-      <Cap title="Encrypted DMs" body="End-to-end encrypted (libsodium). Even the platform owner can't read your messages. Coordinate sensitively without leaks." img="/how-it-works/messages.PNG" />
-      <Cap title="Library" body="Curated reading list — research papers, policy briefs, court filings, AKA position papers. Filterable by topic." img="/how-it-works/library.PNG" />
-      <Cap title="Notifications" body="When a hostile bill drops in your state, you get an alert. When a wave you joined fires, you get a reminder. You control the channel + cadence." img="/how-it-works/notifications.PNG" />
+      <CapAnnotated
+        title="News"
+        body="Daily Google News scrape, deduplicated across states, AI relevance score + topic tag."
+        src="/how-it-works/news.PNG"
+        pins={[
+          { x: 25, y: 18, n: 1, caption: "Filter by state, topic, or relevance score" },
+          { x: 75, y: 50, n: 2, caption: "+N more badge when the same story syndicated to other states" },
+        ]}
+      />
+      <CapAnnotated
+        title="Forum (per state)"
+        body="Each state has its own threads. Coordinate with people watching the same fights. Moderated — spam, vendor pushes, and harassment land in the queue, not on your feed."
+        src="/how-it-works/forum1.PNG"
+        pins={[
+          { x: 50, y: 20, n: 1, caption: "State picker — every state has its own forum, plus 'national'" },
+          { x: 50, y: 60, n: 2, caption: "Threads ranked by activity; pinned + locked badges visible" },
+        ]}
+      />
+      <CapAnnotated
+        title="Encrypted DMs"
+        body="End-to-end encrypted (libsodium / Curve25519). Even the platform owner can't read your messages."
+        src="/how-it-works/messages.PNG"
+        pins={[
+          { x: 25, y: 30, n: 1, caption: "Conversation list — keys live in your browser, never the server" },
+          { x: 75, y: 60, n: 2, caption: "Block + report controls; encrypted reactions supported" },
+        ]}
+      />
+      <CapAnnotated
+        title="Library"
+        body="Curated reading list — research papers, policy briefs, court filings, AKA position papers. Filterable by topic."
+        src="/how-it-works/library.PNG"
+        pins={[
+          { x: 50, y: 25, n: 1, caption: "Tags + search — find what you need to cite in a letter" },
+          { x: 50, y: 65, n: 2, caption: "Embedded videos + audio interviews load inline" },
+        ]}
+      />
+      <CapAnnotated
+        title="Notifications"
+        body="When a hostile bill drops in your state, you get an alert. When a wave you joined fires, you get a reminder."
+        src="/how-it-works/notifications.PNG"
+        pins={[
+          { x: 50, y: 25, n: 1, caption: "New bill in your state? Notification within seconds of cron sync" },
+          { x: 50, y: 60, n: 2, caption: "Tap → directly to the matched campaign, ready to send" },
+        ]}
+      />
     </Block>
   );
 }
