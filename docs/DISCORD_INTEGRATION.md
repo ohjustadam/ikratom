@@ -26,7 +26,7 @@ This doc lays out **what we can do**, **what we can't**, and **what's worth buil
 
 ### 3. Per-server attributed recruitment links
 - Like the partner kit but for digital deployment
-- Server admin generates `https://ikratom.org/?ref=discord&host=<server-slug>`
+- Server admin generates `https://www.ikratom.org/?ref=discord&host=<server-slug>`
 - Pastes anywhere — `#resources`, server description, channel topic, pinned message
 - Existing `proxy.ts` referral capture credits attribution back
 - Server admin gets a public stats page at `/partners/<server-slug>` showing the impact
@@ -124,7 +124,7 @@ Each hook iterates `discord_integrations WHERE active AND <event> IN events_enab
   "embeds": [{
     "title": "🚨 New anti-kratom bill in OK",
     "description": "OK SB 1234 was just introduced — would schedule kratom Schedule I.",
-    "url": "https://ikratom.org/bills/<id>",
+    "url": "https://www.ikratom.org/bills/<id>",
     "color": 16711680,
     "fields": [
       { "name": "Sponsor", "value": "Sen. Smith (R)" },
@@ -155,7 +155,7 @@ Discord bot in Node, deployed as a separate Vercel project (or runs on the same 
 
 1. **Confirm phase 1 scope** (webhook outbound) is what you want first — or pick a different starting point
 2. **Discord developer account** — sign up at https://discord.com/developers/applications, create a new application named `iKratom`
-3. **OAuth credentials** (only if doing Phase 2 now): under your application → OAuth2 → Client ID + Client Secret. Add redirect URI `https://ikratom.org/api/oauth/discord/callback`. Add to Vercel env as `DISCORD_OAUTH_CLIENT_ID` + `DISCORD_OAUTH_CLIENT_SECRET`.
+3. **OAuth credentials** (only if doing Phase 2 now): under your application → OAuth2 → Client ID + Client Secret. Add redirect URI `https://www.ikratom.org/api/oauth/discord/callback`. Add to Vercel env as `DISCORD_OAUTH_CLIENT_ID` + `DISCORD_OAUTH_CLIENT_SECRET`.
 4. **Identify 2-3 target servers** — which kratom Discords do you want to onboard first? I'll draft the outreach copy for the server admins (template for "hey I'd love to put a webhook in your #kratom-bills channel — here's exactly what it'd post").
 
 When you're ready, say "build phase 1" and I'll ship the webhook outbound feature on a fresh PR.

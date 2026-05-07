@@ -131,7 +131,7 @@ export async function recordSignIn(userId: string): Promise<RecordSignInResult> 
           headline: title,
           body: `<p>${body.replace(/\n/g, "<br>")}</p>`,
           ctaLabel: "Review my devices",
-          ctaHref: `${process.env.APP_URL ?? "https://ikratom.org"}/account/security`,
+          ctaHref: `${process.env.APP_URL ?? "https://www.ikratom.org"}/account/security`,
         });
         await sendTransactionalEmail({
           to,

@@ -112,7 +112,7 @@ export async function changePassword(formData: FormData): Promise<ChangePassword
       `IP:   ${ipShort}\n\n` +
       `If this was you, you can ignore this email.\n\n` +
       `If this WASN'T you:\n` +
-      `  1. Sign in at https://ikratom.org/login (you'll need the new password the attacker set, OR use Supabase's "Forgot password?" link to reset it via your email).\n` +
+      `  1. Sign in at https://www.ikratom.org/login (you'll need the new password the attacker set, OR use Supabase's "Forgot password?" link to reset it via your email).\n` +
       `  2. Once back in, go to /account/security → enable two-factor authentication if you haven't.\n` +
       `  3. Reply to this email — we'll help.\n\n` +
       `— iKratom`,
@@ -124,7 +124,7 @@ export async function changePassword(formData: FormData): Promise<ChangePassword
         `<p style="margin-top:16px;">If this was you, you can ignore this email.</p>` +
         `<p>If it <strong>wasn't</strong> you, sign in to lock things back down — or use the password-reset link to take the account back via your email.</p>`,
       ctaLabel: "Sign in",
-      ctaHref: "https://ikratom.org/login",
+      ctaHref: "https://www.ikratom.org/login",
     }),
     tag: "password_changed",
   });

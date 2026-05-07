@@ -7,7 +7,7 @@ import { getMyWaveStatus } from "@/modules/waves/actions";
 import { CampaignAction } from "@/modules/campaigns/components/CampaignAction";
 import { ShareButtons } from "@/components/ShareButtons";
 
-const APP_URL = process.env.APP_URL ?? "https://ikratom.org";
+const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
 import { WavePanel } from "@/modules/waves/components/WavePanel";
 
 export async function generateMetadata({

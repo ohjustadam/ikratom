@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
  * Embeddable widget for kratom shops and advocacy partners.
  *
  * Drop on any page:
- *   <script src="https://ikratom.org/embed/v1/email-rep.js"
+ *   <script src="https://www.ikratom.org/embed/v1/email-rep.js"
  *           data-state="OK" data-tone="urgent"></script>
  *
  * The script:
