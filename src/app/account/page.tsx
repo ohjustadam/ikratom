@@ -11,13 +11,20 @@ import { NotificationPrefsForm } from "@/modules/notifications/components/Notifi
 import { getPushVapidPublicKey } from "@/modules/auth/actions-push";
 import { PushSubscribe } from "@/modules/auth/components/PushSubscribe";
 import { ReplayTourButton } from "./ReplayTourButton";
+import { getDiscordLink } from "@/modules/auth/actions-discord";
+import { DiscordConnect } from "@/modules/auth/components/DiscordConnect";
 
 export const metadata = { title: "Account" };
 
 export default async function AccountPage({
   searchParams,
 }: {
-  searchParams: Promise<{ gmail_error?: string; gmail_connected?: string }>;
+  searchParams: Promise<{
+    gmail_error?: string;
+    gmail_connected?: string;
+    discord_error?: string;
+    discord_connected?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const { profile, email } = await getProfile();
@@ -25,6 +32,7 @@ export default async function AccountPage({
   const gmailStatus = await getGmailStatus();
   const blocked = await listBlockedUsers();
   const vapidPublicKey = await getPushVapidPublicKey();
+  const discordLink = await getDiscordLink();
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
@@ -51,6 +59,20 @@ export default async function AccountPage({
           status={gmailStatus}
           flashError={sp.gmail_error ?? null}
           flashConnected={sp.gmail_connected === "1"}
+        />
+      </div>
+
+      <header className="mb-6 mt-12">
+        <h2 className="text-2xl font-bold">Discord</h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Link your Discord to be recognized across the iKratom community network.
+        </p>
+      </header>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <DiscordConnect
+          link={discordLink}
+          flashError={sp.discord_error ?? null}
+          flashConnected={sp.discord_connected === "1"}
         />
       </div>
 
