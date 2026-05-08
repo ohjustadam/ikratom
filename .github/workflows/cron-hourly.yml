@@ -88,3 +88,31 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/auto-campaign-from-alert.mjs --all-pending
+      - name: Promote city-ordinance alerts into bills rows
+        # When a news alert describes a "City, ST — ..." event, wrap it
+        # as a bills row with scope=municipal so it appears in /bills,
+        # /pulse, and the bill detail page renders the full UI.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/promote-alert-to-bill.mjs --all-bill-events
+      - name: Extract structured local-event metadata from alerts
+        # AI-parses the alert body into local_meta jsonb (meeting time,
+        # Zoom URL, dial-ins, public-comment email + deadline, etc.) so
+        # /bills/[id] can render calendar buttons + mailto/tel links.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        run: node scripts/extract-local-meta.mjs --all-municipal
+      - name: Seed full city-council slate for new municipal bills
+        # Gemini Search grounding pulls mayor + ALL council members for
+        # any new municipal-scope bill that doesn't have officials yet.
+        # Skips localities that already have a slate.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/seed-bill-officials.mjs --all-municipal
