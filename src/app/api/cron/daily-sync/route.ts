@@ -122,6 +122,19 @@ export async function GET(request: NextRequest) {
     log.push({ step: "enrich_bills", result: { error: String(e).slice(0, 200) } });
   }
 
+  // Saved search sweep — fire notifications for newly-synced bills that
+  // match user-defined alert rules. Runs AFTER enrichment so the new
+  // bills have summary_ai + relevance set, but BEFORE auto-create so a
+  // user who saved "any new OK bill" sees the notification independently
+  // of whether a campaign was auto-created.
+  try {
+    const { sweepSavedSearches } = await import("@/modules/saved-searches/sweep");
+    const sweep = await sweepSavedSearches(supabase);
+    log.push({ step: "saved_searches", result: sweep });
+  } catch (e) {
+    log.push({ step: "saved_searches", result: { error: String(e).slice(0, 200) } });
+  }
+
   // Auto-create campaigns for newly-detected anti-kratom bills. This runs
   // AFTER enrichment so the confidence floor (0.6) is meaningful — a
   // freshly-synced bill that hasn't been enriched yet has confidence=null

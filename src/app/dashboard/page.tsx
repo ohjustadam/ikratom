@@ -9,6 +9,9 @@ import { OnboardingTour } from "@/modules/dashboard/OnboardingTour";
 import { BriefingWidget } from "@/modules/dashboard/widgets/BriefingWidget";
 import { ActiveCampaignsWidget } from "@/modules/dashboard/widgets/ActiveCampaignsWidget";
 import { RepCoverageWidget } from "@/modules/dashboard/widgets/RepCoverageWidget";
+import { ScoreboardWidget } from "@/modules/dashboard/widgets/ScoreboardWidget";
+import { MyBattlesWidget } from "@/modules/dashboard/widgets/MyBattlesWidget";
+import { SavedSearchesWidget } from "@/modules/dashboard/widgets/SavedSearchesWidget";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 /**
@@ -101,6 +104,13 @@ export default async function DashboardPage() {
         userCounty={profile?.county ?? null}
       />
     ),
+    scoreboard: userId ? (
+      <ScoreboardWidget userId={userId} streak={streak} />
+    ) : null,
+    my_battles: userId ? (
+      <MyBattlesWidget userId={userId} />
+    ) : null,
+    saved_searches: userId ? <SavedSearchesWidget /> : null,
     my_reps:
       myReps.length > 0 ? (
         <section data-tour="my-reps">

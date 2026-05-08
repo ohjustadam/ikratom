@@ -14,7 +14,10 @@ export type WidgetId =
   | "my_reps"
   | "profile_completion"
   | "active_campaigns"
-  | "rep_coverage";
+  | "rep_coverage"
+  | "scoreboard"
+  | "my_battles"
+  | "saved_searches";
 
 export type WidgetSlot = {
   id: WidgetId;
@@ -24,14 +27,19 @@ export type WidgetSlot = {
 /**
  * Default catalog: order + initial visibility. Briefing pinned first
  * because it's the at-a-glance "what needs me right now" surface.
+ * Order reflects priority: status → personal proof → action → social →
+ * monitoring tools.
  */
 export const DEFAULT_WIDGETS: WidgetSlot[] = [
   { id: "briefing", visible: true },
   { id: "profile_completion", visible: true },
   { id: "rep_coverage", visible: true },
-  { id: "streak", visible: true },
+  { id: "scoreboard", visible: true },
   { id: "active_campaigns", visible: true },
+  { id: "my_battles", visible: true },
   { id: "my_reps", visible: true },
+  { id: "saved_searches", visible: true },
+  { id: "streak", visible: false }, // hidden by default — scoreboard supersedes
 ];
 
 /**
@@ -62,6 +70,18 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
   rep_coverage: {
     title: "Local rep coverage",
     description: "Request iKratom add your city/county officials when they're missing.",
+  },
+  scoreboard: {
+    title: "Personal scoreboard",
+    description: "Emails sent, calls made, current + longest streak.",
+  },
+  my_battles: {
+    title: "My battles",
+    description: "Bills you've taken action on, with current status (committee → vote → enacted/dead).",
+  },
+  saved_searches: {
+    title: "Saved searches",
+    description: "Custom alerts: get notified when a new bill matches your criteria.",
   },
 };
 
