@@ -142,6 +142,25 @@ export async function submitIntelTip(input: {
 }
 
 // ============================================================
+// User-facing — list my own tips
+// ============================================================
+
+export async function listMyIntelTips() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data } = await supabase
+    .from("policy_alerts")
+    .select("id, kind, severity, title, body, locality, source_url, occurs_at, action_required, moderation_status, moderation_note, moderated_at, campaign_id, created_at")
+    .eq("submitted_by_user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  return data ?? [];
+}
+
+// ============================================================
 // Admin moderation
 // ============================================================
 
