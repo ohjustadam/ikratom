@@ -81,6 +81,11 @@ export function ThreadList({
                         Locked
                       </span>
                     )}
+                    {t.system_generated && (
+                      <span className="rounded bg-emerald-950/40 px-1.5 py-0.5 text-emerald-300">
+                        🤖 iKratom bot
+                      </span>
+                    )}
                     {t.author_state && t.author_state !== state && (
                       <span className="rounded bg-purple-950/40 px-1.5 py-0.5 text-purple-300">
                         From {t.author_state}
