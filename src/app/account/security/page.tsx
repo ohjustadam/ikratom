@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { listMfa } from "@/modules/auth/actions-mfa";
 import { listBackupCodes } from "@/modules/auth/actions-backup-codes";
 import { listMySessions } from "@/modules/auth/actions-sessions";
+import { listMyTrustedDevices } from "@/modules/auth/actions-trusted-devices";
+import { TrustedDevicesPanel } from "@/modules/auth/components/TrustedDevicesPanel";
 import { getPushVapidPublicKey } from "@/modules/auth/actions-push";
 import { MfaPanel } from "@/modules/auth/components/MfaPanel";
 import { BackupCodes } from "@/modules/auth/components/BackupCodes";
@@ -32,6 +34,7 @@ export default async function SecurityPage() {
   const verifiedCount = summary.factors.filter((f) => f.status === "verified").length;
   const backupCodes = await listBackupCodes();
   const sessions = await listMySessions();
+  const trustedDevices = await listMyTrustedDevices();
   const vapidPublicKey = await getPushVapidPublicKey();
 
   return (
@@ -114,6 +117,19 @@ export default async function SecurityPage() {
           </p>
         </div>
         <SessionsPanel initial={sessions} />
+      </section>
+
+      <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold">Trusted devices</h2>
+          <p className="text-xs text-zinc-500">
+            Devices that skip the TOTP code on routine sign-ins. Sensitive
+            actions still re-prompt. Trust expires after 30 days; revoke any
+            time. Mark a new device as trusted by checking &ldquo;Remember this
+            device&rdquo; on your next MFA sign-in.
+          </p>
+        </div>
+        <TrustedDevicesPanel initial={trustedDevices} />
       </section>
 
       {/* Push notifications */}

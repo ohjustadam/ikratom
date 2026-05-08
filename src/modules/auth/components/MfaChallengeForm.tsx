@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { challengeAndVerify } from "../actions-mfa";
 import { verifyBackupCode } from "../actions-backup-codes";
+import { trustThisDevice } from "../actions-trusted-devices";
 
 type Mode = "totp" | "backup";
 
@@ -16,16 +17,32 @@ export function MfaChallengeForm({
   const [mode, setMode] = useState<Mode>("totp");
   const [code, setCode] = useState("");
   const [backup, setBackup] = useState("");
+  const [rememberDevice, setRememberDevice] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  /**
+   * After a successful MFA verify, optionally call trustThisDevice() so
+   * the next sign-in from this browser skips the /login/mfa step. The
+   * server action defends-in-depth by re-checking aal2 before issuing
+   * the trust cookie.
+   */
+  async function maybeTrust() {
+    if (!rememberDevice) return;
+    await trustThisDevice({ days: 30 }).catch(() => {});
+  }
 
   function onTotpSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
       const r = await challengeAndVerify({ factorId, code });
-      if ("error" in r) setError(r.error);
-      else window.location.href = redirectTo;
+      if ("error" in r) {
+        setError(r.error);
+        return;
+      }
+      await maybeTrust();
+      window.location.href = redirectTo;
     });
   }
 
@@ -36,14 +53,15 @@ export function MfaChallengeForm({
       const r = await verifyBackupCode(backup);
       if ("error" in r) {
         setError(r.error);
-      } else {
-        if (r.remaining <= 2) {
-          alert(
-            `Backup code accepted. You have ${r.remaining} backup code${r.remaining === 1 ? "" : "s"} left — generate new ones from /account/security soon.`
-          );
-        }
-        window.location.href = redirectTo;
+        return;
       }
+      if (r.remaining <= 2) {
+        alert(
+          `Backup code accepted. You have ${r.remaining} backup code${r.remaining === 1 ? "" : "s"} left — generate new ones from /account/security soon.`
+        );
+      }
+      await maybeTrust();
+      window.location.href = redirectTo;
     });
   }
 
@@ -75,6 +93,23 @@ export function MfaChallengeForm({
             {error}
           </p>
         )}
+
+        <label className="flex items-start gap-2 text-xs text-zinc-400">
+          <input
+            type="checkbox"
+            checked={rememberDevice}
+            onChange={(e) => setRememberDevice(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-zinc-700 bg-zinc-950"
+          />
+          <span>
+            <span className="font-medium text-zinc-200">Remember this device for 30 days</span>
+            <span className="block mt-0.5 text-[11px] text-zinc-500">
+              Skip the code on routine sign-ins from this browser. Sensitive actions
+              (admin changes, password change, MFA settings) still require the code.
+              Manage trusted devices on /account/security.
+            </span>
+          </span>
+        </label>
 
         <button
           type="submit"
