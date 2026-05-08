@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { suggestLocalOfficials, type SuggestedOfficial } from "@/lib/ai/suggest-officials";
 import { normalizeLocality } from "@/lib/locality";
 import { getCreatorContext } from "./actions";
@@ -14,6 +15,16 @@ export async function suggestOfficialsAction(input: { city: string; state: strin
 /**
  * Bulk-add accepted suggestions to legislators table.
  * Each row goes through the same validation as the manual form.
+ *
+ * After insert, this also fans out an in-app notification to every user
+ * who lives in the affected locality so they see the new local reps
+ * appear in their cockpit war-room. The notification flows through the
+ * existing notifications + push fan-out pipeline (no extra setup).
+ *
+ * The fan-out uses the service-role client because we're reading across
+ * other users' profile rows that the acting admin's RLS scope doesn't
+ * cover. This is admin-initiated by definition (getCreatorContext gate
+ * above), so the role escalation is gated by the action's auth check.
  */
 export async function acceptSuggestions(input: {
   state: string;
@@ -57,5 +68,62 @@ export async function acceptSuggestions(input: {
     .select("id");
 
   if (error) return { error: error.message };
-  return { ok: true, added: data?.length ?? 0 };
+  const added = data?.length ?? 0;
+
+  // Mark any pending user-driven requests for this area as fulfilled.
+  if (added > 0) {
+    try {
+      const sr = createServiceRoleClient();
+      await sr.rpc("fulfill_local_rep_requests", {
+        p_state: stateRaw,
+        p_locality: localityNorm,
+      });
+    } catch {
+      // non-fatal
+    }
+  }
+
+  // Notify residents — best-effort, never blocks the response.
+  if (added > 0) {
+    try {
+      const sr = createServiceRoleClient();
+      // Match users whose city OR county normalizes to the same locality
+      // and live in the same state. Both city + county are stored
+      // canonical (Census normalization happens in updateProfile), so
+      // direct equality works here.
+      const { data: residents } = await sr
+        .from("profiles")
+        .select("id")
+        .eq("state", stateRaw)
+        .or(`city.eq.${localityNorm},county.eq.${localityNorm}`);
+
+      const userIds = (residents ?? []).map((r: { id: string }) => r.id);
+      if (userIds.length > 0) {
+        const repNames = input.officials
+          .slice(0, 3)
+          .map((o) => o.full_name)
+          .join(", ");
+        const moreCount = input.officials.length > 3 ? input.officials.length - 3 : 0;
+        const body =
+          repNames +
+          (moreCount > 0 ? ` and ${moreCount} more` : "") +
+          ` now appear on your dashboard.`;
+        await sr.from("notifications").insert(
+          userIds.map((uid) => ({
+            user_id: uid,
+            kind: "reps_added",
+            title: `Your local reps in ${localityNorm} are in your war room`,
+            body,
+            link: "/dashboard",
+          })),
+        );
+      }
+    } catch {
+      // Fan-out failure must not roll back the legislator inserts. The
+      // user can still see the new reps when they next visit /dashboard
+      // — this notification is about *immediate* awareness, not state.
+    }
+  }
+
+  return { ok: true, added };
 }

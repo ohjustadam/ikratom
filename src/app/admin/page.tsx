@@ -127,6 +127,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/local-rep-requests"
+            title="Local rep requests"
+            body="Areas where users have asked us to add their local reps. Click through to AI-suggest + approve."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/vendor-applications"
             title="Vendor applications"
             body="Review users applying to be verified vendors. Approve to unlock business-signature on advocacy actions."

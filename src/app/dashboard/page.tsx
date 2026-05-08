@@ -8,6 +8,7 @@ import { CockpitCustomizer } from "@/modules/dashboard/CockpitCustomizer";
 import { OnboardingTour } from "@/modules/dashboard/OnboardingTour";
 import { BriefingWidget } from "@/modules/dashboard/widgets/BriefingWidget";
 import { ActiveCampaignsWidget } from "@/modules/dashboard/widgets/ActiveCampaignsWidget";
+import { RepCoverageWidget } from "@/modules/dashboard/widgets/RepCoverageWidget";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 /**
@@ -92,6 +93,13 @@ export default async function DashboardPage() {
     ) : null,
     active_campaigns: (
       <ActiveCampaignsWidget userState={profile?.state ?? null} />
+    ),
+    rep_coverage: (
+      <RepCoverageWidget
+        userState={profile?.state ?? null}
+        userCity={profile?.city ?? null}
+        userCounty={profile?.county ?? null}
+      />
     ),
     my_reps:
       myReps.length > 0 ? (
