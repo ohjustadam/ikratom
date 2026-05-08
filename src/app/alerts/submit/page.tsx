@@ -27,9 +27,14 @@ export default async function SubmitIntelPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/pulse" className="text-xs text-zinc-500 hover:text-emerald-400">
-        ← Pulse
-      </a>
+      <div className="flex items-center justify-between">
+        <a href="/pulse" className="text-xs text-zinc-500 hover:text-emerald-400">
+          ← Pulse
+        </a>
+        <a href="/alerts/my-tips" className="text-xs text-zinc-500 hover:text-emerald-400">
+          My submitted tips →
+        </a>
+      </div>
       <header className="mt-2 mb-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
           Field intel
