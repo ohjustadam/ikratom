@@ -62,12 +62,46 @@ export async function acceptSuggestions(input: {
   });
 
   const supabase = await createClient();
+
+  // Pre-check for duplicates against the new unique index
+  // (state, locality, role, lower(full_name)) on local-level rows.
+  // Fetch all existing local legislators for this locality so we can
+  // skip ones that already exist instead of failing the whole batch.
+  const { data: existing } = await supabase
+    .from("legislators")
+    .select("role, full_name")
+    .eq("state", stateRaw)
+    .eq("locality", localityNorm)
+    .in("level", ["municipal", "county"]);
+  const existingKeys = new Set(
+    ((existing ?? []) as { role: string; full_name: string }[]).map(
+      (r) => `${r.role}::${r.full_name.toLowerCase().trim()}`,
+    ),
+  );
+
+  const newRows = rows.filter(
+    (r) => !existingKeys.has(`${r.role}::${(r.full_name ?? "").toLowerCase().trim()}`),
+  );
+  const skipped = rows.length - newRows.length;
+
+  if (newRows.length === 0) {
+    return { ok: true, added: 0, skipped };
+  }
+
   const { error, data } = await supabase
     .from("legislators")
-    .insert(rows)
+    .insert(newRows)
     .select("id");
 
-  if (error) return { error: error.message };
+  if (error) {
+    // 23505 = unique violation. Could happen if two admins accept the
+    // same suggestion simultaneously (race past our pre-check). Surface
+    // a friendly partial-success rather than a hard error.
+    if (error.code === "23505") {
+      return { ok: true, added: 0, skipped: rows.length, race: true };
+    }
+    return { error: error.message };
+  }
   const added = data?.length ?? 0;
 
   // Mark any pending user-driven requests for this area as fulfilled.
@@ -87,15 +121,17 @@ export async function acceptSuggestions(input: {
   if (added > 0) {
     try {
       const sr = createServiceRoleClient();
-      // Match users whose city OR county normalizes to the same locality
-      // and live in the same state. Both city + county are stored
-      // canonical (Census normalization happens in updateProfile), so
-      // direct equality works here.
+      // legislators.locality is the canonical form ("Midwest City, OK")
+      // but profiles.city / profiles.county are bare strings from the
+      // Census Geocoder ("Midwest City" / "Oklahoma County" — note: no
+      // ", <STATE>" suffix). Strip the suffix from localityNorm to get
+      // the bare form for matching against profiles.
+      const bareLocality = localityNorm.replace(new RegExp(`,\\s*${stateRaw}$`), "").trim();
       const { data: residents } = await sr
         .from("profiles")
         .select("id")
         .eq("state", stateRaw)
-        .or(`city.eq.${localityNorm},county.eq.${localityNorm}`);
+        .or(`city.eq.${bareLocality},county.eq.${bareLocality}`);
 
       const userIds = (residents ?? []).map((r: { id: string }) => r.id);
       if (userIds.length > 0) {
