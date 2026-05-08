@@ -274,23 +274,72 @@ export async function autoCreateCampaignsForNewAntiBills(
       ? { ...baseRow, active: true, review_state: "auto_active" }
       : { ...baseRow, active: false, review_state: "pending_review" };
 
-    const { error } = await supabase.from("campaigns").insert(row);
+    let insertedCampaignId: string | null = null;
+    const { data: insertData, error } = await supabase
+      .from("campaigns")
+      .insert(row)
+      .select("id, title, blurb")
+      .single();
     if (error) {
       // Slug collision / unique-violation path — try a numeric suffix once
       if (error.code === "23505") {
         const altRow = { ...row, slug: `${row.slug}-${Date.now().toString(36)}`.slice(0, 80) };
-        const { error: retryErr } = await supabase.from("campaigns").insert(altRow);
+        const { data: retryData, error: retryErr } = await supabase
+          .from("campaigns")
+          .insert(altRow)
+          .select("id, title, blurb")
+          .single();
         if (retryErr) {
           result.errors.push({ bill_id: bill.id, reason: retryErr.message });
-        } else if (shouldAutoPublish) result.created++;
-        else result.pending++;
+        } else {
+          insertedCampaignId = (retryData?.id as string | undefined) ?? null;
+          if (shouldAutoPublish) result.created++;
+          else result.pending++;
+        }
       } else {
         result.errors.push({ bill_id: bill.id, reason: error.message });
       }
-    } else if (shouldAutoPublish) {
-      result.created++;
     } else {
-      result.pending++;
+      insertedCampaignId = (insertData?.id as string | undefined) ?? null;
+      if (shouldAutoPublish) result.created++;
+      else result.pending++;
+    }
+
+    // Discord fan-out — best-effort, never blocks the loop. Only fire on
+    // SUCCESSFULLY auto-PUBLISHED campaigns so server admins don't get
+    // pings about pending-review bills the public can't yet see. Imported
+    // lazily so this cron-only Discord wiring doesn't pull web-only deps
+    // when auto-create is referenced elsewhere.
+    if (shouldAutoPublish && insertedCampaignId) {
+      try {
+        const { notifyDiscordOnBillDrop, notifyDiscordOnCampaignLaunch } = await import(
+          "@/modules/discord/actions"
+        );
+        // Fire bill_drop_hostile (the bill itself is news) and
+        // campaign_launch (action is now available) in parallel — they
+        // target different event subscribers in /admin/discord-integrations.
+        await Promise.all([
+          notifyDiscordOnBillDrop({
+            billId: bill.id,
+            state: bill.state,
+            title: bill.title ?? `${bill.state} ${bill.bill_number}`,
+            sponsor: null,
+            status: bill.status ?? null,
+            isHostile: true,
+          }),
+          notifyDiscordOnCampaignLaunch({
+            campaignId: insertedCampaignId,
+            title:
+              (insertData?.title as string | undefined) ??
+              bill.title ??
+              `Action on ${bill.state} ${bill.bill_number}`,
+            state: bill.state,
+            description: (insertData?.blurb as string | undefined) ?? null,
+          }),
+        ]);
+      } catch {
+        // never let a Discord outage stop campaign creation
+      }
     }
   }
 
