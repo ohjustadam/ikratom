@@ -48,3 +48,18 @@ body {
 .md-content ol { list-style: decimal; }
 .md-content li + li { margin-top: 0.25em; }
 .md-content hr { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 1.5em 0; }
+
+/* Inline action links inside driver.js tour popovers — used by the
+   leader walkthrough so each step doubles as a click-through to the
+   surface being described. */
+.ikratom-tour-link {
+  display: inline-block;
+  padding: 0.4em 0.75em;
+  border-radius: 6px;
+  background: #10b981;
+  color: #0a0a0a;
+  font-weight: 600;
+  font-size: 0.85em;
+  text-decoration: none;
+}
+.ikratom-tour-link:hover { background: #34d399; }

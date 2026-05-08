@@ -31,9 +31,20 @@ export function ProfileForm({ profile, email }: { profile: Profile | null; email
       <Section title="Account">
         <Row>
           <Field label="Email (read-only)" name="_email" defaultValue={email ?? ""} disabled />
-          <Field label="Full name" name="full_name" defaultValue={profile?.full_name ?? ""} />
+          <Field
+            label="Username (required)"
+            name="username"
+            defaultValue={(profile as { username?: string | null } | null)?.username ?? ""}
+            hint="3–30 chars: lowercase letters, digits, underscore. Public handle other users see."
+          />
         </Row>
         <Row>
+          <Field
+            label="Full name (optional)"
+            name="full_name"
+            defaultValue={profile?.full_name ?? ""}
+            hint="Optional — used to autofill the signature on legislator emails."
+          />
           <Field label="Phone" name="phone" defaultValue={profile?.phone ?? ""} />
         </Row>
       </Section>
@@ -112,8 +123,8 @@ function Row({ children }: { children: React.ReactNode }) {
 }
 
 function Field({
-  label, name, defaultValue, disabled,
-}: { label: string; name: string; defaultValue?: string; disabled?: boolean }) {
+  label, name, defaultValue, disabled, hint,
+}: { label: string; name: string; defaultValue?: string; disabled?: boolean; hint?: string }) {
   return (
     <div>
       <label className="block text-xs font-medium text-zinc-400">{label}</label>
@@ -123,6 +134,7 @@ function Field({
         disabled={disabled}
         className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 disabled:opacity-50 focus:border-emerald-500 focus:outline-none"
       />
+      {hint && <p className="mt-1 text-[11px] text-zinc-500">{hint}</p>}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NewThreadForm } from "./NewThreadForm";
+import { listActiveCommunities } from "@/modules/forum/community-actions";
 
 export const metadata = { title: "New thread" };
 
@@ -30,6 +31,7 @@ export default async function NewThreadPage({
     .single();
 
   const userIsLocal = prof?.state === abbr;
+  const communities = await listActiveCommunities();
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:px-8">
@@ -50,7 +52,16 @@ export default async function NewThreadPage({
           </p>
         )}
       </header>
-      <NewThreadForm state={abbr} userIsLocal={userIsLocal} />
+      <NewThreadForm
+        state={abbr}
+        userIsLocal={userIsLocal}
+        communities={communities.map((c) => ({
+          id: c.id,
+          slug: c.slug,
+          name: c.name,
+          icon: c.icon,
+        }))}
+      />
     </div>
   );
 }

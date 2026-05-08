@@ -3,6 +3,7 @@ import { USMap } from "@/components/USMap";
 import { Lounge } from "@/modules/chat/Lounge";
 import { RecentActivity } from "@/modules/chat/RecentActivity";
 import { loadInitialChat } from "@/modules/chat/actions";
+import { listActiveCommunities } from "@/modules/forum/community-actions";
 
 export const metadata = { title: "Community" };
 
@@ -25,6 +26,10 @@ export default async function ForumIndexPage() {
   for (const s of states ?? []) {
     if (s.kratom_status) statusByAbbr[s.abbr] = s.kratom_status;
   }
+
+  // Topical communities (admin-curated). Renders only if non-empty so
+  // the section auto-hides on a fresh deploy.
+  const communities = await listActiveCommunities();
 
   // User context
   const {
@@ -92,6 +97,36 @@ export default async function ForumIndexPage() {
       <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 sm:p-6">
         <USMap statusByAbbr={statusByAbbr} highlightAbbr={userState} />
       </div>
+
+      {/* Topical communities — admin-curated, rendered only when present.
+          Sits between the map and the state list so it's prominent without
+          shoving the map below the fold. */}
+      {communities.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+            Topical communities
+          </h2>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {communities.map((c) => (
+              <a
+                key={c.id}
+                href={`/forum/c/${c.slug}`}
+                className="flex items-start gap-3 rounded-md border border-zinc-800 bg-zinc-950/40 p-3 hover:border-emerald-500"
+              >
+                <span className="text-2xl">{c.icon || "💬"}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-zinc-100">{c.name}</div>
+                  {c.description && (
+                    <div className="mt-0.5 line-clamp-2 text-xs text-zinc-500">
+                      {c.description}
+                    </div>
+                  )}
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* National board — first-class link, not buried with the states */}
       <a

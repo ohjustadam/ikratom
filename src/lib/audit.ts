@@ -17,7 +17,7 @@ import { createClient } from "./supabase/server";
  */
 export async function recordAdminAction(input: {
   action: string;
-  targetType?: "user" | "campaign" | "thread" | "post" | "legislator";
+  targetType?: "user" | "campaign" | "thread" | "post" | "legislator" | "forum_community";
   targetId?: string;
   details?: Record<string, unknown>;
 }) {

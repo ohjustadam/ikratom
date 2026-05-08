@@ -24,6 +24,21 @@ export async function createThread(formData: FormData) {
   const tagRaw = String(formData.get("tag") ?? "general");
   const tag = (VALID_TAGS as readonly string[]).includes(tagRaw) ? tagRaw : "general";
   const residentsOnly = formData.get("residents_only") === "on";
+  // Optional community tag — must resolve to an active community.
+  // RLS already hides archived rows, so a stale id from a cached form
+  // just falls through to null (thread posts un-categorized) instead
+  // of erroring.
+  const communityIdRaw = String(formData.get("community_id") ?? "").trim();
+  let communityId: string | null = null;
+  if (/^[0-9a-f-]{36}$/i.test(communityIdRaw)) {
+    const { data: community } = await supabase
+      .from("forum_communities")
+      .select("id")
+      .eq("id", communityIdRaw)
+      .eq("is_active", true)
+      .single();
+    if (community) communityId = community.id;
+  }
 
   if (!title) return { error: "Title is required." };
   if (title.length < 4) return { error: "Title must be at least 4 characters." };
@@ -55,6 +70,7 @@ export async function createThread(formData: FormData) {
       title,
       body,
       tag,
+      community_id: communityId,
       residents_only: residentsOnly,
       moderation_status: decision.status,
       flag_reason: decision.reason,

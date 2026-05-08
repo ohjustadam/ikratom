@@ -1,8 +1,6 @@
 import { redirect } from "next/navigation";
-import { getCreatorContext } from "@/modules/admin/actions";
+import { getCreatorContext, getAdminQueueCounts } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
-import { moderationQueueCount } from "@/modules/forum/actions";
-import { pendingCampaignCount } from "@/modules/admin/campaign-review-actions";
 
 export const metadata = { title: "Admin" };
 
@@ -18,17 +16,18 @@ export default async function AdminPage() {
     { count: legislatorCount },
     { count: billCount },
     { count: actionCount },
-    queueCount,
-    pendingCampaigns,
+    queues,
   ] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }),
     supabase.from("campaigns").select("id", { count: "exact", head: true }),
     supabase.from("legislators").select("id", { count: "exact", head: true }),
     supabase.from("bills").select("id", { count: "exact", head: true }),
     supabase.from("campaign_actions").select("id", { count: "exact", head: true }),
-    moderationQueueCount(),
-    pendingCampaignCount(),
+    getAdminQueueCounts(),
   ]);
+  // Backwards-compatible aliases used by existing card titles below.
+  const queueCount = queues.forum;
+  const pendingCampaigns = queues.campaigns;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
@@ -100,8 +99,9 @@ export default async function AdminPage() {
         {adminOnly && (
           <AdminCard
             href="/admin/lounge"
-            title="Lounge moderation"
+            title={queues.loungeBanReview > 0 ? `Lounge moderation (${queues.loungeBanReview})` : "Lounge moderation"}
             body="Delete chat messages, mute users from the live community room (1h / 24h / forever)."
+            accent={queues.loungeBanReview > 0}
           />
         )}
         {adminOnly && (
@@ -121,15 +121,17 @@ export default async function AdminPage() {
         {adminOnly && (
           <AdminCard
             href="/admin/discord-integrations"
-            title="Discord integrations"
+            title={queues.inactiveDiscord > 0 ? `Discord integrations (${queues.inactiveDiscord} inactive)` : "Discord integrations"}
             body="Connect partner server webhooks. Bill alerts and campaign launches auto-post to their channels."
+            accent={queues.inactiveDiscord > 0}
           />
         )}
         {adminOnly && (
           <AdminCard
             href="/admin/local-rep-requests"
-            title="Local rep requests"
+            title={queues.localRepRequests > 0 ? `Local rep requests (${queues.localRepRequests})` : "Local rep requests"}
             body="Areas where users have asked us to add their local reps. Click through to AI-suggest + approve."
+            accent={queues.localRepRequests > 0}
           />
         )}
         {adminOnly && (
@@ -141,9 +143,17 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/communities"
+            title="Communities"
+            body="Add, edit, archive topical communities (Veterans, Shop owners, etc.) shown alongside state forums."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/vendor-applications"
-            title="Vendor applications"
+            title={queues.vendorApplications > 0 ? `Vendor applications (${queues.vendorApplications})` : "Vendor applications"}
             body="Review users applying to be verified vendors. Approve to unlock business-signature on advocacy actions."
+            accent={queues.vendorApplications > 0}
           />
         )}
         {adminOnly && (
@@ -168,8 +178,9 @@ export default async function AdminPage() {
         {adminOnly && (
           <AdminCard
             href="/admin/stories"
-            title="Story moderation"
+            title={queues.stories > 0 ? `Story moderation (${queues.stories})` : "Story moderation"}
             body="Review user-submitted advocacy stories before they go public."
+            accent={queues.stories > 0}
           />
         )}
         {adminOnly && (
