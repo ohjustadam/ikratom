@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasUserRequestedCoverage } from "@/modules/local-reps/actions";
+import { normalizeLocality } from "@/lib/locality";
 import { RequestCoverageButton } from "./RequestCoverageButton";
 
 /**
@@ -25,14 +26,25 @@ export async function RepCoverageWidget({
 }) {
   if (!userState || !userCity) return null;
 
+  // Profile.city is the raw geocoder output (e.g. "Midwest City"). Legislator
+  // rows are written through normalizeLocality which appends ", <STATE>"
+  // (e.g. "Midwest City, OK"). The widget previously compared raw to
+  // normalized and never matched. Normalize the user's city + county here
+  // to canonical form before the lookup.
+  const cityCanonical = normalizeLocality(userCity, userState);
+  const countyCanonical = userCounty ? normalizeLocality(userCounty, userState) : null;
+
   const supabase = await createClient();
-  // Check whether we have ANY local legislators in the user's locality
+  const localityFilter = countyCanonical
+    ? `locality.eq.${cityCanonical},locality.eq.${countyCanonical}`
+    : `locality.eq.${cityCanonical}`;
   const { count: localCount } = await supabase
     .from("legislators")
     .select("id", { count: "exact", head: true })
     .eq("state", userState)
+    .eq("active", true)
     .in("level", ["municipal", "county"])
-    .or(`locality.eq.${userCity}${userCounty ? `,locality.eq.${userCounty}` : ""}`);
+    .or(localityFilter);
 
   if ((localCount ?? 0) > 0) {
     // Already covered — nothing to do.
