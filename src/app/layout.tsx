@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { siteConfig } from "@/config/site.config";
 import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
+import { MobileAuthPill } from "@/modules/auth/components/MobileAuthPill";
 import { CookieBanner } from "@/components/CookieBanner";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { MobileNav } from "@/components/MobileNav";
@@ -135,8 +136,14 @@ export default async function RootLayout({
               <HeaderAuth />
             </nav>
 
-            {/* Mobile hamburger (<md) */}
-            <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} />
+            {/* Mobile right-side controls (<md): always-visible auth
+                pill + the hamburger. Pill gives one-tap access to
+                Sign in / Dashboard without opening the menu, since
+                that's the most-common destination. */}
+            <div className="flex items-center gap-2 md:hidden">
+              <MobileAuthPill />
+              <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} />
+            </div>
           </div>
         </header>
 
