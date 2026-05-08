@@ -20,7 +20,8 @@ export type WidgetId =
   | "saved_searches"
   | "activity_radar"
   | "badges"
-  | "whats_new";
+  | "whats_new"
+  | "welcome_explore";
 
 /**
  * One-click layout presets — apply via CockpitCustomizer's Preset row.
@@ -42,6 +43,7 @@ export type WidgetSlot = {
  */
 export const DEFAULT_WIDGETS: WidgetSlot[] = [
   { id: "whats_new", visible: true },
+  { id: "welcome_explore", visible: true },
   { id: "briefing", visible: true },
   { id: "profile_completion", visible: true },
   { id: "rep_coverage", visible: true },
@@ -107,6 +109,10 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
   whats_new: {
     title: "What's new",
     description: "Platform updates and announcements from the team.",
+  },
+  welcome_explore: {
+    title: "Welcome / Explore",
+    description: "First-time tour cards for Community, DMs, and Campaigns. Hides itself once you've used any of those.",
   },
 };
 

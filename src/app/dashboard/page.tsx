@@ -6,6 +6,8 @@ import { StreakBadge } from "@/components/StreakBadge";
 import { getCockpitLayout } from "@/modules/dashboard/actions";
 import { CockpitCustomizer } from "@/modules/dashboard/CockpitCustomizer";
 import { OnboardingTour } from "@/modules/dashboard/OnboardingTour";
+import { LeaderTour } from "@/modules/dashboard/LeaderTour";
+import { WelcomeExploreWidget } from "@/modules/dashboard/widgets/WelcomeExploreWidget";
 import { BriefingWidget } from "@/modules/dashboard/widgets/BriefingWidget";
 import { ActiveCampaignsWidget } from "@/modules/dashboard/widgets/ActiveCampaignsWidget";
 import { RepCoverageWidget } from "@/modules/dashboard/widgets/RepCoverageWidget";
@@ -117,6 +119,7 @@ export default async function DashboardPage() {
     activity_radar: <ActivityRadarWidget />,
     badges: userId ? <BadgesWidget /> : null,
     whats_new: userId ? <WhatsNewWidget /> : null,
+    welcome_explore: userId ? <WelcomeExploreWidget userId={userId} /> : null,
     my_reps:
       myReps.length > 0 ? (
         (() => {
@@ -163,6 +166,8 @@ export default async function DashboardPage() {
   };
 
   const isFirstVisit = !!profile && layout?.onboarded_at === null;
+  const leaderTourPending =
+    !!(profile as { leader_tour_pending?: boolean } | null)?.leader_tour_pending;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
@@ -213,6 +218,7 @@ export default async function DashboardPage() {
 
       {/* First-visit tour. No-op when onboarded_at already set. */}
       <OnboardingTour shouldShow={isFirstVisit} />
+      <LeaderTour shouldShow={leaderTourPending} />
     </div>
   );
 }

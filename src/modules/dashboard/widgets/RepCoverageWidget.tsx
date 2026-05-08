@@ -24,7 +24,38 @@ export async function RepCoverageWidget({
   userCity: string | null;
   userCounty: string | null;
 }) {
-  if (!userState || !userCity) return null;
+  // When the user hasn't filled in city/state yet, show a "Pull your
+  // local reps — finish your profile first" CTA that links to /account.
+  // This doubles the chance new users complete their profile (paired
+  // with the profile_completion banner) and explicitly tells them WHY
+  // we need the address: to surface their local reps.
+  if (!userState || !userCity) {
+    return (
+      <section className="rounded-lg border border-amber-700/30 bg-amber-950/10 p-4">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full bg-amber-400" />
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-bold text-amber-300">
+              Pull your local reps onto your dashboard
+            </h2>
+            <p className="mt-1 text-xs text-zinc-400">
+              Add your address (street + city + state + ZIP) and we&apos;ll auto-match
+              you to your federal, state, and local representatives. One-click email
+              + call from your war room afterwards.
+            </p>
+            <div className="mt-3">
+              <a
+                href="/account"
+                className="inline-block rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+              >
+                Complete profile →
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   // Profile.city is the raw geocoder output (e.g. "Midwest City"). Legislator
   // rows are written through normalizeLocality which appends ", <STATE>"

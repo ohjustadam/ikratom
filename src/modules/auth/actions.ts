@@ -117,6 +117,20 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   if (password.length < 10) return { error: "Password must be at least 10 characters." };
   if (password.length > 200) return { error: "Password is too long." };
 
+  // Username — required for new signups. Lowercased on the server so
+  // user-typed casing doesn't matter; uniqueness check is case-insensitive.
+  const usernameRaw = ((formData.get("username") as string) ?? "").trim().toLowerCase();
+  if (!usernameRaw) return { error: "Username is required." };
+  if (!/^[a-z0-9_]{3,30}$/.test(usernameRaw)) {
+    return {
+      error:
+        "Username must be 3–30 characters, lowercase letters, digits, and underscore only.",
+    };
+  }
+  // Reserved/abusable usernames — block trivially before the DB rejects.
+  const RESERVED = new Set(["admin", "root", "owner", "ikratom", "support", "staff", "moderator", "mod", "system", "official", "anonymous", "anon"]);
+  if (RESERVED.has(usernameRaw)) return { error: "That username is reserved." };
+
   // Rate limit: 5 signups per IP per hour
   const ip = await getClientIp();
   if (!(await checkRateLimit(`signup:ip:${ip}`, 5, 3600))) {
@@ -134,8 +148,40 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({ email, password });
+
+  // Check username uniqueness BEFORE creating the auth user, so we don't
+  // end up with an authed account that can't claim its desired handle.
+  // Race: two parallel signups for the same username — the unique index
+  // is the final guard; whoever lands second gets the friendly error
+  // below when the post-signup update fails.
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("username", usernameRaw)
+    .maybeSingle();
+  if (existing) return { error: "That username is already taken." };
+
+  const { error, data } = await supabase.auth.signUp({ email, password });
   if (error) return { error: error.message };
+
+  // The on_auth_user_created trigger has now inserted a profile row for
+  // this user. Stamp the username on it. If the unique index trips
+  // (race), surface a clean error.
+  if (data.user) {
+    const { error: updateErr } = await supabase
+      .from("profiles")
+      .update({ username: usernameRaw })
+      .eq("id", data.user.id);
+    if (updateErr) {
+      // 23505 = unique violation
+      if ((updateErr as { code?: string }).code === "23505") {
+        return { error: "That username was taken just now. Try another." };
+      }
+      // Don't roll back the auth user — they can pick a username on
+      // first profile save. Surface the error so they know.
+      return { error: `Couldn't set username: ${updateErr.message}` };
+    }
+  }
 
   return { success: true };
 }
@@ -311,6 +357,7 @@ export async function updateProfile(formData: FormData): Promise<AuthResult> {
   // Trim + cap each string field. Caps prevent DB bloat / abuse.
   const cap = (s: string, n: number) => s.slice(0, n).trim() || null;
 
+  const usernameRaw = ((formData.get("username") as string) ?? "").trim().toLowerCase();
   const fullName = cap((formData.get("full_name") as string) || "", 120);
   const phone = cap((formData.get("phone") as string) || "", 30);
   const street = cap((formData.get("street") as string) || "", 200);
@@ -320,6 +367,24 @@ export async function updateProfile(formData: FormData): Promise<AuthResult> {
   const isShopOwner = formData.get("is_shop_owner") === "on";
   const shopName = cap((formData.get("shop_name") as string) || "", 120);
   const isMedical = formData.get("is_medical_professional") === "on";
+
+  // Username is required (3–30 chars, lowercase letters/digits/_).
+  // Existing users without one get this on first profile save.
+  if (!usernameRaw) return { error: "Username is required." };
+  if (!/^[a-z0-9_]{3,30}$/.test(usernameRaw)) {
+    return { error: "Username must be 3–30 chars, lowercase letters, digits, underscore only." };
+  }
+  const RESERVED = new Set(["admin", "root", "owner", "ikratom", "support", "staff", "moderator", "mod", "system", "official", "anonymous", "anon"]);
+  if (RESERVED.has(usernameRaw)) return { error: "That username is reserved." };
+
+  // Uniqueness pre-check (the unique index is the final guard).
+  const { data: clash } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("username", usernameRaw)
+    .neq("id", user.id)
+    .maybeSingle();
+  if (clash) return { error: "That username is already taken." };
 
   const state = stateRaw && /^[A-Z]{2}$/.test(stateRaw) ? stateRaw : null;
   if (stateRaw && !state) return { error: "State must be a 2-letter code (e.g. OK)." };
@@ -346,6 +411,7 @@ export async function updateProfile(formData: FormData): Promise<AuthResult> {
   const { error } = await supabase
     .from("profiles")
     .update({
+      username: usernameRaw,
       full_name: fullName,
       phone,
       street,
@@ -363,6 +429,11 @@ export async function updateProfile(formData: FormData): Promise<AuthResult> {
     })
     .eq("id", user.id);
 
-  if (error) return { error: error.message };
+  if (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return { error: "That username was taken just now. Try another." };
+    }
+    return { error: error.message };
+  }
   return { success: true };
 }

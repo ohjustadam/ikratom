@@ -47,6 +47,15 @@ export function AuthForm({ redirectTo }: { redirectTo?: string }) {
       </div>
 
       <Field label="Email" name="email" type="email" required />
+      {mode === "signup" && (
+        <Field
+          label="Username"
+          name="username"
+          type="text"
+          required
+          hint="3–30 chars: lowercase letters, digits, and _ only. This is your public handle (other users see this; your real name stays optional)."
+        />
+      )}
       <Field
         label="Password"
         name="password"
