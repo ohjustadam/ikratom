@@ -27,6 +27,9 @@ type BillRow = {
   locality: string | null;
   enriched_at: string | null;
   last_synced_at: string | null;
+  journey_narrative: string | null;
+  amendments_count: number | null;
+  journey_analyzed_at: string | null;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -71,7 +74,8 @@ export default async function BillDetailPage({
       "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
       "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
       "source_url, official_url, session_id, scope, locality, " +
-      "enriched_at, last_synced_at",
+      "enriched_at, last_synced_at, " +
+      "journey_narrative, amendments_count, journey_analyzed_at",
     )
     .eq("id", id)
     .single();
@@ -225,6 +229,43 @@ export default async function BillDetailPage({
             current session, search for that instead.
           </p>
         </div>
+      )}
+
+      {/* Cumulative journey — when the bill has been amended at least
+          once, show the full trajectory (introduced → each amendment →
+          current state → cumulative impact). Lives ABOVE the 2-sentence
+          summary because amendment-heavy bills are the ones where the
+          short summary feels misleading. */}
+      {bill.journey_narrative && (bill.amendments_count ?? 0) >= 2 && (
+        <section className="mb-6 rounded-lg border border-emerald-900/40 bg-gradient-to-br from-zinc-950/40 to-emerald-950/10 p-5">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
+              Bill journey
+            </h2>
+            <span className="rounded-full bg-emerald-950/40 px-2 py-0.5 text-[10px] font-mono uppercase text-emerald-300">
+              {bill.amendments_count} versions tracked
+            </span>
+          </div>
+          <p className="mb-3 text-[11px] text-zinc-500">
+            How the bill evolved from introduction through every amendment to the current
+            text. Helps you see what was kept, removed, and added — instead of only
+            reading the latest snapshot.
+          </p>
+          <div className="space-y-3 text-sm leading-relaxed text-zinc-200">
+            {bill.journey_narrative
+              .split(/\n\s*\n/)
+              .filter((p) => p.trim().length > 0)
+              .map((para, i) => (
+                <p key={i}>{para.trim()}</p>
+              ))}
+          </div>
+          {bill.journey_analyzed_at && (
+            <p className="mt-3 text-[10px] uppercase tracking-wider text-zinc-600">
+              AI-synthesized from action timeline + version texts ·{" "}
+              last analyzed {new Date(bill.journey_analyzed_at).toLocaleDateString()}
+            </p>
+          )}
+        </section>
       )}
 
       {/* Plain-English summary (AI) — with locale-aware translation */}

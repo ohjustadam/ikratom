@@ -17,6 +17,7 @@
     "sync:bills": "node --env-file=.env.local scripts/sync-bills.mjs",
     "enrich:bills": "node --env-file=.env.local scripts/enrich-bills.mjs",
     "enrich:bills:deep": "node --env-file=.env.local scripts/enrich-bills-deep.mjs",
+    "enrich:bills:journey": "node --env-file=.env.local scripts/enrich-bill-journey.mjs",
     "translate:content": "node --env-file=.env.local scripts/translate-content.mjs",
     "dedupe:news": "node --env-file=.env.local scripts/dedupe-news.mjs",
     "dedupe:locals": "node --env-file=.env.local scripts/dedupe-locals.mjs",
