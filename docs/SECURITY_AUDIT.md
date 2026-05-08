@@ -1,6 +1,21 @@
-# Security audit — 2026-05-07
+# Security audit — 2026-05-08 (re-run)
 
 Snapshot of findings from automated tools. Re-run on every meaningful schema change or dep bump.
+
+**Latest sweep (2026-05-08):** clean. 0 Supabase security findings, 0 performance findings, 0 new npm vulns since last audit. New tables since last audit — `chat_mute_history`, `ai_jobs`, `email_quota_log`, `discord_integrations`, `user_dashboard_layouts`, `partners` — all reviewed: RLS scoped correctly or service-role-write-only. The 2 prior moderate npm findings (transitive postcss inside Next.js) remain false-positives, same logic as before. No action items.
+
+Operational verifications done in this sweep:
+- 464/464 active bills enriched (Ollama from local runs)
+- 5 profiles intact, 1 user_dashboard_layout row exists
+- ai_jobs + email_quota_log empty pending owner GROQ_API_KEY + RESEND_API_KEY in Vercel env
+- 0 stale local git branches
+- 0 leftover apex `ikratom.org` references in code (all www. now)
+
+---
+
+## Original 2026-05-07 baseline
+
+
 
 ## Tools run
 
