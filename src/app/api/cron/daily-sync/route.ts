@@ -109,9 +109,28 @@ export async function GET(request: NextRequest) {
     log.push({ step: "federal_bills", result: { error: String(e).slice(0, 200) } });
   }
 
-  // Auto-create campaigns for newly-detected anti-kratom bills. This fires
-  // the existing notify_users_for_campaign trigger so matched users get
-  // an in-app notification within seconds of the cron run finishing.
+  // Enrich newly-synced bills via the AI router (Ollama → Groq → Gemini
+  // fallback chain). The local Ollama isn't reachable from Vercel, so
+  // this runs on Groq in practice. Capped per-run to stay within the
+  // function timeout. Logs to ai_jobs via runAiStructured() so the
+  // /admin/ai-control dashboard fills with real activity.
+  try {
+    const { enrichRecentlyAddedBills } = await import("@/modules/bills/enrich");
+    const enriched = await enrichRecentlyAddedBills(supabase);
+    log.push({ step: "enrich_bills", result: enriched });
+  } catch (e) {
+    log.push({ step: "enrich_bills", result: { error: String(e).slice(0, 200) } });
+  }
+
+  // Auto-create campaigns for newly-detected anti-kratom bills. This runs
+  // AFTER enrichment so the confidence floor (0.6) is meaningful — a
+  // freshly-synced bill that hasn't been enriched yet has confidence=null
+  // and would be skipped by the auto-create gate. Now they're enriched
+  // first, then evaluated for campaign-worthiness.
+  //
+  // The existing notify_users_for_campaign Postgres trigger fires on
+  // campaign INSERT and fans out in-app notifications respecting each
+  // user's preferences.
   try {
     const { autoCreateCampaignsForNewAntiBills } = await import("@/modules/campaigns/auto-create");
     const auto = await autoCreateCampaignsForNewAntiBills(supabase);
