@@ -34,6 +34,7 @@
     "@types/web-push": "^3.6.4",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
+    "driver.js": "^1.4.0",
     "libsodium-wrappers": "^0.8.4",
     "marked": "^18.0.3",
     "next": "16.2.3",

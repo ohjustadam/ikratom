@@ -10,6 +10,7 @@ import { getNotificationPrefs } from "@/modules/notifications/actions";
 import { NotificationPrefsForm } from "@/modules/notifications/components/NotificationPrefsForm";
 import { getPushVapidPublicKey } from "@/modules/auth/actions-push";
 import { PushSubscribe } from "@/modules/auth/components/PushSubscribe";
+import { ReplayTourButton } from "./ReplayTourButton";
 
 export const metadata = { title: "Account" };
 
@@ -114,6 +115,14 @@ export default async function AccountPage({
       </header>
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <NotificationPrefsForm initial={notifPrefs} />
+      </div>
+
+      <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <h3 className="mb-1 text-sm font-semibold">Cockpit tour</h3>
+        <p className="mb-3 text-xs text-zinc-500">
+          Replay the first-time walkthrough on your dashboard.
+        </p>
+        <ReplayTourButton />
       </div>
 
       <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
