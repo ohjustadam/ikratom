@@ -119,19 +119,46 @@ export default async function DashboardPage() {
     whats_new: userId ? <WhatsNewWidget /> : null,
     my_reps:
       myReps.length > 0 ? (
-        <section data-tour="my-reps">
-          <div className="mb-3 flex items-end justify-between">
-            <h2 className="text-lg font-semibold">Your representatives</h2>
-            <a href="/legislators" className="text-xs text-emerald-400 hover:underline">
-              See all in {profile?.state} →
-            </a>
-          </div>
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {myReps.map((l) => (
-              <MyRepCard key={l.id} legislator={l} />
-            ))}
-          </ul>
-        </section>
+        (() => {
+          // Group by scope for visual clarity. Federal → State → Local.
+          const scopeOf = (r: typeof myReps[number]): "federal" | "state" | "local" => {
+            if (r.level === "municipal" || r.level === "county") return "local";
+            if (r.role.startsWith("us_") || r.level === "federal") return "federal";
+            return "state";
+          };
+          const groups = { federal: [] as typeof myReps, state: [] as typeof myReps, local: [] as typeof myReps };
+          for (const r of myReps) groups[scopeOf(r)].push(r);
+          const groupMeta = [
+            { id: "federal", title: "Federal", reps: groups.federal },
+            { id: "state", title: "State", reps: groups.state },
+            { id: "local", title: "Local", reps: groups.local },
+          ].filter((g) => g.reps.length > 0);
+
+          return (
+            <section data-tour="my-reps">
+              <div className="mb-3 flex items-end justify-between">
+                <h2 className="text-lg font-semibold">Your representatives</h2>
+                <a href="/legislators" className="text-xs text-emerald-400 hover:underline">
+                  See all in {profile?.state} →
+                </a>
+              </div>
+              <div className="space-y-4">
+                {groupMeta.map((g) => (
+                  <div key={g.id}>
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                      {g.title} ({g.reps.length})
+                    </p>
+                    <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {g.reps.map((l) => (
+                        <MyRepCard key={l.id} legislator={l} />
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </section>
+          );
+        })()
       ) : null,
   };
 
