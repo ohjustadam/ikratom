@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Mobile menu — full-screen overlay (NOT a side drawer).
@@ -85,17 +86,19 @@ export function MobileNav({
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Lock body scroll when overlay open
+  // NOTE: deliberately NOT locking body scroll. On iOS Safari, setting
+  // body { overflow: hidden } while a fixed-position overlay is rendered
+  // can cause the overlay's INNER CONTENT to clip or render offscreen
+  // (the overlay's bg paints fine, but text disappears) — exactly the
+  // symptom the owner reported. The portal approach below + the
+  // overlay's own overflow-y-auto handle scroll just fine.
+
+  // SSR safety — createPortal needs document.body which doesn't exist
+  // during SSR. Track whether we're mounted before rendering the portal.
+  const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [open]);
+    setMounted(true);
+  }, []);
 
   function close() {
     setOpen(false);
@@ -113,9 +116,17 @@ export function MobileNav({
         <HamburgerIcon />
       </button>
 
-      {open && (
+      {/* Render the overlay via a portal at document.body so it escapes
+          any parent flex / transform / sticky context that might be
+          interfering with content rendering. The previous version
+          rendered as a Fragment sibling of the hamburger button, which
+          made it a child of the header's `flex md:hidden` wrapper —
+          fixed positioning normally escapes flow but iOS Safari has
+          known edge cases where ancestor flex contexts clip fixed
+          descendants. Portal sidesteps the whole class of bugs. */}
+      {open && mounted && createPortal(
         <div
-          className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-zinc-950 md:hidden"
+          className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-zinc-950 md:hidden"
           style={{
             paddingTop: "env(safe-area-inset-top)",
             paddingBottom: "env(safe-area-inset-bottom)",
@@ -262,7 +273,8 @@ export function MobileNav({
               </a>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
