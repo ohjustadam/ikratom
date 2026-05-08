@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { normalizeLocality } from "@/lib/locality";
@@ -54,6 +55,50 @@ export async function requestCoverage(input: {
       { onConflict: "user_id,state,locality,level" },
     );
   if (error) return { error: error.message };
+
+  // Notify admins so they don't miss the queue. Best-effort; never
+  // blocks the user-facing response. Realtime publication on
+  // notifications means each admin's bell-icon updates within seconds,
+  // and the next push fan-out cron run delivers it as a system push
+  // notification to admins who've enabled push.
+  try {
+    const sr = createServiceRoleClient();
+    const { data: admins } = await sr
+      .from("profiles")
+      .select("id")
+      .or("is_admin.eq.true,is_owner.eq.true");
+    const adminIds = (admins ?? []).map((a: { id: string }) => a.id);
+    if (adminIds.length > 0) {
+      // Skip duplicate "you have N requests" alerts for the SAME area
+      // by checking if an unread admin notification already exists for
+      // this kind+locality. If so, we noop — the admin already knows
+      // the area is in the queue. They'll see the count climb on
+      // /admin/local-rep-requests, no need to re-ping.
+      const { data: existingAlerts } = await sr
+        .from("notifications")
+        .select("id")
+        .in("user_id", adminIds)
+        .eq("kind", "local_rep_request")
+        .eq("link", `/admin/local-rep-requests`)
+        .is("read_at", null)
+        .like("body", `%${localityNorm}%`)
+        .limit(1);
+      if (!existingAlerts || existingAlerts.length === 0) {
+        await sr.from("notifications").insert(
+          adminIds.map((uid) => ({
+            user_id: uid,
+            kind: "local_rep_request",
+            title: "New local rep request",
+            body: `A user requested coverage for ${localityNorm}. Click to review.`,
+            link: "/admin/local-rep-requests",
+          })),
+        );
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+
   return { ok: true };
 }
 
