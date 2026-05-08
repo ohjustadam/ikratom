@@ -83,7 +83,13 @@ jobs:
         # Limit 200 per run = ~7 minutes at 2s polite delay between
         # items. Cooldown-aware router handles rate limits.
         run: node scripts/classify-news-policy.mjs --limit 200
-      - name: Auto-create campaigns from new actionable alerts
+      - name: Auto-create campaigns from new actionable alerts (safety net)
+        # As of migration 0068, this is handled in real-time by a Postgres
+        # trigger (`trg_auto_campaign_on_alert`). Keeping the cron run as
+        # a safety net: if the trigger errors out for any reason, or if
+        # we backfill alerts created before the trigger existed, the
+        # script's `--all-pending` filter will find them and finish the
+        # job. In normal operation it's a no-op.
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
