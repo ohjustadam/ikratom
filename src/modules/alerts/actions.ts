@@ -103,6 +103,17 @@ export async function submitIntelTip(input: {
     body || "(no additional context)",
   ].join("\n\n");
 
+  // Trusted reporters get auto-approved (RLS policy_alerts_trusted_self_submit
+  // covers the insert; the Phase 4 trigger then auto-spawns a campaign).
+  // Field reporters + rookies still queue for moderation.
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("intel_tier")
+    .eq("id", user.id)
+    .single();
+  const tier = (profile as { intel_tier: string } | null)?.intel_tier ?? "rookie";
+  const isTrusted = tier === "trusted_reporter";
+
   const { error, data: row } = await supabase
     .from("policy_alerts")
     .insert({
@@ -114,7 +125,7 @@ export async function submitIntelTip(input: {
       source_url,
       occurs_at,
       action_required: !!input.action_required,
-      moderation_status: "pending",
+      moderation_status: isTrusted ? "approved" : "pending",
       submitted_by_user_id: user.id,
       is_anonymous: !!input.is_anonymous,
     })
@@ -126,7 +137,8 @@ export async function submitIntelTip(input: {
   }
 
   revalidatePath("/admin/intel-queue");
-  return { ok: true, id: row.id };
+  if (isTrusted) revalidatePath("/pulse");
+  return { ok: true, id: row.id, autoApproved: isTrusted };
 }
 
 // ============================================================
@@ -137,13 +149,39 @@ export async function listPendingIntelTips() {
   const ctx = await getAdminContext();
   if (!ctx.ok) return [];
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data: tips } = await supabase
     .from("policy_alerts")
     .select("id, kind, severity, title, body, locality, source_url, occurs_at, action_required, submitted_by_user_id, is_anonymous, created_at")
     .eq("moderation_status", "pending")
     .order("created_at", { ascending: false })
     .limit(100);
-  return data ?? [];
+  if (!tips || tips.length === 0) return [];
+
+  // Decorate with submitter trust tier so the queue UI can show badges.
+  const submitterIds = Array.from(new Set(
+    tips.map((t) => (t as { submitted_by_user_id: string | null }).submitted_by_user_id).filter(Boolean) as string[],
+  ));
+  if (submitterIds.length === 0) return tips;
+
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, intel_tier, intel_approved_count, intel_rejected_count")
+    .in("id", submitterIds);
+
+  const byId = new Map(
+    (profiles ?? []).map((p) => [(p as { id: string }).id, p as { id: string; intel_tier: string; intel_approved_count: number; intel_rejected_count: number }]),
+  );
+
+  return tips.map((t) => {
+    const sid = (t as { submitted_by_user_id: string | null }).submitted_by_user_id;
+    const prof = sid ? byId.get(sid) : null;
+    return {
+      ...t,
+      _submitter_tier: prof?.intel_tier ?? "rookie",
+      _submitter_approved: prof?.intel_approved_count ?? 0,
+      _submitter_rejected: prof?.intel_rejected_count ?? 0,
+    };
+  });
 }
 
 /**
