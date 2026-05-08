@@ -39,6 +39,7 @@ const REFRESH = args.includes("--refresh");
 const LIMIT = parseInt(arg("--limit") ?? "20");
 const PROVIDER_OVERRIDE = arg("--provider"); // "groq" | "ollama" — auto if not set
 const MODEL_OVERRIDE = arg("--model");
+const FASTDEMOCRACY_URL = arg("--fastdemocracy"); // optional: scrape FD for full-fidelity NH (etc.) version + amendment PDFs
 
 if (!SPECIFIC_BILL && !ALL_STALE) {
   console.error("Usage: --bill <uuid>  OR  --all-stale  (optionally --refresh, --provider, --model)");
@@ -119,6 +120,83 @@ async function downloadPdfText(url) {
   return result.text || "";
 }
 
+/**
+ * Extract version + amendment PDF links from a FastDemocracy bill page.
+ *
+ * FastDemocracy aggregates state legislature data including PDF URLs
+ * that some states (notably NH) hide behind JS bot challenges on the
+ * official portal. The official PDF endpoints themselves serve raw
+ * PDFs without challenge — we just need to discover the IDs.
+ *
+ * Returns an ordered array of { label, kind, url } where kind is
+ * "version" (cumulative snapshot) or "amendment" (the patch text
+ * itself). Versions come first in chronological order, then amendments.
+ *
+ * Generalized over any state — looks for `bill_Status/pdf.aspx?id=…`
+ * NH-specific URLs in the FD page. Future: add patterns for other
+ * state portals as we discover them.
+ */
+async function fetchFastDemocracyVersions(fdUrl) {
+  const res = await fetch(fdUrl, { signal: AbortSignal.timeout(20_000) });
+  if (!res.ok) throw new Error(`FastDemocracy ${res.status}`);
+  const html = await res.text();
+
+  // FastDemocracy renders the bill texts list as alternating HTML+PDF
+  // <li> pairs inside a <ul class="bill-version-list">. Each <li>:
+  //   <li><a href="…billinfo.aspx?…&version-id=22209" …><i class="uil"></i>Introduced<span class="version-mimetype">HTML</a></span></li>
+  //   <li><a href="…pdf.aspx?id=22209…" …><i class="uil"></i>Introduced<span class="version-mimetype">PDF</a></span></li>
+  //
+  // We walk all <li> blocks in the version list. For each, capture
+  // (href, label) — the label is the text between the closing </i> and
+  // the opening <span class="version-mimetype">. Then dedupe by version
+  // ID (the numeric `id=` param) keeping only the PDF variant, and
+  // classify version vs amendment based on which kind of HTML page the
+  // sibling link pointed at.
+  const out = [];
+  const liRx = /<li[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(?:\s*<i[^>]*><\/i>)?\s*([^<]+?)<span[^>]*version-mimetype[^>]*>([^<]+)<\/a>/g;
+  let m;
+  // First pass: collect every (href, label, mimeLabel)
+  const rows = [];
+  while ((m = liRx.exec(html)) !== null) {
+    rows.push({ href: m[1], label: m[2].trim(), mime: m[3].trim() });
+  }
+
+  // Group by numeric ID. The HTML link uses `version-id=NNN` or
+  // `amendment-id=NNN`; the PDF link uses `pdf.aspx?id=NNN`. Same NNN
+  // across the pair.
+  const groups = new Map(); // id -> { label, kind, htmlUrl, pdfUrl }
+  for (const r of rows) {
+    const verMatch = r.href.match(/version-id=(\d+)/);
+    const amdMatch = r.href.match(/amendment-id=(\d+)/);
+    const pdfMatch = r.href.match(/pdf\.aspx\?id=(\d+)/);
+    const id = verMatch?.[1] ?? amdMatch?.[1] ?? pdfMatch?.[1];
+    if (!id) continue;
+    const kind = amdMatch ? "amendment" : (verMatch ? "version" : null); // null = PDF row, kind comes from its sibling
+    let g = groups.get(id);
+    if (!g) {
+      g = { id, label: r.label, kind: kind ?? "version", htmlUrl: null, pdfUrl: null };
+      groups.set(id, g);
+    }
+    if (kind) g.kind = kind;
+    if (r.mime === "PDF" || pdfMatch) g.pdfUrl = r.href;
+    if (r.mime === "HTML" || verMatch || amdMatch) g.htmlUrl = r.href;
+    if (!g.label) g.label = r.label;
+  }
+
+  // Output ordered: versions first (in markup order), then amendments.
+  // Filter out attachments that aren't bill text — FastDemocracy lists
+  // committee reports (e.g. "Sen Hearing Rpt", "Sen Comm Rpt") in the
+  // same UL but they're meeting docs, not the operative bill text and
+  // shouldn't be analyzed as if they were a version.
+  const SUPPORTING_DOC_RX = /\b(hearing|committee report|comm rpt|fiscal note|fiscal report)\b/i;
+  for (const g of groups.values()) {
+    if (!g.pdfUrl) continue;
+    if (SUPPORTING_DOC_RX.test(g.label)) continue;
+    out.push({ label: g.label, kind: g.kind, url: g.pdfUrl });
+  }
+  return out;
+}
+
 // ---------- AI providers ----------
 async function callGroq(systemPrompt, userPrompt, model) {
   const m = model || "llama-3.3-70b-versatile";
@@ -173,8 +251,30 @@ async function processBill(bill) {
   const detail = await fetchBillFull(bill.state, bill.bill_number);
   if (!detail) { console.log("  ✗ not found in OpenStates"); return false; }
 
-  const versions = detail.versions ?? [];
-  console.log(`  OpenStates returned ${versions.length} version(s), ${detail.actions.length} action(s)`);
+  let versions = detail.versions ?? [];
+
+  // If the user supplied a FastDemocracy URL, prefer those PDFs — FD
+  // surfaces version + amendment text for states that OpenStates doesn't
+  // expose (NH being the canonical example).
+  let fdVersions = [];
+  if (FASTDEMOCRACY_URL) {
+    try {
+      console.log(`  scraping FastDemocracy: ${FASTDEMOCRACY_URL}`);
+      fdVersions = await fetchFastDemocracyVersions(FASTDEMOCRACY_URL);
+      console.log(`  FD returned ${fdVersions.length} PDF link(s) (${fdVersions.filter(v => v.kind === "version").length} versions, ${fdVersions.filter(v => v.kind === "amendment").length} amendments)`);
+      // Synthesize OpenStates-shaped version objects so the rest of the
+      // pipeline doesn't need to branch.
+      versions = fdVersions.map((v) => ({
+        note: `${v.kind === "amendment" ? "Amendment: " : ""}${v.label}`,
+        date: null,
+        links: [{ media_type: "application/pdf", url: v.url }],
+      }));
+    } catch (e) {
+      console.log(`  ⚠ FastDemocracy scrape failed: ${e.message} — falling back to OpenStates`);
+    }
+  }
+
+  console.log(`  ${versions.length} version(s) to analyze, ${detail.actions.length} action(s)`);
 
   // Fall back gracefully when OpenStates has no version PDFs (some
   // states like NH only expose the action timeline). The AI can still
@@ -200,7 +300,11 @@ async function processBill(bill) {
     }
     try {
       const text = await downloadPdfText(pdfLink.url);
-      versionTexts.push({ note: v.note ?? "", date: v.date ?? "", text: text.slice(0, 8_000) });
+      // Per-version cap. "Introduced" tends to be the full bill text
+      // (~28K chars for SB 557); subsequent amendments are patches
+      // (3-5K chars). 4K cap on each keeps total well under provider
+      // rate limits even with 9-12 versions.
+      versionTexts.push({ note: v.note ?? "", date: v.date ?? "", text: text.slice(0, 4_000) });
       console.log(`    ✓ ${v.note ?? "(unnamed)"} — ${text.length} chars`);
     } catch (e) {
       versionTexts.push({ note: v.note ?? "", date: v.date ?? "", text: `(PDF fetch failed: ${e.message})` });
