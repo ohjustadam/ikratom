@@ -17,11 +17,17 @@ import { clearLeaderTourPending } from "@/modules/admin/user-actions";
  * user sees both: a "🎖 You're now a Leader" alert + this tour the
  * next time they hit /dashboard.
  */
-export function LeaderTour({ shouldShow }: { shouldShow: boolean }) {
+export function LeaderTour({
+  shouldShow,
+  forceShow = false,
+}: {
+  shouldShow: boolean;
+  forceShow?: boolean;
+}) {
   const [, startTransition] = useTransition();
 
   useEffect(() => {
-    if (!shouldShow) return;
+    if (!shouldShow && !forceShow) return;
     if (typeof window === "undefined") return;
 
     const d = driver({
@@ -32,9 +38,14 @@ export function LeaderTour({ shouldShow }: { shouldShow: boolean }) {
       stagePadding: 4,
       stageRadius: 8,
       onDestroyed: () => {
-        startTransition(async () => {
-          await clearLeaderTourPending().catch(() => {});
-        });
+        // Only clear the pending flag for the auto-fired tour. A replay
+        // click (forceShow=true) shouldn't touch the flag — it's already
+        // false in that case, and we don't want to mask a future grant.
+        if (shouldShow) {
+          startTransition(async () => {
+            await clearLeaderTourPending().catch(() => {});
+          });
+        }
       },
       steps: [
         {
@@ -48,21 +59,21 @@ export function LeaderTour({ shouldShow }: { shouldShow: boolean }) {
           popover: {
             title: "Author campaigns",
             description:
-              "Create call-to-action campaigns at /admin/campaigns. Pick a state + scope, write a prefilled email template with placeholders like {{full_name}}, set targeted legislator roles. Saved campaigns go through admin review unless you're an admin already.",
+              `Create call-to-action campaigns at /admin/campaigns. Pick a state + scope, write a prefilled email template with placeholders like {{full_name}}, set targeted legislator roles. Saved campaigns go through admin review unless you're an admin already.<br/><br/><a href="/admin/campaigns" class="ikratom-tour-link">Open Campaigns →</a>`,
           },
         },
         {
           popover: {
             title: "Forum moderation queue",
             description:
-              "/admin/forum shows posts auto-flagged for review (new accounts, links, keyword hits) plus user-reported content. Approve, remove, or escalate. Bulk actions speed it up when a wave of spam hits.",
+              `/admin/forum shows posts auto-flagged for review (new accounts, links, keyword hits) plus user-reported content. Approve, remove, or escalate. Bulk actions speed it up when a wave of spam hits.<br/><br/><a href="/admin/forum" class="ikratom-tour-link">Open Forum mod →</a>`,
           },
         },
         {
           popover: {
             title: "Leader workshop",
             description:
-              "/how-it-works/for-leaders is your reference for what leader privileges DO and DON'T grant. Bookmark it. The split between leader/admin/owner roles is by design.",
+              `/how-it-works/for-leaders is your reference for what leader privileges DO and DON'T grant. Bookmark it. The split between leader/admin/owner roles is by design.<br/><br/><a href="/how-it-works/for-leaders" class="ikratom-tour-link">Open Workshop →</a>`,
           },
         },
         {
@@ -79,7 +90,7 @@ export function LeaderTour({ shouldShow }: { shouldShow: boolean }) {
     return () => {
       d.destroy();
     };
-  }, [shouldShow, startTransition]);
+  }, [shouldShow, forceShow, startTransition]);
 
   return null;
 }

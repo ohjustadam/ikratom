@@ -7,6 +7,7 @@ import { getCockpitLayout } from "@/modules/dashboard/actions";
 import { CockpitCustomizer } from "@/modules/dashboard/CockpitCustomizer";
 import { OnboardingTour } from "@/modules/dashboard/OnboardingTour";
 import { LeaderTour } from "@/modules/dashboard/LeaderTour";
+import { TutorialReplay, WelcomeReplayTour } from "@/modules/dashboard/TutorialReplay";
 import { WelcomeExploreWidget } from "@/modules/dashboard/widgets/WelcomeExploreWidget";
 import { BriefingWidget } from "@/modules/dashboard/widgets/BriefingWidget";
 import { ActiveCampaignsWidget } from "@/modules/dashboard/widgets/ActiveCampaignsWidget";
@@ -33,9 +34,14 @@ import type { WidgetId } from "@/modules/dashboard/widgets/types";
  */
 export const metadata = { title: "Dashboard" };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ replay?: string }>;
+}) {
   const { profile, email } = await getProfile();
   const layout = await getCockpitLayout();
+  const replay = (await searchParams)?.replay ?? null;
 
   // Streak fields (fetched separately since getProfile doesn't include them)
   const streak = {
@@ -216,9 +222,20 @@ export default async function DashboardPage() {
         <Card href="/account" title="Account" body="Update civic info & notifications." />
       </section>
 
-      {/* First-visit tour. No-op when onboarded_at already set. */}
-      <OnboardingTour shouldShow={isFirstVisit} />
-      <LeaderTour shouldShow={leaderTourPending} />
+      {/* Replay panel — re-watch any walkthrough. Lives below the
+          configurable widget grid so it's always findable. */}
+      <div className="mt-8">
+        <TutorialReplay
+          isLeader={!!(profile as { is_advocate_leader?: boolean } | null)?.is_advocate_leader}
+        />
+      </div>
+
+      {/* Tours. Auto-fired (first visit / leader promotion) AND replay
+          via ?replay=<id>. forceShow on replay; the tour itself doesn't
+          touch any persistent flag in that case. */}
+      <OnboardingTour shouldShow={isFirstVisit} forceShow={replay === "onboarding"} />
+      <LeaderTour shouldShow={leaderTourPending} forceShow={replay === "leader"} />
+      <WelcomeReplayTour forceShow={replay === "welcome"} />
     </div>
   );
 }
