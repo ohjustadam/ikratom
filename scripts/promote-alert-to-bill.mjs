@@ -160,3 +160,13 @@ for (const a of alerts) {
   if (r) ok++; else skip++;
 }
 console.log(`\nDone. ok=${ok}, skipped=${skip}`);
+try {
+  await sb.from("scraper_runs").insert({
+    source: "promote_alert_to_bill",
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: ok === 0 && skip === 0 ? "empty" : "success",
+    rows_added: ok,
+    notes: `${ok} promoted, ${skip} skipped`,
+  });
+} catch { /* best-effort */ }

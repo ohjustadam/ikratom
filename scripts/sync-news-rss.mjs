@@ -218,4 +218,19 @@ console.log(`\n----------------------------------------`);
 console.log(`Done in ${elapsed} min — ${total} new articles across ${targets.length} scopes`);
 if (failed.length) console.log(`Failed: ${failed.map((f) => f.scope).join(", ")}`);
 console.log(`\nNext: run \`npm run enrich:news\` to add AI summaries + relevance scores.`);
+
+// Best-effort scraper_runs logging so /admin/intel-health can show
+// last-success-time + freshness per source. Never blocks success.
+try {
+  await supabase.from("scraper_runs").insert({
+    source: "sync_news_rss",
+    started_at: new Date(t0).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: failed.length === targets.length ? "error" : (total === 0 ? "empty" : "success"),
+    rows_added: total,
+    notes: failed.length ? `failed scopes: ${failed.map((f) => f.scope).join(",")}` : null,
+    error_message: failed.length === targets.length ? "all scopes failed" : null,
+  });
+} catch { /* best-effort */ }
+
 process.exit(0);

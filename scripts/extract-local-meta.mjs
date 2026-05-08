@@ -156,3 +156,13 @@ for (const b of bills) {
   await new Promise((r) => setTimeout(r, 1500));
 }
 console.log(`\nDone. ok=${ok}, fail=${fail}`);
+try {
+  await sb.from("scraper_runs").insert({
+    source: "extract_local_meta",
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: fail > ok ? "error" : (ok === 0 ? "empty" : "success"),
+    rows_updated: ok,
+    notes: `${ok} bills extracted, ${fail} failed`,
+  });
+} catch { /* best-effort */ }

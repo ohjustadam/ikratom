@@ -124,3 +124,13 @@ for (const sub of subs) {
 }
 
 console.log(`Done. Meeting reminders fired: ${totalReminders}, status-change notifications fired: ${totalStatus}`);
+try {
+  await sb.from("scraper_runs").insert({
+    source: "fanout_bill_reminders",
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: totalReminders === 0 && totalStatus === 0 ? "empty" : "success",
+    rows_added: totalReminders + totalStatus,
+    notes: `${totalReminders} meeting reminders, ${totalStatus} status changes`,
+  });
+} catch { /* best-effort */ }
