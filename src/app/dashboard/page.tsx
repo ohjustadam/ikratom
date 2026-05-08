@@ -3,11 +3,31 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators } from "@/lib/legislators";
 import { MyRepCard } from "./MyRepCard";
 import { StreakBadge } from "@/components/StreakBadge";
+import { getCockpitLayout } from "@/modules/dashboard/actions";
+import { CockpitCustomizer } from "@/modules/dashboard/CockpitCustomizer";
+import { OnboardingTour } from "@/modules/dashboard/OnboardingTour";
+import { BriefingWidget } from "@/modules/dashboard/widgets/BriefingWidget";
+import { ActiveCampaignsWidget } from "@/modules/dashboard/widgets/ActiveCampaignsWidget";
+import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
+/**
+ * /dashboard — the cockpit.
+ *
+ * Renders widgets in the order saved in user_dashboard_layouts. New
+ * users see the default order from widgets/types.ts and the onboarding
+ * tour fires automatically on first paint. Each widget is rendered
+ * server-side then assembled in the saved order.
+ *
+ * Customize button (top-right) opens a panel to reorder + show/hide.
+ * Replay tour button (in /account) resets onboarded_at so the tour
+ * fires again next visit.
+ */
 export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const { profile, email } = await getProfile();
+  const layout = await getCockpitLayout();
+
   // Streak fields (fetched separately since getProfile doesn't include them)
   const streak = {
     current: (profile as { action_streak_days?: number } | null)?.action_streak_days ?? 0,
@@ -21,62 +41,64 @@ export default async function DashboardPage() {
     profile?.state_house_district
   );
 
+  // My reps — only fetched if state set (otherwise we'd return 50 random rows)
   let myReps: Awaited<ReturnType<typeof getUserLegislators>> = [];
+  let userId: string | null = null;
   if (profile?.state) {
     const supabase = await createClient();
-    myReps = await getUserLegislators(supabase, profile);
+    const { data: { user } } = await supabase.auth.getUser();
+    userId = user?.id ?? null;
+    if (userId) myReps = await getUserLegislators(supabase, profile);
+  } else {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    userId = user?.id ?? null;
   }
 
-  return (
-    <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
-      <header className="mb-10">
-        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          War room
-        </p>
-        <h1 className="mt-2 text-3xl font-bold">
-          Welcome back, {profile?.full_name || email}.
-        </h1>
-        <p className="mt-2 text-sm text-zinc-400">
-          Your toolbelt. One click per action.
-        </p>
-      </header>
-
-      {/* Streak widget — only renders when there's something to show */}
-      <div className="mb-6">
+  // Layout-driven widget render. Each visible widget is rendered as a
+  // server component; the rest of /dashboard's static content stays
+  // separate (header, banners) since those aren't widgets users would
+  // hide.
+  const visibleWidgets = (layout?.widgets ?? []).filter((w) => w.visible);
+  const widgetNodes: Record<WidgetId, React.ReactNode> = {
+    briefing: userId ? (
+      <div data-tour="briefing">
+        <BriefingWidget userId={userId} userState={profile?.state ?? null} />
+      </div>
+    ) : null,
+    streak: streak.current > 0 || streak.longest > 0 ? (
+      <div data-tour="streak">
         <StreakBadge
           current={streak.current}
           longest={streak.longest}
           lastActionDate={streak.lastActionDate}
         />
       </div>
-
-      {!profileComplete && (
-        <Banner
-          tone="amber"
-          title="Finish your profile to unlock one-click actions"
-          body="We need your name, state, and ZIP to autofill emails to your legislators."
-          cta={{ href: "/account", label: "Complete profile →" }}
-        />
-      )}
-
-      {profileComplete && !districtsResolved && (
-        <Banner
-          tone="amber"
-          title="We couldn't auto-detect your districts"
-          body="Add your full street address so we can match you to your specific U.S. House and state legislative districts."
-          cta={{ href: "/account", label: "Update address →" }}
-        />
-      )}
-
-      {/* Your reps */}
-      {myReps.length > 0 && (
-        <section className="mb-10">
+    ) : null,
+    profile_completion: !profileComplete ? (
+      <Banner
+        tone="amber"
+        title="Finish your profile to unlock one-click actions"
+        body="We need your name, state, and ZIP to autofill emails to your legislators."
+        cta={{ href: "/account", label: "Complete profile →" }}
+      />
+    ) : !districtsResolved ? (
+      <Banner
+        tone="amber"
+        title="We couldn't auto-detect your districts"
+        body="Add your full street address so we can match you to your specific U.S. House and state legislative districts."
+        cta={{ href: "/account", label: "Update address →" }}
+      />
+    ) : null,
+    active_campaigns: (
+      <ActiveCampaignsWidget userState={profile?.state ?? null} />
+    ),
+    my_reps:
+      myReps.length > 0 ? (
+        <section data-tour="my-reps">
           <div className="mb-3 flex items-end justify-between">
             <h2 className="text-lg font-semibold">Your representatives</h2>
-            <a
-              href="/legislators"
-              className="text-xs text-emerald-400 hover:underline"
-            >
+            <a href="/legislators" className="text-xs text-emerald-400 hover:underline">
               See all in {profile?.state} →
             </a>
           </div>
@@ -86,32 +108,60 @@ export default async function DashboardPage() {
             ))}
           </ul>
         </section>
-      )}
+      ) : null,
+  };
 
-      {/* Action cards */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card
-          href="/campaigns"
-          title="Active campaigns"
-          body="Take action on bills moving right now."
-          accent
-        />
-        <Card
-          href="/legislators"
-          title="All legislators"
-          body={
-            profile?.state
-              ? `Search every official in ${profile.state}.`
-              : "Search every state legislature."
-          }
-        />
+  const isFirstVisit = !!profile && layout?.onboarded_at === null;
+
+  return (
+    <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
+      <header className="mb-8 flex items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+            War room
+          </p>
+          <h1 className="mt-2 text-3xl font-bold">
+            Welcome back, {profile?.full_name || email}.
+          </h1>
+          <p className="mt-2 text-sm text-zinc-400">
+            Your toolbelt. One click per action.
+          </p>
+        </div>
+        {layout && (
+          <div className="shrink-0">
+            <CockpitCustomizer
+              initialLayout={layout.widgets}
+              initialAccent={layout.accent_color}
+            />
+          </div>
+        )}
+      </header>
+
+      {/* Render widgets in saved order. Falsey nodes (e.g. profile
+          banner when profile is complete) silently render nothing. */}
+      <div className="space-y-6">
+        {visibleWidgets.map((slot) => {
+          const node = widgetNodes[slot.id];
+          if (!node) return null;
+          return <div key={slot.id}>{node}</div>;
+        })}
+      </div>
+
+      {/* Bottom action grid — quick links to deeper sections. Not a
+          customizable widget for now; treated as cockpit chrome. */}
+      <section className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Card href="/campaigns" title="Active campaigns" body="Take action on bills moving right now." accent />
+        <Card href="/legislators" title="All legislators" body={profile?.state ? `Search every official in ${profile.state}.` : "Search every state legislature."} />
         <Card href="/bills" title="Bill tracker" body="Every kratom & 7-OH bill, all 50 states." />
-        <Card href="/forum" title="State forums" body="Talk strategy with advocates in your state." />
+        <Card href="/forum" title="Community" body="Lounge chat + state forums + recent activity." />
         <Card href="/news" title="Kratom news" body="Daily AI-curated updates per state." />
         <Card href="/library" title="Library" body="Videos, books, transcripts." />
         <Card href="/messages" title="Messages" body="🔒 End-to-end encrypted DMs + groups." />
         <Card href="/account" title="Account" body="Update civic info & notifications." />
       </section>
+
+      {/* First-visit tour. No-op when onboarded_at already set. */}
+      <OnboardingTour shouldShow={isFirstVisit} />
     </div>
   );
 }
@@ -132,7 +182,7 @@ function Banner({
   const btnBg = tone === "amber" ? "bg-amber-500" : "bg-emerald-500";
   const btnHover = tone === "amber" ? "hover:bg-amber-400" : "hover:bg-emerald-400";
   return (
-    <div className={`mb-8 rounded-lg border p-5 ${bg}`}>
+    <div className={`rounded-lg border p-5 ${bg}`}>
       <h2 className={`text-sm font-semibold ${titleCol}`}>{title}</h2>
       <p className="mt-1 text-sm text-zinc-400">{body}</p>
       <a
