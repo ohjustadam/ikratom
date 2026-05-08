@@ -120,10 +120,20 @@ export function MobileNav({
             className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
           />
 
-          {/* Drawer */}
+          {/* Drawer — sized by positioning (inset-y-0) instead of h-full
+              because mobile Safari's dynamic viewport (address bar
+              animating in/out) makes height: 100% unreliable. Using
+              top-0 + bottom-0 sizes the drawer to the actual visible
+              viewport in all browsers. The inner <nav> needs `min-h-0`
+              so its `flex-1 overflow-y-auto` works correctly inside the
+              flex column without collapsing to height 0 (a flex item
+              without min-h-0 won't shrink below its content size, which
+              breaks scroll on long admin lists). */}
           <div
-            className="fixed right-0 top-0 z-50 flex h-full w-[88%] max-w-sm flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl md:hidden"
-            style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
+            className="fixed inset-y-0 right-0 z-50 flex w-80 max-w-[88vw] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl md:hidden"
+            style={{
+              paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+            }}
           >
             <div className="flex items-center justify-between border-b border-zinc-800 px-4 pb-3">
               <a
@@ -144,7 +154,7 @@ export function MobileNav({
               </button>
             </div>
 
-            <nav className="flex-1 overflow-y-auto px-2 py-3">
+            <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3">
               {/* Auth slot (Dashboard / Account / Admin / Sign out) */}
               <div className="mb-3 rounded-md border border-zinc-800 bg-zinc-950/40 p-2" onClick={close}>
                 {authSlot}
