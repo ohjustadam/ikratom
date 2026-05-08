@@ -8,6 +8,7 @@ import {
   type AiJobRow,
   type AiStatRow,
 } from "@/modules/admin/ai-control-actions";
+import { TestPromptPanel } from "./TestPromptPanel";
 
 /**
  * /admin/ai-control — the AI Command Center.
@@ -269,10 +270,13 @@ export default async function AiControlPage() {
         )}
       </section>
 
+      <TestPromptPanel />
+
       <p className="mt-8 text-xs text-zinc-600">
         Routing rules: <code className="text-zinc-500">docs/AI_TOOLKIT.md</code> ·
         Provider wrappers: <code className="text-zinc-500">src/lib/ai/providers/</code> ·
-        Email scaling: <code className="text-zinc-500">docs/EMAIL_SCALING.md</code>
+        Email scaling: <code className="text-zinc-500">docs/EMAIL_SCALING.md</code> ·
+        Prompt library: <code className="text-zinc-500">docs/PROMPTS/</code>
       </p>
     </div>
   );
