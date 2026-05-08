@@ -4,7 +4,7 @@ import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { BillFullText } from "./BillFullText";
-import { BillLocalActionCard, type LocalMeta } from "./BillLocalActionCard";
+import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillLocalActionCard";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -142,6 +142,40 @@ export default async function BillDetailPage({
     auto_generated: boolean;
     created_at: string;
   }>;
+
+  // For municipal/county bills: fetch the full slate of local officials
+  // for this locality from the legislators table. Each renders as a row
+  // in BillLocalActionCard with mailto:/tel:/website buttons. Adds the
+  // entire council, not just the 1-2 names the article called out by
+  // name (those come through local_meta.officials_to_contact and get
+  // merged in the card without dupes).
+  const isLocalScope = bill.scope === "municipal" || bill.scope === "county";
+  let localOfficials: LocalOfficial[] = [];
+  if (isLocalScope && bill.locality) {
+    const { data: legs } = await supabase
+      .from("legislators")
+      .select("id, full_name, role, title, district, party, email, phone, website")
+      .eq("state", bill.state)
+      .eq("locality", bill.locality)
+      .in("role", ["city_council", "mayor", "county_executive", "county_commissioner"])
+      .eq("active", true)
+      .order("role", { ascending: true });
+    localOfficials = (legs ?? []) as LocalOfficial[];
+  }
+
+  // Find the alert linked to this bill so we can pass its source URL
+  // to the card as a "look up contact" fallback when officials lack
+  // direct email/phone in our DB.
+  let alertSourceUrl: string | null = null;
+  if (isLocalScope) {
+    const { data: alerts } = await supabase
+      .from("policy_alerts")
+      .select("source_url")
+      .eq("bill_id", bill.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    alertSourceUrl = alerts?.[0]?.source_url ?? null;
+  }
 
   // Action count across all campaigns for this bill
   const { count: totalActions } = campaigns.length > 0
@@ -289,6 +323,8 @@ export default async function BillDetailPage({
           billState={bill.state}
           billLocality={bill.locality}
           agendaItemNumber={bill.local_meta.agenda_item_number}
+          officials={localOfficials}
+          sourceUrl={alertSourceUrl}
         />
       )}
 

@@ -1,0 +1,211 @@
+#!/usr/bin/env node
+/**
+ * Pull the full slate of local officials for any city/county-scoped
+ * bill — mayor + ALL city council members (or county exec + ALL
+ * commissioners) — and insert them into the legislators table so:
+ *
+ *   1. The /bills/[id] action card can render them all with mailto:/
+ *      tel:/website buttons (not just the 1-2 names mentioned in the
+ *      news article)
+ *   2. They appear on /admin/locals + the public /legislators surface
+ *      for the locality, the same as state/federal reps
+ *   3. Future campaigns auto-target them (target_legislator_ids picks
+ *      up these rows by role + locality)
+ *
+ * Mirrors src/lib/ai/suggest-officials.ts (Gemini with Search
+ * grounding) but as a service-role-only Node script — bypasses the
+ * admin-auth gate appropriate for the UI but blocking for batch
+ * backfill.
+ *
+ * Run:
+ *   node --env-file=.env.local scripts/seed-bill-officials.mjs --bill <uuid>
+ *   node --env-file=.env.local scripts/seed-bill-officials.mjs --all-municipal
+ *   node --env-file=.env.local scripts/seed-bill-officials.mjs --all-municipal --refresh
+ */
+import { createClient } from "@supabase/supabase-js";
+
+const sb = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { auth: { persistSession: false } },
+);
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
+if (!GEMINI_KEY) { console.error("GEMINI_API_KEY required (Gemini Search grounding)"); process.exit(1); }
+
+const args = process.argv.slice(2);
+const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
+const SPECIFIC = arg("--bill");
+const ALL = args.includes("--all-municipal");
+const REFRESH = args.includes("--refresh");
+
+if (!SPECIFIC && !ALL) {
+  console.error("Usage: --bill <uuid>  OR  --all-municipal  (optionally --refresh)");
+  process.exit(1);
+}
+
+const SYSTEM = `You are a civic-data analyst. Given a U.S. city or county, find the CURRENT elected officials and return them as strict JSON inside a <result>...</result> block. Use Google Search grounding for accuracy — prefer .gov / .us domains over third-party aggregators.
+
+Return shape:
+<result>
+{
+  "officials": [
+    {
+      "full_name": "Jane Doe",
+      "role": "mayor" | "city_council" | "county_executive" | "county_commissioner",
+      "title": "Mayor" | "Council Member, Ward 3" | "County Judge-Executive" | etc.,
+      "district": "Ward 3" or null,
+      "party": "D" | "R" | "I" | null,
+      "email": "jane.doe@cityofx.gov" or null,
+      "phone": "555-555-5555" or null,
+      "website": "https://..." or null
+    }
+  ],
+  "sources": ["https://cityofx.gov/council", ...]
+}
+</result>
+
+Rules:
+- Include the mayor + ALL current city council members for cities.
+- Include the county executive + ALL current county commissioners for counties.
+- Skip school boards unless explicitly asked.
+- If you cannot find verifiable current data, return officials: [] with an explanation in sources.
+- Phone numbers in 555-555-5555 format.
+- Never fabricate emails. If only a contact form is published, put the form URL in website and leave email null.
+- Output ONLY the <result>...</result> block. No prose before or after.`;
+
+async function suggestOfficials({ city, state }) {
+  const isCounty = /county$/i.test(city);
+  const userPrompt = isCounty
+    ? `Find the current ${city} ${state} commissioners / supervisors and county executive (or judge-executive). Search the official county government website first.`
+    : `Find the current Mayor and ALL City Council members for ${city}, ${state}. Search the official city government website (look for .gov or .us domains) first.`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+      systemInstruction: { parts: [{ text: SYSTEM }] },
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const candidate = data.candidates?.[0];
+  const text = (candidate?.content?.parts ?? []).map((p) => p.text ?? "").join("\n");
+  const m = text.match(/<result>([\s\S]*?)<\/result>/);
+  if (!m) throw new Error(`Model did not return a <result> block. Got: ${text.slice(0, 200)}`);
+  const parsed = JSON.parse(m[1].trim());
+  return {
+    officials: Array.isArray(parsed.officials) ? parsed.officials : [],
+    sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+  };
+}
+
+async function processBill(bill) {
+  console.log(`\n=== ${bill.id.slice(0, 8)} | ${bill.state} ${bill.bill_number} | ${bill.locality} ===`);
+  if (!bill.locality) { console.log("  ⏭  no locality on bill"); return false; }
+
+  // Parse "Marshall, IL" → "Marshall"
+  const cityMatch = bill.locality.match(/^([^,]+),\s*([A-Z]{2})/);
+  const city = cityMatch?.[1]?.trim() ?? bill.locality.trim();
+
+  // Skip if locality already has officials and not forcing refresh
+  if (!REFRESH) {
+    const { count } = await sb.from("legislators").select("id", { count: "exact", head: true })
+      .eq("state", bill.state)
+      .eq("locality", bill.locality)
+      .in("role", ["city_council", "mayor", "county_executive", "county_commissioner"])
+      .eq("active", true);
+    if ((count ?? 0) > 0) {
+      console.log(`  ⏭  ${count} officials already exist for ${bill.locality}; skip (use --refresh to force)`);
+      return false;
+    }
+  }
+
+  console.log(`  asking Gemini for ${city}, ${bill.state} officials…`);
+  let suggestion;
+  try {
+    suggestion = await suggestOfficials({ city, state: bill.state });
+  } catch (e) {
+    console.log(`  ✗ Gemini failed: ${e.message?.slice(0, 200)}`);
+    return false;
+  }
+  if (suggestion.officials.length === 0) {
+    console.log(`  ⚠ Gemini returned 0 officials. Sources: ${suggestion.sources.slice(0, 2).join(", ")}`);
+    return false;
+  }
+  console.log(`  ✓ Gemini found ${suggestion.officials.length} official(s)`);
+
+  const cap = (s, n) => s ? String(s).slice(0, n).trim() || null : null;
+  const rows = suggestion.officials.map((o) => {
+    const isCounty = (o.role ?? "").startsWith("county_");
+    return {
+      full_name: cap(o.full_name, 120) ?? "Unknown",
+      state: bill.state,
+      role: o.role,
+      locality: bill.locality,
+      title: cap(o.title, 120),
+      district: cap(o.district, 30),
+      email: cap(o.email, 254),
+      phone: cap(o.phone, 30),
+      website: cap(o.website, 500),
+      party: cap(o.party, 60),
+      level: isCounty ? "county" : "municipal",
+      active: true,
+    };
+  });
+
+  // Dedupe against existing rows in (state, locality, role, lower(full_name))
+  const { data: existing } = await sb.from("legislators").select("role, full_name")
+    .eq("state", bill.state)
+    .eq("locality", bill.locality)
+    .in("level", ["municipal", "county"]);
+  const existingKeys = new Set(
+    (existing ?? []).map((r) => `${r.role}::${(r.full_name ?? "").toLowerCase().trim()}`),
+  );
+  const newRows = rows.filter(
+    (r) => !existingKeys.has(`${r.role}::${r.full_name.toLowerCase().trim()}`),
+  );
+  const skipped = rows.length - newRows.length;
+  if (newRows.length === 0) {
+    console.log(`  ⏭  all ${rows.length} already in DB`);
+    return true;
+  }
+
+  const { data: inserted, error } = await sb.from("legislators").insert(newRows).select("id");
+  if (error) {
+    console.log(`  ✗ insert failed: ${error.message}`);
+    return false;
+  }
+  console.log(`  ✓ inserted ${inserted?.length ?? 0} new official(s); skipped ${skipped} dupe(s)`);
+  for (const o of newRows) {
+    console.log(`     - ${o.role.padEnd(15)} ${o.full_name}${o.district ? ` (${o.district})` : ""}${o.email ? `  ✉ ${o.email}` : ""}`);
+  }
+  return true;
+}
+
+let bills;
+if (SPECIFIC) {
+  const { data } = await sb.from("bills").select("id, state, bill_number, locality, scope")
+    .eq("id", SPECIFIC).single();
+  bills = data ? [data] : [];
+} else {
+  const { data } = await sb.from("bills").select("id, state, bill_number, locality, scope")
+    .in("scope", ["municipal", "county"])
+    .eq("active", true)
+    .order("created_at", { ascending: false });
+  bills = data ?? [];
+}
+
+if (bills.length === 0) { console.log("No bills to process."); process.exit(0); }
+console.log(`Processing ${bills.length} local bill(s)…`);
+
+let ok = 0, fail = 0;
+for (const b of bills) {
+  if (await processBill(b)) ok++; else fail++;
+  await new Promise((r) => setTimeout(r, 2000));
+}
+console.log(`\nDone. ok=${ok}, fail=${fail}`);

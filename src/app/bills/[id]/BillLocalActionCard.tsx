@@ -39,6 +39,21 @@ export type LocalMeta = {
   summary_one_line?: string;
 };
 
+// Officials pulled from the legislators table for the bill's locality
+// — supplements local_meta.officials_to_contact so the bill page shows
+// the FULL council, not just the 1-2 names mentioned in a news article.
+export type LocalOfficial = {
+  id: string;
+  full_name: string;
+  role: string;
+  title?: string | null;
+  district?: string | null;
+  party?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+};
+
 /** Generate a minimal RFC 5545 .ics file inline — no library needed. */
 function buildIcs(input: {
   title: string;
@@ -98,12 +113,16 @@ export function BillLocalActionCard({
   billState,
   billLocality,
   agendaItemNumber,
+  officials = [],
+  sourceUrl,
 }: {
   meta: LocalMeta;
   billTitle: string;
   billState: string;
   billLocality: string | null;
   agendaItemNumber?: string;
+  officials?: LocalOfficial[];
+  sourceUrl?: string | null;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -333,40 +352,150 @@ export function BillLocalActionCard({
         </div>
       )}
 
-      {/* OFFICIALS TO CONTACT */}
-      {(meta.officials_to_contact ?? []).length > 0 && (
-        <div className="mb-4 rounded-md border border-zinc-800 bg-zinc-950/60 p-4">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-            🏛 Officials to contact
+      {/* OFFICIALS TO CONTACT — merges two sources:
+          1. legislators table rows for this locality (the full council
+             once seeded via scripts/seed-bill-officials.mjs)
+          2. local_meta.officials_to_contact from the AI extractor (the
+             1-2 names the original article called out by name)
+          Deduped by full_name (case-insensitive) so AI extraction
+          doesn't double-list someone the seeder already pulled. Each
+          official renders with mailto:/tel:/website buttons when the
+          field is populated; when it isn't, a "Look up contact" fall-
+          back links to the source URL or city's contact page. */}
+      {(() => {
+        const merged: LocalOfficial[] = [];
+        const seen = new Set<string>();
+        const norm = (s: string) => s.toLowerCase().trim();
+        for (const l of officials) {
+          merged.push(l);
+          seen.add(norm(l.full_name));
+        }
+        for (const o of meta.officials_to_contact ?? []) {
+          if (!o.name) continue;
+          if (seen.has(norm(o.name))) continue;
+          merged.push({
+            id: `meta:${norm(o.name)}`,
+            full_name: o.name,
+            role: o.title?.toLowerCase().includes("mayor") ? "mayor" : "city_council",
+            title: o.title ?? null,
+            email: o.email ?? null,
+            phone: o.phone ?? null,
+            district: null,
+            party: null,
+            website: null,
+          });
+          seen.add(norm(o.name));
+        }
+        if (merged.length === 0) return null;
+
+        // Group: mayor / county_executive on top, then everyone else
+        const order = (r: string) =>
+          r === "mayor" ? 0 :
+          r === "county_executive" ? 1 :
+          r === "county_commissioner" ? 2 :
+          3;
+        merged.sort((a, b) => order(a.role) - order(b.role));
+
+        const ROLE_LABEL: Record<string, string> = {
+          mayor: "Mayor",
+          city_council: "City Council",
+          county_executive: "County Executive",
+          county_commissioner: "County Commissioner",
+        };
+        const totalContactable = merged.filter((m) => m.email || m.phone).length;
+
+        return (
+          <div className="mb-4 rounded-md border border-zinc-800 bg-zinc-950/60 p-4">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                🏛 Officials to contact
+              </span>
+              <span className="text-[10px] text-zinc-600">
+                {merged.length} total · {totalContactable} with direct contact info
+              </span>
+            </div>
+            <ul className="space-y-2">
+              {merged.map((o) => {
+                const hasContact = !!(o.email || o.phone);
+                const officialMailtoHref = o.email
+                  ? `mailto:${o.email}?subject=${encodeURIComponent(mailtoSubject)}&body=${encodeURIComponent(mailtoBody)}`
+                  : null;
+                return (
+                  <li
+                    key={o.id}
+                    className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 ${
+                      hasContact ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-900 bg-zinc-950/20"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 text-sm">
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-zinc-400">
+                        {ROLE_LABEL[o.role] ?? o.role}
+                      </span>
+                      <span className="ml-2 font-semibold text-zinc-100">{o.full_name}</span>
+                      {o.title && o.title !== ROLE_LABEL[o.role] && (
+                        <span className="ml-1.5 text-xs text-zinc-500">{o.title}</span>
+                      )}
+                      {o.district && (
+                        <span className="ml-1.5 text-xs text-zinc-500">· {o.district}</span>
+                      )}
+                      {o.party && (
+                        <span className="ml-1.5 rounded bg-zinc-900 px-1 py-0.5 text-[10px] text-zinc-500">
+                          {o.party}
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex shrink-0 flex-wrap gap-1.5">
+                      {officialMailtoHref && (
+                        <a
+                          href={officialMailtoHref}
+                          className="inline-flex items-center gap-1 rounded-md bg-emerald-500 px-2.5 py-1 text-[11px] font-semibold text-zinc-950 hover:bg-emerald-400"
+                          title={o.email ?? ""}
+                        >
+                          ✉ Email
+                        </a>
+                      )}
+                      {o.phone && (
+                        <a
+                          href={`tel:${o.phone.replace(/[^\d+]/g, "")}`}
+                          className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-200 hover:border-emerald-500"
+                        >
+                          ☎ {o.phone}
+                        </a>
+                      )}
+                      {o.website && (
+                        <a
+                          href={o.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-200 hover:border-emerald-500"
+                        >
+                          🌐 Profile
+                        </a>
+                      )}
+                      {!hasContact && sourceUrl && (
+                        <a
+                          href={sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md border border-amber-700/40 bg-amber-950/20 px-2.5 py-1 text-[11px] text-amber-300 hover:border-amber-500"
+                          title="No direct contact in our DB yet — opens the source so you can find their public office line"
+                        >
+                          🔍 Look up
+                        </a>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-3 text-[10px] text-zinc-600">
+              Run <code className="rounded bg-zinc-900 px-1 py-0.5 font-mono text-zinc-400">npm run seed:bill-officials -- --bill &lt;id&gt;</code> (admin)
+              to AI-pull the full council slate for this locality. Officials saved here also appear in
+              {" "}<a href="/legislators" className="text-emerald-400 hover:underline">/legislators</a> for the locality.
+            </p>
           </div>
-          <ul className="space-y-2">
-            {(meta.officials_to_contact ?? []).map((o, i) => (
-              <li key={i} className="flex flex-wrap items-center gap-2">
-                <span className="text-sm">
-                  <span className="font-semibold text-zinc-100">{o.name}</span>
-                  {o.title && <span className="ml-1 text-zinc-500">({o.title})</span>}
-                </span>
-                {o.email && (
-                  <a
-                    href={`mailto:${o.email}?subject=${encodeURIComponent(mailtoSubject)}&body=${encodeURIComponent(mailtoBody)}`}
-                    className="inline-flex items-center gap-1 rounded-md bg-emerald-950/40 px-2 py-0.5 text-[11px] text-emerald-300 hover:bg-emerald-950/60"
-                  >
-                    ✉ email
-                  </a>
-                )}
-                {o.phone && (
-                  <a
-                    href={`tel:${o.phone.replace(/[^\d+]/g, "")}`}
-                    className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                  >
-                    ☎ {o.phone}
-                  </a>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        );
+      })()}
 
       {/* NOTIFY ME — placeholder, real subscription wiring is the next PR */}
       <div className="mt-4 flex flex-wrap gap-2">
