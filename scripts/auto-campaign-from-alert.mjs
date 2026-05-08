@@ -2,6 +2,14 @@
 /**
  * Auto-create a solidarity campaign from a policy_alert.
  *
+ * As of migration 0068 this runs in real-time via a Postgres trigger
+ * (`trg_auto_campaign_on_alert`) — alerts get a campaign within the
+ * same transaction they're inserted. This script is kept as:
+ *   - A safety net in the hourly cron in case the trigger errors out
+ *   - A tactical recovery tool: `--all-pending` will pick up any alert
+ *     that's missing a campaign_id (e.g. if a template lookup failed)
+ *   - A way to backfill alerts created before the trigger existed
+ *
  * Scope: when a city/county/AG/BoP alert lands and action_required=true,
  * we want a campaign on the war-room dashboard that ANY iKratom member
  * can take action on with one click — not just locals. This script
