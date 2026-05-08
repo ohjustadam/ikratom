@@ -193,3 +193,30 @@ export async function challengeAndVerify(input: {
 }): Promise<VerifyResult> {
   return verifyTotp(input);
 }
+
+/**
+ * Inline MFA verify for the in-page modal. Auto-discovers the user's
+ * first verified TOTP factor so the client component doesn't have to
+ * round-trip a separate "list factors" call. On success, sets the
+ * bypass cookie via verifyTotp() and the next admin mutation works
+ * without page navigation.
+ *
+ * Returns { error: "no-factor" } when the user has no verified factor
+ * — the modal should redirect them to /account/security to enroll.
+ */
+export async function verifyMfaInline(code: string): Promise<
+  VerifyResult | { error: "no-factor" }
+> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const trimmed = (code || "").replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(trimmed)) return { error: "Code must be 6 digits." };
+
+  const { data: factors } = await supabase.auth.mfa.listFactors();
+  const verified = (factors?.totp ?? []).filter((f) => f.status === "verified");
+  if (verified.length === 0) return { error: "no-factor" };
+
+  return verifyTotp({ factorId: verified[0].id, code: trimmed });
+}
