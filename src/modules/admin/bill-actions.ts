@@ -106,3 +106,87 @@ export async function createLocalBill(formData: FormData) {
   revalidatePath("/bills");
   redirect(`/bills/${row.id}`);
 }
+
+/**
+ * Edit a bill from /admin/bills/[id]/edit. Allows tweaking the
+ * fields admins typically need to override:
+ *   - status (introduced / committee / passed_chamber / enacted / dead)
+ *   - kratom_relevance + relevance_confidence
+ *   - active (false = hidden from public lists)
+ *   - title, summary, last_action, last_action_at, source_url
+ *
+ * MFA-gated. Admin/owner only — leader role can't update bills.
+ */
+export async function updateBill(input: {
+  id: string;
+  status?: string;
+  kratom_relevance?: string;
+  relevance_confidence?: number;
+  active?: boolean;
+  title?: string;
+  summary?: string;
+  last_action?: string;
+  last_action_at?: string;
+  source_url?: string;
+}) {
+  const ctx = await getCreatorContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  if (!ctx.isAdmin && !ctx.isOwner) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
+
+  if (!/^[0-9a-f-]{36}$/i.test(input.id)) return { error: "Invalid bill id." };
+
+  const patch: Record<string, unknown> = {};
+  if (input.status !== undefined) {
+    if (!(VALID_STATUS as readonly string[]).includes(input.status)) {
+      return { error: `Status must be one of: ${VALID_STATUS.join(", ")}` };
+    }
+    patch.status = input.status;
+  }
+  if (input.kratom_relevance !== undefined) {
+    if (!(VALID_RELEVANCE as readonly string[]).includes(input.kratom_relevance)) {
+      return { error: `Relevance must be one of: ${VALID_RELEVANCE.join(", ")}` };
+    }
+    patch.kratom_relevance = input.kratom_relevance;
+  }
+  if (input.relevance_confidence !== undefined) {
+    if (!Number.isFinite(input.relevance_confidence) ||
+        input.relevance_confidence < 0 || input.relevance_confidence > 1) {
+      return { error: "Confidence must be 0-1." };
+    }
+    patch.relevance_confidence = input.relevance_confidence;
+  }
+  if (typeof input.active === "boolean") patch.active = input.active;
+  if (input.title !== undefined) patch.title = cap(input.title, 500) || null;
+  if (input.summary !== undefined) patch.summary = cap(input.summary, 8000) || null;
+  if (input.last_action !== undefined) patch.last_action = cap(input.last_action, 500) || null;
+  if (input.last_action_at !== undefined) {
+    const t = input.last_action_at?.trim();
+    patch.last_action_at = t ? t : null;
+  }
+  if (input.source_url !== undefined) patch.source_url = cap(input.source_url, 500) || null;
+
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("bills").update(patch).eq("id", input.id);
+  if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "bill_updated",
+    targetType: "legislator", // closest enum match; audit table doesn't have 'bill' yet
+    targetId: input.id,
+    details: patch,
+  });
+
+  revalidatePath("/bills");
+  revalidatePath(`/bills/${input.id}`);
+  revalidatePath("/admin/bills");
+  return { ok: true };
+}
+
+/** Toggle active flag — separate so the admin index can quick-archive without opening the edit form. */
+export async function toggleBillActive(input: { id: string; active: boolean }) {
+  return updateBill({ id: input.id, active: input.active });
+}
