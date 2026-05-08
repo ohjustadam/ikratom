@@ -13,6 +13,8 @@ import { ScoreboardWidget } from "@/modules/dashboard/widgets/ScoreboardWidget";
 import { MyBattlesWidget } from "@/modules/dashboard/widgets/MyBattlesWidget";
 import { SavedSearchesWidget } from "@/modules/dashboard/widgets/SavedSearchesWidget";
 import { ActivityRadarWidget } from "@/modules/dashboard/widgets/ActivityRadarWidget";
+import { BadgesWidget } from "@/modules/dashboard/widgets/BadgesWidget";
+import { WhatsNewWidget } from "@/modules/dashboard/widgets/WhatsNewWidget";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 /**
@@ -113,6 +115,8 @@ export default async function DashboardPage() {
     ) : null,
     saved_searches: userId ? <SavedSearchesWidget /> : null,
     activity_radar: <ActivityRadarWidget />,
+    badges: userId ? <BadgesWidget /> : null,
+    whats_new: userId ? <WhatsNewWidget /> : null,
     my_reps:
       myReps.length > 0 ? (
         <section data-tour="my-reps">
