@@ -85,6 +85,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/bills"
+            title="Bills"
+            body="Edit any bill — flip status, relevance, active flag. Sensitive (MFA-gated)."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/bills/new"
             title="Add a bill (manual)"
             body="For county / municipal bills OpenStates doesn't track. State + federal auto-sync daily."
