@@ -81,7 +81,76 @@ export async function createThread(formData: FormData) {
 
   if (error) return { error: error.message };
 
+  // Fan out alerts to forum_subscriptions with mode='alerts' for the
+  // thread's state and (optionally) community. mode='digest' is left
+  // for the daily digest cron to pick up; mode='mute' is excluded.
+  // Best-effort — never blocks the redirect.
+  if (decision.status === "approved" || !decision.status) {
+    void notifyForumSubscribers({
+      threadId: row.id,
+      threadTitle: title,
+      threadState: row.state ?? null,
+      communityId,
+      authorId: user.id,
+    });
+  }
+
   redirect(`/forum/${row.state ?? "national"}/${row.id}`);
+}
+
+/**
+ * Notify subscribers of a state forum and/or community when a new
+ * approved thread lands. Skips the author. Auto-flagged threads are
+ * NOT fanned out — wait until a mod approves so we don't blast
+ * spam-detected content to subscribers.
+ */
+async function notifyForumSubscribers(input: {
+  threadId: string;
+  threadTitle: string;
+  threadState: string | null;
+  communityId: string | null;
+  authorId: string;
+}) {
+  try {
+    const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+    const sr = createServiceRoleClient();
+    const keys: string[] = [];
+    if (input.threadState) keys.push(`state:${input.threadState}`);
+    if (input.communityId) keys.push(`community:${input.communityId}`);
+    if (keys.length === 0) return;
+
+    const { data: subs } = await sr
+      .from("forum_subscriptions")
+      .select("user_id, forum_key, mode")
+      .in("forum_key", keys)
+      .eq("mode", "alerts");
+    if (!subs || subs.length === 0) return;
+
+    // Dedupe — a user subscribed to BOTH the state and the community
+    // shouldn't get two notifs for the same thread.
+    const recipients = new Set<string>();
+    for (const s of subs as Array<{ user_id: string }>) {
+      if (s.user_id !== input.authorId) recipients.add(s.user_id);
+    }
+    if (recipients.size === 0) return;
+
+    const link = input.threadState
+      ? `/forum/${input.threadState}/${input.threadId}`
+      : `/forum`;
+    const titleClipped = input.threadTitle.slice(0, 80);
+
+    await sr.from("notifications").insert(
+      Array.from(recipients).map((uid) => ({
+        user_id: uid,
+        kind: "forum_new_thread",
+        title: "New forum thread",
+        body: titleClipped,
+        link,
+      })),
+    );
+  } catch {
+    // best-effort
+  }
 }
 
 /** Reply to a thread (or to another reply if parent_post_id is set). */

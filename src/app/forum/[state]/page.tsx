@@ -2,6 +2,9 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listNewsForState } from "@/modules/news/actions";
 import { ThreadList } from "./ThreadList";
+import { recordForumVisit } from "@/modules/forum/engagement-actions";
+import { stateKey, type SubMode } from "@/modules/forum/engagement-keys";
+import { ForumSubscribeButton } from "@/modules/forum/components/ForumSubscribeButton";
 
 export async function generateMetadata({
   params,
@@ -77,6 +80,7 @@ export default async function StateForumPage({
   // Current user state for the "your state" affordance + new-thread eligibility
   const { data: { user } } = await supabase.auth.getUser();
   let userState: string | null = null;
+  let subMode: SubMode | null = null;
   if (user) {
     const { data: prof } = await supabase
       .from("profiles")
@@ -84,7 +88,26 @@ export default async function StateForumPage({
       .eq("id", user.id)
       .single();
     userState = prof?.state ?? null;
+
+    // Pull this user's subscription for THIS forum (if any) so the
+    // header pill renders with the correct mode on first paint.
+    const fkey = stateKey(abbr);
+    if (fkey) {
+      const { data: sub } = await supabase
+        .from("forum_subscriptions")
+        .select("mode")
+        .eq("user_id", user.id)
+        .eq("forum_key", fkey)
+        .maybeSingle();
+      subMode = (sub?.mode as SubMode | undefined) ?? null;
+    }
   }
+
+  // Mark this forum as visited (resets unread to 0). Best-effort —
+  // anonymous + RLS reject silently noop. Don't await heavily; this
+  // runs in parallel with render.
+  const fkey = stateKey(abbr);
+  if (fkey) await recordForumVisit(fkey);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
@@ -106,12 +129,21 @@ export default async function StateForumPage({
             {legCount != null && <> · {legCount} legislators on file</>}
           </p>
         </div>
-        <a
-          href={`/forum/${abbr}/new`}
-          className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
-        >
-          + New thread
-        </a>
+        <div className="flex flex-wrap items-center gap-2">
+          {fkey && (
+            <ForumSubscribeButton
+              forumKey={fkey}
+              initialMode={subMode}
+              signedIn={!!user}
+            />
+          )}
+          <a
+            href={`/forum/${abbr}/new`}
+            className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
+          >
+            + New thread
+          </a>
+        </div>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-3">
