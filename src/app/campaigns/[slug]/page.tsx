@@ -6,6 +6,8 @@ import { getMyCampaignProgress } from "@/modules/campaigns/actions";
 import { getMyWaveStatus } from "@/modules/waves/actions";
 import { CampaignAction } from "@/modules/campaigns/components/CampaignAction";
 import { ShareButtons } from "@/components/ShareButtons";
+import { ShareButtons as SocialBombButtons } from "@/modules/social/ShareButtons";
+import { defaultCampaignShareText } from "@/modules/social/share";
 
 const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
 import { WavePanel } from "@/modules/waves/components/WavePanel";
@@ -186,6 +188,24 @@ export default async function CampaignPage({
           <p className="mt-3 text-lg text-zinc-300">{campaign.blurb}</p>
         )}
       </header>
+
+      {/* Social bombing — multi-network share with optional "Bomb run"
+          (opens compose dialog for every network in sequence). The
+          existing ShareButtons block (further down) is the per-platform
+          tracked-share for in-app metrics; this one is the rapid
+          amplification surface. */}
+      <div className="mb-6">
+        <SocialBombButtons
+          url={`${APP_URL}/campaigns/${campaign.slug}`}
+          text={defaultCampaignShareText({
+            title: campaign.title,
+            state: campaign.state ?? null,
+            // Heuristic — campaign title contains "oppose"/"ban"/"schedule" implies hostile
+            isHostile: /\b(oppose|ban|schedule|prohibit|stop)\b/i.test(campaign.title),
+          })}
+          hashtags={["kratom", "iKratom", campaign.state ?? "advocacy"].filter(Boolean) as string[]}
+        />
+      </div>
 
       {/* Story attached banner — when ?story=<id> auto-populated the body */}
       {attachedStoryTitle && (
