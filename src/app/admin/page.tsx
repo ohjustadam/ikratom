@@ -143,6 +143,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/communities"
+            title="Communities"
+            body="Add, edit, archive topical communities (Veterans, Shop owners, etc.) shown alongside state forums."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/vendor-applications"
             title={queues.vendorApplications > 0 ? `Vendor applications (${queues.vendorApplications})` : "Vendor applications"}
             body="Review users applying to be verified vendors. Approve to unlock business-signature on advocacy actions."

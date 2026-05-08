@@ -9,9 +9,11 @@ const TAGS: ForumTag[] = ["general", "legislation", "news", "event", "meetup", "
 export function NewThreadForm({
   state,
   userIsLocal,
+  communities,
 }: {
   state: string;
   userIsLocal: boolean;
+  communities: Array<{ id: string; slug: string; name: string; icon: string | null }>;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -53,6 +55,26 @@ export function NewThreadForm({
           ))}
         </select>
       </div>
+
+      {communities.length > 0 && (
+        <div>
+          <label className="block text-xs font-medium text-zinc-400">
+            Community <span className="text-zinc-600">(optional — also list this thread in a topical community)</span>
+          </label>
+          <select
+            name="community_id"
+            defaultValue=""
+            className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+          >
+            <option value="">— None —</option>
+            {communities.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.icon ? `${c.icon} ` : ""}{c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div>
         <label className="block text-xs font-medium text-zinc-400">
