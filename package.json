@@ -25,6 +25,7 @@
     "db:push": "node --env-file=.env.local scripts/db-push.mjs",
     "docs:schema": "node --env-file=.env.local scripts/dump-schema.mjs",
     "ai:smoke": "node --env-file=.env.local scripts/test-ai-providers.mjs",
+    "build:briefing-pdf": "node scripts/build-briefing-pdf.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -36,6 +37,7 @@
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "driver.js": "^1.4.0",
+    "gray-matter": "^4.0.3",
     "libsodium-wrappers": "^0.8.4",
     "marked": "^18.0.3",
     "next": "16.2.3",
@@ -54,6 +56,7 @@
     "d3-geo": "^3.1.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
+    "md-to-pdf": "^5.2.5",
     "pdf-parse": "^2.4.5",
     "tailwindcss": "^4",
     "typescript": "^5",

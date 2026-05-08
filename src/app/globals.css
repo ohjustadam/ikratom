@@ -63,3 +63,240 @@ body {
   text-decoration: none;
 }
 .ikratom-tour-link:hover { background: #34d399; }
+
+/* Briefings (markdown rendered on /briefings/[slug]) — dark theme,
+   tighter than markdown defaults, designed to read on the iKratom site
+   while the matching PDF version handles the print/share use case. */
+.briefing-md { line-height: 1.65; font-size: 0.975rem; }
+.briefing-md h2 {
+  margin-top: 2.25em;
+  margin-bottom: 0.5em;
+  padding-bottom: 0.4em;
+  font-size: 1.4rem;
+  font-weight: 700;
+  border-bottom: 2px solid #10b981;
+  color: #fafafa;
+}
+.briefing-md h3 {
+  margin-top: 1.5em;
+  margin-bottom: 0.35em;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fafafa;
+}
+.briefing-md p { margin: 0.7em 0; color: #d4d4d8; }
+.briefing-md strong { color: #fafafa; font-weight: 600; }
+.briefing-md em { font-style: italic; color: #e4e4e7; }
+.briefing-md a { color: #34d399; text-decoration: underline; text-underline-offset: 2px; }
+.briefing-md a:hover { color: #6ee7b7; }
+.briefing-md ul, .briefing-md ol { margin: 0.6em 0 1em 0; padding-left: 1.5em; }
+.briefing-md ul { list-style: disc; }
+.briefing-md ol { list-style: decimal; }
+.briefing-md li { margin: 0.4em 0; color: #d4d4d8; }
+.briefing-md blockquote {
+  border-left: 3px solid #10b981;
+  padding: 0.6em 1em;
+  margin: 1em 0;
+  color: #d4d4d8;
+  background: rgba(16, 185, 129, 0.05);
+  font-style: italic;
+}
+.briefing-md code {
+  background: rgba(255,255,255,0.06);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: #6ee7b7;
+}
+.briefing-md hr { border: none; border-top: 1px solid #27272a; margin: 2em 0; }
+
+/* Custom briefing components (callouts, takeaways, etc.). The same
+   class names are used in the markdown source so PDF + web stay
+   in sync — only the colors differ for dark/light mode. */
+.briefing-md .ribbon {
+  display: inline-block;
+  background: #10b981;
+  color: #0a0a0a;
+  padding: 0.4em 1em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 1em;
+  border-radius: 2px;
+}
+.briefing-md .cover .subtitle {
+  font-size: 1.05rem;
+  color: #a1a1aa;
+  margin-bottom: 1.5em;
+}
+.briefing-md .cover .meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1em;
+  margin: 1.5em 0;
+  padding-top: 1em;
+  border-top: 2px solid #10b981;
+  font-size: 0.85rem;
+  color: #a1a1aa;
+}
+.briefing-md .cover .meta strong {
+  display: block;
+  margin-bottom: 0.25em;
+  color: #fafafa;
+  font-size: 0.85rem;
+  letter-spacing: 0.03em;
+}
+.briefing-md .page-break { display: none; }
+
+.briefing-md .callout {
+  border-left: 3px solid;
+  padding: 1em 1.25em;
+  margin: 1.25em 0;
+  border-radius: 0 4px 4px 0;
+}
+.briefing-md .callout strong:first-child {
+  display: block;
+  margin-bottom: 0.4em;
+  font-size: 1.05em;
+  color: #fafafa;
+}
+.briefing-md .callout-emerald { border-color: #10b981; background: rgba(16, 185, 129, 0.08); }
+.briefing-md .callout-zinc { border-color: #71717a; background: rgba(113, 113, 122, 0.08); }
+
+.briefing-md .commit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.875em;
+  margin: 1.25em 0;
+}
+.briefing-md .commit {
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  padding: 1em 1.25em;
+  background: rgba(24, 24, 27, 0.5);
+}
+.briefing-md .commit .num {
+  display: inline-block;
+  width: 1.6em;
+  height: 1.6em;
+  line-height: 1.6em;
+  text-align: center;
+  background: #10b981;
+  color: #0a0a0a;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.85em;
+  margin-bottom: 0.5em;
+}
+.briefing-md .commit h3 { margin-top: 0; }
+
+.briefing-md .data-bar { margin: 0.75em 0; }
+.briefing-md .data-bar .bar {
+  background: #10b981;
+  height: 1.6em;
+  margin-bottom: 0.3em;
+  display: flex;
+  align-items: center;
+  padding-left: 0.75em;
+  color: #0a0a0a;
+  font-size: 0.8em;
+  font-weight: 600;
+  border-radius: 2px;
+}
+.briefing-md .data-bar .bar:nth-child(1) { background: #6ee7b7; }
+.briefing-md .data-bar .bar:nth-child(2) { background: #34d399; }
+.briefing-md .data-bar .bar:nth-child(3) { background: #10b981; }
+.briefing-md .hint { font-size: 0.85em; color: #71717a; font-style: italic; }
+
+.briefing-md table.decode {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.9em;
+}
+.briefing-md table.decode th {
+  background: #18181b;
+  color: #fafafa;
+  padding: 0.6em 0.9em;
+  text-align: left;
+}
+.briefing-md table.decode td {
+  border: 1px solid #27272a;
+  padding: 0.7em 0.9em;
+  vertical-align: top;
+  width: 50%;
+}
+.briefing-md table.decode tr:nth-child(odd) td { background: rgba(24, 24, 27, 0.4); }
+
+.briefing-md .takeaway {
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  padding: 1em 1.25em;
+  margin-bottom: 0.875em;
+  background: rgba(24, 24, 27, 0.5);
+}
+.briefing-md .takeaway h3 { margin-top: 0; }
+.briefing-md .badge {
+  display: inline-block;
+  padding: 0.2em 0.7em;
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  margin-bottom: 0.5em;
+}
+.briefing-md .badge-red { background: rgba(127, 29, 29, 0.4); color: #fca5a5; }
+.briefing-md .badge-emerald { background: rgba(6, 78, 59, 0.4); color: #6ee7b7; }
+.briefing-md .badge-amber { background: rgba(120, 53, 15, 0.4); color: #fcd34d; }
+
+.briefing-md .missing {
+  background: rgba(16, 185, 129, 0.05);
+  border-left: 3px solid #10b981;
+  padding: 1em 1.25em;
+  margin: 1.25em 0;
+}
+.briefing-md .missing ul { margin: 0; }
+
+.briefing-md .point {
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  margin-bottom: 0.875em;
+  overflow: hidden;
+}
+.briefing-md .point .q {
+  background: #18181b;
+  color: #fafafa;
+  padding: 0.7em 1em;
+  font-weight: 600;
+  font-style: italic;
+}
+.briefing-md .point .a { padding: 0.875em 1em; background: rgba(24, 24, 27, 0.5); }
+
+.briefing-md .action {
+  display: flex;
+  gap: 0.875em;
+  align-items: flex-start;
+  padding: 0.875em 0;
+  border-bottom: 1px solid #27272a;
+}
+.briefing-md .action:last-child { border-bottom: none; }
+.briefing-md .action .check {
+  font-size: 1.4em;
+  color: #10b981;
+  width: 1.2em;
+  flex-shrink: 0;
+}
+
+.briefing-md .footer {
+  font-size: 0.85em;
+  color: #71717a;
+  margin: 0.5em 0;
+}
+.briefing-md .link {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  word-break: break-all;
+  color: #6ee7b7;
+}
