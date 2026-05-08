@@ -135,6 +135,19 @@ export async function GET(request: NextRequest) {
     log.push({ step: "saved_searches", result: { error: String(e).slice(0, 200) } });
   }
 
+  // Translation sweep — trickle-fill content_translations for newly-
+  // enriched bills. Capped at 50 per run to stay in function budget.
+  // Local-side script (npm run translate:content) handles bulk passes
+  // with the larger 70b model; this keeps the lights on between manual
+  // runs.
+  try {
+    const { sweepTranslations } = await import("@/modules/translations/server");
+    const tr = await sweepTranslations(supabase);
+    log.push({ step: "translations", result: tr });
+  } catch (e) {
+    log.push({ step: "translations", result: { error: String(e).slice(0, 200) } });
+  }
+
   // Auto-create campaigns for newly-detected anti-kratom bills. This runs
   // AFTER enrichment so the confidence floor (0.6) is meaningful — a
   // freshly-synced bill that hasn't been enriched yet has confidence=null
