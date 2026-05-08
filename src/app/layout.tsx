@@ -126,6 +126,7 @@ export default async function RootLayout({
 
             {/* Desktop nav (md+) */}
             <nav className="hidden md:flex items-center gap-5 text-sm">
+              <a href="/pulse" className="hover:text-emerald-400 font-semibold text-emerald-400">Pulse</a>
               <a href="/campaigns" className="hover:text-emerald-400">Campaigns</a>
               <a href="/legislators" className="hover:text-emerald-400">Legislators</a>
               <a href="/bills" className="hover:text-emerald-400">Bills</a>

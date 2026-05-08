@@ -85,95 +85,21 @@ severity guide:
 
 Return ONLY the JSON. No prose, no markdown fences.`;
 
-// ---------- AI providers (mirrors enrich-bill-journey rotation) ----------
-let _cursor = 0;
-function avail() {
-  const out = [];
-  if (GROQ_KEY) out.push("groq");
-  if (GEMINI_KEY) out.push("gemini");
-  if (CEREBRAS_KEY) out.push("cerebras");
-  out.push("ollama");
-  return out;
-}
-function pick() {
-  if (PROVIDER_OVERRIDE) return PROVIDER_OVERRIDE;
-  const cloud = avail().filter((p) => p !== "ollama");
-  if (cloud.length === 0) return "ollama";
-  return cloud[_cursor++ % cloud.length];
-}
+// AI routing now flows through the shared scripts/lib/ai-router.mjs
+// (cooldown-aware + JSON repair).
+import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 
-async function callGroq(sys, user) {
-  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
-      temperature: 0.1, max_tokens: 800,
-      response_format: { type: "json_object" },
-    }),
-    signal: AbortSignal.timeout(60_000),
+function avail() { return listAvailableProviders(); }
+
+async function classifyOnce(_unused, sys, user) {
+  const r = await aiRouter({
+    systemPrompt: sys,
+    userPrompt: user,
+    maxTokens: 800,
+    providerOverride: PROVIDER_OVERRIDE,
+    verbose: true,
   });
-  if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return JSON.parse((await r.json()).choices?.[0]?.message?.content ?? "{}");
-}
-async function callGemini(sys, user) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-  const r = await fetch(url, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: user }] }],
-      systemInstruction: { parts: [{ text: sys }] },
-      generationConfig: { temperature: 0.1, maxOutputTokens: 800, responseMimeType: "application/json" },
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const d = await r.json();
-  return JSON.parse(d.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") ?? "{}");
-}
-async function callCerebras(sys, user) {
-  const r = await fetch("https://api.cerebras.ai/v1/chat/completions", {
-    method: "POST", headers: { Authorization: `Bearer ${CEREBRAS_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "llama-3.3-70b",
-      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
-      temperature: 0.1, max_tokens: 800, response_format: { type: "json_object" },
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!r.ok) throw new Error(`Cerebras ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return JSON.parse((await r.json()).choices?.[0]?.message?.content ?? "{}");
-}
-async function callOllama(sys, user) {
-  const r = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "llama3.3:70b",
-      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
-      format: "json", stream: false, options: { temperature: 0.1 },
-    }),
-    signal: AbortSignal.timeout(180_000),
-  });
-  if (!r.ok) throw new Error(`Ollama ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return JSON.parse((await r.json()).message?.content ?? "{}");
-}
-async function classifyOnce(start, sys, user) {
-  const list = avail();
-  const order = [start, ...list.filter((p) => p !== start)];
-  let lastErr;
-  for (const p of order) {
-    try {
-      const fn = p === "groq" ? callGroq : p === "gemini" ? callGemini : p === "cerebras" ? callCerebras : callOllama;
-      const result = await fn(sys, user);
-      return { provider: p, result };
-    } catch (e) {
-      lastErr = e;
-      console.log(`    ⚠ ${p} failed: ${String(e.message).slice(0, 100)}`);
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-  throw lastErr ?? new Error("all providers failed");
+  return { provider: r.provider, result: r.parsed };
 }
 
 // ---------- main ----------
@@ -202,7 +128,7 @@ for (const item of items) {
       `State scope: ${item.state ?? "(unknown)"}\n` +
       `Published: ${item.published_at ?? "(unknown)"}\n` +
       (item.summary ? `Summary: ${item.summary}` : "");
-    const start = pick();
+    const start = null; // router picks internally
     const { provider, result } = await classifyOnce(start, SYSTEM, userPrompt);
 
     const isEvent = !!result.is_policy_event;

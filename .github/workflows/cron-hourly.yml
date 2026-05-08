@@ -1,25 +1,38 @@
 name: Hourly cron
 
-# Vercel Hobby plan only allows daily crons. We use GitHub Actions to hit the
-# /api/cron/fire-waves endpoint hourly, which fires due email waves, sends
-# 1-hour reminders, and fans out web push notifications. The endpoint is
-# bearer-token gated by CRON_SECRET so this is safe to invoke from CI.
+# Vercel Hobby plan only allows daily crons. We use GitHub Actions for
+# anything sub-daily:
+#
+#   1. fire-waves       — HTTP call to /api/cron/fire-waves (existing
+#                          email/push fan-out)
+#   2. news-pipeline    — runs scripts/sync-news-rss.mjs +
+#                          scripts/classify-news-policy.mjs +
+#                          scripts/auto-campaign-from-alert.mjs to
+#                          ingest hourly news, classify into alerts,
+#                          and auto-spawn solidarity campaigns. This
+#                          closes the city/county/AG blind spot —
+#                          Marshall-IL-style bans are caught within
+#                          ~60 min of publication.
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
-#   - CRON_SECRET   same value as Vercel env var
-#   - APP_URL       the deployed origin, e.g. https://www.ikratom.org
+#   CRON_SECRET                   same value as Vercel env var
+#   APP_URL                       deployed origin, e.g. https://www.ikratom.org
+#   NEXT_PUBLIC_SUPABASE_URL      from Supabase Settings → API
+#   SUPABASE_SERVICE_ROLE_KEY     from Supabase API Keys (sb_secret_…)
+#   OPENSTATES_API_KEY            (for any bill-related cron jobs)
+#   GROQ_API_KEY                  AI classifier
+#   GEMINI_API_KEY                AI classifier
+#   CEREBRAS_API_KEY              AI classifier (optional 3rd cloud)
 #
-# GitHub Actions cron is best-effort — runs may be skipped or delayed by a
-# few minutes during high load on github.com. That's acceptable for this
-# workload (waves are scheduled at hour boundaries; ±5 min is fine).
+# GitHub Actions cron is best-effort — runs may be skipped or delayed
+# a few minutes under high load. That's fine; news + alerts target
+# < 1 hour latency, not real-time.
 
 on:
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch: {}
 
-# Don't pile up runs if a previous one is still going (or if GitHub is
-# delayed and queued multiple).
 concurrency:
   group: hourly-cron
   cancel-in-progress: false
@@ -38,8 +51,40 @@ jobs:
             echo "::error::Missing CRON_SECRET or APP_URL repo secret"
             exit 1
           fi
-          # -fsS: fail on HTTP error, silent progress, still show errors
-          # --max-time 240: matches the function timeout headroom
           curl -fsS --max-time 240 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "$APP_URL/api/cron/fire-waves"
+
+  news-pipeline:
+    # News scrape → classify → auto-campaign. Runs alongside fire-waves
+    # but in its own job so a failure in one doesn't kill the other.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install dependencies (production only)
+        run: npm ci --omit=dev --no-audit --no-fund
+      - name: Sync Google News RSS across all states
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/sync-news-rss.mjs
+      - name: Classify newly-ingested news into policy_alerts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        # Limit 200 per run = ~7 minutes at 2s polite delay between
+        # items. Cooldown-aware router handles rate limits.
+        run: node scripts/classify-news-policy.mjs --limit 200
+      - name: Auto-create campaigns from new actionable alerts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/auto-campaign-from-alert.mjs --all-pending

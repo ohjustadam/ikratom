@@ -233,8 +233,25 @@ async function fetchFastDemocracyVersions(fdUrl) {
   return out;
 }
 
-// ---------- AI providers ----------
-async function callGroq(systemPrompt, userPrompt, model) {
+// ---------- AI router ----------
+import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
+
+async function analyzeWithFallback(system, user, _model) {
+  const r = await aiRouter({
+    systemPrompt: system,
+    userPrompt: user,
+    maxTokens: 2048,
+    providerOverride: PROVIDER_OVERRIDE,
+    verbose: true,
+  });
+  return { provider: r.provider, result: r.parsed };
+}
+
+function availableProviders() { return listAvailableProviders(); }
+
+// (legacy provider implementations preserved below for reference;
+//  not called now that we route through scripts/lib/ai-router.mjs)
+async function _legacy_callGroq_unused(systemPrompt, userPrompt, model) {
   const m = model || "llama-3.3-70b-versatile";
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -316,65 +333,14 @@ async function callOllama(systemPrompt, userPrompt, model) {
   return JSON.parse(data.message?.content ?? "{}");
 }
 
-// Round-robin counter so consecutive bills hit different providers,
-// distributing load across free-tier rate limits.
-let _providerCursor = 0;
-function availableProviders() {
-  const out = [];
-  if (GROQ_KEY) out.push("groq");
-  if (GEMINI_KEY) out.push("gemini");
-  if (CEREBRAS_KEY) out.push("cerebras");
-  out.push("ollama"); // always last-resort fallback
-  return out;
-}
-function chooseProvider() {
-  if (PROVIDER_OVERRIDE && ["groq", "gemini", "cerebras", "ollama"].includes(PROVIDER_OVERRIDE)) {
-    return PROVIDER_OVERRIDE;
-  }
-  const list = availableProviders();
-  // Skip Ollama in the rotation unless it's the only option — local
-  // inference is much slower than the cloud free tiers.
-  const cloud = list.filter((p) => p !== "ollama");
-  if (cloud.length === 0) return "ollama";
-  return cloud[_providerCursor++ % cloud.length];
-}
-
-async function callProvider(name, system, user, model) {
-  switch (name) {
-    case "groq": return callGroq(system, user, model);
-    case "gemini": return callGemini(system, user, model);
-    case "cerebras": return callCerebras(system, user, model);
-    case "ollama": return callOllama(system, user, model);
-    default: throw new Error(`Unknown provider: ${name}`);
-  }
-}
-
-/**
- * Try providers in order until one succeeds. On 429 (rate limit) or
- * 5xx errors we move to the next. On JSON parse errors we move to the
- * next. Final fallback is Ollama (no rate limit but slower).
- */
-async function analyzeWithFallback(system, user, model) {
-  const start = chooseProvider();
-  const list = availableProviders();
-  // Reorder to try `start` first, then everyone else.
-  const order = [start, ...list.filter((p) => p !== start)];
-  let lastErr = null;
-  for (const p of order) {
-    try {
-      const result = await callProvider(p, system, user, model);
-      return { provider: p, result };
-    } catch (e) {
-      lastErr = e;
-      const msg = String(e.message || "");
-      const isRateLimit = msg.includes("429") || msg.toLowerCase().includes("rate") || msg.includes("503");
-      console.log(`    ⚠ ${p} failed: ${msg.slice(0, 140)}${isRateLimit ? " (rate-limit, falling back)" : ""}`);
-      // Brief backoff before trying the next provider
-      await new Promise((r) => setTimeout(r, 1500));
-    }
-  }
-  throw lastErr ?? new Error("All providers failed");
-}
+// availableProviders is now exported from scripts/lib/ai-router.mjs
+// and aliased earlier in this file. The legacy local copy below is
+// removed to avoid a duplicate-identifier error.
+// Legacy chooseProvider/callProvider/analyzeWithFallback removed —
+// all routing now flows through the shared scripts/lib/ai-router.mjs
+// (cooldown-aware + JSON repair). The wrapper analyzeWithFallback() at
+// the top of the file delegates to aiRouter() preserving the same
+// callsite interface the rest of this script uses.
 
 // ---------- main ----------
 async function processBill(bill) {
