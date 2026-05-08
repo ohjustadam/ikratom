@@ -3,21 +3,24 @@
 import { useEffect, useState } from "react";
 
 /**
- * Mobile drawer nav. Opens when the user taps the hamburger; closes via
- * the X, the backdrop, Escape key, or any link click.
+ * Mobile menu — full-screen overlay (NOT a side drawer).
+ *
+ * Why full-screen: side drawers depend on flex sizing inside fixed-
+ * position containers, which is fragile on mobile Safari (URL bar
+ * animations, viewport-unit quirks). A full-screen overlay using
+ * `fixed inset-0` fills the whole visible viewport with no sizing
+ * tricks — works everywhere.
  *
  * Structure:
- *   - Primary section — direct nav to top-level pages
- *   - Account section — every /account/* subpage in one expandable list
- *   - Admin section — every /admin/* subpage (only visible when isAdmin)
- *   - Footer auth slot — Dashboard / Account / Admin / Sign out from
- *     HeaderAuth (the same component the desktop nav uses, so anything
- *     server-rendered stays consistent)
+ *   - Top bar with logo + close X
+ *   - Auth slot (Dashboard / Account / Admin / Sign out — same as desktop nav)
+ *   - Primary nav (10 main pages with emoji icons)
+ *   - Account submenu (collapsible <details>)
+ *   - Admin submenu (collapsible <details>, only when isAdmin)
+ *   - Footer (Terms / Privacy / Cookies)
  *
- * Why <details>/<summary> for the submenus: native disclosure that
- * works without JavaScript and degrades gracefully if hydration is slow
- * on flaky mobile connections. Drawer state itself (open/closed) needs
- * JS for the backdrop + body-scroll-lock so it stays React.
+ * Submenus use native <details>/<summary> so they degrade gracefully
+ * if hydration stalls on flaky mobile networks.
  */
 
 const PRIMARY_LINKS = [
@@ -73,7 +76,7 @@ export function MobileNav({
 }) {
   const [open, setOpen] = useState(false);
 
-  // Close on escape
+  // Close on Escape
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
@@ -82,7 +85,7 @@ export function MobileNav({
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Lock body scroll when drawer is open
+  // Lock body scroll when overlay open
   useEffect(() => {
     if (open) {
       document.body.style.overflow = "hidden";
@@ -111,92 +114,109 @@ export function MobileNav({
       </button>
 
       {open && (
-        <>
-          {/* Backdrop */}
-          <button
-            type="button"
-            aria-label="Close menu"
-            onClick={close}
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
-          />
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-zinc-950 md:hidden"
+          style={{
+            paddingTop: "env(safe-area-inset-top)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Site menu"
+        >
+          {/* Top bar — sticky inside the scroll container so it's always
+              reachable even on long admin lists. */}
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur">
+            <a
+              href="/"
+              className="flex items-center gap-1 text-lg font-bold"
+              onClick={close}
+            >
+              <span className="text-emerald-400">i</span>
+              <span>Kratom</span>
+            </a>
+            <button
+              type="button"
+              aria-label="Close menu"
+              onClick={close}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-800 hover:bg-zinc-900"
+            >
+              <CloseIcon />
+            </button>
+          </div>
 
-          {/* Drawer — sized by positioning (inset-y-0) instead of h-full
-              because mobile Safari's dynamic viewport (address bar
-              animating in/out) makes height: 100% unreliable. Using
-              top-0 + bottom-0 sizes the drawer to the actual visible
-              viewport in all browsers. The inner <nav> needs `min-h-0`
-              so its `flex-1 overflow-y-auto` works correctly inside the
-              flex column without collapsing to height 0 (a flex item
-              without min-h-0 won't shrink below its content size, which
-              breaks scroll on long admin lists). */}
-          <div
-            className="fixed inset-y-0 right-0 z-50 flex w-80 max-w-[88vw] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl md:hidden"
-            style={{
-              paddingTop: "max(0.75rem, env(safe-area-inset-top))",
-            }}
-          >
-            <div className="flex items-center justify-between border-b border-zinc-800 px-4 pb-3">
-              <a
-                href="/"
-                className="flex items-center gap-1 text-lg font-bold"
-                onClick={close}
-              >
-                <span className="text-emerald-400">i</span>
-                <span>Kratom</span>
-              </a>
-              <button
-                type="button"
-                aria-label="Close menu"
-                onClick={close}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-zinc-900"
-              >
-                <CloseIcon />
-              </button>
+          <div className="mx-auto max-w-md px-4 py-4">
+            {/* Auth row pinned at top */}
+            <div className="mb-4 rounded-md border border-zinc-800 bg-zinc-900/40 p-3" onClick={close}>
+              {authSlot}
             </div>
 
-            <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3">
-              {/* Auth slot (Dashboard / Account / Admin / Sign out) */}
-              <div className="mb-3 rounded-md border border-zinc-800 bg-zinc-950/40 p-2" onClick={close}>
-                {authSlot}
-              </div>
+            {/* Primary nav */}
+            <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+              Navigate
+            </p>
+            <ul className="mb-5 space-y-1">
+              {PRIMARY_LINKS.map((l) => (
+                <li key={l.href}>
+                  <a
+                    href={l.href}
+                    onClick={close}
+                    className="flex min-h-[48px] items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950/40 px-4 text-base font-medium text-zinc-100 hover:border-emerald-500 hover:text-emerald-300"
+                  >
+                    <span className="w-6 text-center text-base" aria-hidden>
+                      {l.icon}
+                    </span>
+                    <span>{l.label}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
 
-              {/* Primary nav */}
-              <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
-                Navigate
-              </p>
-              <ul className="mb-4 space-y-0.5">
-                {PRIMARY_LINKS.map((l) => (
+            {/* Account submenu */}
+            <details className="mb-3 rounded-md border border-zinc-800 bg-zinc-950/40">
+              <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between px-4 text-sm font-semibold text-zinc-200 [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-2">
+                  <span aria-hidden>👤</span>
+                  Account settings
+                </span>
+                <span className="text-xs text-zinc-500" aria-hidden>
+                  ▾
+                </span>
+              </summary>
+              <ul className="border-t border-zinc-900 py-1 text-sm">
+                {ACCOUNT_LINKS.map((l) => (
                   <li key={l.href}>
                     <a
                       href={l.href}
                       onClick={close}
-                      className="flex min-h-[44px] items-center gap-3 rounded-md px-3 text-base font-medium text-zinc-200 hover:bg-zinc-900 hover:text-emerald-400"
+                      className="flex min-h-[44px] items-center px-5 text-zinc-300 hover:bg-zinc-900 hover:text-emerald-400"
                     >
-                      <span className="w-5 text-center text-base" aria-hidden>
-                        {l.icon}
-                      </span>
-                      <span>{l.label}</span>
+                      {l.label}
                     </a>
                   </li>
                 ))}
               </ul>
+            </details>
 
-              {/* Account submenu */}
-              <details className="mb-3 rounded-md border border-zinc-800 bg-zinc-950/40">
-                <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-3 text-sm font-semibold text-zinc-200 [&::-webkit-details-marker]:hidden">
+            {/* Admin submenu — only for authorized users */}
+            {isAdmin && (
+              <details className="mb-3 rounded-md border border-emerald-900/40 bg-emerald-950/10">
+                <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between px-4 text-sm font-semibold text-emerald-300 [&::-webkit-details-marker]:hidden">
                   <span className="flex items-center gap-2">
-                    <span aria-hidden>👤</span>
-                    Account settings
+                    <span aria-hidden>🛠️</span>
+                    Admin
                   </span>
-                  <span className="text-xs text-zinc-500" aria-hidden>▾</span>
+                  <span className="text-xs text-emerald-500/70" aria-hidden>
+                    ▾
+                  </span>
                 </summary>
-                <ul className="border-t border-zinc-900 py-1 text-sm">
-                  {ACCOUNT_LINKS.map((l) => (
+                <ul className="border-t border-emerald-900/40 py-1 text-sm">
+                  {ADMIN_LINKS.map((l) => (
                     <li key={l.href}>
                       <a
                         href={l.href}
                         onClick={close}
-                        className="flex min-h-[40px] items-center px-5 text-zinc-300 hover:bg-zinc-900 hover:text-emerald-400"
+                        className="flex min-h-[44px] items-center px-5 text-zinc-300 hover:bg-zinc-900 hover:text-emerald-400"
                       >
                         {l.label}
                       </a>
@@ -204,60 +224,31 @@ export function MobileNav({
                   ))}
                 </ul>
               </details>
+            )}
 
-              {/* Admin submenu — only when authorized */}
-              {isAdmin && (
-                <details className="mb-3 rounded-md border border-emerald-900/40 bg-emerald-950/10">
-                  <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-3 text-sm font-semibold text-emerald-300 [&::-webkit-details-marker]:hidden">
-                    <span className="flex items-center gap-2">
-                      <span aria-hidden>🛠️</span>
-                      Admin
-                    </span>
-                    <span className="text-xs text-emerald-500/70" aria-hidden>▾</span>
-                  </summary>
-                  <ul className="border-t border-emerald-900/40 py-1 text-sm">
-                    {ADMIN_LINKS.map((l) => (
-                      <li key={l.href}>
-                        <a
-                          href={l.href}
-                          onClick={close}
-                          className="flex min-h-[40px] items-center px-5 text-zinc-300 hover:bg-zinc-900 hover:text-emerald-400"
-                        >
-                          {l.label}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
+            {/* Misc utility links */}
+            <ul className="mt-4 space-y-1 border-t border-zinc-900 pt-4 text-sm text-zinc-400">
+              <li>
+                <a
+                  href="/how-it-works"
+                  onClick={close}
+                  className="block min-h-[44px] px-3 py-2 hover:text-emerald-400"
+                >
+                  How it works
+                </a>
+              </li>
+              <li>
+                <a
+                  href="/glossary"
+                  onClick={close}
+                  className="block min-h-[44px] px-3 py-2 hover:text-emerald-400"
+                >
+                  Glossary
+                </a>
+              </li>
+            </ul>
 
-              {/* Misc utility links */}
-              <ul className="mt-2 space-y-0.5 border-t border-zinc-900 pt-3 text-sm text-zinc-400">
-                <li>
-                  <a
-                    href="/how-it-works"
-                    onClick={close}
-                    className="block min-h-[40px] px-3 py-2 hover:text-emerald-400"
-                  >
-                    How it works
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/glossary"
-                    onClick={close}
-                    className="block min-h-[40px] px-3 py-2 hover:text-emerald-400"
-                  >
-                    Glossary
-                  </a>
-                </li>
-              </ul>
-            </nav>
-
-            <div
-              className="border-t border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600"
-              style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
-            >
+            <div className="mt-6 border-t border-zinc-900 px-3 py-4 text-center text-xs text-zinc-600">
               <a href="/terms" className="px-2 hover:text-emerald-400" onClick={close}>
                 Terms
               </a>
@@ -271,7 +262,7 @@ export function MobileNav({
               </a>
             </div>
           </div>
-        </>
+        </div>
       )}
     </>
   );
