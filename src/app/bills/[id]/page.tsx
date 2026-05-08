@@ -4,6 +4,7 @@ import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { BillFullText } from "./BillFullText";
+import { BillLocalActionCard, type LocalMeta } from "./BillLocalActionCard";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -36,6 +37,8 @@ type BillRow = {
   summary_long: string | null;
   bill_text_versions: Array<{ label: string; date: string | null; text: string; source_url: string }> | null;
   text_synced_at: string | null;
+  local_meta: LocalMeta | null;
+  local_meta_extracted_at: string | null;
 };
 
 type Stance = "bans" | "restricts" | "schedules" | "preserves" | "neutral" | "unaddressed";
@@ -116,7 +119,8 @@ export default async function BillDetailPage({
       "enriched_at, last_synced_at, " +
       "journey_narrative, amendments_count, journey_analyzed_at, " +
       "substance_targeting, substance_targeting_analyzed_at, " +
-      "summary_long, bill_text_versions, text_synced_at",
+      "summary_long, bill_text_versions, text_synced_at, " +
+      "local_meta, local_meta_extracted_at",
     )
     .eq("id", id)
     .single();
@@ -270,6 +274,22 @@ export default async function BillDetailPage({
             current session, search for that instead.
           </p>
         </div>
+      )}
+
+      {/* Local action playbook — for city/county ordinances where the
+          intel didn't come from LegiScan. Calendar buttons, mailto:
+          public-comment links, dial-in numbers, join URLs, officials.
+          Renders only when scope is municipal/county AND the AI
+          extractor populated local_meta. State bills skip this and go
+          straight to Substance Impact. */}
+      {(bill.scope === "municipal" || bill.scope === "county") && bill.local_meta && (
+        <BillLocalActionCard
+          meta={bill.local_meta}
+          billTitle={bill.title ?? ""}
+          billState={bill.state}
+          billLocality={bill.locality}
+          agendaItemNumber={bill.local_meta.agenda_item_number}
+        />
       )}
 
       {/* Substance impact — per-alkaloid stance. Placed FIRST because
