@@ -26,6 +26,7 @@
     "docs:schema": "node --env-file=.env.local scripts/dump-schema.mjs",
     "ai:smoke": "node --env-file=.env.local scripts/test-ai-providers.mjs",
     "build:briefing-pdf": "node scripts/build-briefing-pdf.mjs",
+    "classify:news": "node --env-file=.env.local scripts/classify-news-policy.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
