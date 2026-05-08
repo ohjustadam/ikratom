@@ -26,6 +26,7 @@ const STATE_RE = /^[A-Z]{2}$/;
 const VALID_EVENTS = [
   "bill_drop_hostile",
   "bill_drop_friendly",
+  "bill_status_change",
   "campaign_launch",
   "wave_fire",
   "federal_action_moment",
@@ -312,6 +313,63 @@ export async function notifyDiscordOnBillDrop(input: {
       ...(input.status ? [{ name: "Status", value: input.status, inline: true }] : []),
     ],
     footer: { text: input.isHostile ? "Take 30s action via iKratom" : "Watch this one — could need support" },
+    timestamp: new Date().toISOString(),
+  };
+
+  return await fanOut(candidates, embed);
+}
+
+export async function notifyDiscordOnBillStatusChange(input: {
+  billId: string;
+  state: string | null;
+  billNumber: string;
+  title: string;
+  fromStatus: string | null;
+  toStatus: string;
+  isHostile: boolean;
+}) {
+  const supabase = createServiceRoleClient();
+  const { data: integrations } = await supabase
+    .from("discord_integrations")
+    .select("id, webhook_url, server_name, events_enabled, state_filter, total_posts, total_failures, consecutive_failures")
+    .eq("active", true)
+    .or(`state_filter.is.null,state_filter.eq.${input.state ?? "FED"}`);
+
+  const candidates = (integrations ?? []).filter((r) =>
+    Array.isArray(r.events_enabled) && r.events_enabled.includes("bill_status_change"),
+  );
+  if (candidates.length === 0) return { sent: 0, failed: 0 };
+
+  // Status-change wording — emoji signals direction (passed = bad if
+  // hostile, good if friendly; dead = good if hostile, bad if friendly).
+  const advancing = ["committee", "passed_chamber", "enacted"].includes(input.toStatus);
+  const dying = input.toStatus === "dead";
+  const directionEmoji = dying
+    ? (input.isHostile ? "✅" : "💀")
+    : advancing
+      ? (input.isHostile ? "🚨" : "📈")
+      : "📋";
+  const headline = dying
+    ? `${directionEmoji} ${input.state ?? "FED"} ${input.billNumber} → DEAD`
+    : `${directionEmoji} ${input.state ?? "FED"} ${input.billNumber}: ${input.fromStatus ?? "?"} → ${input.toStatus}`;
+
+  const embed: DiscordEmbed = {
+    title: headline.slice(0, 256),
+    description: input.title.slice(0, 4_000),
+    url: `https://www.ikratom.org/bills/${input.billId}`,
+    color: input.isHostile && advancing
+      ? EMBED_COLORS.red
+      : input.isHostile && dying
+        ? EMBED_COLORS.emerald
+        : !input.isHostile && advancing
+          ? EMBED_COLORS.emerald
+          : EMBED_COLORS.amber,
+    fields: [
+      { name: "Stance", value: input.isHostile ? "Anti-kratom" : "Pro/neutral", inline: true },
+      ...(input.fromStatus ? [{ name: "From", value: input.fromStatus, inline: true }] : []),
+      { name: "To", value: input.toStatus, inline: true },
+    ],
+    footer: { text: input.isHostile && advancing ? "Take action now — bill is moving" : "Status update via iKratom" },
     timestamp: new Date().toISOString(),
   };
 
