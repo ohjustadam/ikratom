@@ -12,6 +12,7 @@ import { RepCoverageWidget } from "@/modules/dashboard/widgets/RepCoverageWidget
 import { ScoreboardWidget } from "@/modules/dashboard/widgets/ScoreboardWidget";
 import { MyBattlesWidget } from "@/modules/dashboard/widgets/MyBattlesWidget";
 import { SavedSearchesWidget } from "@/modules/dashboard/widgets/SavedSearchesWidget";
+import { ActivityRadarWidget } from "@/modules/dashboard/widgets/ActivityRadarWidget";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 /**
@@ -111,6 +112,7 @@ export default async function DashboardPage() {
       <MyBattlesWidget userId={userId} />
     ) : null,
     saved_searches: userId ? <SavedSearchesWidget /> : null,
+    activity_radar: <ActivityRadarWidget />,
     my_reps:
       myReps.length > 0 ? (
         <section data-tour="my-reps">

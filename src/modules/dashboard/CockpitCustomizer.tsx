@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveCockpitLayout } from "./actions";
-import { WIDGET_META, type WidgetSlot, type WidgetId } from "./widgets/types";
+import { WIDGET_META, PRESETS, type WidgetSlot, type WidgetId, type PresetId } from "./widgets/types";
 
 /**
  * Cockpit customize panel. Toggle visibility + reorder via up/down
@@ -87,6 +87,25 @@ export function CockpitCustomizer({
         Reorder widgets with the arrows. Hide ones you don&apos;t want.
         Changes save when you click <strong className="text-zinc-300">Save</strong>.
       </p>
+
+      {/* Layout presets — one-click swap to a curated layout */}
+      <div className="mb-4 rounded-md border border-zinc-800 bg-zinc-950/30 p-3">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Quick presets</p>
+        <div className="flex flex-wrap gap-2">
+          {(Object.entries(PRESETS) as [PresetId, typeof PRESETS[PresetId]][]).map(([id, p]) => (
+            <button
+              key={id}
+              onClick={() => setWidgets(p.widgets)}
+              className="rounded-md border border-zinc-700 px-2 py-1 text-left text-[11px] hover:border-emerald-500"
+              title={p.description}
+            >
+              <span className="font-semibold text-zinc-100">{p.label}</span>
+              <span className="ml-1 text-zinc-500">·</span>
+              <span className="ml-1 text-zinc-500">{p.description.split(" — ")[0]}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <ul className="mb-4 space-y-1">
         {widgets.map((w, idx) => {

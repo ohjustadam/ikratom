@@ -17,7 +17,15 @@ export type WidgetId =
   | "rep_coverage"
   | "scoreboard"
   | "my_battles"
-  | "saved_searches";
+  | "saved_searches"
+  | "activity_radar";
+
+/**
+ * One-click layout presets — apply via CockpitCustomizer's Preset row.
+ * Each preset is a curated DEFAULT_WIDGETS variation that emphasizes a
+ * particular use mode.
+ */
+export type PresetId = "strike" | "intel" | "lounge";
 
 export type WidgetSlot = {
   id: WidgetId;
@@ -38,6 +46,7 @@ export const DEFAULT_WIDGETS: WidgetSlot[] = [
   { id: "active_campaigns", visible: true },
   { id: "my_battles", visible: true },
   { id: "my_reps", visible: true },
+  { id: "activity_radar", visible: true },
   { id: "saved_searches", visible: true },
   { id: "streak", visible: false }, // hidden by default — scoreboard supersedes
 ];
@@ -82,6 +91,67 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
   saved_searches: {
     title: "Saved searches",
     description: "Custom alerts: get notified when a new bill matches your criteria.",
+  },
+  activity_radar: {
+    title: "Activity radar",
+    description: "Real-time platform activity — recent threads, campaigns, advocate actions.",
+  },
+};
+
+/**
+ * Preset definitions. Strike = action-heavy (briefing + battles +
+ * campaigns + reps top). Intel = info-heavy (briefing + radar + saved
+ * searches + campaigns). Lounge = social/light (radar + saved searches
+ * + scoreboard).
+ */
+export const PRESETS: Record<PresetId, { label: string; description: string; widgets: WidgetSlot[] }> = {
+  strike: {
+    label: "Strike Mode",
+    description: "Action-heavy — briefing, battles, campaigns, reps front-and-center.",
+    widgets: [
+      { id: "briefing", visible: true },
+      { id: "profile_completion", visible: true },
+      { id: "rep_coverage", visible: true },
+      { id: "active_campaigns", visible: true },
+      { id: "my_battles", visible: true },
+      { id: "my_reps", visible: true },
+      { id: "scoreboard", visible: true },
+      { id: "saved_searches", visible: false },
+      { id: "activity_radar", visible: false },
+      { id: "streak", visible: false },
+    ],
+  },
+  intel: {
+    label: "Intel Mode",
+    description: "Info-heavy — briefing, radar, monitors. For tracking the field.",
+    widgets: [
+      { id: "briefing", visible: true },
+      { id: "activity_radar", visible: true },
+      { id: "saved_searches", visible: true },
+      { id: "active_campaigns", visible: true },
+      { id: "profile_completion", visible: true },
+      { id: "rep_coverage", visible: true },
+      { id: "my_battles", visible: false },
+      { id: "my_reps", visible: false },
+      { id: "scoreboard", visible: false },
+      { id: "streak", visible: false },
+    ],
+  },
+  lounge: {
+    label: "Lounge Mode",
+    description: "Light + social. Radar at top, scoreboard, less of a war-room feel.",
+    widgets: [
+      { id: "activity_radar", visible: true },
+      { id: "scoreboard", visible: true },
+      { id: "saved_searches", visible: true },
+      { id: "active_campaigns", visible: true },
+      { id: "briefing", visible: false },
+      { id: "my_battles", visible: false },
+      { id: "my_reps", visible: false },
+      { id: "rep_coverage", visible: false },
+      { id: "profile_completion", visible: true },
+      { id: "streak", visible: false },
+    ],
   },
 };
 
