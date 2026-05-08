@@ -27,13 +27,21 @@ export default function BriefingsIndexPage() {
       const src = fs.readFileSync(path.join(briefingsDir, f), "utf8");
       const { data } = matter(src);
       const slug = f.replace(/\.md$/, "");
+      // gray-matter parses unquoted YAML dates as Date objects.
+      // We coerce to string at the boundary so downstream JSX renders
+      // safely (rendering a raw Date triggers React error #31).
+      const toStr = (v: unknown): string | null => {
+        if (v == null) return null;
+        if (v instanceof Date) return v.toISOString().slice(0, 10);
+        return String(v);
+      };
       return {
         slug,
-        title: (data.title as string) ?? slug,
-        subtitle: (data.subtitle as string) ?? null,
-        published: (data.published as string) ?? null,
-        readTime: (data.read_time as string) ?? null,
-        audience: (data.audience as string) ?? null,
+        title: toStr(data.title) ?? slug,
+        subtitle: toStr(data.subtitle),
+        published: toStr(data.published),
+        readTime: toStr(data.read_time),
+        audience: toStr(data.audience),
       };
     })
     .sort((a, b) => (a.published && b.published ? (a.published < b.published ? 1 : -1) : 0));

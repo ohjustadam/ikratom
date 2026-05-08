@@ -1,8 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { recordAdminAction } from "@/lib/audit";
+
+// Same cookie the backup-code redemption flow uses. Setting it here too
+// gives a belt-and-suspenders guarantee that admin mutations work after
+// /login/mfa even if the JWT-cookie update from supabase.auth.mfa.verify()
+// hasn't propagated to the very next request (a Supabase SSR edge case
+// that bit us in production: user does /login/mfa, navigates back to
+// /admin/campaigns/pending, server still reads aal=aal1 because the
+// updated JWT hasn't hit the cookie store yet).
+const BYPASS_COOKIE = "mfa_bypass_until";
+const BYPASS_TTL_SECONDS = 60 * 60; // 1 hour
 
 /**
  * MFA — TOTP only (authenticator app: Google Authenticator, 1Password, etc.).
@@ -103,6 +114,20 @@ export async function verifyTotp(input: { factorId: string; code: string }): Pro
     code,
   });
   if (vErr) return { error: vErr.message };
+
+  // Set the same 1-hour bypass cookie that the backup-code flow sets.
+  // requireMfaForMutation accepts mfaBypass=true as equivalent to aal2,
+  // so admin mutations (campaign approve/reject, role changes, etc.)
+  // start working immediately on the next request without waiting for
+  // the JWT cookie update to round-trip.
+  const c = await cookies();
+  c.set(BYPASS_COOKIE, String(Date.now() + BYPASS_TTL_SECONDS * 1000), {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    maxAge: BYPASS_TTL_SECONDS,
+    path: "/",
+  });
 
   // Audit-log MFA enrollment for admin accountability
   const {
