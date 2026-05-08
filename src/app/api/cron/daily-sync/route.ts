@@ -148,6 +148,14 @@ export async function GET(request: NextRequest) {
     log.push({ step: "translations", result: { error: String(e).slice(0, 200) } });
   }
 
+  // Prune expired trusted-device rows. Cheap one DELETE.
+  try {
+    await supabase.rpc("prune_trusted_devices");
+    log.push({ step: "prune_trusted_devices", result: { ok: true } });
+  } catch (e) {
+    log.push({ step: "prune_trusted_devices", result: { error: String(e).slice(0, 200) } });
+  }
+
   // Auto-create campaigns for newly-detected anti-kratom bills. This runs
   // AFTER enrichment so the confidence floor (0.6) is meaningful — a
   // freshly-synced bill that hasn't been enriched yet has confidence=null

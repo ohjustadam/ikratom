@@ -205,11 +205,20 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   }
 
   // MFA step-up: if the user has a verified TOTP factor but the current
-  // session is only at aal1, force the second factor before they go further.
+  // session is only at aal1, force the second factor before they go
+  // further — UNLESS this device is in trusted_devices for them. The
+  // trusted-device check looks for a signed cookie + matching DB row.
+  // Sensitive aal2-required actions still re-prompt (admin mutations,
+  // password change, MFA management) — trust only skips the routine
+  // sign-in challenge.
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   if (aal?.nextLevel === "aal2" && aal?.currentLevel !== "aal2") {
-    const params = new URLSearchParams({ redirect: dest });
-    redirect(`/login/mfa?${params.toString()}`);
+    const { isCurrentDeviceTrusted } = await import("./actions-trusted-devices");
+    const trusted = await isCurrentDeviceTrusted(data.user.id);
+    if (!trusted) {
+      const params = new URLSearchParams({ redirect: dest });
+      redirect(`/login/mfa?${params.toString()}`);
+    }
   }
 
   redirect(dest);
