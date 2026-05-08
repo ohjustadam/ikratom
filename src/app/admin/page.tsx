@@ -127,6 +127,14 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/intel-queue"
+            title={queues.intelTips > 0 ? `Intel queue (${queues.intelTips})` : "Intel queue"}
+            body="Review advocate-submitted tips from /alerts/submit. Approve to publish to /pulse + auto-spawn solidarity campaign."
+            accent={queues.intelTips > 0}
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/intel-health"
             title="Intel Health"
             body="Pipeline observability — per-source freshness, recent failures, hourly cron status. Catches stale scrapers before they bite."
