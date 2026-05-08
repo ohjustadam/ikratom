@@ -3,63 +3,43 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * Public impact dashboard — homepage social proof.
  *
- * Server component. Counts are fetched fresh per request (no caching) so
- * the numbers reflect reality. For a v1 scale this is fine; if homepage
- * traffic ever spikes we'd add a 60-second revalidate or a materialized
- * view.
+ * Server component. Numbers come from the SECURITY DEFINER RPC
+ * `public.homepage_stats()`, which bypasses RLS and returns only
+ * aggregate counts (no PII). This was originally six per-table count()
+ * queries, but two of those tables (profiles, campaign_actions) have
+ * self-only SELECT policies — anon visitors saw 0 advocates and 0
+ * emails because RLS evaluated against rows-visible-to-anon (none).
+ *
+ * One RPC call now does what six queries used to. See migration 0048.
  *
  * All counts are aggregate — no PII, safe for public/anon view.
  */
+
+type HomepageStats = {
+  advocates: number;
+  emails_sent: number;
+  calls_made: number;
+  active_campaigns: number;
+  active_anti_bills: number;
+  states_with_campaigns: number;
+};
+
 export async function ImpactStats() {
   const supabase = await createClient();
-
-  // Run all counts in parallel
-  const [
-    actionsCount,
-    callsCount,
-    activeCampaigns,
-    activeAntiBills,
-    membersCount,
-    statesWithCampaigns,
-  ] = await Promise.all([
-    supabase.from("campaign_actions").select("id", { count: "exact", head: true }),
-    supabase
-      .from("campaign_actions")
-      .select("id", { count: "exact", head: true })
-      .eq("method", "call"),
-    supabase
-      .from("campaigns")
-      .select("id", { count: "exact", head: true })
-      .eq("active", true),
-    supabase
-      .from("bills")
-      .select("id", { count: "exact", head: true })
-      .eq("active", true)
-      .eq("kratom_relevance", "anti")
-      .not("status", "in", "(enacted,dead)"),
-    supabase.from("profiles").select("id", { count: "exact", head: true }),
-    supabase
-      .from("campaigns")
-      .select("state")
-      .eq("active", true)
-      .not("state", "is", null),
-  ]);
-
-  const distinctStates = new Set(
-    (statesWithCampaigns.data ?? []).map((r: { state: string | null }) => r.state).filter(Boolean) as string[],
-  ).size;
-
-  // For the "emails sent" headline we exclude calls so it tells a clean story
-  const emails = (actionsCount.count ?? 0) - (callsCount.count ?? 0);
-  const calls = callsCount.count ?? 0;
+  const { data, error } = await supabase.rpc("homepage_stats");
+  if (error || !data || !Array.isArray(data) || data.length === 0) {
+    return null;
+  }
+  const s = data[0] as HomepageStats;
 
   // Hide the section entirely until there's real data to show — an empty
   // scoreboard is worse than no scoreboard.
   if (
-    emails === 0 &&
-    calls === 0 &&
-    (activeCampaigns.count ?? 0) === 0 &&
-    (activeAntiBills.count ?? 0) === 0
+    s.emails_sent === 0 &&
+    s.calls_made === 0 &&
+    s.active_campaigns === 0 &&
+    s.active_anti_bills === 0 &&
+    s.advocates === 0
   ) {
     return null;
   }
@@ -75,16 +55,16 @@ export async function ImpactStats() {
         </h2>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat value={emails} label="Emails sent" accent />
-        {calls > 0 && <Stat value={calls} label="Calls made" />}
-        <Stat value={activeCampaigns.count ?? 0} label="Active campaigns" />
+        <Stat value={s.emails_sent} label="Emails sent" accent />
+        {s.calls_made > 0 && <Stat value={s.calls_made} label="Calls made" />}
+        <Stat value={s.active_campaigns} label="Active campaigns" />
         <Stat
-          value={activeAntiBills.count ?? 0}
+          value={s.active_anti_bills}
           label="Anti-kratom bills tracked"
-          warn={(activeAntiBills.count ?? 0) > 0}
+          warn={s.active_anti_bills > 0}
         />
-        <Stat value={distinctStates} label="States with campaigns" />
-        <Stat value={membersCount.count ?? 0} label="Advocates registered" />
+        <Stat value={s.states_with_campaigns} label="States with campaigns" />
+        <Stat value={s.advocates} label="Advocates registered" />
       </div>
     </section>
   );
