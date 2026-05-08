@@ -9,6 +9,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { readLocale } from "@/modules/auth/actions-locale";
+import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 
 const geist = Geist({
@@ -83,6 +84,25 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const locale = await readLocale();
+
+  // Cheap auth check so MobileNav can show admin sub-section. Single
+  // row read; never blocks render — falls back to non-admin on error.
+  let isAdmin = false;
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_admin, is_owner, is_advocate_leader")
+        .eq("id", user.id)
+        .single();
+      isAdmin = !!(profile?.is_admin || profile?.is_owner || profile?.is_advocate_leader);
+    }
+  } catch {
+    // non-fatal — drawer just hides admin section
+  }
+
   return (
     <html lang={locale} className={`${geist.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
@@ -116,7 +136,7 @@ export default async function RootLayout({
             </nav>
 
             {/* Mobile hamburger (<md) */}
-            <MobileNav authSlot={<HeaderAuth />} />
+            <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} />
           </div>
         </header>
 
