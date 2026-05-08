@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
 import { readLocale } from "@/modules/auth/actions-locale";
+import { BillFullText } from "./BillFullText";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -32,6 +33,9 @@ type BillRow = {
   journey_analyzed_at: string | null;
   substance_targeting: SubstanceTargeting | null;
   substance_targeting_analyzed_at: string | null;
+  summary_long: string | null;
+  bill_text_versions: Array<{ label: string; date: string | null; text: string; source_url: string }> | null;
+  text_synced_at: string | null;
 };
 
 type Stance = "bans" | "restricts" | "schedules" | "preserves" | "neutral" | "unaddressed";
@@ -111,7 +115,8 @@ export default async function BillDetailPage({
       "source_url, official_url, session_id, scope, locality, " +
       "enriched_at, last_synced_at, " +
       "journey_narrative, amendments_count, journey_analyzed_at, " +
-      "substance_targeting, substance_targeting_analyzed_at",
+      "substance_targeting, substance_targeting_analyzed_at, " +
+      "summary_long, bill_text_versions, text_synced_at",
     )
     .eq("id", id)
     .single();
@@ -369,8 +374,40 @@ export default async function BillDetailPage({
         </section>
       )}
 
-      {/* Plain-English summary (AI) — with locale-aware translation */}
-      {bill.summary_ai && (
+      {/* Substantive briefing-grade summary (200-300 words). When
+          present, this REPLACES the 2-sentence summary_ai because it
+          covers everything the short version did and more. */}
+      {bill.summary_long ? (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
+            Briefing
+          </h2>
+          <div className="mt-3 space-y-3 text-sm leading-relaxed text-zinc-200">
+            {bill.summary_long
+              .split(/\n\s*\n/)
+              .filter((p) => p.trim().length > 0)
+              .map((para, i) => (
+                <p key={i}>{para.trim()}</p>
+              ))}
+          </div>
+          {bill.advocacy_callout && (
+            <div className="mt-4 rounded-md border border-emerald-900/30 bg-emerald-950/20 p-3">
+              <p className="text-xs font-semibold text-emerald-400">For advocates:</p>
+              <TranslatedSection
+                type="bill_callout"
+                id={bill.id}
+                sourceText={bill.advocacy_callout}
+                className="mt-1 text-sm text-emerald-200"
+              />
+            </div>
+          )}
+          {bill.journey_analyzed_at && (
+            <p className="mt-3 text-[10px] uppercase tracking-wider text-zinc-600">
+              AI-summarized · last reviewed {new Date(bill.journey_analyzed_at).toLocaleDateString()}
+            </p>
+          )}
+        </section>
+      ) : bill.summary_ai && (
         <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Plain English
@@ -402,6 +439,13 @@ export default async function BillDetailPage({
             </p>
           )}
         </section>
+      )}
+
+      {/* Full bill text — every captured version, switchable via tabs.
+          Lets readers compare introduced vs amended versions on-site
+          instead of bouncing to the state portal. */}
+      {bill.bill_text_versions && bill.bill_text_versions.length > 0 && (
+        <BillFullText versions={bill.bill_text_versions} />
       )}
 
       {/* Linked campaigns */}

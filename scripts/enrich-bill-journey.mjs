@@ -51,6 +51,8 @@ const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const OS_KEY = process.env.OPENSTATES_API_KEY;
 const GROQ_KEY = process.env.GROQ_API_KEY;
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
+const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1); }
 if (!OS_KEY) { console.error("Missing OPENSTATES_API_KEY"); process.exit(1); }
@@ -91,7 +93,17 @@ Return JSON with these EXACT fields:
 
 4. key_amendment_dates — array of "YYYY-MM-DD" strings for amendments that materially changed substance scope.
 
-5. substance_targeting — object keyed by substance class. Include ALL FIVE keys: natural_leaf, mitragynine, seven_oh, pseudoindoxyl, synthetic. Each value MUST be:
+5. summary_long — markdown text, 2-3 paragraphs, 200-300 words. This is the substantive briefing-grade summary at the top of the bill page (FastDemocracy-style). Structure:
+
+   Paragraph 1 (5-7 sentences): WHAT THE BILL DOES. The mechanism in detail — what statute it amends or creates, what definitions it introduces, what it prohibits/requires/restricts, who it applies to, what penalties/scheduling/fees apply. Use the alkaloid taxonomy precisely. Reference THE LATEST version's content, not the introduced version.
+
+   Paragraph 2 (3-5 sentences): EFFECTIVE DATE + FISCAL IMPACT + OPERATIONAL CHANGES. When does it take effect (specific date or "upon passage")? What's the projected fiscal impact (cite the bill's own fiscal note if present)? What does this change operationally for vendors, retailers, consumers, or the state?
+
+   Paragraph 3 (1-2 sentences, OPTIONAL): UNCERTAINTY / WHAT'S DISPUTED. Only include if there are competing committee reports, party-line splits, or procedural questions. Skip otherwise.
+
+   This summary should read like a policy analyst's standalone briefing — substantive enough that a reader who only reads it still understands what's happening.
+
+6. substance_targeting — object keyed by substance class. Include ALL FIVE keys: natural_leaf, mitragynine, seven_oh, pseudoindoxyl, synthetic. Each value MUST be:
    {
      "stance": "bans" | "restricts" | "schedules" | "preserves" | "neutral" | "unaddressed",
      "scope": "statewide" | "retail_only" | "specific_retailer" | "research_exempt" | null,
@@ -242,6 +254,49 @@ async function callGroq(systemPrompt, userPrompt, model) {
   return JSON.parse(text);
 }
 
+async function callGemini(systemPrompt, userPrompt, model) {
+  const m = model || "gemini-2.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${GEMINI_KEY}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 2048,
+        responseMimeType: "application/json",
+      },
+    }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "{}";
+  return JSON.parse(text);
+}
+
+async function callCerebras(systemPrompt, userPrompt, model) {
+  const m = model || "llama-3.3-70b";
+  const res = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${CEREBRAS_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: m,
+      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+      temperature: 0.1,
+      max_tokens: 2048,
+      response_format: { type: "json_object" },
+    }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  if (!res.ok) throw new Error(`Cerebras ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content ?? "{}";
+  return JSON.parse(text);
+}
+
 async function callOllama(systemPrompt, userPrompt, model) {
   const m = model || "llama3.3:70b";
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
@@ -261,11 +316,64 @@ async function callOllama(systemPrompt, userPrompt, model) {
   return JSON.parse(data.message?.content ?? "{}");
 }
 
-async function chooseProvider() {
-  if (PROVIDER_OVERRIDE === "ollama") return "ollama";
-  if (PROVIDER_OVERRIDE === "groq") return "groq";
-  if (GROQ_KEY) return "groq";
-  return "ollama";
+// Round-robin counter so consecutive bills hit different providers,
+// distributing load across free-tier rate limits.
+let _providerCursor = 0;
+function availableProviders() {
+  const out = [];
+  if (GROQ_KEY) out.push("groq");
+  if (GEMINI_KEY) out.push("gemini");
+  if (CEREBRAS_KEY) out.push("cerebras");
+  out.push("ollama"); // always last-resort fallback
+  return out;
+}
+function chooseProvider() {
+  if (PROVIDER_OVERRIDE && ["groq", "gemini", "cerebras", "ollama"].includes(PROVIDER_OVERRIDE)) {
+    return PROVIDER_OVERRIDE;
+  }
+  const list = availableProviders();
+  // Skip Ollama in the rotation unless it's the only option — local
+  // inference is much slower than the cloud free tiers.
+  const cloud = list.filter((p) => p !== "ollama");
+  if (cloud.length === 0) return "ollama";
+  return cloud[_providerCursor++ % cloud.length];
+}
+
+async function callProvider(name, system, user, model) {
+  switch (name) {
+    case "groq": return callGroq(system, user, model);
+    case "gemini": return callGemini(system, user, model);
+    case "cerebras": return callCerebras(system, user, model);
+    case "ollama": return callOllama(system, user, model);
+    default: throw new Error(`Unknown provider: ${name}`);
+  }
+}
+
+/**
+ * Try providers in order until one succeeds. On 429 (rate limit) or
+ * 5xx errors we move to the next. On JSON parse errors we move to the
+ * next. Final fallback is Ollama (no rate limit but slower).
+ */
+async function analyzeWithFallback(system, user, model) {
+  const start = chooseProvider();
+  const list = availableProviders();
+  // Reorder to try `start` first, then everyone else.
+  const order = [start, ...list.filter((p) => p !== start)];
+  let lastErr = null;
+  for (const p of order) {
+    try {
+      const result = await callProvider(p, system, user, model);
+      return { provider: p, result };
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e.message || "");
+      const isRateLimit = msg.includes("429") || msg.toLowerCase().includes("rate") || msg.includes("503");
+      console.log(`    ⚠ ${p} failed: ${msg.slice(0, 140)}${isRateLimit ? " (rate-limit, falling back)" : ""}`);
+      // Brief backoff before trying the next provider
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  throw lastErr ?? new Error("All providers failed");
 }
 
 // ---------- main ----------
@@ -313,9 +421,13 @@ async function processBill(bill) {
     console.log("  ⚠ no version PDFs available — using action timeline only");
   }
 
-  // Pull each version's PDF text (capped chars per version so we stay
-  // within the model's context window for many-amendment bills).
+  // Pull each version's PDF text. We need TWO copies:
+  //   - versionTexts: capped at 4K chars per version, fed to AI (rate-limit friendly)
+  //   - versionTextsFull: uncapped, persisted to bills.bill_text_versions
+  //     for on-site rendering. We're the intel agency now — bill text
+  //     lives on iKratom, not behind a redirect.
   const versionTexts = [];
+  const versionTextsFull = [];
   for (const v of versions) {
     const pdfLink = v.links?.find((l) => l.media_type === "application/pdf");
     if (!pdfLink) {
@@ -324,11 +436,15 @@ async function processBill(bill) {
     }
     try {
       const text = await downloadPdfText(pdfLink.url);
-      // Per-version cap. "Introduced" tends to be the full bill text
-      // (~28K chars for SB 557); subsequent amendments are patches
-      // (3-5K chars). 4K cap on each keeps total well under provider
-      // rate limits even with 9-12 versions.
       versionTexts.push({ note: v.note ?? "", date: v.date ?? "", text: text.slice(0, 4_000) });
+      versionTextsFull.push({
+        label: v.note ?? "Version",
+        date: v.date ?? null,
+        source_url: pdfLink.url,
+        // 200K char cap per version = ~50 pages of dense legalese.
+        // Trims pathological cases without losing real bill content.
+        text: text.slice(0, 200_000),
+      });
       console.log(`    ✓ ${v.note ?? "(unnamed)"} — ${text.length} chars`);
     } catch (e) {
       versionTexts.push({ note: v.note ?? "", date: v.date ?? "", text: `(PDF fetch failed: ${e.message})` });
@@ -355,20 +471,19 @@ async function processBill(bill) {
     `=== OFFICIAL ABSTRACTS ===\n${abstractsBlock}\n\n` +
     `=== ALL VERSIONS, IN ORDER ===\n${versionsBlock}`;
 
-  // Pick provider
-  const provider = await chooseProvider();
-  console.log(`  analyzing with ${provider}…`);
+  // Pick provider — round-robin across configured cloud free tiers
+  // (Groq, Gemini, Cerebras), with Ollama as the rate-limit fallback.
   const t0 = Date.now();
-  let parsed;
+  let parsed, providerUsed;
   try {
-    parsed = provider === "groq"
-      ? await callGroq(SYSTEM, userPrompt, MODEL_OVERRIDE)
-      : await callOllama(SYSTEM, userPrompt, MODEL_OVERRIDE);
+    const r = await analyzeWithFallback(SYSTEM, userPrompt, MODEL_OVERRIDE);
+    parsed = r.result;
+    providerUsed = r.provider;
   } catch (e) {
-    console.log(`  ✗ AI call failed: ${e.message}`);
+    console.log(`  ✗ AI call failed across all providers: ${e.message}`);
     return false;
   }
-  console.log(`  ✓ analysis returned in ${Date.now() - t0}ms`);
+  console.log(`  ✓ analysis via ${providerUsed} in ${Date.now() - t0}ms`);
 
   const journey = typeof parsed.journey_narrative === "string" ? parsed.journey_narrative.slice(0, 4000) : null;
   const ac = Number.isInteger(parsed.amendments_count) ? parsed.amendments_count : versions.length;
@@ -390,6 +505,20 @@ async function processBill(bill) {
   if (newest) {
     updatePatch.last_action = newest.description?.slice(0, 500) ?? null;
     updatePatch.last_action_at = newest.date;
+  }
+
+  // Persist the substantive 200-300 word summary alongside the journey.
+  if (typeof parsed.summary_long === "string" && parsed.summary_long.trim().length > 60) {
+    updatePatch.summary_long = parsed.summary_long.slice(0, 4000);
+  }
+
+  // Persist the full bill text versions so /bills/[id] can render them
+  // on-site instead of redirecting to the state portal. Skipped when
+  // OpenStates returned no PDFs (FastDemocracy fallback may still have
+  // populated versionTextsFull).
+  if (versionTextsFull.length > 0) {
+    updatePatch.bill_text_versions = versionTextsFull;
+    updatePatch.text_synced_at = new Date().toISOString();
   }
   // Persist the per-substance targeting map. Validate that all five
   // expected keys are present and shaped correctly; missing or
@@ -454,9 +583,16 @@ const bills = await selectBills();
 if (bills.length === 0) { console.log("No bills to process."); process.exit(0); }
 console.log(`Processing ${bills.length} bill(s).`);
 
+// Show available providers up front so the operator knows what's wired.
+console.log(`Providers available: ${availableProviders().join(", ")}`);
+
 let ok = 0, fail = 0;
-for (const b of bills) {
-  const result = await processBill(b);
+for (let i = 0; i < bills.length; i++) {
+  const result = await processBill(bills[i]);
   if (result) ok++; else fail++;
+  // Polite delay between bills so we don't burst the same provider's
+  // TPM cap when the rotation cycles back. 2s × 62 bills = ~2 extra
+  // minutes total, negligible against rate-limit retries.
+  if (i < bills.length - 1) await new Promise((r) => setTimeout(r, 2000));
 }
 console.log(`\nDone. ok=${ok}, fail=${fail}`);
