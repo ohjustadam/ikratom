@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { NotifyMeButton } from "./NotifyMeButton";
 
 /**
  * "Local action playbook" — uniform actionable UI rendered above the
@@ -109,20 +110,26 @@ function downloadIcs(filename: string, content: string) {
 
 export function BillLocalActionCard({
   meta,
+  billId,
   billTitle,
   billState,
   billLocality,
   agendaItemNumber,
   officials = [],
   sourceUrl,
+  signedIn,
+  initiallySubscribed,
 }: {
   meta: LocalMeta;
+  billId: string;
   billTitle: string;
   billState: string;
   billLocality: string | null;
   agendaItemNumber?: string;
   officials?: LocalOfficial[];
   sourceUrl?: string | null;
+  signedIn: boolean;
+  initiallySubscribed: boolean;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -497,16 +504,17 @@ export function BillLocalActionCard({
         );
       })()}
 
-      {/* NOTIFY ME — placeholder, real subscription wiring is the next PR */}
+      {/* NOTIFY ME — real subscription. Click subscribes / unsubscribes
+          via server action. Hourly cron fans out notifications:
+          meeting reminder ~24h before meeting_at, status-change alerts,
+          new-linked-alert push. */}
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled
-          title="Bill subscriptions land in the next PR — meeting reminders, status-change alerts, push notifications"
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 text-xs text-zinc-500 cursor-not-allowed"
-        >
-          🔔 Notify me about updates (coming next)
-        </button>
+        <NotifyMeButton
+          billId={billId}
+          initiallySubscribed={initiallySubscribed}
+          signedIn={signedIn}
+          hasUpcomingMeeting={!!(meetingValid && meetingDate && meetingDate.getTime() > Date.now())}
+        />
       </div>
     </section>
   );
