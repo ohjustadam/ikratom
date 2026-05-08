@@ -5,8 +5,10 @@ import {
   getAiStats24h,
   getProviderAvailability,
   getEmailQuotaStatus,
+  getEnvPresence,
   type AiJobRow,
   type AiStatRow,
+  type EnvPresenceGroup,
 } from "@/modules/admin/ai-control-actions";
 import { TestPromptPanel } from "./TestPromptPanel";
 
@@ -29,17 +31,19 @@ export default async function AiControlPage() {
   const ctx = await getAdminContext();
   if (!ctx.ok) redirect("/dashboard");
 
-  const [jobsResp, statsResp, providerResp, emailQuotaResp] = await Promise.all([
+  const [jobsResp, statsResp, providerResp, emailQuotaResp, envResp] = await Promise.all([
     listRecentAiJobs(100),
     getAiStats24h(),
     getProviderAvailability(),
     getEmailQuotaStatus(),
+    getEnvPresence(),
   ]);
 
   const jobs: AiJobRow[] = "rows" in jobsResp ? jobsResp.rows ?? [] : [];
   const stats: AiStatRow[] = "rows" in statsResp ? statsResp.rows ?? [] : [];
   const aiAvailable = "available" in providerResp ? providerResp.available ?? [] : [];
   const emailQuota = "status" in emailQuotaResp ? emailQuotaResp.status : null;
+  const envGroups: EnvPresenceGroup[] = "groups" in envResp ? envResp.groups : [];
 
   // Aggregate cost across all 24h
   const totalCost24h = stats.reduce((sum, s) => sum + Number(s.total_cost_usd ?? 0), 0);
@@ -64,6 +68,62 @@ export default async function AiControlPage() {
           updated {new Date().toISOString().slice(0, 19).replace("T", " ")} UTC
         </span>
       </header>
+
+      {/* Runtime env-var diagnostic — booleans only, never values.
+          Lets the admin confirm which keys made it from Vercel into the
+          live deploy. The #1 cause of "I added the env var but the
+          provider still shows down" is that Vercel's "Redeploy" reused
+          the build cache; a fresh build is needed to pick up new vars.
+          When this panel says "missing" but Vercel UI says it's set,
+          trigger a NEW deployment (commit, or "Redeploy" with build
+          cache UNCHECKED). */}
+      <section className="mb-6">
+        <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <span>Runtime environment</span>
+          <span className="font-normal normal-case tracking-normal text-zinc-600">
+            — what this deploy can see (booleans only, no values)
+          </span>
+        </h2>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {envGroups.map((g) => (
+            <div key={g.group} className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                {g.group}
+              </div>
+              <ul className="space-y-1 font-mono text-[11px]">
+                {g.vars.map((v) => {
+                  const ok = v.present;
+                  const broken = !ok && v.required;
+                  return (
+                    <li key={v.key} className="flex items-center gap-2">
+                      <span
+                        className={`inline-block h-2 w-2 shrink-0 rounded-full ${
+                          ok ? "bg-emerald-400" : broken ? "bg-red-400" : "bg-zinc-700"
+                        }`}
+                      />
+                      <span className={ok ? "text-zinc-300" : broken ? "text-red-300" : "text-zinc-500"}>
+                        {v.key}
+                      </span>
+                      <span className={`ml-auto text-[10px] ${ok ? "text-emerald-400" : broken ? "text-red-400" : "text-zinc-600"}`}>
+                        {ok ? "set" : broken ? "MISSING" : "—"}
+                      </span>
+                      {v.note && (
+                        <span className="hidden text-[10px] text-zinc-600 sm:inline">{v.note}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[10px] text-zinc-600">
+          Red dot = required-and-missing. Empty dot = optional, not configured. If a var
+          was just added in Vercel and shows missing here, the running deploy was built
+          before the var was set — trigger a NEW deployment (commit, or Redeploy with
+          build cache UNCHECKED).
+        </p>
+      </section>
 
       {/* Top row: provider status pills */}
       <section className="mb-6">
