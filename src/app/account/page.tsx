@@ -118,6 +118,19 @@ export default async function AccountPage({
       </div>
 
       <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <h3 className="mb-1 text-sm font-semibold">Saved searches</h3>
+        <p className="mb-3 text-xs text-zinc-500">
+          Custom alert rules. Get notified when a new bill matches your criteria.
+        </p>
+        <a
+          href="/account/saved-searches"
+          className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:border-emerald-500"
+        >
+          Manage saved searches →
+        </a>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <h3 className="mb-1 text-sm font-semibold">Cockpit tour</h3>
         <p className="mb-3 text-xs text-zinc-500">
           Replay the first-time walkthrough on your dashboard.
