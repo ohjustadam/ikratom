@@ -60,25 +60,49 @@ const supabase = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } 
 // ---------- prompt ----------
 const SYSTEM = `You are a kratom-policy analyst writing the journey of a U.S. state bill across its full life — from introduction through every amendment to its current form.
 
+CRITICAL: never use "kratom" as a blanket term. The legitimate industry, the FDA, and most modern bills distinguish between distinct substances under the kratom umbrella. Always disambiguate when describing what a bill targets.
+
+ALKALOID TAXONOMY (use this vocabulary precisely):
+  - "natural leaf kratom" or "plain leaf kratom": whole-leaf or traditional preparation (heating, water/ethanol extraction). The plant in its natural form.
+  - "mitragynine" (MGM): the dominant natural alkaloid (~1-2% of leaf). Sometimes purified or isolated.
+  - "7-hydroxymitragynine" (7-OH): a natural trace alkaloid (~0.04% in fresh leaf). Distinct from semi-synthetic 7-OH-enhanced concentrates which exceed natural levels.
+  - "mitragynine pseudoindoxyl" or "pseudo": an oxidation metabolite, much higher opioid affinity than MGM. Often produced semi-synthetically.
+  - "synthetic" or "semisynthetic" kratom: any lab-synthesized or biosynthesized alkaloid (recombinant, fermentation, yeast-driven, enzymatic).
+
+When describing a bill, ALWAYS specify which substance class is targeted. "Bans kratom" is wrong unless the bill literally bans the plant. The right phrasing is e.g. "bans semisynthetic 7-OH-enriched products while preserving natural leaf" or "schedules synthetic kratom alkaloids as Schedule II."
+
 You will receive: the bill metadata (state, number, title), every version's text snapshot in chronological order, and the full action timeline.
 
-Write a single, structured cumulative narrative for advocates. Return JSON with these EXACT fields:
+Return JSON with these EXACT fields:
 
-1. journey_narrative — markdown text, 4 short paragraphs separated by blank lines. NO heading prefixes (no "**Original Form:**" etc). Just plain paragraphs in this order:
+1. journey_narrative — markdown text, 4 short paragraphs separated by blank lines. NO heading prefixes. Use the alkaloid taxonomy above precisely throughout.
 
-   Paragraph 1 — ORIGINAL FORM. What did the bill propose when first introduced? Cite the operative mechanism (Schedule II classification, age limit, retail ban, etc.). 2-3 sentences.
+   Paragraph 1 — ORIGINAL FORM. What did the bill propose when first introduced? Cite the operative mechanism (Schedule II classification, age limit, retail ban, etc.) AND specify which substances it targets. 2-3 sentences.
 
-   Paragraph 2 — AMENDMENT TRAJECTORY. Each major amendment that changed the operative scope. List them in order. If 2+ versions: describe what each one CHANGED relative to the previous version (e.g. "Committee substitute narrowed the ban to retail-only, removing personal possession criminalization"). If only 1 version exists, say: "No amendments yet — see Paragraph 1." 2-4 sentences.
+   Paragraph 2 — AMENDMENT TRAJECTORY. Each major amendment that changed scope. If 2+ versions: describe what each amendment CHANGED relative to the prior, including any shifts in which substances are targeted. If only 1 version: "No amendments yet — see Paragraph 1." 2-4 sentences.
 
-   Paragraph 3 — CURRENT STATE. As of the most recent action, what does the bill ACTUALLY do now? What's its current procedural posture (in committee, awaiting floor vote, signed by governor, etc.)? 2-3 sentences.
+   Paragraph 3 — CURRENT STATE. As of the most recent action, what does the bill ACTUALLY do now? Be specific about substances and scope (e.g. "restricts liquor commission licensees only" vs "statewide ban"). What's its procedural posture? 2-3 sentences.
 
-   Paragraph 4 — CUMULATIVE IMPACT. Why this matters for the kratom community in plain language. Be concrete: "natural leaf still legal but synthetic 7-OH banned at retailers" or "any kratom product schedule II — total criminalization." 1-2 sentences.
+   Paragraph 4 — CUMULATIVE IMPACT. Why this matters for advocates. Use concrete substance language: "natural leaf preserved, 7-OH-enriched products banned at liquor stores" rather than "restricts kratom." 1-2 sentences.
 
-2. amendments_count — integer. How many DISTINCT version snapshots are reflected in the inputs.
+2. amendments_count — integer. Distinct version snapshots in the inputs.
 
-3. stance_changed — boolean. TRUE if the bill's effective stance toward natural leaf flipped at any point during amendments (e.g. introduced as anti-natural-leaf, amended to spare it). FALSE if it stayed consistent.
+3. stance_changed — boolean. TRUE if the bill's effective stance toward natural leaf changed at any point.
 
-4. key_amendment_dates — array of strings, dates of the amendments that materially changed scope. Empty array if no material changes. Format: "YYYY-MM-DD".
+4. key_amendment_dates — array of "YYYY-MM-DD" strings for amendments that materially changed substance scope.
+
+5. substance_targeting — object keyed by substance class. Include ALL FIVE keys: natural_leaf, mitragynine, seven_oh, pseudoindoxyl, synthetic. Each value MUST be:
+   {
+     "stance": "bans" | "restricts" | "schedules" | "preserves" | "neutral" | "unaddressed",
+     "scope": "statewide" | "retail_only" | "specific_retailer" | "research_exempt" | null,
+     "schedule": "I" | "II" | "III" | "IV" | "V" | null,
+     "confidence": 0.00 - 1.00,
+     "notes": "one short clause"
+   }
+   - Use "preserves" when the bill explicitly carves out / protects that substance class
+   - Use "unaddressed" when the bill simply doesn't touch that class
+   - Use "bans" for outright prohibition, "restricts" for partial limits, "schedules" when added to controlled-substance schedule
+   - When the latest version differs from earlier versions, reflect THE LATEST VERSION'S targeting
 
 Return ONLY the JSON object. Do NOT wrap in markdown code blocks.`;
 
@@ -366,6 +390,28 @@ async function processBill(bill) {
   if (newest) {
     updatePatch.last_action = newest.description?.slice(0, 500) ?? null;
     updatePatch.last_action_at = newest.date;
+  }
+  // Persist the per-substance targeting map. Validate that all five
+  // expected keys are present and shaped correctly; missing or
+  // malformed payloads fall back to null rather than corrupting the
+  // jsonb.
+  const SUB_KEYS = ["natural_leaf", "mitragynine", "seven_oh", "pseudoindoxyl", "synthetic"];
+  const ST = parsed.substance_targeting;
+  if (ST && typeof ST === "object" && SUB_KEYS.every((k) => ST[k] && typeof ST[k] === "object")) {
+    // Drop unknown keys, coerce confidence to a number, slice notes.
+    const clean = {};
+    for (const k of SUB_KEYS) {
+      const v = ST[k];
+      clean[k] = {
+        stance: typeof v.stance === "string" ? v.stance : "unaddressed",
+        scope: typeof v.scope === "string" ? v.scope : null,
+        schedule: typeof v.schedule === "string" ? v.schedule : null,
+        confidence: Number.isFinite(v.confidence) ? Math.max(0, Math.min(1, Number(v.confidence))) : 0.5,
+        notes: typeof v.notes === "string" ? v.notes.slice(0, 240) : "",
+      };
+    }
+    updatePatch.substance_targeting = clean;
+    updatePatch.substance_targeting_analyzed_at = new Date().toISOString();
   }
   const { error: upErr } = await supabase
     .from("bills")
