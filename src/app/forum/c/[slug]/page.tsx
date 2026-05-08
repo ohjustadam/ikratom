@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCommunityBySlug } from "@/modules/forum/community-actions";
+import { recordForumVisit } from "@/modules/forum/engagement-actions";
+import { communityKey, type SubMode } from "@/modules/forum/engagement-keys";
+import { ForumSubscribeButton } from "@/modules/forum/components/ForumSubscribeButton";
 
 export async function generateMetadata({
   params,
@@ -32,6 +35,24 @@ export default async function CommunityForumPage({
   if (!community) notFound();
 
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const fkey = communityKey(community.id);
+
+  // Pull this user's subscription mode (if any) for the header pill.
+  let subMode: SubMode | null = null;
+  if (user && fkey) {
+    const { data: sub } = await supabase
+      .from("forum_subscriptions")
+      .select("mode")
+      .eq("user_id", user.id)
+      .eq("forum_key", fkey)
+      .maybeSingle();
+    subMode = (sub?.mode as SubMode | undefined) ?? null;
+  }
+
+  // Mark visited — best effort.
+  if (fkey) await recordForumVisit(fkey);
+
   let q = supabase
     .from("forum_threads")
     .select("id, state, locality, title, body, tag, pinned, locked, post_count, upvote_count, last_activity_at, created_at, author_id")
@@ -60,6 +81,15 @@ export default async function CommunityForumPage({
           <h1 className="text-3xl font-bold">{community.name}</h1>
           {community.description && (
             <p className="mt-2 max-w-2xl text-sm text-zinc-400">{community.description}</p>
+          )}
+          {fkey && (
+            <div className="mt-3">
+              <ForumSubscribeButton
+                forumKey={fkey}
+                initialMode={subMode}
+                signedIn={!!user}
+              />
+            </div>
           )}
         </div>
       </header>
