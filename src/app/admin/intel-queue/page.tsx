@@ -31,6 +31,9 @@ type Tip = {
   submitted_by_user_id: string | null;
   is_anonymous: boolean;
   created_at: string;
+  _submitter_tier?: string;
+  _submitter_approved?: number;
+  _submitter_rejected?: number;
 };
 
 export default async function IntelQueuePage() {
@@ -128,6 +131,22 @@ export default async function IntelQueuePage() {
                     : <span className="text-zinc-600">—</span>
                   }
                 </span>
+                {t._submitter_tier && (
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                    t._submitter_tier === "trusted_reporter" ? "bg-emerald-950/60 text-emerald-300" :
+                    t._submitter_tier === "field_reporter" ? "bg-sky-950/60 text-sky-300" :
+                    "bg-zinc-900 text-zinc-500"
+                  }`}>
+                    {t._submitter_tier === "trusted_reporter" ? "✓ Trusted" :
+                     t._submitter_tier === "field_reporter" ? "🛰 Field rep" :
+                     "Rookie"}
+                  </span>
+                )}
+                {(t._submitter_approved ?? 0) + (t._submitter_rejected ?? 0) > 0 && (
+                  <span className="text-zinc-600">
+                    ({t._submitter_approved}✓ / {t._submitter_rejected}✗)
+                  </span>
+                )}
               </div>
 
               <div className="mt-4">

@@ -18,9 +18,12 @@ export default async function SubmitIntelPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("state")
+    .select("state, intel_tier, intel_approved_count, intel_rejected_count")
     .eq("id", user.id)
     .single();
+  const tier = (profile as { intel_tier?: string } | null)?.intel_tier ?? "rookie";
+  const approvedCount = (profile as { intel_approved_count?: number } | null)?.intel_approved_count ?? 0;
+  const rejectedCount = (profile as { intel_rejected_count?: number } | null)?.intel_rejected_count ?? 0;
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:px-8">
@@ -56,6 +59,30 @@ export default async function SubmitIntelPage() {
           <li>Vendor promotion / sales</li>
           <li>Personal attacks on legislators or officials</li>
         </ul>
+      </div>
+
+      <div className={`mb-5 rounded-md border p-4 text-xs ${
+        tier === "trusted_reporter"
+          ? "border-emerald-700/50 bg-emerald-950/20 text-emerald-300"
+          : tier === "field_reporter"
+          ? "border-sky-700/50 bg-sky-950/20 text-sky-300"
+          : "border-zinc-800 bg-zinc-950/40 text-zinc-400"
+      }`}>
+        <p className="font-semibold">
+          {tier === "trusted_reporter" && "✓ Trusted reporter"}
+          {tier === "field_reporter" && "🛰 Field reporter"}
+          {tier === "rookie" && "Rookie"}
+        </p>
+        <p className="mt-1">
+          {tier === "trusted_reporter" &&
+            "Your tips skip the queue and go live immediately. Keep your signal-to-noise high — a single rejected tip drops you back to field reporter."}
+          {tier === "field_reporter" &&
+            `${approvedCount} approved · ${rejectedCount} rejected. ${10 - approvedCount} more clean approvals to unlock auto-publish (trusted reporter).`}
+          {tier === "rookie" &&
+            (approvedCount + rejectedCount === 0
+              ? "Welcome. Your first 3 approved tips will earn you the field reporter badge."
+              : `${approvedCount} approved · ${rejectedCount} rejected. Need ${Math.max(0, 3 - approvedCount)} more approvals (with no further rejections) to unlock field reporter.`)}
+        </p>
       </div>
 
       <SubmitIntelForm defaultState={(profile as { state: string | null } | null)?.state ?? ""} />
