@@ -174,23 +174,44 @@ li { margin-bottom: 6pt; }
 .commit h3 { margin: 0 0 6pt 0; font-size: 11.5pt; }
 .commit p { font-size: 10pt; color: #3f4549; margin: 0 0 6pt 0; }
 
-/* Inline data bars */
+/* Quantified-target chart — 3-column grid: label | track | value.
+   Replaces the older .bar-with-text-inside approach where the label
+   overflowed when the bar's percentage width was shorter than the
+   label needed. */
 .data-bar { margin: 8pt 0; }
-.data-bar .bar {
-  background: #10b981;
-  height: 22pt;
-  margin-bottom: 4pt;
-  display: flex;
+.data-bar-row {
+  display: grid;
+  grid-template-columns: 90pt 1fr 70pt;
   align-items: center;
-  padding-left: 10pt;
-  color: white;
+  gap: 8pt;
+  margin-bottom: 5pt;
+}
+.data-bar-label {
   font-size: 9pt;
+  color: #4a5158;
   font-weight: 600;
+}
+.data-bar-track {
+  background: #e4e4e7;
+  height: 12pt;
+  border-radius: 2pt;
+  overflow: hidden;
+}
+.data-bar-fill {
+  background: #10b981;
+  height: 100%;
   border-radius: 2pt;
 }
-.data-bar .bar:nth-child(1) { background: #6ee7b7; color: #064e3b; }
-.data-bar .bar:nth-child(2) { background: #34d399; color: #064e3b; }
-.data-bar .bar:nth-child(3) { background: #10b981; }
+.data-bar-row:nth-child(1) .data-bar-fill { background: #6ee7b7; }
+.data-bar-row:nth-child(2) .data-bar-fill { background: #34d399; }
+.data-bar-row:nth-child(3) .data-bar-fill { background: #10b981; }
+.data-bar-value {
+  font-size: 9pt;
+  font-weight: 700;
+  color: #0a0e12;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .hint { font-size: 9pt; color: #71717a; font-style: italic; margin-top: 4pt; }
 
 /* Decode table */

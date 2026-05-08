@@ -192,21 +192,39 @@ body {
 .briefing-md .commit h3 { margin-top: 0; }
 
 .briefing-md .data-bar { margin: 0.75em 0; }
-.briefing-md .data-bar .bar {
-  background: #10b981;
-  height: 1.6em;
-  margin-bottom: 0.3em;
-  display: flex;
+.briefing-md .data-bar-row {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr minmax(70px, auto);
   align-items: center;
-  padding-left: 0.75em;
-  color: #0a0a0a;
-  font-size: 0.8em;
+  gap: 0.75em;
+  margin-bottom: 0.4em;
+}
+.briefing-md .data-bar-label {
+  font-size: 0.85em;
+  color: #a1a1aa;
   font-weight: 600;
+}
+.briefing-md .data-bar-track {
+  background: rgba(255,255,255,0.06);
+  height: 1.1em;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.briefing-md .data-bar-fill {
+  background: #10b981;
+  height: 100%;
   border-radius: 2px;
 }
-.briefing-md .data-bar .bar:nth-child(1) { background: #6ee7b7; }
-.briefing-md .data-bar .bar:nth-child(2) { background: #34d399; }
-.briefing-md .data-bar .bar:nth-child(3) { background: #10b981; }
+.briefing-md .data-bar-row:nth-child(1) .data-bar-fill { background: #6ee7b7; }
+.briefing-md .data-bar-row:nth-child(2) .data-bar-fill { background: #34d399; }
+.briefing-md .data-bar-row:nth-child(3) .data-bar-fill { background: #10b981; }
+.briefing-md .data-bar-value {
+  font-size: 0.85em;
+  font-weight: 700;
+  color: #fafafa;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .briefing-md .hint { font-size: 0.85em; color: #71717a; font-style: italic; }
 
 .briefing-md table.decode {
