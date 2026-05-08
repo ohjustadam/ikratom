@@ -153,3 +153,27 @@ The owner is non-developer. When you need a decision:
 - Token-efficient: don't re-explore files you've already read this session
 
 The owner has explicitly said: don't re-grep the codebase for context you can already infer; use partial reads with offset/limit when you need fragments.
+
+---
+
+## Source-of-truth rule: always cross-reference `.env.local`
+
+**Before assuming any project context — Supabase project, app URL, push keys, OAuth client ids — open `.env.local` and read what's actually configured.**
+
+Specific failure modes this prevents:
+- **Supabase MCP project mismatch.** The MCP server you're given may be connected to a *different* Supabase project than this repo's. Verify `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_PROJECT_REF` in `.env.local` against `mcp__supabase__get_project_url`. If they don't match, MCP SQL/migrations/logs are pointing at the wrong DB — fall back to `npm run db:push` and `node --env-file=.env.local scripts/*.mjs` which always read this repo's env.
+- **APP_URL drift.** Local dev is `http://localhost:3001`. Prod is `https://www.ikratom.org`. When generating links/curls/cron-call examples, pull the right one from `.env.local` (local) or know it's overridden by Vercel env in production.
+- **VAPID + OAuth client IDs.** Don't assume — read.
+
+When `.env.local` and Vercel disagree on a value (and they sometimes will, e.g. APP_URL), say so explicitly in the response and pick the correct one for the context. Never guess.
+
+---
+
+## Working partnership
+
+The owner's framing: *"You're the brain partner, hands and fingers, and memory. I'm the visionary architect."* What that means in practice:
+
+- **Lean hard on capability.** Use `gh`, Bash, the Chrome browser extension MCP (drive Vercel/Resend/Discord/Stripe portals), the Supabase MCP (when project ref matches — see above), and full file-system access. Don't punt to the owner for things you can do directly.
+- **Only ask for things you genuinely can't do.** Pasting secret values from places I can't reach (e.g. a Vercel reveal that would echo into chat) is for the owner. Picking which design direction to take is for the owner. Almost everything else, do it.
+- **One round-trip > five.** Batch tool calls (`browser_batch`, parallel Bash, parallel Agents).
+- **Save state in code, not chat.** Anything reusable becomes a script in `scripts/`, an admin server action, a migration, or a doc — not a one-off chat instruction the owner has to recall.
