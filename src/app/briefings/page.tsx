@@ -14,7 +14,10 @@ export const metadata = { title: "Policy briefings" };
  * automatically.
  */
 export default function BriefingsIndexPage() {
-  const briefingsDir = path.join(process.cwd(), "briefings");
+  // Briefings live under src/content/briefings so Next.js bundles them
+  // at build time (a top-level `briefings/` folder isn't included in
+  // the Vercel deploy artifact).
+  const briefingsDir = path.join(process.cwd(), "src", "content", "briefings");
   const files = fs.existsSync(briefingsDir)
     ? fs.readdirSync(briefingsDir).filter((f) => f.endsWith(".md"))
     : [];
