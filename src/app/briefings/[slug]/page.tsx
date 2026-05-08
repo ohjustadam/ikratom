@@ -7,7 +7,7 @@ import { marked } from "marked";
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   if (!/^[a-z0-9-]+$/.test(slug)) return { title: "Briefing" };
-  const file = path.join(process.cwd(), "briefings", `${slug}.md`);
+  const file = path.join(process.cwd(), "src", "content", "briefings", `${slug}.md`);
   if (!fs.existsSync(file)) return { title: "Briefing" };
   const { data } = matter(fs.readFileSync(file, "utf8"));
   return { title: (data.title as string) ?? "Briefing" };
@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 export default async function BriefingPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   if (!/^[a-z0-9-]+$/.test(slug)) notFound();
-  const file = path.join(process.cwd(), "briefings", `${slug}.md`);
+  const file = path.join(process.cwd(), "src", "content", "briefings", `${slug}.md`);
   if (!fs.existsSync(file)) notFound();
 
   const src = fs.readFileSync(file, "utf8");
