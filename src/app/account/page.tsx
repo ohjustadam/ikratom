@@ -118,6 +118,19 @@ export default async function AccountPage({
       </div>
 
       <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <h3 className="mb-1 text-sm font-semibold">Email tone presets</h3>
+        <p className="mb-3 text-xs text-zinc-500">
+          Save up to 5 named templates you can pick from when sending campaign actions.
+        </p>
+        <a
+          href="/account/email-presets"
+          className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:border-emerald-500"
+        >
+          Manage email presets →
+        </a>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <h3 className="mb-1 text-sm font-semibold">Saved searches</h3>
         <p className="mb-3 text-xs text-zinc-500">
           Custom alert rules. Get notified when a new bill matches your criteria.
