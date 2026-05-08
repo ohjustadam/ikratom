@@ -116,6 +116,7 @@ export async function getEnvPresence(): Promise<
       vars: [
         { key: "GROQ_API_KEY", present: has("GROQ_API_KEY"), required: false, note: "speed fallback" },
         { key: "GEMINI_API_KEY", present: has("GEMINI_API_KEY"), required: false, note: "grounded research" },
+        { key: "CEREBRAS_API_KEY", present: has("CEREBRAS_API_KEY"), required: false, note: "3rd cloud rotation" },
         { key: "OLLAMA_HOST", present: has("OLLAMA_HOST"), required: false, note: "defaults to localhost" },
         { key: "ANTHROPIC_API_KEY", present: has("ANTHROPIC_API_KEY"), required: false, note: "future paid features" },
       ],
