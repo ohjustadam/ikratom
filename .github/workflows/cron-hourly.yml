@@ -116,3 +116,13 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/seed-bill-officials.mjs --all-municipal
+      - name: Fan out bill subscription notifications
+        # Hourly: fires a meeting-reminder notification when a bill's
+        # meeting falls in the next 24h (one-shot per subscription) +
+        # status-change notifications for any subscribed bill whose
+        # status moved. Idempotent via per-subscription tracking
+        # columns. Push fan-out is handled by /api/cron/fire-waves.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/fanout-bill-reminders.mjs

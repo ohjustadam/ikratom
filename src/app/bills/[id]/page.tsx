@@ -177,6 +177,21 @@ export default async function BillDetailPage({
     alertSourceUrl = alerts?.[0]?.source_url ?? null;
   }
 
+  // Determine if the calling user is signed in + already subscribed to
+  // this bill, so the "🔔 Notify me" button renders in the right state.
+  const { data: { user: viewer } } = await supabase.auth.getUser();
+  const viewerSignedIn = !!viewer;
+  let initiallySubscribed = false;
+  if (viewer) {
+    const { data: sub } = await supabase
+      .from("bill_subscriptions")
+      .select("user_id")
+      .eq("user_id", viewer.id)
+      .eq("bill_id", bill.id)
+      .maybeSingle();
+    initiallySubscribed = !!sub;
+  }
+
   // Action count across all campaigns for this bill
   const { count: totalActions } = campaigns.length > 0
     ? await supabase
@@ -319,12 +334,15 @@ export default async function BillDetailPage({
       {(bill.scope === "municipal" || bill.scope === "county") && bill.local_meta && (
         <BillLocalActionCard
           meta={bill.local_meta}
+          billId={bill.id}
           billTitle={bill.title ?? ""}
           billState={bill.state}
           billLocality={bill.locality}
           agendaItemNumber={bill.local_meta.agenda_item_number}
           officials={localOfficials}
           sourceUrl={alertSourceUrl}
+          signedIn={viewerSignedIn}
+          initiallySubscribed={initiallySubscribed}
         />
       )}
 
