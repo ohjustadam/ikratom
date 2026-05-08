@@ -18,7 +18,9 @@ export type WidgetId =
   | "scoreboard"
   | "my_battles"
   | "saved_searches"
-  | "activity_radar";
+  | "activity_radar"
+  | "badges"
+  | "whats_new";
 
 /**
  * One-click layout presets — apply via CockpitCustomizer's Preset row.
@@ -33,18 +35,20 @@ export type WidgetSlot = {
 };
 
 /**
- * Default catalog: order + initial visibility. Briefing pinned first
- * because it's the at-a-glance "what needs me right now" surface.
- * Order reflects priority: status → personal proof → action → social →
- * monitoring tools.
+ * Default catalog: order + initial visibility. whats_new pinned first
+ * (only renders when there's content). Briefing second — at-a-glance
+ * "what needs me right now." Order reflects priority: announcements →
+ * status → personal proof → action → social → monitoring.
  */
 export const DEFAULT_WIDGETS: WidgetSlot[] = [
+  { id: "whats_new", visible: true },
   { id: "briefing", visible: true },
   { id: "profile_completion", visible: true },
   { id: "rep_coverage", visible: true },
   { id: "scoreboard", visible: true },
   { id: "active_campaigns", visible: true },
   { id: "my_battles", visible: true },
+  { id: "badges", visible: true },
   { id: "my_reps", visible: true },
   { id: "activity_radar", visible: true },
   { id: "saved_searches", visible: true },
@@ -96,19 +100,26 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
     title: "Activity radar",
     description: "Real-time platform activity — recent threads, campaigns, advocate actions.",
   },
+  badges: {
+    title: "Mission patches",
+    description: "Earned badges from your platform activity.",
+  },
+  whats_new: {
+    title: "What's new",
+    description: "Platform updates and announcements from the team.",
+  },
 };
 
 /**
- * Preset definitions. Strike = action-heavy (briefing + battles +
- * campaigns + reps top). Intel = info-heavy (briefing + radar + saved
- * searches + campaigns). Lounge = social/light (radar + saved searches
- * + scoreboard).
+ * Preset definitions. Strike = action-heavy. Intel = info-heavy.
+ * Lounge = social/light.
  */
 export const PRESETS: Record<PresetId, { label: string; description: string; widgets: WidgetSlot[] }> = {
   strike: {
     label: "Strike Mode",
     description: "Action-heavy — briefing, battles, campaigns, reps front-and-center.",
     widgets: [
+      { id: "whats_new", visible: true },
       { id: "briefing", visible: true },
       { id: "profile_completion", visible: true },
       { id: "rep_coverage", visible: true },
@@ -116,6 +127,7 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
       { id: "my_battles", visible: true },
       { id: "my_reps", visible: true },
       { id: "scoreboard", visible: true },
+      { id: "badges", visible: true },
       { id: "saved_searches", visible: false },
       { id: "activity_radar", visible: false },
       { id: "streak", visible: false },
@@ -125,6 +137,7 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
     label: "Intel Mode",
     description: "Info-heavy — briefing, radar, monitors. For tracking the field.",
     widgets: [
+      { id: "whats_new", visible: true },
       { id: "briefing", visible: true },
       { id: "activity_radar", visible: true },
       { id: "saved_searches", visible: true },
@@ -134,6 +147,7 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
       { id: "my_battles", visible: false },
       { id: "my_reps", visible: false },
       { id: "scoreboard", visible: false },
+      { id: "badges", visible: false },
       { id: "streak", visible: false },
     ],
   },
@@ -141,8 +155,10 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
     label: "Lounge Mode",
     description: "Light + social. Radar at top, scoreboard, less of a war-room feel.",
     widgets: [
+      { id: "whats_new", visible: true },
       { id: "activity_radar", visible: true },
       { id: "scoreboard", visible: true },
+      { id: "badges", visible: true },
       { id: "saved_searches", visible: true },
       { id: "active_campaigns", visible: true },
       { id: "briefing", visible: false },

@@ -134,6 +134,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/announcements"
+            title="Announcements"
+            body="Post platform updates that show up in every user's 'What's new' widget."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/vendor-applications"
             title="Vendor applications"
             body="Review users applying to be verified vendors. Approve to unlock business-signature on advocacy actions."
