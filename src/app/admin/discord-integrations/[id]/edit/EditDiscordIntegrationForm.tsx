@@ -11,6 +11,7 @@ import {
 const ALL_EVENTS = [
   { id: "bill_drop_hostile", label: "Hostile bill drops" },
   { id: "bill_drop_friendly", label: "Friendly bill drops" },
+  { id: "bill_status_change", label: "Bill status changes" },
   { id: "campaign_launch", label: "Campaign launches" },
   { id: "wave_fire", label: "Wave fires" },
   { id: "federal_action_moment", label: "Federal action moments" },

@@ -7,6 +7,7 @@ import { createDiscordIntegration } from "@/modules/discord/actions";
 const ALL_EVENTS: { id: string; label: string; description: string }[] = [
   { id: "bill_drop_hostile", label: "Hostile bill drops", description: "Anti-kratom bills introduced (recommended)" },
   { id: "bill_drop_friendly", label: "Friendly bill drops", description: "Pro-kratom or KCPA-style bills" },
+  { id: "bill_status_change", label: "Bill status changes", description: "Committee → floor → enacted / dead transitions (recommended)" },
   { id: "campaign_launch", label: "Campaign launches", description: "When admin publishes a new campaign (recommended)" },
   { id: "wave_fire", label: "Wave fires", description: "When a scheduled email batch sends" },
   { id: "federal_action_moment", label: "Federal action moments", description: "DEA / FDA news with action urgency" },
@@ -16,7 +17,7 @@ export function NewDiscordIntegrationForm() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [events, setEvents] = useState<string[]>(["bill_drop_hostile", "campaign_launch"]);
+  const [events, setEvents] = useState<string[]>(["bill_drop_hostile", "bill_status_change", "campaign_launch"]);
 
   function toggleEvent(id: string) {
     setEvents((cur) => (cur.includes(id) ? cur.filter((e) => e !== id) : [...cur, id]));

@@ -170,6 +170,17 @@ export async function updateBill(input: {
   if (Object.keys(patch).length === 0) return { ok: true };
 
   const supabase = await createClient();
+
+  // Read the BEFORE row so we can detect status transitions and fire
+  // the Discord status-change webhook fan-out only when the value
+  // actually changed (not on every save). Need this before the update
+  // because the SELECT after would already see the new value.
+  const { data: before } = await supabase
+    .from("bills")
+    .select("state, bill_number, title, status, kratom_relevance")
+    .eq("id", input.id)
+    .single();
+
   const { error } = await supabase.from("bills").update(patch).eq("id", input.id);
   if (error) return { error: error.message };
 
@@ -179,6 +190,25 @@ export async function updateBill(input: {
     targetId: input.id,
     details: patch,
   });
+
+  // Fan out Discord status-change post if status actually changed.
+  // Best-effort — never blocks the response.
+  if (before && patch.status && before.status !== patch.status) {
+    try {
+      const { notifyDiscordOnBillStatusChange } = await import("@/modules/discord/actions");
+      void notifyDiscordOnBillStatusChange({
+        billId: input.id,
+        state: before.state,
+        billNumber: before.bill_number,
+        title: typeof patch.title === "string" ? patch.title : (before.title ?? ""),
+        fromStatus: before.status,
+        toStatus: patch.status as string,
+        isHostile: (input.kratom_relevance ?? before.kratom_relevance) === "anti",
+      });
+    } catch {
+      // best-effort; admin save still succeeds
+    }
+  }
 
   revalidatePath("/bills");
   revalidatePath(`/bills/${input.id}`);
