@@ -35,9 +35,15 @@ export async function RepCoverageWidget({
   const countyCanonical = userCounty ? normalizeLocality(userCounty, userState) : null;
 
   const supabase = await createClient();
+  // PostgREST .or() uses `,` as the OR separator at the top level — but
+  // our canonical localities CONTAIN commas (e.g. "Midwest City, OK").
+  // The value MUST be wrapped in double quotes to escape the comma;
+  // without quoting, the parser splits "Midwest City, OK" into two
+  // broken sub-conditions and never matches anything (this was the
+  // bug that kept the banner visible after locality matched).
   const localityFilter = countyCanonical
-    ? `locality.eq.${cityCanonical},locality.eq.${countyCanonical}`
-    : `locality.eq.${cityCanonical}`;
+    ? `locality.eq."${cityCanonical}",locality.eq."${countyCanonical}"`
+    : `locality.eq."${cityCanonical}"`;
   const { count: localCount } = await supabase
     .from("legislators")
     .select("id", { count: "exact", head: true })
