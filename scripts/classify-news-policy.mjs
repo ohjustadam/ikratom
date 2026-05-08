@@ -196,3 +196,16 @@ for (const item of items) {
 }
 
 console.log(`\nDone. classified=${classified}, alerts=${alertsCreated}, skipped=${skipped}, failed=${failed}`);
+
+// Best-effort scraper_runs logging for /admin/intel-health.
+try {
+  await sb.from("scraper_runs").insert({
+    source: "classify_news_policy",
+    started_at: new Date(Date.now() - classified * 2000).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: failed > classified ? "error" : (classified === 0 ? "empty" : "success"),
+    rows_added: alertsCreated,
+    rows_updated: classified,
+    notes: `${alertsCreated} alerts, ${skipped} not-event, ${failed} failed`,
+  });
+} catch { /* best-effort */ }

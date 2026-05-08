@@ -209,3 +209,13 @@ for (const b of bills) {
   await new Promise((r) => setTimeout(r, 2000));
 }
 console.log(`\nDone. ok=${ok}, fail=${fail}`);
+try {
+  await sb.from("scraper_runs").insert({
+    source: "seed_bill_officials",
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: fail > ok ? "error" : (ok === 0 ? "empty" : "success"),
+    rows_added: ok,
+    notes: `${ok} localities seeded, ${fail} failed/skipped`,
+  });
+} catch { /* best-effort */ }

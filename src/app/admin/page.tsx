@@ -127,6 +127,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/intel-health"
+            title="Intel Health"
+            body="Pipeline observability — per-source freshness, recent failures, hourly cron status. Catches stale scrapers before they bite."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/discord-integrations"
             title={queues.inactiveDiscord > 0 ? `Discord integrations (${queues.inactiveDiscord} inactive)` : "Discord integrations"}
             body="Connect partner server webhooks. Bill alerts and campaign launches auto-post to their channels."

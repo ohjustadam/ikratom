@@ -300,3 +300,13 @@ for (const a of alerts) {
   if (await processAlert(a)) ok++; else fail++;
 }
 console.log(`\nDone. ok=${ok}, fail=${fail}`);
+try {
+  await sb.from("scraper_runs").insert({
+    source: "auto_campaign_from_alert",
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: fail > ok ? "error" : (ok === 0 ? "empty" : "success"),
+    rows_added: ok,
+    notes: `${ok} campaigns generated, ${fail} skipped/failed`,
+  });
+} catch { /* best-effort */ }
