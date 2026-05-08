@@ -30,6 +30,41 @@ type BillRow = {
   journey_narrative: string | null;
   amendments_count: number | null;
   journey_analyzed_at: string | null;
+  substance_targeting: SubstanceTargeting | null;
+  substance_targeting_analyzed_at: string | null;
+};
+
+type Stance = "bans" | "restricts" | "schedules" | "preserves" | "neutral" | "unaddressed";
+type SubstanceEntry = {
+  stance: Stance;
+  scope: string | null;
+  schedule: string | null;
+  confidence: number;
+  notes: string;
+};
+type SubstanceTargeting = {
+  natural_leaf: SubstanceEntry;
+  mitragynine: SubstanceEntry;
+  seven_oh: SubstanceEntry;
+  pseudoindoxyl: SubstanceEntry;
+  synthetic: SubstanceEntry;
+};
+
+const SUBSTANCE_LABEL: Record<keyof SubstanceTargeting, { name: string; abbrev?: string; tooltip: string }> = {
+  natural_leaf: { name: "Natural leaf", tooltip: "Whole-leaf or traditional preparation (heating, water/ethanol extraction)" },
+  mitragynine: { name: "Mitragynine", abbrev: "MGM", tooltip: "Dominant natural alkaloid (~1-2% of leaf weight)" },
+  seven_oh: { name: "7-OH", tooltip: "7-hydroxymitragynine — natural trace alkaloid (~0.04% in fresh leaf)" },
+  pseudoindoxyl: { name: "Pseudoindoxyl", abbrev: "Pseudo", tooltip: "Mitragynine pseudoindoxyl — oxidation metabolite, often semi-synthetic" },
+  synthetic: { name: "Synthetic", tooltip: "Lab-synthesized or biosynthesized alkaloids (recombinant, fermentation, etc.)" },
+};
+
+const STANCE_STYLE: Record<Stance, { label: string; cls: string; emoji: string }> = {
+  bans:        { label: "Bans",        cls: "border-red-700/50 bg-red-950/30 text-red-300",         emoji: "🚫" },
+  restricts:   { label: "Restricts",   cls: "border-amber-700/50 bg-amber-950/30 text-amber-300",   emoji: "⚠" },
+  schedules:   { label: "Schedules",   cls: "border-red-700/50 bg-red-950/30 text-red-300",         emoji: "🚫" },
+  preserves:   { label: "Preserves",   cls: "border-emerald-700/50 bg-emerald-950/30 text-emerald-300", emoji: "✓" },
+  neutral:     { label: "Neutral",     cls: "border-zinc-700 bg-zinc-950/40 text-zinc-400",         emoji: "·" },
+  unaddressed: { label: "Unaddressed", cls: "border-zinc-800 bg-zinc-950/20 text-zinc-500",         emoji: "—" },
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -75,7 +110,8 @@ export default async function BillDetailPage({
       "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
       "source_url, official_url, session_id, scope, locality, " +
       "enriched_at, last_synced_at, " +
-      "journey_narrative, amendments_count, journey_analyzed_at",
+      "journey_narrative, amendments_count, journey_analyzed_at, " +
+      "substance_targeting, substance_targeting_analyzed_at",
     )
     .eq("id", id)
     .single();
@@ -231,11 +267,76 @@ export default async function BillDetailPage({
         </div>
       )}
 
+      {/* Substance impact — per-alkaloid stance. Placed FIRST because
+          the most common reader question is "does this bill affect
+          plain leaf or just 7-OH?" and we want them to see the answer
+          before any prose. Five fixed substance classes ensure the
+          rendering is consistent across every bill. */}
+      {bill.substance_targeting && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
+              Substance impact
+            </h2>
+            <span className="text-[10px] uppercase tracking-wider text-zinc-600">
+              what each part of the kratom umbrella sees
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            {(Object.keys(SUBSTANCE_LABEL) as Array<keyof SubstanceTargeting>).map((k) => {
+              const entry = bill.substance_targeting?.[k];
+              if (!entry) return null;
+              const meta = SUBSTANCE_LABEL[k];
+              const style = STANCE_STYLE[entry.stance] ?? STANCE_STYLE.unaddressed;
+              return (
+                <div
+                  key={k}
+                  className={`rounded-md border p-3 ${style.cls}`}
+                  title={meta.tooltip}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-semibold">
+                      {meta.name}
+                      {meta.abbrev && (
+                        <span className="ml-1 text-[10px] opacity-70">({meta.abbrev})</span>
+                      )}
+                    </span>
+                    <span className="text-base leading-none">{style.emoji}</span>
+                  </div>
+                  <div className="mt-1 text-[11px] font-mono uppercase tracking-wider opacity-80">
+                    {style.label}
+                    {entry.schedule && entry.schedule !== "-" && (
+                      <span className="ml-1">· Sch. {entry.schedule}</span>
+                    )}
+                  </div>
+                  {entry.scope && entry.scope !== "-" && entry.stance !== "unaddressed" && (
+                    <div className="mt-0.5 text-[10px] opacity-70">
+                      {entry.scope.replace(/_/g, " ")}
+                    </div>
+                  )}
+                  {entry.notes && (
+                    <p className="mt-1.5 text-[10px] leading-snug opacity-75">{entry.notes}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-[10px] uppercase tracking-wider text-zinc-600">
+            AI-classified per-alkaloid stance.{" "}
+            {bill.substance_targeting_analyzed_at && (
+              <>Analyzed {new Date(bill.substance_targeting_analyzed_at).toLocaleDateString()}.</>
+            )}{" "}
+            <span className="normal-case tracking-normal">
+              We distinguish natural leaf, MGM, 7-OH, pseudoindoxyl, and synthetic
+              derivatives — &ldquo;kratom&rdquo; alone is too coarse.
+            </span>
+          </p>
+        </section>
+      )}
+
       {/* Cumulative journey — when the bill has been amended at least
           once, show the full trajectory (introduced → each amendment →
-          current state → cumulative impact). Lives ABOVE the 2-sentence
-          summary because amendment-heavy bills are the ones where the
-          short summary feels misleading. */}
+          current state → cumulative impact). */}
       {bill.journey_narrative && (bill.amendments_count ?? 0) >= 2 && (
         <section className="mb-6 rounded-lg border border-emerald-900/40 bg-gradient-to-br from-zinc-950/40 to-emerald-950/10 p-5">
           <div className="mb-2 flex flex-wrap items-center gap-2">
