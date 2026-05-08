@@ -38,7 +38,7 @@ export default async function StateForumPage({
   // Build threads query
   let threadsQuery = supabase
     .from("forum_threads")
-    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, post_count, upvote_count, helpful_count, last_activity_at, created_at")
+    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, system_generated, post_count, upvote_count, helpful_count, last_activity_at, created_at")
     .eq("state", abbr);
 
   if (tag && tag !== "all") {

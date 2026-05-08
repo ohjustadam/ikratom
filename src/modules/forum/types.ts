@@ -36,6 +36,8 @@ export type ThreadRow = {
   residents_only: boolean;
   pinned: boolean;
   locked: boolean;
+  /** True for threads created by automation (auto-bill-poster). UI attributes to "iKratom Bot". */
+  system_generated?: boolean;
   post_count: number;
   upvote_count: number;
   helpful_count: number;
