@@ -91,7 +91,17 @@ Return JSON with these EXACT fields:
 
 4. key_amendment_dates — array of "YYYY-MM-DD" strings for amendments that materially changed substance scope.
 
-5. substance_targeting — object keyed by substance class. Include ALL FIVE keys: natural_leaf, mitragynine, seven_oh, pseudoindoxyl, synthetic. Each value MUST be:
+5. summary_long — markdown text, 2-3 paragraphs, 200-300 words. This is the substantive briefing-grade summary at the top of the bill page (FastDemocracy-style). Structure:
+
+   Paragraph 1 (5-7 sentences): WHAT THE BILL DOES. The mechanism in detail — what statute it amends or creates, what definitions it introduces, what it prohibits/requires/restricts, who it applies to, what penalties/scheduling/fees apply. Use the alkaloid taxonomy precisely. Reference THE LATEST version's content, not the introduced version.
+
+   Paragraph 2 (3-5 sentences): EFFECTIVE DATE + FISCAL IMPACT + OPERATIONAL CHANGES. When does it take effect (specific date or "upon passage")? What's the projected fiscal impact (cite the bill's own fiscal note if present)? What does this change operationally for vendors, retailers, consumers, or the state?
+
+   Paragraph 3 (1-2 sentences, OPTIONAL): UNCERTAINTY / WHAT'S DISPUTED. Only include if there are competing committee reports, party-line splits, or procedural questions. Skip otherwise.
+
+   This summary should read like a policy analyst's standalone briefing — substantive enough that a reader who only reads it still understands what's happening.
+
+6. substance_targeting — object keyed by substance class. Include ALL FIVE keys: natural_leaf, mitragynine, seven_oh, pseudoindoxyl, synthetic. Each value MUST be:
    {
      "stance": "bans" | "restricts" | "schedules" | "preserves" | "neutral" | "unaddressed",
      "scope": "statewide" | "retail_only" | "specific_retailer" | "research_exempt" | null,
@@ -313,9 +323,13 @@ async function processBill(bill) {
     console.log("  ⚠ no version PDFs available — using action timeline only");
   }
 
-  // Pull each version's PDF text (capped chars per version so we stay
-  // within the model's context window for many-amendment bills).
+  // Pull each version's PDF text. We need TWO copies:
+  //   - versionTexts: capped at 4K chars per version, fed to AI (rate-limit friendly)
+  //   - versionTextsFull: uncapped, persisted to bills.bill_text_versions
+  //     for on-site rendering. We're the intel agency now — bill text
+  //     lives on iKratom, not behind a redirect.
   const versionTexts = [];
+  const versionTextsFull = [];
   for (const v of versions) {
     const pdfLink = v.links?.find((l) => l.media_type === "application/pdf");
     if (!pdfLink) {
@@ -324,11 +338,15 @@ async function processBill(bill) {
     }
     try {
       const text = await downloadPdfText(pdfLink.url);
-      // Per-version cap. "Introduced" tends to be the full bill text
-      // (~28K chars for SB 557); subsequent amendments are patches
-      // (3-5K chars). 4K cap on each keeps total well under provider
-      // rate limits even with 9-12 versions.
       versionTexts.push({ note: v.note ?? "", date: v.date ?? "", text: text.slice(0, 4_000) });
+      versionTextsFull.push({
+        label: v.note ?? "Version",
+        date: v.date ?? null,
+        source_url: pdfLink.url,
+        // 200K char cap per version = ~50 pages of dense legalese.
+        // Trims pathological cases without losing real bill content.
+        text: text.slice(0, 200_000),
+      });
       console.log(`    ✓ ${v.note ?? "(unnamed)"} — ${text.length} chars`);
     } catch (e) {
       versionTexts.push({ note: v.note ?? "", date: v.date ?? "", text: `(PDF fetch failed: ${e.message})` });
@@ -390,6 +408,20 @@ async function processBill(bill) {
   if (newest) {
     updatePatch.last_action = newest.description?.slice(0, 500) ?? null;
     updatePatch.last_action_at = newest.date;
+  }
+
+  // Persist the substantive 200-300 word summary alongside the journey.
+  if (typeof parsed.summary_long === "string" && parsed.summary_long.trim().length > 60) {
+    updatePatch.summary_long = parsed.summary_long.slice(0, 4000);
+  }
+
+  // Persist the full bill text versions so /bills/[id] can render them
+  // on-site instead of redirecting to the state portal. Skipped when
+  // OpenStates returned no PDFs (FastDemocracy fallback may still have
+  // populated versionTextsFull).
+  if (versionTextsFull.length > 0) {
+    updatePatch.bill_text_versions = versionTextsFull;
+    updatePatch.text_synced_at = new Date().toISOString();
   }
   // Persist the per-substance targeting map. Validate that all five
   // expected keys are present and shaped correctly; missing or
