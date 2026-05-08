@@ -13,7 +13,8 @@ export type WidgetId =
   | "streak"
   | "my_reps"
   | "profile_completion"
-  | "active_campaigns";
+  | "active_campaigns"
+  | "rep_coverage";
 
 export type WidgetSlot = {
   id: WidgetId;
@@ -27,6 +28,7 @@ export type WidgetSlot = {
 export const DEFAULT_WIDGETS: WidgetSlot[] = [
   { id: "briefing", visible: true },
   { id: "profile_completion", visible: true },
+  { id: "rep_coverage", visible: true },
   { id: "streak", visible: true },
   { id: "active_campaigns", visible: true },
   { id: "my_reps", visible: true },
@@ -56,6 +58,10 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
   active_campaigns: {
     title: "Active campaigns",
     description: "Live campaigns matching your state + federal scope.",
+  },
+  rep_coverage: {
+    title: "Local rep coverage",
+    description: "Request iKratom add your city/county officials when they're missing.",
   },
 };
 
