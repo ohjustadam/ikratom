@@ -58,7 +58,7 @@ export default async function CampaignPage({
   const { data: profile } = await supabase
     .from("profiles")
     .select(
-      "full_name, street, city, county, state, zip, congressional_district, state_senate_district, state_house_district"
+      "full_name, username, street, city, county, state, zip, congressional_district, state_senate_district, state_house_district"
     )
     .eq("id", user.id)
     .single();
