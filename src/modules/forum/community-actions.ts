@@ -193,10 +193,14 @@ export async function updateCommunity(input: {
 }
 
 /**
- * Soft delete — flips is_active=false. We keep the row so existing
- * forum_threads.community_id references stay intact (the slug just
- * stops resolving to a public page). Hard delete is intentionally
- * NOT exposed to admins; rebuild via the same slug if needed.
+ * Soft delete — flips is_active=false. The row stays so existing
+ * forum_threads.community_id references keep their context (the
+ * slug just stops resolving to a public page).
+ *
+ * For permanent removal, use hardDeleteCommunity below — it drops
+ * the row entirely. forum_threads.community_id is FK ON DELETE SET
+ * NULL, so existing threads just become "uncategorized" rather than
+ * vanishing.
  */
 export async function archiveCommunity(input: { id: string }) {
   return updateCommunity({ id: input.id, is_active: false });
@@ -204,4 +208,84 @@ export async function archiveCommunity(input: { id: string }) {
 
 export async function unarchiveCommunity(input: { id: string }) {
   return updateCommunity({ id: input.id, is_active: true });
+}
+
+/**
+ * Count how many threads currently reference a community. Used by the
+ * admin UI to warn before a hard delete (the threads survive, but
+ * they lose their community tag).
+ */
+export async function countCommunityThreads(communityId: string) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from("forum_threads")
+    .select("id", { count: "exact", head: true })
+    .eq("community_id", communityId);
+  if (error) return { error: error.message };
+  return { ok: true, count: count ?? 0 };
+}
+
+/**
+ * Hard delete — drops the community row entirely. Existing threads
+ * have their community_id set to null (preserved by the FK rule), so
+ * forum history is never destroyed by this action.
+ *
+ * Admin must pass `confirmedThreadCount` matching the live thread
+ * count, so a stale UI can't accidentally nuke a community after a
+ * burst of new threads landed under it.
+ */
+export async function hardDeleteCommunity(input: {
+  id: string;
+  confirmedThreadCount: number;
+}) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  if (!input.id) return { error: "Missing id." };
+
+  const supabase = await createClient();
+
+  // Snapshot for audit + confirmation check
+  const { data: existing, error: readErr } = await supabase
+    .from("forum_communities")
+    .select("id, slug, name, is_active")
+    .eq("id", input.id)
+    .single();
+  if (readErr || !existing) return { error: "Community not found." };
+
+  const { count: liveThreads, error: countErr } = await supabase
+    .from("forum_threads")
+    .select("id", { count: "exact", head: true })
+    .eq("community_id", input.id);
+  if (countErr) return { error: countErr.message };
+
+  if ((liveThreads ?? 0) !== input.confirmedThreadCount) {
+    return {
+      error: `Thread count changed (${liveThreads ?? 0} now vs ${input.confirmedThreadCount} when you confirmed). Refresh and try again.`,
+    };
+  }
+
+  const { error: delErr } = await supabase
+    .from("forum_communities")
+    .delete()
+    .eq("id", input.id);
+  if (delErr) return { error: delErr.message };
+
+  await recordAdminAction({
+    action: "forum_community.hard_delete",
+    targetType: "forum_community",
+    targetId: input.id,
+    details: {
+      slug: existing.slug,
+      name: existing.name,
+      was_active: existing.is_active,
+      orphaned_threads: liveThreads ?? 0,
+    },
+  });
+
+  revalidatePath("/admin/communities");
+  revalidatePath("/forum");
+  revalidatePath(`/forum/c/${existing.slug}`);
+  return { ok: true, orphaned_threads: liveThreads ?? 0 };
 }

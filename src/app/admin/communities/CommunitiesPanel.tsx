@@ -7,6 +7,8 @@ import {
   updateCommunity,
   archiveCommunity,
   unarchiveCommunity,
+  countCommunityThreads,
+  hardDeleteCommunity,
   type Community,
 } from "@/modules/forum/community-actions";
 
@@ -47,12 +49,36 @@ export function CommunitiesPanel({ initial }: { initial: Community[] }) {
   }
 
   function onArchive(id: string, isActive: boolean) {
-    if (isActive && !confirm("Archive this community? It will stop appearing in /forum and the slug will 404 publicly.")) return;
+    if (isActive && !confirm("Archive this community? It will stop appearing in /forum and the public slug will 404. The row stays so existing threads keep their tag — use 'Delete forever' on archived communities to fully remove.")) return;
     startTransition(async () => {
       const r = isActive
         ? await archiveCommunity({ id })
         : await unarchiveCommunity({ id });
       if ("error" in r) setError(r.error ?? "Failed");
+      else router.refresh();
+    });
+  }
+
+  async function onHardDelete(c: Community) {
+    setError(null);
+    // Look up the live thread count first so we can warn about orphaning.
+    const r = await countCommunityThreads(c.id);
+    if ("error" in r) {
+      setError(r.error ?? "Failed to count threads");
+      return;
+    }
+    const threadCount = r.count ?? 0;
+    const msg = threadCount > 0
+      ? `Permanently delete "${c.name}"?\n\n${threadCount} thread${threadCount === 1 ? "" : "s"} currently tagged to this community. They will NOT be deleted — they'll just lose the community tag and become uncategorized.\n\nThis cannot be undone. Type the slug "${c.slug}" to confirm.`
+      : `Permanently delete "${c.name}"?\n\nNo threads reference this community.\n\nThis cannot be undone. Type the slug "${c.slug}" to confirm.`;
+    const typed = prompt(msg);
+    if (typed !== c.slug) {
+      if (typed !== null) setError(`Confirmation didn't match (expected "${c.slug}"). Cancelled.`);
+      return;
+    }
+    startTransition(async () => {
+      const r2 = await hardDeleteCommunity({ id: c.id, confirmedThreadCount: threadCount });
+      if ("error" in r2) setError(r2.error ?? "Failed");
       else router.refresh();
     });
   }
@@ -146,7 +172,7 @@ export function CommunitiesPanel({ initial }: { initial: Community[] }) {
                       <p className="mt-1 text-xs text-zinc-400">{c.description}</p>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => { setEditing(c.id); setError(null); }}
                       className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:border-emerald-500"
@@ -158,11 +184,23 @@ export function CommunitiesPanel({ initial }: { initial: Community[] }) {
                       disabled={pending}
                       className={`rounded-md border px-3 py-1 text-xs disabled:opacity-50 ${
                         c.is_active
-                          ? "border-red-900/50 text-red-300 hover:border-red-500"
+                          ? "border-amber-900/50 text-amber-300 hover:border-amber-500"
                           : "border-emerald-900/50 text-emerald-300 hover:border-emerald-500"
                       }`}
+                      title={c.is_active
+                        ? "Soft delete — hides from /forum, keeps row so existing threads stay tagged. Reversible."
+                        : "Bring this community back to /forum."
+                      }
                     >
                       {c.is_active ? "Archive" : "Restore"}
+                    </button>
+                    <button
+                      onClick={() => onHardDelete(c)}
+                      disabled={pending}
+                      className="rounded-md border border-red-900/50 px-3 py-1 text-xs text-red-300 hover:border-red-500 disabled:opacity-50"
+                      title="Permanently delete this community. Existing threads survive but lose their community tag."
+                    >
+                      Delete forever
                     </button>
                   </div>
                 </div>
