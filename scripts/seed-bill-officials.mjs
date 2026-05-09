@@ -32,6 +32,66 @@ const sb = createClient(
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 if (!GEMINI_KEY) { console.error("GEMINI_API_KEY required (Gemini Search grounding)"); process.exit(1); }
 
+// Domains that squat / park URLs Gemini sometimes hallucinates.
+// If a council member's website resolves to one of these on a HEAD
+// check, drop the URL rather than feeding it into the action UI.
+const PARKED_DOMAINS = [
+  "hugedomains.com",
+  "sedoparking.com",
+  "dan.com",
+  "godaddy.com",
+  "parkingcrew.net",
+  "afternic.com",
+  "uniregistry.com",
+  "buydomains.com",
+  "domainmarket.com",
+];
+
+async function isUsableUrl(rawUrl) {
+  if (!rawUrl) return false;
+  let u;
+  try {
+    u = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (!u.protocol.startsWith("http")) return false;
+
+  // Quick host-based check before HEAD
+  const host = u.hostname.toLowerCase();
+  if (PARKED_DOMAINS.some((p) => host === p || host.endsWith("." + p))) return false;
+
+  // HEAD request to detect parking-domain redirects + clear 404s.
+  // Fail-open on network error / 403 / 405 — many .gov sites block
+  // bot HEAD requests but the URL is real and works in a browser.
+  // The point of this check is parked-domain detection, not link
+  // validity (the runtime UI handles that gracefully via the "⚠
+  // Website unreliable" badge if a click ends up at a bad page).
+  try {
+    const res = await fetch(rawUrl, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: AbortSignal.timeout(8_000),
+      headers: { "User-Agent": "Mozilla/5.0 iKratom-link-check" },
+    });
+    // 403 = bot-blocking by host firewall. URL likely real.
+    // 405 = method not allowed. URL likely real.
+    // 404 or 5xx = treat as bad.
+    if (res.status === 404 || res.status >= 500) {
+      return false;
+    }
+    // After redirect, always check the final hostname for parking
+    const finalUrl = new URL(res.url);
+    const finalHost = finalUrl.hostname.toLowerCase();
+    if (PARKED_DOMAINS.some((p) => finalHost === p || finalHost.endsWith("." + p))) {
+      return false;
+    }
+    return true;
+  } catch {
+    return true; // fail-open on network errors
+  }
+}
+
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
 const SPECIFIC = arg("--bill");
@@ -157,15 +217,29 @@ async function processBill(bill) {
   // for small towns like Marshall, IL).
   if (suggestion.city_general) {
     const cg = suggestion.city_general;
+    // Validate every URL in city_general before persisting — Gemini
+    // sometimes hallucinates parked-domain URLs (the discovermarshall.com
+    // hugedomains case). isUsableUrl() does HEAD + redirect-final-host
+    // checks. Failed URLs become null, not the bad string.
+    const validatedContactForm = await isUsableUrl(cg.contact_form_url);
+    const validatedMeeting = await isUsableUrl(cg.council_meeting_url);
+    const validatedSite = await isUsableUrl(cg.official_website);
     const safeCg = {
       name: cg.name?.toString().slice(0, 200) ?? null,
       general_phone: cg.general_phone?.toString().slice(0, 30) ?? null,
       general_email: cg.general_email?.toString().slice(0, 254) ?? null,
-      contact_form_url: cg.contact_form_url?.toString().slice(0, 500) ?? null,
+      contact_form_url: validatedContactForm ? cg.contact_form_url.toString().slice(0, 500) : null,
       mailing_address: cg.mailing_address?.toString().slice(0, 300) ?? null,
-      council_meeting_url: cg.council_meeting_url?.toString().slice(0, 500) ?? null,
-      official_website: cg.official_website?.toString().slice(0, 500) ?? null,
+      council_meeting_url: validatedMeeting ? cg.council_meeting_url.toString().slice(0, 500) : null,
+      official_website: validatedSite ? cg.official_website.toString().slice(0, 500) : null,
     };
+    const droppedUrls = [];
+    if (cg.contact_form_url && !validatedContactForm) droppedUrls.push("contact_form_url");
+    if (cg.council_meeting_url && !validatedMeeting) droppedUrls.push("council_meeting_url");
+    if (cg.official_website && !validatedSite) droppedUrls.push("official_website");
+    if (droppedUrls.length > 0) {
+      console.log(`  ⚠ city_general dropped invalid/parked URLs: ${droppedUrls.join(", ")}`);
+    }
     // Merge into existing local_meta — do not clobber other fields
     // (e.g. summary_one_line, officials_to_contact from extract-local-meta).
     const { data: billRow } = await sb.from("bills")
@@ -184,7 +258,19 @@ async function processBill(bill) {
   }
 
   const cap = (s, n) => s ? String(s).slice(0, n).trim() || null : null;
-  const rows = suggestion.officials.map((o) => {
+  // Validate per-official website URLs (parallel HEAD requests). Drop
+  // anything that resolves to a parking domain. Keeps the action-button
+  // UI from sending advocates to hugedomains.com.
+  const websiteValidations = await Promise.all(
+    suggestion.officials.map((o) => isUsableUrl(o.website))
+  );
+  const droppedWebsites = suggestion.officials
+    .filter((_, i) => suggestion.officials[i].website && !websiteValidations[i])
+    .map((o) => o.full_name);
+  if (droppedWebsites.length > 0) {
+    console.log(`  ⚠ dropped ${droppedWebsites.length} invalid/parked official website(s): ${droppedWebsites.slice(0,3).join(", ")}${droppedWebsites.length > 3 ? "…" : ""}`);
+  }
+  const rows = suggestion.officials.map((o, i) => {
     const isCounty = (o.role ?? "").startsWith("county_");
     return {
       full_name: cap(o.full_name, 120) ?? "Unknown",
@@ -195,7 +281,7 @@ async function processBill(bill) {
       district: cap(o.district, 30),
       email: cap(o.email, 254),
       phone: cap(o.phone, 30),
-      website: cap(o.website, 500),
+      website: websiteValidations[i] ? cap(o.website, 500) : null,
       party: cap(o.party, 60),
       level: isCounty ? "county" : "municipal",
       active: true,
