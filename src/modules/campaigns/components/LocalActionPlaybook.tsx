@@ -4,6 +4,35 @@ import { useState } from "react";
 import type { Legislator } from "@/lib/legislators";
 import { ROLE_SHORT } from "@/lib/legislators";
 
+// Domains we know parking-page squat — Gemini sometimes hallucinates
+// council-member URLs that resolve to these. Treat as no-website.
+const PARKED_DOMAINS = [
+  "hugedomains.com",
+  "sedoparking.com",
+  "dan.com",
+  "godaddy.com/forsale",
+  "parkingcrew.net",
+  "afternic.com",
+  "uniregistry.com",
+];
+
+function isUsableUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    if (!u.protocol.startsWith("http")) return false;
+    const host = u.hostname.toLowerCase();
+    if (PARKED_DOMAINS.some((p) => host.endsWith(p) || host.includes(p))) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Default visible per-official cards before "Show more N" toggle.
+// Tuned for one mobile screen.
+const DEFAULT_VISIBLE_OFFICIALS = 6;
+
 /**
  * LocalActionPlaybook — the answer to "campaign page is empty because
  * small-town officials don't publish per-member email/phone."
@@ -65,6 +94,7 @@ export function LocalActionPlaybook({
   locality: string | null;
 }) {
   const [copied, setCopied] = useState(false);
+  const [showAllOfficials, setShowAllOfficials] = useState(false);
 
   const cg = localMeta?.city_general ?? null;
   const meetingAt = localMeta?.meeting_at;
@@ -263,72 +293,101 @@ export function LocalActionPlaybook({
         )}
       </div>
 
-      {/* Step 3 — Per-official cards */}
+      {/* Step 3 — Per-official cards. Card is NOT a wrapping anchor —
+          parked-domain risk + makes inner buttons unreachable on mobile.
+          Each contact action is its own clickable element with a known
+          target. URLs are validated to skip parking pages. */}
       {targets.length > 0 && (
         <div className="mt-4 rounded-md border border-zinc-800 bg-zinc-950/60 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
-            3. Reach individual officials directly
-          </p>
-          <p className="mt-1 text-[11px] text-zinc-500">
-            Click each name to open their page and use the contact form there. Bonus
-            points if you mention you&apos;re a constituent or local business owner.
-          </p>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {targets.map((t) => (
-              <li key={t.id}>
-                <a
-                  href={t.website ?? "#"}
-                  target={t.website ? "_blank" : undefined}
-                  rel={t.website ? "noopener noreferrer" : undefined}
-                  className={`block rounded-md border p-3 text-sm transition ${
-                    t.website
-                      ? "border-zinc-800 bg-zinc-950 hover:border-emerald-500"
-                      : "border-zinc-900 bg-zinc-950/40 cursor-not-allowed opacity-60"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
-                      {ROLE_SHORT[t.role] ?? t.role}
-                    </span>
-                    <span className="font-semibold text-zinc-100">{t.full_name}</span>
-                  </div>
-                  {t.district && (
-                    <p className="mt-1 text-[11px] text-zinc-500">District/Ward: {t.district}</p>
-                  )}
-                  <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                    {t.email && (
-                      <a
-                        href={`mailto:${t.email}?subject=${encodeURIComponent("Re: " + campaignTitle)}`}
-                        className="rounded bg-emerald-950/40 px-2 py-0.5 text-emerald-300 hover:bg-emerald-950"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        ✉ Email
-                      </a>
-                    )}
-                    {t.phone && (
-                      <a
-                        href={`tel:${t.phone}`}
-                        className="rounded bg-amber-950/40 px-2 py-0.5 text-amber-300 hover:bg-amber-950"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        📞 {t.phone}
-                      </a>
-                    )}
-                    {!t.email && !t.phone && t.website && (
-                      <span className="rounded bg-zinc-900 px-2 py-0.5 text-zinc-400">
-                        Open contact form →
+          <details open className="group">
+            <summary className="flex cursor-pointer items-center justify-between text-xs font-semibold uppercase tracking-wider text-zinc-300">
+              <span>3. Reach individual officials directly ({targets.length})</span>
+              <span className="text-[10px] font-normal normal-case text-zinc-500 group-open:hidden">click to expand</span>
+              <span className="text-[10px] font-normal normal-case text-zinc-500 hidden group-open:inline">click to collapse</span>
+            </summary>
+            <p className="mt-2 text-[11px] text-zinc-500">
+              Email or call where it&apos;s published. Otherwise, &quot;Open contact form&quot;
+              opens the official&apos;s page where you can paste the message you copied above.
+            </p>
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+              {(showAllOfficials ? targets : targets.slice(0, DEFAULT_VISIBLE_OFFICIALS)).map((t) => {
+                const websiteOk = isUsableUrl(t.website);
+                const hasAnyContact = !!t.email || !!t.phone || websiteOk;
+                return (
+                  <li
+                    key={t.id}
+                    className={`rounded-md border p-3 text-sm ${
+                      hasAnyContact
+                        ? "border-zinc-800 bg-zinc-950"
+                        : "border-zinc-900 bg-zinc-950/40 opacity-70"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
+                        {ROLE_SHORT[t.role] ?? t.role}
                       </span>
+                      <span className="font-semibold text-zinc-100">{t.full_name}</span>
+                    </div>
+                    {t.district && (
+                      <p className="mt-1 text-[11px] text-zinc-500">District/Ward: {t.district}</p>
                     )}
-                    {!t.email && !t.phone && !t.website && (
-                      <span className="rounded bg-zinc-900 px-2 py-0.5 text-zinc-600">
-                        No contact info published
-                      </span>
-                    )}
-                  </div>
-                </a>
-              </li>
-            ))}
-          </ul>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                      {t.email && (
+                        <a
+                          href={`mailto:${t.email}?subject=${encodeURIComponent("Re: " + campaignTitle)}`}
+                          className="rounded bg-emerald-950/40 px-2 py-1 text-emerald-300 hover:bg-emerald-950"
+                          title={t.email}
+                        >
+                          ✉ Email
+                        </a>
+                      )}
+                      {t.phone && (
+                        <a
+                          href={`tel:${t.phone}`}
+                          className="rounded bg-amber-950/40 px-2 py-1 font-mono text-amber-300 hover:bg-amber-950"
+                        >
+                          📞 {t.phone}
+                        </a>
+                      )}
+                      {!t.email && !t.phone && websiteOk && (
+                        <a
+                          href={t.website!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded bg-sky-950/40 px-2 py-1 text-sky-300 hover:bg-sky-950"
+                        >
+                          🌐 Open contact form →
+                        </a>
+                      )}
+                      {!t.email && !t.phone && t.website && !websiteOk && (
+                        <span
+                          className="rounded bg-zinc-900 px-2 py-1 text-zinc-500"
+                          title={`URL was flagged as a parked/squatted domain: ${t.website}`}
+                        >
+                          ⚠ Website unreliable
+                        </span>
+                      )}
+                      {!hasAnyContact && (
+                        <span className="rounded bg-zinc-900 px-2 py-1 text-zinc-500">
+                          No contact info published
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {targets.length > DEFAULT_VISIBLE_OFFICIALS && (
+              <button
+                onClick={() => setShowAllOfficials((v) => !v)}
+                className="mt-3 w-full rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:border-emerald-500"
+              >
+                {showAllOfficials
+                  ? `Show fewer ↑`
+                  : `Show all ${targets.length} (${targets.length - DEFAULT_VISIBLE_OFFICIALS} more) ↓`}
+              </button>
+            )}
+          </details>
         </div>
       )}
 

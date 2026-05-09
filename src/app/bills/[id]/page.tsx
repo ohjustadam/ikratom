@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { displayTitle, displaySubtitle } from "@/lib/bill-title";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
 import { readLocale } from "@/modules/auth/actions-locale";
@@ -296,8 +297,13 @@ export default async function BillDetailPage({
           )}
         </div>
         <h1 className="mt-3 text-2xl font-bold leading-tight sm:text-3xl">
-          {bill.title || "(untitled)"}
+          {displayTitle(bill.title, 120)}
         </h1>
+        {displaySubtitle(bill.title) && (
+          <p className="mt-1 text-sm text-zinc-400 leading-snug">
+            {displaySubtitle(bill.title)}
+          </p>
+        )}
         {bill.last_action_at && (
           <p className="mt-2 text-sm text-zinc-500">
             Last action <span className="text-zinc-300">{new Date(bill.last_action_at).toLocaleDateString()}</span>

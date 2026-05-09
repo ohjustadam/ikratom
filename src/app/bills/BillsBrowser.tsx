@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { displayTitle } from "@/lib/bill-title";
 
 type Bill = {
   id: string;
@@ -271,8 +272,8 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
                       </span>
                     )}
                   </div>
-                  <h3 className="mt-2 text-sm font-medium leading-snug">
-                    {b.title || "(untitled)"}
+                  <h3 className="mt-2 text-sm font-medium leading-snug" title={b.title ?? undefined}>
+                    {displayTitle(b.title)}
                   </h3>
                   {/* Prefer AI summary when available; fall back to OpenStates raw. */}
                   {(b.summary_ai || b.summary) && (
