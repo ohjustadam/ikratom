@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 // Build a CSP scoped to our specific Supabase project at build time so the
 // connect-src can't be abused by any other supabase.co subdomain.
@@ -20,7 +21,11 @@ const csp = [
   "font-src 'self' data:",
   // Allow our exact Supabase project (HTTPS for REST, WSS for Realtime). No
   // wildcard — limits exfiltration to one specific origin.
-  `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com`.trim(),
+  // Allow Supabase + Vercel telemetry + Sentry ingest (subdomain wildcard
+  // because Sentry uses *.ingest.sentry.io / *.ingest.us.sentry.io tied to
+  // your project) + PostHog (us.i.posthog.com / us-assets.i.posthog.com).
+  `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com`.trim(),
+  `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com`.trim(),
   // No <iframe> may embed our pages
   "frame-ancestors 'none'",
   // No <iframe> may be embedded by us either (admins can opt into specific
@@ -76,4 +81,18 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Sentry wrapper: instruments builds for source-map upload + error
+// reporting. Source-map upload only happens when SENTRY_AUTH_TOKEN is
+// set — without it, errors still report but stack traces stay minified.
+// Wrapping is idempotent if Sentry env vars are missing.
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT || "ikratom",
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,
+  // Strip source-map files from production browser bundle. Maps are
+  // uploaded to Sentry server-side for stack-trace decoding only.
+  sourcemaps: { disable: false, deleteSourcemapsAfterUpload: true },
+  // Skip Sentry plugin entirely if env unset
+  disableLogger: true,
+});

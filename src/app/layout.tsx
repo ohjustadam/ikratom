@@ -8,6 +8,7 @@ import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
+import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { createClient } from "@/lib/supabase/server";
@@ -109,6 +110,7 @@ export default async function RootLayout({
   return (
     <html lang={locale} className={`${geist.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
+        <PostHogProvider>
         {/* Site-wide emergency banner — renders only when admin toggles emergency_mode on */}
         <EmergencyBanner />
 
@@ -182,6 +184,7 @@ export default async function RootLayout({
         <CookieBanner />
         <MobileTabBar />
         <RegisterSW />
+        </PostHogProvider>
       </body>
     </html>
   );
