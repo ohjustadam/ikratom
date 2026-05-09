@@ -29,6 +29,9 @@
 const GROQ_KEY = process.env.GROQ_API_KEY;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY;
+const MISTRAL_KEY = process.env.MISTRAL_API_KEY;
+const CLOUDFLARE_AI_TOKEN = process.env.CLOUDFLARE_AI_TOKEN;
+const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
 // Cooldown tracking. When a provider returns 429 we set a deadline
@@ -41,6 +44,8 @@ function availableProviders() {
   if (GROQ_KEY) out.push("groq");
   if (GEMINI_KEY) out.push("gemini");
   if (CEREBRAS_KEY) out.push("cerebras");
+  if (MISTRAL_KEY) out.push("mistral");
+  if (CLOUDFLARE_AI_TOKEN && CLOUDFLARE_ACCOUNT_ID) out.push("cloudflare");
   out.push("ollama");
   return out;
 }
@@ -180,6 +185,71 @@ async function callCerebras(sys, user, maxTokens) {
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
 
+async function callMistral(sys, user, maxTokens) {
+  // Mistral free tier — generous, fast inference. Default to Small;
+  // override via MISTRAL_MODEL env var (e.g. mistral-medium-latest
+  // for higher quality, or pixtral-12b-latest for vision).
+  const r = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${MISTRAL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: process.env.MISTRAL_MODEL || "mistral-small-latest",
+      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+      temperature: 0.1,
+      max_tokens: maxTokens,
+      response_format: { type: "json_object" },
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (r.status === 429) {
+    startCooldown("mistral", 60_000);
+    throw new Error("Mistral 429 (cooling down 60s)");
+  }
+  if (!r.ok) throw new Error(`Mistral ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const data = await r.json();
+  return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
+}
+
+async function callCloudflare(sys, user, maxTokens) {
+  // Cloudflare Workers AI — 10k neurons/day free. Hosts Llama 3.3 70b
+  // with fp8 quantization for speed. Endpoint shape is OpenAI-compatible
+  // for chat completions but URL path is custom. Override model via
+  // CLOUDFLARE_AI_MODEL env var.
+  const model = process.env.CLOUDFLARE_AI_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${model}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${CLOUDFLARE_AI_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+      max_tokens: maxTokens,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (r.status === 429) {
+    startCooldown("cloudflare", 60_000);
+    throw new Error("Cloudflare 429 (cooling down 60s)");
+  }
+  if (!r.ok) throw new Error(`Cloudflare ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const data = await r.json();
+  // Cloudflare wraps the OpenAI-compatible response in a result envelope:
+  //   { result: { response: "...json..." }, success: true, errors: [] }
+  // OR for some models:
+  //   { result: { choices: [{ message: { content } }] } }
+  const result = data?.result;
+  let text;
+  if (typeof result?.response === "string") {
+    text = result.response;
+  } else if (result?.choices?.[0]?.message?.content) {
+    text = result.choices[0].message.content;
+  } else {
+    text = JSON.stringify(result ?? {});
+  }
+  return parseLooseJson(text || "{}");
+}
+
 async function callOllama(sys, user) {
   const r = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
@@ -203,6 +273,8 @@ async function callOne(p, sys, user, maxTokens) {
     case "groq": return callGroq(sys, user, maxTokens);
     case "gemini": return callGemini(sys, user, maxTokens);
     case "cerebras": return callCerebras(sys, user, maxTokens);
+    case "mistral": return callMistral(sys, user, maxTokens);
+    case "cloudflare": return callCloudflare(sys, user, maxTokens);
     case "ollama": return callOllama(sys, user);
     default: throw new Error(`Unknown provider: ${p}`);
   }
