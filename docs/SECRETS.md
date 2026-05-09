@@ -86,10 +86,11 @@ OPENFEC_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 Use: per-legislator donor profile, surfaced inline on campaign pages — *"Senator X took $42k from pharma in 2024"* is a narrative tool for advocate emails.
 
-### Sentry quick reference
+### Sentry quick reference (UI updated 2024)
 - `NEXT_PUBLIC_SENTRY_DSN` and `SENTRY_DSN` are **the same value** — paste your DSN into both. The `NEXT_PUBLIC_` one ships to the browser, the bare one is server-only.
-- `SENTRY_ORG` = the slug from your URL (e.g. `sentry.io/organizations/<slug>/...` — that slug)
-- `SENTRY_AUTH_TOKEN` = User Settings → Auth Tokens → Create New (scopes: `project:releases` + `org:read`). Only needed for source-map uploads on prod builds — Sentry still captures errors without it, just shows minified stack traces.
+- `SENTRY_ORG` = the slug from your URL — either `<slug>.sentry.io` in the address bar, or the path segment in `/organizations/<slug>/...`
+- `SENTRY_AUTH_TOKEN` = **Settings (gear icon, top-right) → Developer Settings → Auth Tokens → "Organization Tokens" tab → Create New Token**. Scopes: ✅ `project:releases` + ✅ `org:read`. Direct URL: https://sentry.io/settings/auth-tokens/. The token starts `sntrys_…` and is only shown once.
+  - Only needed for source-map uploads on prod builds — Sentry still captures errors without it, just shows minified stack traces.
 - `SENTRY_PROJECT` = `ikratom`
 
 ---
