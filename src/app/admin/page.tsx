@@ -166,8 +166,15 @@ export default async function AdminPage() {
         {adminOnly && (
           <AdminCard
             href="/admin/communities"
-            title="Communities"
+            title="Forum communities"
             body="Add, edit, archive topical communities (Veterans, Shop owners, etc.) shown alongside state forums."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
+            href="/admin/external-communities"
+            title="External communities"
+            body="Manage the FB groups, subreddits, Discord servers, and podcasts shown on /communities."
           />
         )}
         {adminOnly && (
