@@ -263,19 +263,9 @@ export function CampaignAction({
         </button>
       </div>
 
-      {/* Recipient chips */}
-      <ul className="mt-3 flex flex-wrap gap-2">
-        {targetsWithEmail.map((t) => (
-          <li
-            key={t.id}
-            className="rounded-full border border-emerald-700/40 bg-emerald-950/20 px-3 py-1 text-xs"
-          >
-            <span className="text-emerald-300">{ROLE_SHORT[t.role] ?? t.role}</span>{" "}
-            <span className="text-zinc-200">{t.full_name}</span>
-            {t.district && <span className="text-zinc-500"> · D{t.district}</span>}
-          </li>
-        ))}
-      </ul>
+      {/* Recipient chips — capped to keep the page from ballooning on
+          large state-floor campaigns. */}
+      <RecipientChips targets={targetsWithEmail} />
 
       {/* Editor (collapsible) */}
       {editing && (
@@ -538,6 +528,54 @@ function BoltIcon() {
     <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
       <path d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" />
     </svg>
+  );
+}
+
+/**
+ * Recipient list with a "Show all N" toggle so 100+ recipient chips
+ * don't blow out the page on state-floor campaigns. Default cap of 12
+ * tuned for one mobile screen.
+ */
+function RecipientChips({ targets }: { targets: Legislator[] }) {
+  const CAP = 12;
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? targets : targets.slice(0, CAP);
+  const hidden = Math.max(0, targets.length - CAP);
+  return (
+    <>
+      <ul className="mt-3 flex flex-wrap gap-2">
+        {visible.map((t) => (
+          <li
+            key={t.id}
+            className="rounded-full border border-emerald-700/40 bg-emerald-950/20 px-3 py-1 text-xs"
+          >
+            <span className="text-emerald-300">{ROLE_SHORT[t.role] ?? t.role}</span>{" "}
+            <span className="text-zinc-200">{t.full_name}</span>
+            {t.district && <span className="text-zinc-500"> · D{t.district}</span>}
+          </li>
+        ))}
+        {hidden > 0 && !expanded && (
+          <li>
+            <button
+              onClick={() => setExpanded(true)}
+              className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-400 hover:border-emerald-500 hover:text-emerald-300"
+            >
+              + {hidden} more →
+            </button>
+          </li>
+        )}
+        {expanded && targets.length > CAP && (
+          <li>
+            <button
+              onClick={() => setExpanded(false)}
+              className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-400 hover:border-emerald-500 hover:text-emerald-300"
+            >
+              Show fewer ↑
+            </button>
+          </li>
+        )}
+      </ul>
+    </>
   );
 }
 

@@ -184,6 +184,32 @@ async function processBill(bill) {
   for (const o of newRows) {
     console.log(`     - ${o.role.padEnd(15)} ${o.full_name}${o.district ? ` (${o.district})` : ""}${o.email ? `  ✉ ${o.email}` : ""}`);
   }
+
+  // Phase 4 retarget hook (migration 0073). Now that this locality has
+  // city/county officials, fix any auto-generated campaigns that landed
+  // before the seed ran and ended up either with empty targets
+  // (post-0073 behavior) or with the wrong all-state-legs fallback
+  // (pre-0073 behavior — Marshall, IL was the canonical case). Calls
+  // the SECURITY DEFINER RPC so it bypasses RLS like the rest of this
+  // service-role script.
+  try {
+    const cityForMatch = bill.locality.split(",")[0].trim();
+    const { data: retargets, error: retargetErr } = await sb.rpc(
+      "retarget_auto_campaigns_for_locality",
+      { p_state: bill.state, p_locality: cityForMatch },
+    );
+    if (retargetErr) {
+      console.log(`  ⚠ retarget RPC failed: ${retargetErr.message}`);
+    } else if (retargets && retargets.length > 0) {
+      const fixed = retargets.filter((r) => r.result?.ok === true);
+      console.log(`  ↻ retargeted ${fixed.length}/${retargets.length} auto-campaign(s)`);
+      for (const r of fixed) {
+        console.log(`     - ${r.campaign_id.slice(0, 8)}: ${r.result.old_count} → ${r.result.new_count} targets (${r.result.tier})`);
+      }
+    }
+  } catch (e) {
+    console.log(`  ⚠ retarget hook error: ${e.message?.slice(0, 200)}`);
+  }
   return true;
 }
 
