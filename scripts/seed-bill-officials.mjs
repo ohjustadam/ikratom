@@ -97,7 +97,7 @@ async function suggestOfficials({ city, state }) {
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
       systemInstruction: { parts: [{ text: SYSTEM }] },
       tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
     }),
     signal: AbortSignal.timeout(90_000),
   });
