@@ -43,7 +43,7 @@ if (!SPECIFIC && !ALL) {
   process.exit(1);
 }
 
-const SYSTEM = `You are a civic-data analyst. Given a U.S. city or county, find the CURRENT elected officials and return them as strict JSON inside a <result>...</result> block. Use Google Search grounding for accuracy — prefer .gov / .us domains over third-party aggregators.
+const SYSTEM = `You are a civic-data analyst. Given a U.S. city or county, find the CURRENT elected officials AND the city/county general contact info. Return strict JSON inside a <result>...</result> block. Use Google Search grounding for accuracy — prefer .gov / .us domains over third-party aggregators.
 
 Return shape:
 <result>
@@ -60,6 +60,15 @@ Return shape:
       "website": "https://..." or null
     }
   ],
+  "city_general": {
+    "name": "City of Marshall, IL",
+    "general_phone": "555-555-5555" or null,
+    "general_email": "info@cityofmarshall.org" or null,
+    "contact_form_url": "https://cityofmarshall.org/contact" or null,
+    "mailing_address": "123 Main St, Marshall, IL 62441" or null,
+    "council_meeting_url": "https://cityofmarshall.org/meetings" or null,
+    "official_website": "https://cityofmarshall.org" or null
+  },
   "sources": ["https://cityofx.gov/council", ...]
 }
 </result>
@@ -67,10 +76,11 @@ Return shape:
 Rules:
 - Include the mayor + ALL current city council members for cities.
 - Include the county executive + ALL current county commissioners for counties.
+- ALWAYS populate city_general with at minimum the official_website. Most small cities have a single phone + general email even when individual council members don't publish theirs — find them.
 - Skip school boards unless explicitly asked.
 - If you cannot find verifiable current data, return officials: [] with an explanation in sources.
 - Phone numbers in 555-555-5555 format.
-- Never fabricate emails. If only a contact form is published, put the form URL in website and leave email null.
+- Never fabricate emails. If only a contact form is published, put the form URL in website (or contact_form_url for city_general) and leave email null.
 - Output ONLY the <result>...</result> block. No prose before or after.`;
 
 async function suggestOfficials({ city, state }) {
@@ -100,6 +110,8 @@ async function suggestOfficials({ city, state }) {
   const parsed = JSON.parse(m[1].trim());
   return {
     officials: Array.isArray(parsed.officials) ? parsed.officials : [],
+    city_general: (parsed.city_general && typeof parsed.city_general === "object")
+      ? parsed.city_general : null,
     sources: Array.isArray(parsed.sources) ? parsed.sources : [],
   };
 }
@@ -138,6 +150,38 @@ async function processBill(bill) {
     return false;
   }
   console.log(`  ✓ Gemini found ${suggestion.officials.length} official(s)`);
+
+  // Persist city_general into bills.local_meta so the campaign page
+  // can render a "City contacts" block as a fallback when individual
+  // council members don't publish per-member contact info (typical
+  // for small towns like Marshall, IL).
+  if (suggestion.city_general) {
+    const cg = suggestion.city_general;
+    const safeCg = {
+      name: cg.name?.toString().slice(0, 200) ?? null,
+      general_phone: cg.general_phone?.toString().slice(0, 30) ?? null,
+      general_email: cg.general_email?.toString().slice(0, 254) ?? null,
+      contact_form_url: cg.contact_form_url?.toString().slice(0, 500) ?? null,
+      mailing_address: cg.mailing_address?.toString().slice(0, 300) ?? null,
+      council_meeting_url: cg.council_meeting_url?.toString().slice(0, 500) ?? null,
+      official_website: cg.official_website?.toString().slice(0, 500) ?? null,
+    };
+    // Merge into existing local_meta — do not clobber other fields
+    // (e.g. summary_one_line, officials_to_contact from extract-local-meta).
+    const { data: billRow } = await sb.from("bills")
+      .select("local_meta").eq("id", bill.id).single();
+    const existingMeta = billRow?.local_meta && typeof billRow.local_meta === "object"
+      ? billRow.local_meta : {};
+    const newMeta = { ...existingMeta, city_general: safeCg };
+    const { error: metaErr } = await sb.from("bills")
+      .update({ local_meta: newMeta }).eq("id", bill.id);
+    if (metaErr) {
+      console.log(`  ⚠ city_general persist failed: ${metaErr.message}`);
+    } else {
+      const filled = Object.entries(safeCg).filter(([, v]) => v).map(([k]) => k);
+      console.log(`  ✓ city_general saved (${filled.length} field(s): ${filled.join(", ")})`);
+    }
+  }
 
   const cap = (s, n) => s ? String(s).slice(0, n).trim() || null : null;
   const rows = suggestion.officials.map((o) => {
