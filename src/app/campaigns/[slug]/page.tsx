@@ -5,6 +5,7 @@ import { buildVars, renderTemplate } from "@/modules/campaigns/templates";
 import { getMyCampaignProgress } from "@/modules/campaigns/actions";
 import { getMyWaveStatus } from "@/modules/waves/actions";
 import { CampaignAction } from "@/modules/campaigns/components/CampaignAction";
+import { LocalActionPlaybook, type LocalMeta } from "@/modules/campaigns/components/LocalActionPlaybook";
 import { ShareButtons } from "@/components/ShareButtons";
 import { ShareButtons as SocialBombButtons } from "@/modules/social/ShareButtons";
 import { defaultCampaignShareText } from "@/modules/social/share";
@@ -40,7 +41,7 @@ export default async function CampaignPage({
 
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, slug, title, blurb, body_md, state, target_locality, target_roles, target_legislator_ids, subject_template, body_template, active, ends_at, allow_non_residents")
+    .select("id, slug, title, blurb, body_md, state, bill_id, target_locality, target_roles, target_legislator_ids, subject_template, body_template, active, ends_at, allow_non_residents")
     .eq("slug", slug)
     .single();
 
@@ -124,6 +125,27 @@ export default async function CampaignPage({
     .from("campaign_actions")
     .select("id", { count: "exact", head: true })
     .eq("campaign_id", campaign.id);
+
+  // For city/county-scoped campaigns, fetch the bill's local_meta so
+  // the LocalActionPlaybook can render meeting time + city hall +
+  // mailing address fallback. Without this, small-town campaigns where
+  // officials don't publish per-member email/phone leave the page empty.
+  let billLocalMeta: Record<string, unknown> | null = null;
+  let billLocality: string | null = null;
+  if (campaign.bill_id) {
+    const { data: linkedBill } = await supabase
+      .from("bills")
+      .select("local_meta, locality, scope")
+      .eq("id", campaign.bill_id)
+      .single();
+    const lb = linkedBill as { local_meta: Record<string, unknown> | null; locality: string | null; scope: string | null } | null;
+    billLocalMeta = lb?.local_meta ?? null;
+    billLocality = lb?.locality ?? null;
+  }
+  const isLocalCampaign = !!campaign.target_locality
+    || (billLocality && (billLocality.includes(",") || /^\w+ County/i.test(billLocality)));
+  const targetsLackContact = targets.length > 0
+    && !targets.some((t) => t.email || t.phone);
 
   // What this user has already sent for this campaign (spam-prevention UI)
   const myProgress = await getMyCampaignProgress(campaign.id);
@@ -216,6 +238,20 @@ export default async function CampaignPage({
             want before hitting Send — the more personal it gets, the more it lands.
           </p>
         </div>
+      )}
+
+      {/* Local action playbook — renders for city/county-scoped campaigns
+          where targets typically lack per-member email/phone. Surfaces
+          city-hall contacts, meeting info, and per-official websites
+          so the page never looks empty. See LocalActionPlaybook docstring. */}
+      {(isLocalCampaign && (targetsLackContact || billLocalMeta)) && (
+        <LocalActionPlaybook
+          campaignTitle={campaign.title}
+          bodyTemplate={campaign.body_template}
+          targets={targets}
+          localMeta={billLocalMeta as LocalMeta | null}
+          locality={campaign.target_locality ?? billLocality}
+        />
       )}
 
       {/* Wave panel — render above the per-user action card so users see the
