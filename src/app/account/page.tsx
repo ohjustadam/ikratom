@@ -139,6 +139,35 @@ export default async function AccountPage({
         <NotificationPrefsForm initial={notifPrefs} />
       </div>
 
+      <div className="mt-4 rounded-lg border border-emerald-700/40 bg-emerald-950/10 p-5">
+        <h3 className="mb-1 text-sm font-semibold text-emerald-300">🎭 Your character</h3>
+        <p className="mb-3 text-xs text-zinc-400">
+          Optional fields that power AI tailoring on legislator emails — your kratom
+          story, what&apos;s at stake for you, advocate type, video clip URL, profile
+          visibility.
+        </p>
+        <a
+          href="/account/character"
+          className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
+        >
+          Edit your character →
+        </a>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <h3 className="mb-1 text-sm font-semibold">My templates</h3>
+        <p className="mb-3 text-xs text-zinc-500">
+          See every active campaign rendered with your info filled in — so you know
+          what gets sent before you click send.
+        </p>
+        <a
+          href="/dashboard/templates"
+          className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:border-emerald-500"
+        >
+          Preview templates →
+        </a>
+      </div>
+
       <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <h3 className="mb-1 text-sm font-semibold">Email tone presets</h3>
         <p className="mb-3 text-xs text-zinc-500">
