@@ -86,9 +86,10 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const locale = await readLocale();
 
-  // Cheap auth check so MobileNav can show admin sub-section. Single
-  // row read; never blocks render — falls back to non-admin on error.
+  // Cheap auth check so MobileNav can show admin / leader sub-section.
+  // Single row read; never blocks render — falls back to non-admin on error.
   let isAdmin = false;
+  let isLeader = false;
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -98,10 +99,11 @@ export default async function RootLayout({
         .select("is_admin, is_owner, is_advocate_leader")
         .eq("id", user.id)
         .single();
-      isAdmin = !!(profile?.is_admin || profile?.is_owner || profile?.is_advocate_leader);
+      isAdmin = !!(profile?.is_admin || profile?.is_owner);
+      isLeader = !!(isAdmin || profile?.is_advocate_leader);
     }
   } catch {
-    // non-fatal — drawer just hides admin section
+    // non-fatal — drawer just hides admin / leader section
   }
 
   return (
@@ -144,7 +146,7 @@ export default async function RootLayout({
                 that's the most-common destination. */}
             <div className="flex items-center gap-2 md:hidden">
               <MobileAuthPill />
-              <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} />
+              <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} isLeader={isLeader} />
             </div>
           </div>
         </header>

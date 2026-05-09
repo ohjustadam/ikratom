@@ -71,9 +71,11 @@ const ADMIN_LINKS = [
 export function MobileNav({
   authSlot,
   isAdmin = false,
+  isLeader = false,
 }: {
   authSlot: React.ReactNode;
   isAdmin?: boolean;
+  isLeader?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -208,6 +210,24 @@ export function MobileNav({
                 ))}
               </ul>
             </details>
+
+            {/* Leader workshop link — for advocate-leaders (admins/owners
+                also see /admin which already covers it). */}
+            {isLeader && !isAdmin && (
+              <a
+                href="/leader"
+                onClick={close}
+                className="mb-3 flex min-h-[48px] items-center justify-between rounded-md border border-sky-900/40 bg-sky-950/10 px-4 text-sm font-semibold text-sky-300"
+              >
+                <span className="flex items-center gap-2">
+                  <span aria-hidden>📍</span>
+                  Leader workshop
+                </span>
+                <span className="text-xs text-sky-500/70" aria-hidden>
+                  →
+                </span>
+              </a>
+            )}
 
             {/* Admin submenu — only for authorized users */}
             {isAdmin && (
