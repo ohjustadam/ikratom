@@ -16,6 +16,11 @@ import { logCampaignAction } from "../actions";
  * them aloud while the call rings.
  */
 
+// Default visible call entries before "Show all N" expand. Tuned for
+// mobile readability — at 8 the section is still scannable; without a
+// cap, large state-floor campaigns balloon to 100+ rows.
+const DEFAULT_VISIBLE = 8;
+
 export function CallActionPanel({
   campaignId,
   targets,
@@ -29,10 +34,14 @@ export function CallActionPanel({
 }) {
   const [logged, setLogged] = useState<Set<string>>(new Set());
   const [showPoints, setShowPoints] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const callable = targets.filter((t) => !!t.phone);
   if (callable.length === 0) return null;
+
+  const visible = showAll ? callable : callable.slice(0, DEFAULT_VISIBLE);
+  const hiddenCount = Math.max(0, callable.length - DEFAULT_VISIBLE);
 
   // Extract 3-5 punchy talking points from the body. Heuristic: split on
   // blank lines, take the substantive paragraphs, trim to one sentence each.
@@ -95,7 +104,7 @@ export function CallActionPanel({
       )}
 
       <ul className="mt-4 space-y-2">
-        {callable.map((t) => {
+        {visible.map((t) => {
           const wasLogged = logged.has(t.id);
           return (
             <li
@@ -149,9 +158,23 @@ export function CallActionPanel({
         })}
       </ul>
 
+      {hiddenCount > 0 && (
+        <button
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-3 w-full rounded-md border border-amber-700/40 px-3 py-2 text-xs font-semibold text-amber-300 hover:border-amber-500 hover:bg-amber-950/20"
+        >
+          {showAll
+            ? `Show less ↑`
+            : `Show all ${callable.length} (${hiddenCount} more) ↓`}
+        </button>
+      )}
+
       <p className="mt-3 text-xs text-zinc-500">
         Tap a number to dial. After hanging up, hit &quot;I called&quot; so it
         counts toward platform impact stats.
+        {callable.length > DEFAULT_VISIBLE && !showAll && (
+          <> Pace yourself — you don&apos;t need to call all {callable.length} in one sitting.</>
+        )}
       </p>
     </section>
   );
