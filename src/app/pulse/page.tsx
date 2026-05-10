@@ -92,6 +92,53 @@ export default async function PulsePage() {
     .order("created_at", { ascending: false })
     .limit(5);
 
+  // Most-critical news — pulls high-relevance news from the last 14 days,
+  // splits into national (state=null or FED-related) and the viewer's
+  // state (or top-relevance overall). Updates every cron tick. This is
+  // the "what's happening right now in the kratom-policy world" panel.
+  const since14d = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: { user } } = await supabase.auth.getUser();
+  let viewerState: string | null = null;
+  if (user) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("state")
+      .eq("id", user.id)
+      .single();
+    viewerState = (prof as { state: string | null } | null)?.state ?? null;
+  }
+
+  const { data: nationalNews } = await supabase
+    .from("news_items")
+    .select("id, title, url, source_name, state, published_at, ai_relevance_score")
+    .or("state.is.null,policy_event_kind.in.(fda_action,dea_action,federal)")
+    .gte("ai_relevance_score", 0.75)
+    .gte("published_at", since14d)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .limit(5);
+
+  const { data: localNews } = viewerState
+    ? await supabase
+        .from("news_items")
+        .select("id, title, url, source_name, state, published_at, ai_relevance_score")
+        .eq("state", viewerState)
+        .gte("ai_relevance_score", 0.7)
+        .gte("published_at", since14d)
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .limit(5)
+    : { data: null };
+
+  const { data: topStateNews } = !viewerState
+    ? await supabase
+        .from("news_items")
+        .select("id, title, url, source_name, state, published_at, ai_relevance_score")
+        .not("state", "is", null)
+        .gte("ai_relevance_score", 0.85)
+        .gte("published_at", since14d)
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .limit(5)
+    : { data: null };
+
   // Briefings — auto-discovered from src/content/briefings/
   const briefingsDir = path.join(process.cwd(), "src", "content", "briefings");
   const briefings: Briefing[] = fs.existsSync(briefingsDir)
@@ -160,6 +207,55 @@ export default async function PulsePage() {
             New alerts surface here automatically as the news + bill pipeline catches them.
           </p>
         </div>
+      )}
+
+      {/* MOST CRITICAL NEWS — condensed view, refreshes every cron tick.
+          Two columns: national/federal news on the left, the viewer's
+          state on the right (or top-relevance state news if no profile). */}
+      {((nationalNews?.length ?? 0) > 0 || (localNews?.length ?? 0) > 0 || (topStateNews?.length ?? 0) > 0) && (
+        <section className="mb-8 grid gap-4 lg:grid-cols-2">
+          {/* National */}
+          {(nationalNews?.length ?? 0) > 0 && (
+            <div className="rounded-lg border border-purple-700/40 bg-purple-950/10 p-4">
+              <div className="mb-3 flex items-baseline justify-between gap-2">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-purple-300">
+                  🇺🇸 National / Federal — most critical
+                </h2>
+                <a href="/news?scope=federal" className="text-[10px] text-purple-400 hover:underline">
+                  See all →
+                </a>
+              </div>
+              <NewsList items={nationalNews ?? []} accent="purple" />
+
+            </div>
+          )}
+
+          {/* Local (viewer's state) OR top-state if no profile */}
+          {((localNews?.length ?? 0) > 0 || (topStateNews?.length ?? 0) > 0) && (
+            <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/10 p-4">
+              <div className="mb-3 flex items-baseline justify-between gap-2">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+                  {viewerState
+                    ? `📍 ${viewerState} — your state`
+                    : "📍 State-level — most critical"}
+                </h2>
+                <a
+                  href={viewerState ? `/news?state=${viewerState}` : "/news"}
+                  className="text-[10px] text-emerald-400 hover:underline"
+                >
+                  See all →
+                </a>
+              </div>
+              <NewsList items={(localNews?.length ?? 0) > 0 ? (localNews ?? []) : (topStateNews ?? [])} accent="emerald" />
+
+              {!viewerState && (
+                <p className="mt-3 text-[10px] text-zinc-500">
+                  Sign in to see news from your state first.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
       )}
 
       {critical.length > 0 && (
@@ -330,5 +426,56 @@ function AlertCard({ alert, campaign, compact }: { alert: Alert; campaign?: Camp
         )}
       </div>
     </article>
+  );
+}
+
+type NewsItem = {
+  id: string;
+  title: string;
+  url: string | null;
+  source_name: string | null;
+  state: string | null;
+  published_at: string | null;
+  ai_relevance_score: number | null;
+};
+
+function NewsList({ items, accent }: { items: NewsItem[]; accent: "purple" | "emerald" }) {
+  const accentBorder = accent === "purple" ? "hover:border-purple-500" : "hover:border-emerald-500";
+  const scorePill = accent === "purple" ? "bg-purple-950/40 text-purple-300" : "bg-emerald-950/40 text-emerald-300";
+  return (
+    <ul className="space-y-2">
+      {items.map((n) => (
+        <li key={n.id}>
+          <a
+            href={n.url ?? "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`block rounded border border-zinc-800 bg-zinc-950/60 p-3 transition ${accentBorder}`}
+          >
+            <div className="flex items-baseline gap-2">
+              {n.state && (
+                <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-bold text-zinc-300">
+                  {n.state}
+                </span>
+              )}
+              <p className="flex-1 text-sm font-medium leading-snug text-zinc-100">
+                {n.title}
+              </p>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-zinc-500">
+              {n.source_name && <span>{n.source_name}</span>}
+              {n.published_at && (
+                <span>· {new Date(n.published_at).toLocaleDateString()}</span>
+              )}
+              {typeof n.ai_relevance_score === "number" && (
+                <span className={`ml-auto rounded px-1.5 py-0.5 ${scorePill}`}>
+                  {Math.round(n.ai_relevance_score * 100)}% relevant
+                </span>
+              )}
+            </div>
+          </a>
+        </li>
+      ))}
+    </ul>
   );
 }
