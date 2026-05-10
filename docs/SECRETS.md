@@ -73,6 +73,19 @@ Use: `embed-english-v3.0` for "find similar bills" search.
 VOYAGE_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
+### LegiScan — primary bill sync source (URGENT)
+**The fix for the TN SB 1656 class of miss.** OpenStates lags by days; LegiScan updates within hours.
+
+1. https://legiscan.com/legiscan — sign up free
+2. After confirmation, **Account → API → Generate Key**
+3. **30,000 queries/month free** (we use ~5,000)
+
+```bash
+LEGISCAN_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Use: `scripts/sync-bills-via-legiscan.mjs --priority` runs hourly via cron, pulls full action history into `bill_actions`, the 0076 trigger then auto-spawns severity-appropriate alerts.
+
 ### OpenFEC — donor data (next week, big lift)
 Federal legislator campaign-finance data via the official FEC API. **Replaces OpenSecrets**, which paused API signups mid-2025.
 

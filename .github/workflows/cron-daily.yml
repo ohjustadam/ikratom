@@ -1,0 +1,60 @@
+name: Daily cron
+
+# Daily-frequency jobs that aren't worth running hourly. Runs at
+# 10:00 UTC (~5am ET / 2am PT) so admins see results when they wake.
+
+on:
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: daily-cron
+  cancel-in-progress: false
+
+jobs:
+  verify-bill-status:
+    # Layer 3 of the real-time pipeline (Layer 1 = bill_actions trigger;
+    # Layer 2 = LegiScan primary sync). This is the safety net for
+    # cases where BOTH OpenStates and LegiScan miss something — Gemini
+    # with Google Search grounding fact-checks each active anti/pro
+    # bill's status against live web data. Discrepancies become
+    # policy_alerts on /admin/intel-health for admin triage.
+    #
+    # Quota cost: ~50 Gemini-grounded calls/day = well within 1500/day
+    # free tier.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: AI-grounded status verification (50 most-stale tracked bills)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/verify-bill-status-ai.mjs --all
+
+  legiscan-wide-pass:
+    # Daily sweep of every active anti/pro bill via LegiScan. The hourly
+    # cron only hits the 30 most-stale; this catches everything else
+    # at least once a day even if hourly never gets to it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: LegiScan full sweep (all active anti + pro bills)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
+        run: node scripts/sync-bills-via-legiscan.mjs --all-anti
