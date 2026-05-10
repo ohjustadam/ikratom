@@ -128,3 +128,54 @@ export async function clearLeaderTourPending() {
   if (error) return { error: error.message };
   return { ok: true };
 }
+
+/**
+ * Marks the user as having completed the multi-page leader tour
+ * AND clicked the required "I acknowledge these rules" checkbox.
+ * Until this is set, the layout shows a sticky reminder banner
+ * and certain leader-only actions show a soft gate.
+ */
+export async function acknowledgeLeaderRules() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Sign in." };
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      leader_acknowledged_at: new Date().toISOString(),
+      leader_tour_pending: false,
+    })
+    .eq("id", user.id);
+  if (error) return { error: error.message };
+  // Audit so we have a record the user actually confirmed the rules
+  await recordAdminAction({
+    action: "leader_rules_acknowledged",
+    targetType: "user",
+    targetId: user.id,
+  });
+  return { ok: true };
+}
+
+/**
+ * Replay the leader tour from any page. Sets leader_tour_pending=true
+ * so the next dashboard/page visit re-triggers the multi-page flow.
+ * Available to anyone who is currently a leader (admin/owner included).
+ */
+export async function replayLeaderTour() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Sign in." };
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("is_advocate_leader, is_admin, is_owner")
+    .eq("id", user.id)
+    .single();
+  if (!(prof?.is_advocate_leader || prof?.is_admin || prof?.is_owner)) {
+    return { error: "Leader role required." };
+  }
+  await supabase
+    .from("profiles")
+    .update({ leader_tour_pending: true })
+    .eq("id", user.id);
+  return { ok: true };
+}

@@ -6,7 +6,6 @@ import { StreakBadge } from "@/components/StreakBadge";
 import { getCockpitLayout } from "@/modules/dashboard/actions";
 import { CockpitCustomizer } from "@/modules/dashboard/CockpitCustomizer";
 import { OnboardingTour } from "@/modules/dashboard/OnboardingTour";
-import { LeaderTour } from "@/modules/dashboard/LeaderTour";
 import { TutorialReplay, WelcomeReplayTour } from "@/modules/dashboard/TutorialReplay";
 import { WelcomeExploreWidget } from "@/modules/dashboard/widgets/WelcomeExploreWidget";
 import { BriefingWidget } from "@/modules/dashboard/widgets/BriefingWidget";
@@ -234,7 +233,11 @@ export default async function DashboardPage({
           via ?replay=<id>. forceShow on replay; the tour itself doesn't
           touch any persistent flag in that case. */}
       <OnboardingTour shouldShow={isFirstVisit} forceShow={replay === "onboarding"} />
-      <LeaderTour shouldShow={leaderTourPending} forceShow={replay === "leader"} />
+      {/* Leader tour now runs from the root layout (LeaderTourController) so
+          it fires on any page, not just /dashboard. The dashboard-specific
+          mount that lived here was removed in PR #92. The replay query
+          param still works because the controller checks
+          leader_tour_pending which the replayLeaderTour() action sets. */}
       <WelcomeReplayTour forceShow={replay === "welcome"} />
     </div>
   );

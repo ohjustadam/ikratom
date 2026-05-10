@@ -9,6 +9,8 @@ import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
 import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
+import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
+import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { createClient } from "@/lib/supabase/server";
@@ -87,21 +89,26 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const locale = await readLocale();
 
-  // Cheap auth check so MobileNav can show admin / leader sub-section.
-  // Single row read; never blocks render — falls back to non-admin on error.
+  // Cheap auth check so MobileNav can show admin / leader sub-section,
+  // plus leader-tour bootstrap state. Single row read; never blocks
+  // render — falls back to non-admin on error.
   let isAdmin = false;
   let isLeader = false;
+  let leaderTourPending = false;
+  let leaderAcknowledged = true; // assume true so we don't flash a banner for non-leaders
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("is_admin, is_owner, is_advocate_leader")
+        .select("is_admin, is_owner, is_advocate_leader, leader_tour_pending, leader_acknowledged_at")
         .eq("id", user.id)
         .single();
       isAdmin = !!(profile?.is_admin || profile?.is_owner);
       isLeader = !!(isAdmin || profile?.is_advocate_leader);
+      leaderTourPending = isLeader && !!profile?.leader_tour_pending;
+      leaderAcknowledged = !isLeader || !!profile?.leader_acknowledged_at;
     }
   } catch {
     // non-fatal — drawer just hides admin / leader section
@@ -111,6 +118,21 @@ export default async function RootLayout({
     <html lang={locale} className={`${geist.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
         <PostHogProvider>
+        {/* Leader-tour banner — visible on every page until a leader
+            completes the multi-page walkthrough + signs the
+            acknowledgment. Non-leaders never see it. */}
+        {isLeader && !leaderAcknowledged && <LeaderTourBanner />}
+
+        {/* Multi-page tour controller. Mounts on every page; only fires
+            when leader_tour_pending=true and acknowledgment is missing.
+            Persists state via localStorage across navigation. */}
+        {isLeader && (
+          <LeaderTourController
+            pending={leaderTourPending}
+            alreadyAcknowledged={leaderAcknowledged}
+          />
+        )}
+
         {/* Site-wide emergency banner — renders only when admin toggles emergency_mode on */}
         <EmergencyBanner />
 
