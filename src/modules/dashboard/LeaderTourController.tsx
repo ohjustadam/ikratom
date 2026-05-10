@@ -4,38 +4,35 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { driver, type Driver } from "driver.js";
 import "driver.js/dist/driver.css";
-import { acknowledgeLeaderRules, clearLeaderTourPending } from "@/modules/admin/user-actions";
+import { acknowledgeLeaderRules } from "@/modules/admin/user-actions";
 
 /**
  * LeaderTourController — multi-page tour that persists across
- * navigation via localStorage. Fires for anyone with
- * leader_tour_pending=true on any page they visit.
+ * navigation via localStorage. Mounts in root layout so it fires
+ * on the first page any leader visits after promotion.
  *
  * Flow:
- *   1. Step 0 on /dashboard (or wherever they land) — welcome
- *   2. Click "Go to Campaigns" → router.push("/admin/campaigns")
- *      + persist {pendingPage: '/admin/campaigns', stepIdx: next} to LS
- *   3. On arrival at /admin/campaigns the controller resumes from
- *      stepIdx, runs the page-specific tour, then advances
+ *   1. /dashboard — welcome + intro
+ *   2. Click "Continue: Author campaigns →" → router.push("/admin/campaigns")
+ *      + persist {pageKey: 'campaigns', completedPages: ['dashboard']} to LS
+ *   3. On arrival at /admin/campaigns the controller re-runs the
+ *      effect (pathname dep), finds the page in TOUR_PAGES, fires
+ *      the campaigns steps
  *   4. Same for /admin/forum, /admin/locals, /leader
- *   5. Final step: required-checkbox acknowledgment → server action
- *      sets leader_acknowledged_at, banner disappears
+ *   5. Final step: required-checkbox acknowledgment
  *
- * If the user clicks an external link or escapes the tour, the
- * leader_tour_pending flag stays true so the next time they visit
- * any page the tour resumes from where they left off.
- *
- * Replay: any leader can hit /account?replay-leader-tour to reset.
+ * Bug fix vs prior version: `onDestroyed` was firing for BOTH user-
+ * completion AND React useEffect-cleanup (when pathname changes).
+ * The cleanup-fired onDestroyed was re-saving state + re-routing,
+ * which raced the new page's tour-fire and skipped past it. Now
+ * we use a `finishedRef` set ONLY when the user actually completes
+ * the last step; cleanup destroys see finishedRef=false and no-op.
  */
 
-const LS_KEY = "ikratom:leader-tour:v2";
+const LS_KEY = "ikratom:leader-tour:v3";
 
 type TourState = {
-  // Page-relative step index. Each page in the flow has its own
-  // step set; the controller advances through the global sequence.
   pageKey: string;
-  stepIdx: number;
-  // Track which pages have been completed so we don't replay them
   completedPages: string[];
 };
 
@@ -44,16 +41,9 @@ type PageSteps = {
   matchesPath: (p: string) => boolean;
   navigateTo: string;
   label: string;
-  steps: Array<{
-    element?: string;
-    title: string;
-    description: string;
-    side?: "top" | "right" | "bottom" | "left";
-  }>;
+  steps: Array<{ title: string; description: string }>;
 };
 
-// The page-by-page tour. Each `element` is a CSS selector; if null,
-// the popover floats center-screen for that step.
 const TOUR_PAGES: PageSteps[] = [
   {
     pageKey: "dashboard",
@@ -64,12 +54,12 @@ const TOUR_PAGES: PageSteps[] = [
       {
         title: "🎖 Welcome to Leader",
         description:
-          "An admin promoted you. This walkthrough takes 90 seconds and ends with a rules acknowledgment you'll need to sign before unlocking the rest of the leader tools. Use the buttons below — don't click links inside descriptions; they'll break the tour.",
+          "An admin promoted you. This walkthrough takes 90 seconds and ends with a rules acknowledgment you'll need to sign before unlocking the rest of the leader tools. Use the Next button to advance.",
       },
       {
         title: "Your dashboard",
         description:
-          "This is the same dashboard every user sees, plus a few leader-only cards. The tour will jump you to each new surface — Campaign authoring, Forum moderation, the Leader workshop — in order. Stay with me.",
+          "This is the same dashboard every user sees, plus a few leader-only cards. The tour will jump you to each new surface in order. Click Next to head to Campaigns.",
       },
     ],
   },
@@ -80,7 +70,7 @@ const TOUR_PAGES: PageSteps[] = [
     label: "Author campaigns",
     steps: [
       {
-        title: "Authoring campaigns",
+        title: "📣 Authoring campaigns",
         description:
           "Leaders can draft call-to-action campaigns for any state. You write the email template (with placeholders like {{full_name}}, {{state}}, {{legislator_name}}). When you save, the campaign lands in pending_review — an admin approves before it goes live. You CANNOT publish directly; that's by design.",
       },
@@ -92,7 +82,7 @@ const TOUR_PAGES: PageSteps[] = [
       {
         title: "Rules for campaign authoring",
         description:
-          "1. Nonpartisan tone — never endorse candidates or parties.<br/>2. No personal attacks on legislators.<br/>3. Distinguish natural-leaf kratom from 7-OH-enriched products in your messaging — this is platform policy.<br/>4. Cite a real bill or alert — don't make up urgency.<br/>5. Templates are CC'd via the user's own email; remember they sign their real name.",
+          "1. Nonpartisan tone — never endorse candidates or parties.<br/>2. No personal attacks on legislators.<br/>3. Distinguish natural-leaf kratom from 7-OH-enriched products in your messaging — this is platform policy.<br/>4. Cite a real bill or alert — don't make up urgency.<br/>5. Templates are sent via the user's own email; they sign their real name.",
       },
     ],
   },
@@ -103,7 +93,7 @@ const TOUR_PAGES: PageSteps[] = [
     label: "Moderate the forum",
     steps: [
       {
-        title: "Forum moderation queue",
+        title: "💬 Forum moderation queue",
         description:
           "This shows posts auto-flagged for review (new-account spam patterns, links from low-trust accounts, keyword matches) plus user-reported content. As a leader you can: approve, hide, or escalate to an admin.",
       },
@@ -131,7 +121,7 @@ const TOUR_PAGES: PageSteps[] = [
     label: "Add local officials",
     steps: [
       {
-        title: "Local officials",
+        title: "🏛 Local officials",
         description:
           "When a city/county bill comes up in your area, you can add the local mayor + council members here so campaigns can target them. The platform also auto-pulls these via Gemini Search when a municipal bill is detected — but your local knowledge is more accurate than any LLM.",
       },
@@ -149,7 +139,7 @@ const TOUR_PAGES: PageSteps[] = [
     label: "Leader workshop",
     steps: [
       {
-        title: "Leader workshop",
+        title: "🛠 Leader workshop",
         description:
           "Your home base for field-work tools (most are 'coming soon'). Field signup, booth recruitment, business outreach, hearing turnout coordination. Bookmark this page.",
       },
@@ -160,7 +150,7 @@ const TOUR_PAGES: PageSteps[] = [
       },
     ],
   },
-  // Final acknowledgment step — special-cased, no element selector, has the form
+  // Final acknowledgment — opens a custom modal with required checkbox
   {
     pageKey: "acknowledge",
     matchesPath: (p) => p === "/account",
@@ -168,36 +158,28 @@ const TOUR_PAGES: PageSteps[] = [
     label: "Acknowledge the rules",
     steps: [
       {
-        title: "📋 Acknowledge leader rules",
+        title: "📋 Last step — acknowledge the rules",
         description:
-          "By clicking the checkbox below, you confirm you've read this walkthrough and agree to:<br/><br/>" +
-          "• Nonpartisan messaging in all campaigns you author<br/>" +
-          "• Apply moderation standards uniformly regardless of stance<br/>" +
-          "• Escalate uncertainty to an admin<br/>" +
-          "• Use only publicly-available contact info for local officials<br/>" +
-          "• Treat your recruits' info as confidential<br/><br/>" +
-          "Click the I AGREE button below to complete the tour and unlock all leader functions.",
+          "Almost done. Click Next to open the acknowledgment form. You'll review the leader rules one more time and sign with a checkbox — that unlocks the rest of your leader functions.",
       },
     ],
   },
 ];
 
 function loadState(): TourState {
-  if (typeof window === "undefined") return { pageKey: "dashboard", stepIdx: 0, completedPages: [] };
+  if (typeof window === "undefined") return { pageKey: "dashboard", completedPages: [] };
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { pageKey: "dashboard", stepIdx: 0, completedPages: [] };
+    if (!raw) return { pageKey: "dashboard", completedPages: [] };
     return JSON.parse(raw) as TourState;
   } catch {
-    return { pageKey: "dashboard", stepIdx: 0, completedPages: [] };
+    return { pageKey: "dashboard", completedPages: [] };
   }
 }
 
 function saveState(s: TourState) {
   if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(s));
-  } catch { /* quota / disabled */ }
+  try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch { /* no-op */ }
 }
 
 function clearState() {
@@ -216,90 +198,94 @@ export function LeaderTourController({
   const pathname = usePathname();
   const [, startTransition] = useTransition();
   const driverRef = useRef<Driver | null>(null);
+  // True only when the user clicks Next on the last step of a page.
+  // Cleanup-triggered destroys (pathname change) see this as false
+  // and skip navigation, which fixes the "Open Campaigns doesn't
+  // continue walkthrough" bug.
+  const finishedRef = useRef(false);
   const [ackOpen, setAckOpen] = useState(false);
   const [ackChecked, setAckChecked] = useState(false);
   const [ackSubmitting, setAckSubmitting] = useState(false);
   const [ackError, setAckError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Don't fire if user already acknowledged OR there's no pending flag
     if (alreadyAcknowledged || !pending) {
-      // Clean up any stale LS state
       clearState();
       return;
     }
     if (typeof window === "undefined") return;
 
     const state = loadState();
-    // Figure out which page-set we're on right now
     const currentPage = TOUR_PAGES.find((p) => p.matchesPath(pathname));
+    if (!currentPage) return;
+    if (state.completedPages.includes(currentPage.pageKey)) return;
 
-    if (!currentPage) {
-      // User is on a page not in the tour. Don't auto-navigate (could be
-      // confusing); just sit quiet until they hit a tour page. The
-      // banner (rendered separately) nudges them.
-      return;
-    }
+    const pageIdx = TOUR_PAGES.findIndex((p) => p.pageKey === currentPage.pageKey);
+    const isLastPage = pageIdx === TOUR_PAGES.length - 1;
+    const nextPage = TOUR_PAGES[pageIdx + 1];
 
-    // If they're on a page we already completed in this LS state, skip
-    if (state.completedPages.includes(currentPage.pageKey) && state.pageKey !== currentPage.pageKey) {
-      return;
-    }
-
-    // Run this page's tour
-    const isLastPage = TOUR_PAGES[TOUR_PAGES.length - 1].pageKey === currentPage.pageKey;
-    const nextPage = TOUR_PAGES[TOUR_PAGES.findIndex((p) => p.pageKey === currentPage.pageKey) + 1];
+    finishedRef.current = false;
 
     const d = driver({
       showProgress: true,
       animate: true,
-      allowClose: false,            // can't close — must finish or escape via Skip
+      allowClose: false,
       overlayOpacity: 0.6,
       stagePadding: 4,
       stageRadius: 8,
-      nextBtnText: isLastPage ? "Continue →" : "Next →",
+      nextBtnText: "Next →",
       prevBtnText: "Back",
-      doneBtnText: isLastPage ? "Sign acknowledgment →" : `Continue: ${nextPage?.label ?? "Done"} →`,
+      doneBtnText: isLastPage ? "Open acknowledgment →" : `Continue: ${nextPage?.label ?? "Done"} →`,
       onDestroyed: () => {
-        // Mark this page complete + advance to next page
+        // ONLY navigate if the user finished this page's steps. The
+        // useEffect cleanup also calls destroy() — that path leaves
+        // finishedRef=false so we no-op (no double-navigation).
+        if (!finishedRef.current) return;
+        finishedRef.current = false;
+
         const newState: TourState = {
           ...state,
           completedPages: [...new Set([...state.completedPages, currentPage.pageKey])],
           pageKey: nextPage?.pageKey ?? "acknowledge",
-          stepIdx: 0,
         };
         saveState(newState);
 
-        // If this was the last page → open the ack modal
         if (isLastPage) {
           setAckOpen(true);
           return;
         }
-
-        // Navigate to next page in tour
-        if (nextPage) {
-          router.push(nextPage.navigateTo);
-        }
+        if (nextPage) router.push(nextPage.navigateTo);
       },
       steps: currentPage.steps.map((s) => ({
-        element: s.element,
-        popover: {
-          title: s.title,
-          description: s.description,
-          side: s.side,
-        },
+        popover: { title: s.title, description: s.description },
       })),
     });
+
+    // Wrap moveNext so we can detect the "user clicked Next on the
+    // LAST step" event and set finishedRef. Without this, finishedRef
+    // would never get set and the tour would just sit on screen.
+    const origMoveNext = d.moveNext?.bind(d);
+    if (origMoveNext) {
+      d.moveNext = () => {
+        const activeIdx = d.getActiveIndex?.() ?? 0;
+        const totalSteps = currentPage.steps.length;
+        if (activeIdx >= totalSteps - 1) {
+          finishedRef.current = true;
+        }
+        origMoveNext();
+      };
+    }
 
     driverRef.current = d;
     d.drive();
 
     return () => {
+      // Cleanup destroy. finishedRef intentionally NOT set here so
+      // onDestroyed no-ops — that's the bug fix.
       driverRef.current?.destroy();
       driverRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, pending, alreadyAcknowledged]);
+  }, [pathname, pending, alreadyAcknowledged, router]);
 
   async function submitAcknowledgment() {
     if (!ackChecked) {
@@ -315,11 +301,9 @@ export function LeaderTourController({
         setAckSubmitting(false);
         return;
       }
-      // Clean up LS, also clear pending flag in DB (acknowledgeLeaderRules does both)
       clearState();
       setAckOpen(false);
       setAckSubmitting(false);
-      // Force a fresh load so the layout banner disappears + cached prof refreshes
       router.refresh();
     });
   }
@@ -328,14 +312,12 @@ export function LeaderTourController({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/80 p-4 backdrop-blur"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-zinc-950/80 p-4 backdrop-blur"
       role="dialog"
       aria-modal="true"
     >
       <div className="w-full max-w-lg rounded-lg border border-emerald-700/60 bg-zinc-950 p-6 shadow-2xl">
-        <p className="text-xs font-bold uppercase tracking-widest text-emerald-400">
-          📋 Final step
-        </p>
+        <p className="text-xs font-bold uppercase tracking-widest text-emerald-400">📋 Final step</p>
         <h2 className="mt-2 text-2xl font-bold">Acknowledge leader rules</h2>
         <div className="mt-4 space-y-2 text-sm text-zinc-300">
           <p>By clicking I AGREE below, you confirm you&apos;ve read the walkthrough and agree to:</p>
@@ -378,10 +360,7 @@ export function LeaderTourController({
             {ackSubmitting ? "Submitting…" : "I AGREE — complete tour"}
           </button>
           <button
-            onClick={() => {
-              setAckOpen(false);
-              // Reopen via banner; don't clear LS so tour stays mid-flight
-            }}
+            onClick={() => setAckOpen(false)}
             className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500"
           >
             Not yet
@@ -390,7 +369,7 @@ export function LeaderTourController({
 
         <p className="mt-4 text-[11px] text-zinc-500">
           You can&apos;t exercise leader functions until you complete this. Closing this without
-          agreeing will leave the reminder banner active on every page.
+          agreeing leaves the reminder banner active on every page.
         </p>
       </div>
     </div>
