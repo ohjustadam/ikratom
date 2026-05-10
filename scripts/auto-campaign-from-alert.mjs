@@ -215,13 +215,17 @@ async function processAlert(alert) {
   console.log(`\n=== ${alert.id.slice(0, 8)} | ${alert.kind} | ${alert.locality} ===`);
   console.log(`  ${alert.title}`);
 
+  // Return values:
+  //   "ok"   — campaign created
+  //   "skip" — no-op (already linked, action_required=false)
+  //   "fail" — actual error (insert error, target lookup failure)
   if (alert.campaign_id) {
     console.log(`  ⏭  campaign already linked: ${alert.campaign_id}`);
-    return false;
+    return "skip";
   }
   if (!alert.action_required) {
     console.log("  ⏭  action_required=false; skipping");
-    return false;
+    return "skip";
   }
 
   const { targets, roles, locality, tier, bopBoardId } = await pickTargets(alert);
@@ -229,7 +233,11 @@ async function processAlert(alert) {
 
   const tpl = templateForAlert(alert);
 
-  // Slug from kind + locality + first 6 words of title
+  // Slug — matches the Phase 4 trigger's build_alert_campaign_slug()
+  // exactly (including the 6-char alert-id suffix) so the script and
+  // the trigger can't collide on the same slug. Pre-fix, the script
+  // omitted the id suffix and threw unique_violation every cron run
+  // for any alert pair sharing a 6-word title prefix.
   const slugWords = alert.title
     ?.toLowerCase()
     .replace(/[^a-z0-9\s-]/g, "")
@@ -237,7 +245,8 @@ async function processAlert(alert) {
     .slice(0, 6)
     .join("-")
     .replace(/-+/g, "-");
-  const slug = `alert-${alert.locality.toLowerCase()}-${slugWords}`.slice(0, 80);
+  const idSuffix = alert.id.replace(/-/g, "").slice(0, 6);
+  const slug = `alert-${alert.locality.toLowerCase()}-${slugWords}-${idSuffix}`.slice(0, 80);
 
   const campaignRow = {
     slug,
@@ -264,7 +273,7 @@ async function processAlert(alert) {
     console.log(`    slug: ${campaignRow.slug}`);
     console.log(`    subject: ${campaignRow.subject_template}`);
     console.log(`    targets: ${targets.length} legislator(s) (${tier})`);
-    return true;
+    return "ok";
   }
 
   const { data: created, error } = await sb
@@ -273,15 +282,22 @@ async function processAlert(alert) {
     .select("id, slug")
     .single();
   if (error) {
+    // Unique-violation = the trigger already created this campaign
+    // for the same alert in a different cron tick. Not an error — the
+    // trigger is the canonical path. Just skip.
+    if (error.code === "23505") {
+      console.log(`  ⏭  campaign slug already exists (trigger handled it): ${campaignRow.slug}`);
+      return "skip";
+    }
     console.log(`  ✗ campaign insert failed: ${error.message}`);
-    return false;
+    return "fail";
   }
   console.log(`  ✓ campaign ${created.id.slice(0, 8)} (${created.slug})`);
 
   // Link back from the alert
   await sb.from("policy_alerts").update({ campaign_id: created.id }).eq("id", alert.id);
   console.log("  ✓ alert.campaign_id updated");
-  return true;
+  return "ok";
 }
 
 let alerts;
@@ -303,18 +319,29 @@ if (SPECIFIC) {
 if (alerts.length === 0) { console.log("Nothing to process."); process.exit(0); }
 console.log(`Processing ${alerts.length} alert(s)${DRY ? " (DRY RUN)" : ""}…`);
 
-let ok = 0, fail = 0;
+let ok = 0, fail = 0, skip = 0;
 for (const a of alerts) {
-  if (await processAlert(a)) ok++; else fail++;
+  const r = await processAlert(a);
+  if (r === "ok") ok++;
+  else if (r === "fail") fail++;
+  else skip++;
 }
-console.log(`\nDone. ok=${ok}, fail=${fail}`);
+console.log(`\nDone. ok=${ok}, fail=${fail}, skip=${skip}`);
 try {
+  // Skips (alert already has a campaign, trigger beat us to the slug,
+  // action_required=false) are correct no-ops in the safety-net role —
+  // the Phase 4 trigger handles real-time, this script just sweeps.
+  // Only flag error if there were ACTUAL failures.
+  const status =
+    fail > 0 ? "error" :
+    (ok === 0 && skip === 0) ? "empty" :
+    "success";
   await sb.from("scraper_runs").insert({
     source: "auto_campaign_from_alert",
     started_at: new Date().toISOString(),
     finished_at: new Date().toISOString(),
-    status: fail > ok ? "error" : (ok === 0 ? "empty" : "success"),
+    status,
     rows_added: ok,
-    notes: `${ok} campaigns generated, ${fail} skipped/failed`,
+    notes: `${ok} generated, ${skip} no-op skipped, ${fail} failed`,
   });
 } catch { /* best-effort */ }
