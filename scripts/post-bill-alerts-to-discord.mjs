@@ -61,11 +61,12 @@ function pickEmbed(alert, bill) {
 
 async function findPendingAlerts() {
   // Critical/alert severity, kind=bill_event, approved, not yet posted,
-  // and created in last 7 days (don't backfill ancient history into chat).
+  // and created in last 7 days. Dedup-key fingerprinted by migration
+  // 0079 — only one approved row per key is possible at any moment.
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await sb
     .from("policy_alerts")
-    .select("id, kind, severity, title, body, locality, source_url, bill_id, created_at")
+    .select("id, kind, severity, title, body, locality, source_url, bill_id, dedupe_key, created_at")
     .eq("kind", "bill_event")
     .in("severity", ["critical", "alert"])
     .eq("moderation_status", "approved")
@@ -77,7 +78,34 @@ async function findPendingAlerts() {
     console.error("query failed:", error.message);
     return [];
   }
-  return data ?? [];
+
+  // Safety-net dedup at poster level. If two approved alerts somehow
+  // landed with the same dedupe_key (race condition between trigger
+  // and external insert), keep the earliest and mark the rest posted
+  // so they don't re-fire. This is belt-and-suspenders — the unique
+  // index already prevents this 99.9% of the time.
+  const seen = new Map();
+  const toMarkPosted = [];
+  const unique = [];
+  for (const a of data ?? []) {
+    if (!a.dedupe_key) {
+      unique.push(a);
+      continue;
+    }
+    if (seen.has(a.dedupe_key)) {
+      toMarkPosted.push(a.id);
+    } else {
+      seen.set(a.dedupe_key, a);
+      unique.push(a);
+    }
+  }
+  if (toMarkPosted.length > 0) {
+    await sb.from("policy_alerts")
+      .update({ discord_posted_at: new Date().toISOString() })
+      .in("id", toMarkPosted);
+    console.log(`  ⚠ poster-level dedup: ${toMarkPosted.length} duplicate(s) marked posted without firing`);
+  }
+  return unique;
 }
 
 async function getActiveIntegrations(forState) {
