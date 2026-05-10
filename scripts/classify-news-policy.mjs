@@ -170,6 +170,22 @@ for (const item of items) {
       if (!aerr) {
         alertId = alert.id;
         alertsCreated++;
+      } else if (aerr.code === "23505" && aerr.message?.includes("ux_policy_alerts_dedupe_approved")) {
+        // Dedup-key collision = another news article about the same
+        // event already created the alert. Find the canonical row and
+        // link the news_item to it so we don't lose the audit trail.
+        const dedupeKey = aerr.details?.match(/Key \(dedupe_key\)=\(([^)]+)\)/)?.[1];
+        if (dedupeKey) {
+          const { data: canonical } = await sb.from("policy_alerts")
+            .select("id")
+            .eq("dedupe_key", dedupeKey)
+            .eq("moderation_status", "approved")
+            .limit(1).single();
+          if (canonical) {
+            alertId = canonical.id;
+            console.log(`  ↪ dedup: news converged on existing alert ${canonical.id.slice(0, 8)} (key=${dedupeKey.slice(0, 40)})`);
+          }
+        }
       }
 
       // Layer 3 — News-triggered hot-resync. If the article title /
