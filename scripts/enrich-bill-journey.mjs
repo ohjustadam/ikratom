@@ -508,6 +508,15 @@ async function processBill(bill) {
     updatePatch.substance_targeting = clean;
     updatePatch.substance_targeting_analyzed_at = new Date().toISOString();
   }
+  // Detect status change BEFORE we overwrite the row, so we can post
+  // to Discord after the save succeeds.
+  const { data: priorRow } = await supabase
+    .from("bills")
+    .select("status, last_action, kratom_relevance, title")
+    .eq("id", bill.id)
+    .single();
+  const priorStatus = priorRow?.status ?? null;
+
   const { error: upErr } = await supabase
     .from("bills")
     .update(updatePatch)
@@ -516,6 +525,44 @@ async function processBill(bill) {
     console.log(`  ✗ DB update failed: ${upErr.message}`);
     return false;
   }
+
+  // Layer 1 — write each action to bill_actions history. Unique
+  // constraint on (bill_id, action_date, description) dedupes silently
+  // so re-runs are idempotent. The 0076 trigger then fires on any
+  // NEW rows (existing actions don't re-trigger), auto-spawning a
+  // policy_alert with severity matching the bill's stance.
+  if (detail.actions && detail.actions.length > 0) {
+    const actionRows = detail.actions
+      .filter((a) => a && a.date && a.description)
+      .map((a) => ({
+        bill_id: bill.id,
+        action_date: a.date,
+        description: String(a.description).slice(0, 800),
+        chamber: a.organization?.name ?? null,
+        source: "openstates",
+        raw_json: a,
+      }));
+    if (actionRows.length > 0) {
+      // ON CONFLICT DO NOTHING via the unique index. Returning rows
+      // tells us which ones were actually new (i.e. fired the trigger).
+      const { data: inserted, error: actErr } = await supabase
+        .from("bill_actions")
+        .upsert(actionRows, { onConflict: "bill_id,action_date,description", ignoreDuplicates: true })
+        .select("id, description");
+      if (actErr) {
+        console.log(`  ⚠ bill_actions write failed: ${actErr.message?.slice(0, 200)}`);
+      } else if (inserted && inserted.length > 0) {
+        console.log(`  ↳ ${inserted.length} new action(s) logged → critical-action trigger may have fired`);
+      }
+    }
+  }
+
+  // Discord fan-out happens via the separate post-bill-alerts-to-discord.mjs
+  // cron step — it scans recent critical/alert policy_alerts spawned by
+  // the 0076 trigger and posts them. Decoupling keeps this script focused
+  // on enrichment, and the Discord poster runs whether the alert came
+  // from this script, hourly sync, news classification, or admin edit.
+
   console.log(`  ✓ saved (${journey.length} chars, ${ac} versions, stance_changed=${!!parsed.stance_changed})`);
   if (Array.isArray(parsed.key_amendment_dates) && parsed.key_amendment_dates.length > 0) {
     console.log(`  key amendment dates: ${parsed.key_amendment_dates.join(", ")}`);

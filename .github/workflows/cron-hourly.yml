@@ -132,6 +132,17 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           APP_URL: ${{ secrets.APP_URL }}
         run: node scripts/auto-post-bills-to-forum.mjs
+      - name: Post critical bill alerts to Discord channels
+        # Scans policy_alerts for severity in (critical, alert) with
+        # kind='bill_event' that haven't been Discord-posted yet (last
+        # 7 days). Posts to every active Discord integration whose
+        # state_filter matches the alert's locality. Marks
+        # discord_posted_at so re-runs are idempotent.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: node scripts/post-bill-alerts-to-discord.mjs
       - name: Fan out bill subscription notifications
         # Hourly: fires a meeting-reminder notification when a bill's
         # meeting falls in the next 24h (one-shot per subscription) +
