@@ -176,9 +176,13 @@ async function suggestOfficials({ city, state }) {
   };
 }
 
+// Return values:
+//   "ok"   — seeded new officials
+//   "skip" — no-op (locality already covered, or no locality on bill)
+//   "fail" — actual failure (Gemini error, insert error, 0 officials returned)
 async function processBill(bill) {
   console.log(`\n=== ${bill.id.slice(0, 8)} | ${bill.state} ${bill.bill_number} | ${bill.locality} ===`);
-  if (!bill.locality) { console.log("  ⏭  no locality on bill"); return false; }
+  if (!bill.locality) { console.log("  ⏭  no locality on bill"); return "skip"; }
 
   // Parse "Marshall, IL" → "Marshall"
   const cityMatch = bill.locality.match(/^([^,]+),\s*([A-Z]{2})/);
@@ -193,7 +197,7 @@ async function processBill(bill) {
       .eq("active", true);
     if ((count ?? 0) > 0) {
       console.log(`  ⏭  ${count} officials already exist for ${bill.locality}; skip (use --refresh to force)`);
-      return false;
+      return "skip";
     }
   }
 
@@ -203,11 +207,11 @@ async function processBill(bill) {
     suggestion = await suggestOfficials({ city, state: bill.state });
   } catch (e) {
     console.log(`  ✗ Gemini failed: ${e.message?.slice(0, 200)}`);
-    return false;
+    return "fail";
   }
   if (suggestion.officials.length === 0) {
     console.log(`  ⚠ Gemini returned 0 officials. Sources: ${suggestion.sources.slice(0, 2).join(", ")}`);
-    return false;
+    return "fail";
   }
   console.log(`  ✓ Gemini found ${suggestion.officials.length} official(s)`);
 
@@ -302,13 +306,13 @@ async function processBill(bill) {
   const skipped = rows.length - newRows.length;
   if (newRows.length === 0) {
     console.log(`  ⏭  all ${rows.length} already in DB`);
-    return true;
+    return "skip";
   }
 
   const { data: inserted, error } = await sb.from("legislators").insert(newRows).select("id");
   if (error) {
     console.log(`  ✗ insert failed: ${error.message}`);
-    return false;
+    return "fail";
   }
   console.log(`  ✓ inserted ${inserted?.length ?? 0} new official(s); skipped ${skipped} dupe(s)`);
   for (const o of newRows) {
@@ -340,7 +344,7 @@ async function processBill(bill) {
   } catch (e) {
     console.log(`  ⚠ retarget hook error: ${e.message?.slice(0, 200)}`);
   }
-  return true;
+  return "ok";
 }
 
 let bills;
@@ -359,19 +363,31 @@ if (SPECIFIC) {
 if (bills.length === 0) { console.log("No bills to process."); process.exit(0); }
 console.log(`Processing ${bills.length} local bill(s)…`);
 
-let ok = 0, fail = 0;
+let ok = 0, fail = 0, skip = 0;
 for (const b of bills) {
-  if (await processBill(b)) ok++; else fail++;
+  const r = await processBill(b);
+  if (r === "ok") ok++;
+  else if (r === "fail") fail++;
+  else skip++;
   await new Promise((r) => setTimeout(r, 2000));
 }
-console.log(`\nDone. ok=${ok}, fail=${fail}`);
+console.log(`\nDone. ok=${ok}, fail=${fail}, skip=${skip}`);
 try {
+  // Status semantics: error only if there were ACTUAL failures (Gemini
+  // call failed, insert failed). Skips ("already exists", "no locality")
+  // are not errors — they're correct no-ops. Empty if literally nothing
+  // happened. Success otherwise.
+  const status =
+    fail > 0 ? "error" :
+    (ok === 0 && skip === 0) ? "empty" :
+    (ok === 0 && skip > 0) ? "success" :   // all-skipped is a clean noop
+    "success";
   await sb.from("scraper_runs").insert({
     source: "seed_bill_officials",
     started_at: new Date().toISOString(),
     finished_at: new Date().toISOString(),
-    status: fail > ok ? "error" : (ok === 0 ? "empty" : "success"),
+    status,
     rows_added: ok,
-    notes: `${ok} localities seeded, ${fail} failed/skipped`,
+    notes: `${ok} seeded, ${skip} no-op skipped, ${fail} failed`,
   });
 } catch { /* best-effort */ }
