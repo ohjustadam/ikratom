@@ -132,6 +132,17 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           APP_URL: ${{ secrets.APP_URL }}
         run: node scripts/auto-post-bills-to-forum.mjs
+      - name: LegiScan primary sync for active anti bills (Layer 2)
+        # Hourly: pulls fresh action history from LegiScan for the 30
+        # most-stale active anti bills. Writes new actions to
+        # bill_actions (deduped); the 0076 trigger fires per row,
+        # auto-spawning critical/alert policy_alerts. Falls back to
+        # no-op if LEGISCAN_API_KEY isn't set.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
+        run: node scripts/sync-bills-via-legiscan.mjs --priority
       - name: Post critical bill alerts to Discord channels
         # Scans policy_alerts for severity in (critical, alert) with
         # kind='bill_event' that haven't been Discord-posted yet (last

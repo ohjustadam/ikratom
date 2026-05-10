@@ -171,6 +171,40 @@ for (const item of items) {
         alertId = alert.id;
         alertsCreated++;
       }
+
+      // Layer 3 — News-triggered hot-resync. If the article title /
+      // body mentions a bill_number we track, force-stale the bill so
+      // the next LegiScan priority sync pass picks it up within minutes
+      // instead of waiting for the natural rotation. Catches the case
+      // where news breaks the story before official feeds update.
+      try {
+        const billNumMatches = (item.title + " " + (item.snippet ?? "")).match(/\b([HS][BR]?\s?\d{1,4})\b/gi) ?? [];
+        if (billNumMatches.length > 0 && locality !== "ALL" && /^[A-Z]{2}$/.test(locality)) {
+          const compacted = billNumMatches.map((m) => m.replace(/\s+/g, "").toUpperCase());
+          const spaced = billNumMatches.map((m) => m.replace(/\s+/g, " ").toUpperCase().trim());
+          const allForms = [...new Set([...compacted, ...spaced])];
+          // Match against bills.bill_number both with and without space
+          for (const form of allForms) {
+            const { data: matchedBills } = await sb.from("bills")
+              .select("id, bill_number")
+              .eq("state", locality)
+              .or(`bill_number.eq.${form},bill_number.eq.${form.slice(0, 2)} ${form.slice(2)}`)
+              .eq("active", true)
+              .limit(2);
+            for (const mb of (matchedBills ?? [])) {
+              // Set last_synced_at to an old date so the LegiScan priority
+              // sweep picks this bill up on the very next cron tick.
+              await sb.from("bills").update({
+                last_synced_at: new Date(0).toISOString(),
+              }).eq("id", mb.id);
+              console.log(`  ↻ hot-stale: ${locality} ${mb.bill_number} (matched in news → next sync within ~1h)`);
+            }
+          }
+        }
+      } catch (e) {
+        // best-effort — don't block the classify loop
+        if (process.env.DEBUG) console.log(`  ⚠ hot-resync trigger error: ${e.message?.slice(0, 100)}`);
+      }
     } else {
       skipped++;
     }
