@@ -36,9 +36,50 @@ const HEADERS = {
   Referer: "https://www.google.com/",
 };
 
+// Defense-in-depth SSRF check. The admin UI already validates URLs
+// at submission time, but if a malicious row landed in bop_sources
+// via some other path (compromised DB, future migration bug, etc.),
+// the scraper refuses to follow it.
+function isSafeForFetch(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    if (u.username || u.password) return false;
+    if (u.port && u.port !== "80" && u.port !== "443") return false;
+    const h = u.hostname.toLowerCase();
+    if (h === "localhost" || h === "metadata.google.internal") return false;
+    if (/\.(local|internal|lan|home|corp|intra)$/.test(h)) return false;
+    const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (v4) {
+      const [a, b] = v4.slice(1).map(Number);
+      if (a === 10) return false;
+      if (a === 127) return false;
+      if (a === 0) return false;
+      if (a === 169 && b === 254) return false;
+      if (a === 172 && b >= 16 && b <= 31) return false;
+      if (a === 192 && b === 168) return false;
+      if (a === 100 && b >= 64 && b <= 127) return false;
+    }
+    if (h.startsWith("[") || h.includes(":")) {
+      // IPv6 literal — block any loopback/unique-local/link-local
+      const stripped = h.replace(/^\[|\]$/g, "");
+      if (stripped === "::1" || stripped === "::" ) return false;
+      if (stripped.startsWith("fc") || stripped.startsWith("fd")) return false;
+      if (stripped.startsWith("fe80:")) return false;
+      if (stripped.startsWith("::ffff:")) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function scrape({ source }) {
   const url = source.agenda_url;
   if (!url) return [];
+  if (!isSafeForFetch(url)) {
+    throw new Error(`Refusing to fetch unsafe URL: ${url}`);
+  }
 
   let html;
   try {
