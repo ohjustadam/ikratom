@@ -162,7 +162,67 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   if (existing) return { error: "That username is already taken." };
 
   const { error, data } = await supabase.auth.signUp({ email, password });
-  if (error) return { error: error.message };
+
+  if (error) {
+    // Email-enumeration defense: Supabase returns "User already
+    // registered" (or similar) when the email exists. Returning that
+    // verbatim lets an attacker enumerate which emails have accounts.
+    //
+    // Pattern: return success regardless of whether the email is in
+    // use. If the email IS in use, the user simply won't get a new
+    // confirmation email. The attacker can't distinguish that outcome
+    // from a real new signup without access to the target's inbox.
+    //
+    // Real users who forgot they had an account will figure it out
+    // when their confirmation email never arrives and they try the
+    // "Forgot password" flow.
+    const msg = (error.message ?? "").toLowerCase();
+    if (
+      msg.includes("already registered") ||
+      msg.includes("already been registered") ||
+      msg.includes("user already exists") ||
+      msg.includes("email exists")
+    ) {
+      // Log for our own visibility — never surface to the user.
+      console.warn("[signup] duplicate email attempt", {
+        ip: await getClientIp(),
+        // Log only the hash so emails don't sit in logs:
+        email_hash: hashForLog(email),
+      });
+      // Best-effort: send the existing-account holder a heads-up email
+      // so a legit user who forgot their account knows what happened.
+      // No-op if Resend isn't configured.
+      try {
+        const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
+        if (process.env.RESEND_API_KEY) {
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: `${process.env.RESEND_FROM_NAME ?? "iKratom"} <${process.env.RESEND_FROM_EMAIL ?? "no-reply@ikratom.org"}>`,
+              to: email,
+              subject: "Someone tried to sign up with your iKratom email",
+              html: `<p>Hi,</p>
+<p>Someone just tried to create a new iKratom account with this email — but your address is already registered.</p>
+<p>If that was you, just sign in:</p>
+<p style="text-align:center;margin:32px 0"><a href="${APP_URL}/login" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Sign in →</a></p>
+<p>Forgot your password? <a href="${APP_URL}/forgot">${APP_URL}/forgot</a></p>
+<p style="color:#666;font-size:12px">If it wasn't you, no action needed. We didn't reveal that your email is registered, and we didn't change anything on your account.</p>`,
+            }),
+            signal: AbortSignal.timeout(10_000),
+          });
+        }
+      } catch (e) {
+        console.error("[signup] heads-up email failed:", e);
+      }
+      // Return success shape so the attacker can't tell from response.
+      return { success: true };
+    }
+    return { error: error.message };
+  }
 
   // The on_auth_user_created trigger has now inserted a profile row for
   // this user. Stamp the username on it. If the unique index trips
@@ -184,6 +244,17 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   }
 
   return { success: true };
+}
+
+function hashForLog(s: string): string {
+  // Lightweight non-crypto hash for logs only. We never need to reverse
+  // it; we just want to correlate signup attempts without storing the
+  // actual email.
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h).toString(16);
 }
 
 /** Sign in. Redirects on success. */
