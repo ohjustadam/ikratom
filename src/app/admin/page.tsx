@@ -142,6 +142,14 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/sync-discrepancies"
+            title={queues.syncDiscrepancies > 0 ? `Sync discrepancies (${queues.syncDiscrepancies})` : "Sync discrepancies"}
+            body="Bills where AI fact-check disagrees with our DB. Triage TN-SB-1656-class misses before they cost us in advocacy."
+            accent={queues.syncDiscrepancies > 0}
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/discord-integrations"
             title={queues.inactiveDiscord > 0 ? `Discord integrations (${queues.inactiveDiscord} inactive)` : "Discord integrations"}
             body="Connect partner server webhooks. Bill alerts and campaign launches auto-post to their channels."

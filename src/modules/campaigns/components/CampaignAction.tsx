@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import type { Legislator } from "@/lib/legislators";
 import { ROLE_SHORT } from "@/lib/legislators";
 import { logCampaignAction, sendCampaignViaGmail } from "../actions";
+import { personalizeCampaignBody } from "../actions-personalize";
 import { CallActionPanel } from "./CallActionPanel";
 import { AttachmentRecorder } from "./AttachmentRecorder";
 
@@ -51,6 +52,9 @@ export function CampaignAction({
   const [copied, setCopied] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
+  const [personalizing, setPersonalizing] = useState(false);
+  const [personalizeError, setPersonalizeError] = useState<string | null>(null);
+  const [personalizeChanges, setPersonalizeChanges] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   // Geography gates — bypassed entirely when campaign allows non-residents.
@@ -255,13 +259,53 @@ export function CampaignAction({
           Send to {isNonResident ? "" : "your "}{targetsWithEmail.length}{" "}
           {targetsWithEmail.length === 1 ? "legislator" : "legislators"}
         </h2>
-        <button
-          onClick={() => setEditing((v) => !v)}
-          className="text-xs text-emerald-400 hover:underline"
-        >
-          {editing ? "Hide editor" : "Edit message"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={async () => {
+              setPersonalizeError(null);
+              setPersonalizeChanges(null);
+              setPersonalizing(true);
+              try {
+                const r = await personalizeCampaignBody({
+                  campaignBody: body,
+                  campaignTitle: subject,
+                });
+                if ("error" in r && r.error) {
+                  setPersonalizeError(r.error);
+                } else if ("ok" in r && r.ok && r.personalized_body) {
+                  setBody(r.personalized_body);
+                  setPersonalizeChanges(r.what_changed ?? null);
+                  setEditing(true);
+                }
+              } finally {
+                setPersonalizing(false);
+              }
+            }}
+            disabled={personalizing}
+            className="rounded-md border border-emerald-700/40 bg-emerald-950/20 px-2 py-0.5 text-xs text-emerald-300 hover:border-emerald-500 disabled:opacity-50"
+            title="Rewrites this template in your authentic voice using your kratom story (from /account/character)"
+          >
+            {personalizing ? "✨ Personalizing…" : "✨ Personalize with my story"}
+          </button>
+          <button
+            onClick={() => setEditing((v) => !v)}
+            className="text-xs text-emerald-400 hover:underline"
+          >
+            {editing ? "Hide editor" : "Edit message"}
+          </button>
+        </div>
       </div>
+      {personalizeError && (
+        <p className="mt-2 rounded-md border border-amber-700/40 bg-amber-950/10 p-2 text-xs text-amber-300">
+          {personalizeError}
+        </p>
+      )}
+      {personalizeChanges && (
+        <p className="mt-2 rounded-md border border-emerald-700/40 bg-emerald-950/10 p-2 text-xs text-emerald-300">
+          ✨ {personalizeChanges} <span className="text-zinc-500">Review the edit + send when ready.</span>
+        </p>
+      )}
 
       {/* Recipient chips — capped to keep the page from ballooning on
           large state-floor campaigns. */}

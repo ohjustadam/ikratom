@@ -50,6 +50,7 @@ export type AdminQueueCounts = {
   loungeBanReview: number;
   inactiveDiscord: number;
   intelTips: number;
+  syncDiscrepancies: number;
 };
 
 export async function getAdminQueueCounts(): Promise<AdminQueueCounts> {
@@ -63,6 +64,7 @@ export async function getAdminQueueCounts(): Promise<AdminQueueCounts> {
     loungeBanReview: 0,
     inactiveDiscord: 0,
     intelTips: 0,
+    syncDiscrepancies: 0,
   };
   try {
     const [
@@ -75,6 +77,7 @@ export async function getAdminQueueCounts(): Promise<AdminQueueCounts> {
       banReviewRes,
       { count: inactiveDiscordCount },
       { count: intelTipsCount },
+      { count: syncDiscrepanciesCount },
     ] = await Promise.all([
       supabase.from("forum_threads").select("id", { count: "exact", head: true })
         .in("moderation_status", ["pending", "auto_flagged", "user_flagged"]),
@@ -93,6 +96,9 @@ export async function getAdminQueueCounts(): Promise<AdminQueueCounts> {
         .eq("active", false),
       supabase.from("policy_alerts").select("id", { count: "exact", head: true })
         .eq("moderation_status", "pending"),
+      supabase.from("policy_alerts").select("id", { count: "exact", head: true })
+        .eq("kind", "scraper_stale")
+        .eq("moderation_status", "approved"),
     ]);
     const banRows = Array.isArray((banReviewRes as { data?: unknown }).data)
       ? ((banReviewRes as { data: unknown[] }).data.length)
@@ -106,6 +112,7 @@ export async function getAdminQueueCounts(): Promise<AdminQueueCounts> {
       loungeBanReview: banRows,
       inactiveDiscord: inactiveDiscordCount ?? 0,
       intelTips: intelTipsCount ?? 0,
+      syncDiscrepancies: syncDiscrepanciesCount ?? 0,
     };
   } catch {
     return zero;
