@@ -2,6 +2,8 @@ import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { createClient } from "@/lib/supabase/server";
+import { TourTooltip } from "@/modules/tour/TourTooltip";
+import { getTourSeen } from "@/modules/tour/actions";
 
 export const metadata = { title: "Pulse — live policy feed" };
 // Force dynamic so newly-inserted alerts and breaking events appear on
@@ -108,6 +110,10 @@ export default async function PulsePage() {
     viewerState = (prof as { state: string | null } | null)?.state ?? null;
   }
 
+  // First-visit tooltip state — fires once per surface
+  const tourSeen = await getTourSeen();
+  const seenPulseNews = !!tourSeen["pulse-news"];
+
   const { data: nationalNews } = await supabase
     .from("news_items")
     .select("id, title, url, source_name, state, published_at, ai_relevance_score")
@@ -212,8 +218,16 @@ export default async function PulsePage() {
       {/* MOST CRITICAL NEWS — condensed view, refreshes every cron tick.
           Two columns: national/federal news on the left, the viewer's
           state on the right (or top-relevance state news if no profile). */}
+      <TourTooltip
+        surface="pulse-news"
+        alreadySeen={seenPulseNews}
+        title="📰 Most Critical News"
+        body="National + your state's biggest kratom-policy stories, refreshed every hour. National on the left, your state on the right. Click any card to read the full story in a new tab."
+        anchorSelector="#pulse-news-section"
+      />
+
       {((nationalNews?.length ?? 0) > 0 || (localNews?.length ?? 0) > 0 || (topStateNews?.length ?? 0) > 0) && (
-        <section className="mb-8 grid gap-4 lg:grid-cols-2">
+        <section id="pulse-news-section" className="mb-8 grid gap-4 lg:grid-cols-2">
           {/* National */}
           {(nationalNews?.length ?? 0) > 0 && (
             <div className="rounded-lg border border-purple-700/40 bg-purple-950/10 p-4">
