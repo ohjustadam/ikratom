@@ -61,6 +61,33 @@ jobs:
           OPENFEC_API_KEY: ${{ secrets.OPENFEC_API_KEY }}
         run: node scripts/sync-legislator-donors.mjs --limit 50
 
+  bop-browser-scrape:
+    # BoP sources whose state .gov WAFs do TLS fingerprinting
+    # (KS, NH, MA, AR currently) can't be scraped via Node fetch —
+    # the JA3 signature gives us away regardless of headers. This
+    # job uses a real Chromium browser via Playwright to bypass.
+    #
+    # Runs alongside the Vercel daily cron which handles the other
+    # ~47 sources. The two together = full BoP coverage.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      # No --omit=dev here because we need playwright-chromium. Cheap —
+      # ~2x dep download but still completes in well under a minute.
+      - run: npm ci --no-audit --no-fund
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Scrape TLS-blocked BoP sources via headless browser
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/scrape-bop-browser.mjs
+
   legiscan-wide-pass:
     # Daily sweep of every active anti/pro bill via LegiScan. The hourly
     # cron only hits the 30 most-stale; this catches everything else

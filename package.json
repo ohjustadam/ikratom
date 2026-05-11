@@ -30,6 +30,7 @@
     "campaign:from-alert": "node --env-file=.env.local scripts/auto-campaign-from-alert.mjs",
     "seed:bill-officials": "node --env-file=.env.local scripts/seed-bill-officials.mjs",
     "scrape:bop": "node --env-file=.env.local scripts/scrape-bop.mjs",
+    "scrape:bop:browser": "node --env-file=.env.local scripts/scrape-bop-browser.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -48,6 +49,7 @@
     "libsodium-wrappers": "^0.8.4",
     "marked": "^18.0.3",
     "next": "16.2.3",
+    "playwright-chromium": "^1.59.1",
     "posthog-js": "^1.372.10",
     "posthog-node": "^5.33.4",
     "qrcode": "^1.5.4",
