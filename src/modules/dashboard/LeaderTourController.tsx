@@ -29,7 +29,7 @@ import { acknowledgeLeaderRules } from "@/modules/admin/user-actions";
  * the last step; cleanup destroys see finishedRef=false and no-op.
  */
 
-const LS_KEY = "ikratom:leader-tour:v3";
+const LS_KEY = "ikratom:leader-tour:v4";
 
 type TourState = {
   pageKey: string;
@@ -237,9 +237,11 @@ export function LeaderTourController({
       prevBtnText: "Back",
       doneBtnText: isLastPage ? "Open acknowledgment →" : `Continue: ${nextPage?.label ?? "Done"} →`,
       onDestroyed: () => {
-        // ONLY navigate if the user finished this page's steps. The
-        // useEffect cleanup also calls destroy() — that path leaves
-        // finishedRef=false so we no-op (no double-navigation).
+        // ONLY navigate if the user finished this page's steps via the
+        // Next/Done button. The useEffect cleanup also calls destroy()
+        // when pathname changes — that path leaves finishedRef=false
+        // so we no-op (preventing the original double-navigation bug
+        // that broke the multi-page flow).
         if (!finishedRef.current) return;
         finishedRef.current = false;
 
@@ -256,25 +258,29 @@ export function LeaderTourController({
         }
         if (nextPage) router.push(nextPage.navigateTo);
       },
+      // Hook the Next button click directly (driver.js v1 callback).
+      // Previous attempt patched d.moveNext after init — but driver.js
+      // doesn't always route the Done button click through moveNext
+      // (it can destroy directly on the last step). onNextClick fires
+      // for EVERY Next button click reliably.
+      onNextClick: (_el, _step, opts) => {
+        const total = currentPage.steps.length;
+        const activeIdx = opts.state?.activeIndex ?? 0;
+        if (activeIdx >= total - 1) {
+          // User clicked the Done button on the last step
+          finishedRef.current = true;
+          opts.driver.destroy();
+        } else {
+          opts.driver.moveNext();
+        }
+      },
+      onPrevClick: (_el, _step, opts) => {
+        opts.driver.movePrevious();
+      },
       steps: currentPage.steps.map((s) => ({
         popover: { title: s.title, description: s.description },
       })),
     });
-
-    // Wrap moveNext so we can detect the "user clicked Next on the
-    // LAST step" event and set finishedRef. Without this, finishedRef
-    // would never get set and the tour would just sit on screen.
-    const origMoveNext = d.moveNext?.bind(d);
-    if (origMoveNext) {
-      d.moveNext = () => {
-        const activeIdx = d.getActiveIndex?.() ?? 0;
-        const totalSteps = currentPage.steps.length;
-        if (activeIdx >= totalSteps - 1) {
-          finishedRef.current = true;
-        }
-        origMoveNext();
-      };
-    }
 
     driverRef.current = d;
     d.drive();
