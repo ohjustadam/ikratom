@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { recordAdminAction } from "@/lib/audit";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { getAdminContext } from "./actions";
 import { requireMfaForMutation } from "./mfa";
 
@@ -129,6 +130,14 @@ export async function sendPasswordResetForUser(input: { userId: string }) {
   if (!ctx.ok) return { error: "Admin only." };
   if (!input.userId) return { error: "Missing user id." };
 
+  // Per-admin rate limit: 15 reset-emails per admin per hour. A
+  // compromised admin account could otherwise spam every user with
+  // password-reset emails. Legitimate support work rarely needs more
+  // than a few per hour.
+  if (!(await checkRateLimit(`admin:pwreset:${ctx.userId}`, 15, 3600))) {
+    return { error: "You've sent a lot of password resets this hour. Try again later." };
+  }
+
   // Look up the target user's email
   const sr = createServiceRoleClient();
   const { data: targetUser, error: lookupErr } = await sr.auth.admin.getUserById(input.userId);
@@ -207,6 +216,10 @@ export async function sendMagicLinkForUser(input: { userId: string }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
   if (!input.userId) return { error: "Missing user id." };
+
+  if (!(await checkRateLimit(`admin:magiclink:${ctx.userId}`, 15, 3600))) {
+    return { error: "You've sent a lot of magic links this hour. Try again later." };
+  }
 
   const sr = createServiceRoleClient();
   const { data: targetUser, error: lookupErr } = await sr.auth.admin.getUserById(input.userId);
@@ -287,6 +300,14 @@ export async function generateTempPassword(input: { userId: string }): Promise<
   if (!input.userId) return { error: "Missing user id." };
   if (input.userId === ctx.userId) {
     return { error: "Use /account/security to change your own password." };
+  }
+
+  // Per-admin rate limit. Generating dozens of temp passwords in an
+  // hour is suspicious — legitimate support workflows are bursty but
+  // small. 10/hr keeps real support workable while making a
+  // compromised admin's takeover spree obvious.
+  if (!(await checkRateLimit(`admin:temppw:${ctx.userId}`, 10, 3600))) {
+    return { error: "You've issued a lot of temp passwords this hour. Try again later." };
   }
 
   // Refuse to overwrite another owner's password. Admins should not be

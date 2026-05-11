@@ -1,4 +1,15 @@
-"use server";
+/**
+ * NOTE: this file intentionally does NOT have "use server".
+ *
+ * recordSignIn() is meant to be called ONLY from inside the signIn
+ * server action (auth/actions.ts), not directly by clients. Dropping
+ * the "use server" directive means Next.js does NOT expose this
+ * function as a callable server action — clients can't import and
+ * invoke it to fabricate "new device" notifications on victim accounts.
+ * It still runs server-side because its only caller (signIn) is itself
+ * a server action.
+ */
+import "server-only";
 
 import { createHash } from "crypto";
 import { headers } from "next/headers";
