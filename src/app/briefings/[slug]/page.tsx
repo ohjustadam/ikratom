@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import matter from "gray-matter";
 import { marked } from "marked";
@@ -88,25 +89,35 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
       />
 
       {/* Tiny client script for the share button — avoids a separate
-          client component file for one trivial interaction. */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-            document.querySelectorAll('.briefing-share-btn').forEach((btn) => {
-              btn.addEventListener('click', async () => {
-                const url = btn.getAttribute('data-share-url');
-                if (!url) return;
-                try {
-                  await navigator.clipboard.writeText(url);
-                  const orig = btn.innerText;
-                  btn.innerText = '✓ Copied!';
-                  setTimeout(() => { btn.innerText = orig; }, 1500);
-                } catch (e) { /* noop */ }
-              });
-            });
-          `,
-        }}
-      />
+          client component file for one trivial interaction. Carries
+          the per-request CSP nonce so the strict script-src in
+          proxy.ts doesn't block it. */}
+      <BriefingShareScript />
     </div>
+  );
+}
+
+async function BriefingShareScript() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  return (
+    <script
+      nonce={nonce}
+      dangerouslySetInnerHTML={{
+        __html: `
+          document.querySelectorAll('.briefing-share-btn').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+              const url = btn.getAttribute('data-share-url');
+              if (!url) return;
+              try {
+                await navigator.clipboard.writeText(url);
+                const orig = btn.innerText;
+                btn.innerText = '✓ Copied!';
+                setTimeout(() => { btn.innerText = orig; }, 1500);
+              } catch (e) { /* noop */ }
+            });
+          });
+        `,
+      }}
+    />
   );
 }
