@@ -18,7 +18,7 @@ export default async function AdminUsersPage({
 
   let query = supabase
     .from("profiles")
-    .select("id, email, full_name, state, city, county, is_admin, is_owner, is_advocate_leader, created_at")
+    .select("id, email, full_name, state, city, county, is_admin, is_owner, is_advocate_leader, account_locked_at, created_at")
     .order("created_at", { ascending: false })
     .limit(200);
 

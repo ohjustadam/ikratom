@@ -112,6 +112,183 @@ export async function setUserRoles(input: {
   return { ok: true };
 }
 
+// ============================================================
+// Customer-support actions (admin + owner)
+// ============================================================
+
+/**
+ * Admin-triggered password reset. Sends a reset link to the user's
+ * email via Supabase's recovery flow. Audit-logged.
+ *
+ * Use case: user forgot password, can't access their inbox-confirmation
+ * email, or hit a flow that left them locked out. Admin clicks
+ * "Send password reset" on /admin/users and the email goes out.
+ */
+export async function sendPasswordResetForUser(input: { userId: string }) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  if (!input.userId) return { error: "Missing user id." };
+
+  // Look up the target user's email
+  const sr = createServiceRoleClient();
+  const { data: targetUser, error: lookupErr } = await sr.auth.admin.getUserById(input.userId);
+  if (lookupErr || !targetUser?.user?.email) {
+    return { error: "Could not find user email." };
+  }
+
+  const email = targetUser.user.email;
+  const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
+
+  // Generate the recovery link
+  const { data: linkData, error: linkErr } = await sr.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: {
+      redirectTo: `${APP_URL}/reset-password`,
+    },
+  });
+  if (linkErr) return { error: `Recovery link generation failed: ${linkErr.message}` };
+
+  const actionLink = linkData?.properties?.action_link;
+  if (!actionLink) return { error: "No recovery link returned by Supabase." };
+
+  // Send via Resend with custom copy (Supabase's default template
+  // also works if Resend isn't wired)
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const fromEmail = process.env.RESEND_FROM_EMAIL ?? "no-reply@ikratom.org";
+      const fromName = process.env.RESEND_FROM_NAME ?? "iKratom";
+      const adminLabel = ctx.isOwner ? "Owner" : "Admin";
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: `${fromName} <${fromEmail}>`,
+          to: email,
+          subject: "Password reset link for your iKratom account",
+          html: `
+<p>Hi,</p>
+<p>An ${adminLabel.toLowerCase()} of iKratom just sent you a password reset link, likely in response to you asking for help signing in.</p>
+<p>Click below to set a new password. The link is valid for 1 hour.</p>
+<p style="text-align:center;margin:32px 0">
+  <a href="${actionLink}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Reset password →</a>
+</p>
+<p style="color:#666;font-size:12px">If you didn't request this, just ignore the email — the link expires and your account stays unchanged.</p>
+<p style="color:#666;font-size:12px">Sent from iKratom · <a href="${APP_URL}/privacy">${APP_URL}/privacy</a></p>
+`.trim(),
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      console.error("[sendPasswordResetForUser] resend failed:", e);
+      // Non-fatal — Supabase default email may still send
+    }
+  }
+
+  await recordAdminAction({
+    action: "password_reset_triggered",
+    targetType: "user",
+    targetId: input.userId,
+    details: { email_redacted: email.replace(/(.{2}).*(@.*)/, "$1***$2") },
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Send a fresh magic-link sign-in for users who can't remember their
+ * password OR who never set one (e.g. field-signup recruits whose
+ * original link expired). Less destructive than password reset.
+ */
+export async function sendMagicLinkForUser(input: { userId: string }) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  if (!input.userId) return { error: "Missing user id." };
+
+  const sr = createServiceRoleClient();
+  const { data: targetUser, error: lookupErr } = await sr.auth.admin.getUserById(input.userId);
+  if (lookupErr || !targetUser?.user?.email) {
+    return { error: "Could not find user email." };
+  }
+  const email = targetUser.user.email;
+  const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
+
+  const { data: linkData, error: linkErr } = await sr.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+    options: { redirectTo: `${APP_URL}/dashboard` },
+  });
+  if (linkErr) return { error: `Magic link generation failed: ${linkErr.message}` };
+
+  const actionLink = linkData?.properties?.action_link;
+  if (!actionLink) return { error: "No magic link returned." };
+
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const fromEmail = process.env.RESEND_FROM_EMAIL ?? "no-reply@ikratom.org";
+      const fromName = process.env.RESEND_FROM_NAME ?? "iKratom";
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: `${fromName} <${fromEmail}>`,
+          to: email,
+          subject: "Sign-in link for iKratom",
+          html: `<p>Click below to sign in to iKratom. The link expires in 1 hour.</p><p style="text-align:center;margin:32px 0"><a href="${actionLink}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Sign in →</a></p>`.trim(),
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      console.error("[sendMagicLinkForUser] resend failed:", e);
+    }
+  }
+
+  await recordAdminAction({
+    action: "magic_link_triggered",
+    targetType: "user",
+    targetId: input.userId,
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Owner-only: lock a user's account temporarily. Sets profile flag
+ * that the proxy checks before letting any authenticated request
+ * proceed. Owner can unlock by calling with locked=false.
+ */
+export async function setAccountLocked(input: { userId: string; locked: boolean; reason?: string }) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  if (!ctx.isOwner) return { error: "Owner only." };
+  if (!input.userId) return { error: "Missing user id." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      account_locked_at: input.locked ? new Date().toISOString() : null,
+      account_locked_reason: input.locked ? (input.reason ?? "owner-locked").slice(0, 500) : null,
+    })
+    .eq("id", input.userId);
+  if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: input.locked ? "account_locked" : "account_unlocked",
+    targetType: "user",
+    targetId: input.userId,
+    details: { reason: input.reason ?? null },
+  });
+
+  return { ok: true };
+}
+
 /**
  * Called by the dashboard's leader tutorial after the user finishes (or
  * skips) the walkthrough — clears leader_tour_pending so it doesn't
