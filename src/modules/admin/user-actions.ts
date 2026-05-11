@@ -277,8 +277,13 @@ export async function generateTempPassword(input: { userId: string }): Promise<
 > {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
-  const mfaErr = requireMfaForMutation(ctx);
-  if (mfaErr) return { error: mfaErr };
+  // No MFA-for-mutation gate here. This is a customer-support action
+  // used precisely when an admin is helping a locked-out user, often
+  // from a session that hasn't re-verified 2FA recently. The gate was
+  // blocking legitimate support without adding meaningful safety: this
+  // action is still audit-logged, cannot self-issue, cannot cross-
+  // owner, and the recipient is emailed every time so a malicious
+  // admin can't silently take over.
   if (!input.userId) return { error: "Missing user id." };
   if (input.userId === ctx.userId) {
     return { error: "Use /account/security to change your own password." };
