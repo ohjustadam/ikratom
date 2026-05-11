@@ -180,6 +180,18 @@ export async function GET(request: NextRequest) {
     log.push({ step: "bop", result: { error: String(e).slice(0, 200) } });
   }
 
+  // BoP stale-source sweep — checks every enabled BoP source for
+  // last_scraped_at older than 48h and emits a rolled-up policy_alert +
+  // admin notifications if any. Idempotent: won't re-fire within 24h.
+  // Runs AFTER the bop scrape step so freshly-scraped sources update
+  // their timestamps first.
+  try {
+    const { data: staleCount } = await supabase.rpc("bop_stale_source_sweep");
+    log.push({ step: "bop_stale_sweep", result: { stale_count: staleCount ?? 0 } });
+  } catch (e) {
+    log.push({ step: "bop_stale_sweep", result: { error: String(e).slice(0, 200) } });
+  }
+
   // Auto-create campaigns for newly-detected anti-kratom bills. This runs
   // AFTER enrichment so the confidence floor (0.6) is meaningful — a
   // freshly-synced bill that hasn't been enriched yet has confidence=null
