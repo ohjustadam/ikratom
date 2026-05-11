@@ -32,6 +32,7 @@
     "scrape:bop": "node --env-file=.env.local scripts/scrape-bop.mjs",
     "scrape:bop:browser": "node --env-file=.env.local scripts/scrape-bop-browser.mjs",
     "classify:bop:ai": "node --env-file=.env.local scripts/classify-bop-ai.mjs",
+    "parse:bop:pdfs": "node --env-file=.env.local scripts/parse-bop-pdfs.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
