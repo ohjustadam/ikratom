@@ -110,6 +110,32 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
+  // Account-locked gate (migration 0082). Owner-locked accounts get
+  // bounced to /locked on every request except /locked itself and the
+  // auth + api callbacks they need to sign out. Cheap single-column
+  // read; non-fatal if it errors (don't block normal users on a DB
+  // hiccup).
+  if (
+    user &&
+    !request.nextUrl.pathname.startsWith("/locked") &&
+    !request.nextUrl.pathname.startsWith("/auth/") &&
+    !request.nextUrl.pathname.startsWith("/api/") &&
+    !request.nextUrl.pathname.startsWith("/_next")
+  ) {
+    try {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("account_locked_at")
+        .eq("id", user.id)
+        .single();
+      if ((prof as { account_locked_at?: string | null } | null)?.account_locked_at) {
+        return NextResponse.redirect(new URL("/locked", request.url));
+      }
+    } catch {
+      // fail-open — don't lock users out on transient DB errors
+    }
+  }
+
   return response;
 }
 

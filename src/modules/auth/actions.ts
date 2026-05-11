@@ -205,7 +205,39 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
 
   const supabase = await createClient();
   const { error, data } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { error: error.message };
+  if (error) {
+    // Map Supabase's generic error messages to user-friendly explanations.
+    // Balance: we want to help legit users (who fat-fingered their password,
+    // never confirmed their email, etc.) without enabling email-enumeration
+    // attacks where an attacker probes a list of emails to discover which
+    // ones exist. The trade-off here: we tell users about the "needs email
+    // confirmation" state (which they can verify themselves), but leave
+    // "wrong password" vs "no such account" intentionally ambiguous.
+    const msg = error.message?.toLowerCase() ?? "";
+    let friendly = error.message;
+    let hint: string | undefined;
+
+    if (msg.includes("email not confirmed") || msg.includes("not been confirmed")) {
+      friendly = "Your email isn't confirmed yet.";
+      hint = "Check your inbox (and spam folder) for our confirmation link — or request a new one via the 'Forgot password' link to reset access.";
+    } else if (msg.includes("invalid login credentials") || msg.includes("invalid_credentials")) {
+      friendly = "Email or password is incorrect.";
+      hint = "Double-check your email is typed right and the password matches. If you forgot the password, click 'Forgot password' below to reset it. If you signed up via a leader's invite, use that email exactly.";
+    } else if (msg.includes("user not found") || msg.includes("user_not_found")) {
+      friendly = "Email or password is incorrect.";
+      hint = "We couldn't match that combo. Try 'Forgot password' if you've signed up before, or 'Sign up' if you're new.";
+    } else if (msg.includes("rate limit") || msg.includes("too many")) {
+      friendly = "Too many attempts. Try again in a few minutes.";
+    } else if (msg.includes("captcha")) {
+      friendly = "Sign-in is temporarily blocked.";
+      hint = "Refresh the page and try again. If it persists, contact support.";
+    } else if (msg.includes("banned") || msg.includes("blocked")) {
+      friendly = "This account has been suspended.";
+      hint = "Contact support if you think this is a mistake.";
+    }
+
+    return { error: friendly, hint };
+  }
 
   // Record device + maybe insert new-device notification. Best-effort —
   // never blocks sign-in on failure.
