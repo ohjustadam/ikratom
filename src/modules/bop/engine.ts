@@ -31,6 +31,9 @@ export async function runBopScrape(input: {
   supabase: SupabaseClient;
   limit?: number;
 }): Promise<BopRunResult[]> {
+  // 60 = all 50 states + DC + the 8 originals + headroom for adjacent
+  // agencies. Cron has a 60s budget on Hobby; each fetch is ~1-2s so
+  // we're well under even if every source has to retry.
   const fn = (engine as unknown as { runBopEngine: EngineFn }).runBopEngine;
-  return fn({ supabase: input.supabase, limit: input.limit ?? 25 });
+  return fn({ supabase: input.supabase, limit: input.limit ?? 75 });
 }

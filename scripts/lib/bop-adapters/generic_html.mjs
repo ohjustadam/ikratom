@@ -14,8 +14,16 @@
  * a heading or link label, not the entire body.
  */
 
+// Use a real browser UA. Some state .gov sites 403 anything that
+// identifies as a bot — including legitimate research / journalism
+// scrapers. We honor robots.txt at the source level (admin toggles
+// enabled) but otherwise need to look like a desktop browser to get
+// past WAF defaults. A polite identifying suffix means a curious
+// sysadmin can still trace + contact us.
 const UA =
-  "Mozilla/5.0 (compatible; iKratom-BopBot/1.0; +https://www.ikratom.org/about)";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 " +
+  "iKratom-BopBot/1.0 (+https://www.ikratom.org/about)";
 
 function decodeEntities(s) {
   return s

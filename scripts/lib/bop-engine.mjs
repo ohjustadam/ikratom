@@ -53,10 +53,87 @@ async function loadAdapter(name) {
 }
 
 /**
- * Walk all enabled sources, scrape, persist findings.
- * Returns a per-source result list.
+ * Walk one source and persist its findings. Internal — called by
+ * runBopEngine and by the admin "Scrape now" action.
  */
-export async function runBopEngine({ supabase, limit = 25 } = {}) {
+async function scrapeOne({ source, supabase }) {
+  const startedAt = new Date();
+  try {
+    const adapter = await loadAdapter(source.adapter);
+    const raw = await adapter.scrape({ source });
+    const items = (Array.isArray(raw) ? raw : []).filter(
+      (i) => i && typeof i.title === "string" && i.title.trim().length > 0
+    );
+
+    const rows = items.map((item) => {
+      const { relevance, severity } = classify([item.title, item.snippet ?? ""]);
+      return {
+        source_id: source.id,
+        state: source.state,
+        title: String(item.title).slice(0, 500).trim(),
+        snippet: item.snippet ? String(item.snippet).slice(0, 2000) : null,
+        url: item.url ? String(item.url).slice(0, 1000) : null,
+        meeting_date: item.meeting_date ?? null,
+        classified_relevance: relevance,
+        classified_severity: severity,
+        raw: item.raw ?? null,
+      };
+    });
+
+    let inserted = 0;
+    if (rows.length > 0) {
+      const { data, error: insErr } = await supabase
+        .from("bop_findings")
+        .upsert(rows, { onConflict: "source_id,dedupe_key", ignoreDuplicates: true })
+        .select("id");
+      if (insErr) throw new Error(`bop_findings insert failed: ${insErr.message}`);
+      inserted = data?.length ?? 0;
+    }
+
+    await supabase.from("bop_sources").update({
+      last_scraped_at: startedAt.toISOString(),
+      last_status: inserted > 0 ? "ok" : "no_findings",
+      last_error: null,
+      last_finding_count: inserted,
+    }).eq("id", source.id);
+
+    return {
+      source: source.board_name,
+      state: source.state,
+      status: inserted > 0 ? "ok" : "no_findings",
+      inserted,
+    };
+  } catch (e) {
+    const msg = String(e?.message ?? e).slice(0, 500);
+    await supabase.from("bop_sources").update({
+      last_scraped_at: startedAt.toISOString(),
+      last_status: "error",
+      last_error: msg,
+    }).eq("id", source.id);
+    return {
+      source: source.board_name,
+      state: source.state,
+      status: "error",
+      error: msg,
+    };
+  }
+}
+
+/**
+ * Walk all enabled sources, scrape, persist findings.
+ * Concurrency is intentional — 50+ states sequentially would blow
+ * the Vercel function budget. Each source is fully independent
+ * (own URL, own DB writes) so parallelizing is safe.
+ *
+ * Default concurrency 8 keeps us polite (no single state's gov
+ * server sees >1 connection from us) and well under any reasonable
+ * outbound-fetch budget.
+ */
+export async function runBopEngine({
+  supabase,
+  limit = 75,
+  concurrency = 8,
+} = {}) {
   const { data: sources, error } = await supabase
     .from("bop_sources")
     .select("*")
@@ -65,72 +142,18 @@ export async function runBopEngine({ supabase, limit = 25 } = {}) {
     .limit(limit);
   if (error) throw new Error(`bop_sources read failed: ${error.message}`);
 
+  const queue = [...(sources ?? [])];
   const results = [];
-  for (const source of sources ?? []) {
-    const startedAt = new Date();
-    try {
-      const adapter = await loadAdapter(source.adapter);
-      const raw = await adapter.scrape({ source });
-      const items = (Array.isArray(raw) ? raw : []).filter(
-        (i) => i && typeof i.title === "string" && i.title.trim().length > 0
-      );
-
-      // Classify each finding by its text (title + snippet).
-      const rows = items.map((item) => {
-        const { relevance, severity } = classify([item.title, item.snippet ?? ""]);
-        return {
-          source_id: source.id,
-          state: source.state,
-          title: String(item.title).slice(0, 500).trim(),
-          snippet: item.snippet ? String(item.snippet).slice(0, 2000) : null,
-          url: item.url ? String(item.url).slice(0, 1000) : null,
-          meeting_date: item.meeting_date ?? null,
-          classified_relevance: relevance,
-          classified_severity: severity,
-          raw: item.raw ?? null,
-        };
-      });
-
-      // Insert with ON CONFLICT DO NOTHING on (source_id, dedupe_key)
-      // so re-runs are idempotent.
-      let inserted = 0;
-      if (rows.length > 0) {
-        const { data, error: insErr } = await supabase
-          .from("bop_findings")
-          .upsert(rows, { onConflict: "source_id,dedupe_key", ignoreDuplicates: true })
-          .select("id");
-        if (insErr) throw new Error(`bop_findings insert failed: ${insErr.message}`);
-        inserted = data?.length ?? 0;
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (queue.length) {
+        const source = queue.shift();
+        if (!source) return;
+        const r = await scrapeOne({ source, supabase });
+        results.push(r);
       }
-
-      await supabase.from("bop_sources").update({
-        last_scraped_at: startedAt.toISOString(),
-        last_status: inserted > 0 ? "ok" : "no_findings",
-        last_error: null,
-        last_finding_count: inserted,
-      }).eq("id", source.id);
-
-      results.push({
-        source: source.board_name,
-        state: source.state,
-        status: inserted > 0 ? "ok" : "no_findings",
-        inserted,
-      });
-    } catch (e) {
-      const msg = String(e?.message ?? e).slice(0, 500);
-      await supabase.from("bop_sources").update({
-        last_scraped_at: startedAt.toISOString(),
-        last_status: "error",
-        last_error: msg,
-      }).eq("id", source.id);
-      results.push({
-        source: source.board_name,
-        state: source.state,
-        status: "error",
-        error: msg,
-      });
-    }
-  }
+    })
+  );
   return results;
 }
 

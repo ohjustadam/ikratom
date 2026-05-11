@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import {
   setBopSourceEnabled,
   runBopSourceNow,
+  updateBopSource,
 } from "@/modules/bop/actions";
 
 type Source = {
@@ -56,6 +57,8 @@ export function SourcesPanel({ sources }: { sources: Source[] }) {
 function SourceRow({ source }: { source: Source }) {
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draftUrl, setDraftUrl] = useState(source.agenda_url);
 
   function toggle() {
     setMsg(null);
@@ -83,6 +86,23 @@ function SourceRow({ source }: { source: Source }) {
     });
   }
 
+  function saveUrl() {
+    setMsg(null);
+    startTransition(async () => {
+      const r = await updateBopSource({
+        sourceId: source.id,
+        agendaUrl: draftUrl,
+      });
+      if ("error" in r) {
+        setMsg(`✗ ${(r.error ?? "Failed").slice(0, 80)}`);
+      } else {
+        setMsg("✓ URL saved");
+        setEditing(false);
+      }
+      setTimeout(() => setMsg(null), 3000);
+    });
+  }
+
   return (
     <tr>
       <td className="p-2 font-mono text-xs text-zinc-300">{source.state}</td>
@@ -91,14 +111,50 @@ function SourceRow({ source }: { source: Source }) {
         <div className="text-[11px] text-zinc-500">
           {source.surface} · <span className="text-zinc-600">{source.kind}</span>
         </div>
-        <a
-          href={source.agenda_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-0.5 inline-block break-all text-[10px] text-emerald-400 hover:underline"
-        >
-          {source.agenda_url}
-        </a>
+        {editing ? (
+          <div className="mt-1 flex gap-1">
+            <input
+              type="url"
+              value={draftUrl}
+              onChange={(e) => setDraftUrl(e.target.value)}
+              className="flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-100 focus:border-emerald-500 focus:outline-none"
+            />
+            <button
+              onClick={saveUrl}
+              disabled={pending}
+              className="rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => {
+                setEditing(false);
+                setDraftUrl(source.agenda_url);
+              }}
+              className="rounded-md border border-zinc-700 px-2 py-1 text-[10px] text-zinc-400 hover:border-zinc-500"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <a
+              href={source.agenda_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block break-all text-[10px] text-emerald-400 hover:underline"
+            >
+              {source.agenda_url}
+            </a>
+            <button
+              onClick={() => setEditing(true)}
+              className="text-[10px] text-zinc-500 hover:text-emerald-400"
+              title="Edit URL"
+            >
+              ✏
+            </button>
+          </div>
+        )}
         {source.notes && (
           <p className="mt-1 text-[10px] italic text-zinc-500">{source.notes}</p>
         )}
