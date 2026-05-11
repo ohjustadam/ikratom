@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { removeGroupMember, updateGroup } from "@/modules/dm/group-actions";
+import { addGroupMember, getMyConversationKeyData, removeGroupMember, updateGroup } from "@/modules/dm/group-actions";
+import { searchUsers } from "@/modules/dm/actions";
+import { getOrCreateKeypair, encryptSessionKeyForRecipient, decryptSessionKeyForMe } from "@/lib/crypto/e2e";
 
 type Member = {
   user_id: string;
@@ -34,6 +36,79 @@ export function GroupSettings({
   const [, startTransition] = useTransition();
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const isPrivileged = myRole === "owner" || myRole === "admin";
+
+  // Add-member state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{
+    id: string; full_name: string | null; email: string | null; state: string | null; public_key: string | null;
+  }>>([]);
+  const [searching, startSearchTransition] = useTransition();
+  const [adding, setAdding] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  function doSearch() {
+    setAddError(null);
+    if (searchQuery.trim().length < 2) return;
+    startSearchTransition(async () => {
+      const found = await searchUsers(searchQuery);
+      const existingMemberIds = new Set(members.map((m) => m.user_id));
+      // Filter out members + users without a public key
+      setSearchResults(found.filter((u) => !existingMemberIds.has(u.id) && !!u.public_key));
+    });
+  }
+
+  async function addMember(newMember: { id: string; full_name: string | null; email: string | null; public_key: string | null }) {
+    if (!newMember.public_key) {
+      setAddError("That user hasn't set up encryption yet (they need to open Messages first).");
+      return;
+    }
+    setAddError(null);
+    setAdding(newMember.id);
+    try {
+      // 1. Get our own slot data
+      const keyDataResult = await getMyConversationKeyData(conversationId);
+      if ("error" in keyDataResult && keyDataResult.error) {
+        setAddError(keyDataResult.error);
+        return;
+      }
+      const keyData = keyDataResult as { ok: true; ciphertextB64: string; nonceB64: string; senderPublicKeyB64: string };
+
+      // 2. Decrypt our session key
+      const myKp = await getOrCreateKeypair();
+      const sessionKey = await decryptSessionKeyForMe({
+        myPrivateKeyB64: myKp.privateKey,
+        senderPublicKeyB64: keyData.senderPublicKeyB64,
+        ciphertextB64: keyData.ciphertextB64,
+        nonceB64: keyData.nonceB64,
+      });
+
+      // 3. Re-encrypt for the new member
+      const reEncrypted = await encryptSessionKeyForRecipient({
+        sessionKey,
+        myPrivateKeyB64: myKp.privateKey,
+        recipientPublicKeyB64: newMember.public_key,
+      });
+
+      // 4. Server-side add
+      const result = await addGroupMember({
+        conversationId,
+        newMemberId: newMember.id,
+        encryptedSessionKeyForNewMember: reEncrypted.ciphertextB64,
+        nonce: reEncrypted.nonceB64,
+        newMemberPubkey: newMember.public_key,
+      });
+      if ("error" in result && result.error) {
+        setAddError(result.error);
+        return;
+      }
+      setSearchResults((r) => r.filter((x) => x.id !== newMember.id));
+      router.refresh();
+    } catch (e) {
+      setAddError((e as Error).message);
+    } finally {
+      setAdding(null);
+    }
+  }
 
   function save() {
     setSaveMsg(null);
@@ -154,6 +229,68 @@ export function GroupSettings({
           })}
         </ul>
       </section>
+
+      {/* Add member — owner/admin only */}
+      {isPrivileged && (
+        <section className="rounded-lg border border-emerald-700/40 bg-emerald-950/10 p-5">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-emerald-300">
+            ➕ Add member
+          </h2>
+          <p className="mb-3 text-xs text-zinc-400">
+            Search by name or email. They need to have opened Messages at least once
+            (sets up their encryption key). New members can only read messages sent
+            after they join — past messages stay private to current members.
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } }}
+              placeholder="Name or email…"
+              className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            />
+            <button
+              onClick={doSearch}
+              disabled={searching || searchQuery.trim().length < 2}
+              className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
+            >
+              {searching ? "…" : "Search"}
+            </button>
+          </div>
+
+          {addError && (
+            <p className="mt-3 rounded-md border border-red-900/50 bg-red-950/20 p-3 text-sm text-red-300">
+              {addError}
+            </p>
+          )}
+
+          {searchResults.length > 0 && (
+            <ul className="mt-3 divide-y divide-zinc-900 rounded-md border border-zinc-800 bg-zinc-950/60">
+              {searchResults.map((u) => {
+                const display = u.full_name ?? u.email ?? "User";
+                return (
+                  <li key={u.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-zinc-200">{display}</p>
+                      {u.state && <p className="text-[11px] text-zinc-500">{u.state}</p>}
+                    </div>
+                    <button
+                      onClick={() => addMember(u)}
+                      disabled={adding === u.id}
+                      className="shrink-0 rounded-md border border-emerald-700/40 px-3 py-1 text-xs text-emerald-300 hover:border-emerald-500 disabled:opacity-50"
+                    >
+                      {adding === u.id ? "Adding…" : "Add"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {searchQuery.trim().length >= 2 && !searching && searchResults.length === 0 && (
+            <p className="mt-3 text-xs text-zinc-500">No matching users found.</p>
+          )}
+        </section>
+      )}
 
       <section className="rounded-lg border border-red-900/40 bg-red-950/10 p-5">
         <h2 className="mb-2 text-sm font-semibold text-red-300">Danger zone</h2>

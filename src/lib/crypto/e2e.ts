@@ -144,6 +144,28 @@ export async function makeSessionKey(
   return { sessionKey, encryptedForUsers, nonces };
 }
 
+/**
+ * Encrypt an existing session key for a new recipient. Used when adding
+ * a member to a group — we already have the session key (we decrypted
+ * our own slot), now we need to give the new member their own slot
+ * encrypted to their pubkey.
+ */
+export async function encryptSessionKeyForRecipient(input: {
+  sessionKey: Uint8Array;
+  myPrivateKeyB64: string;
+  recipientPublicKeyB64: string;
+}): Promise<{ ciphertextB64: string; nonceB64: string }> {
+  await ready();
+  const myPriv = sodium.from_base64(input.myPrivateKeyB64, sodium.base64_variants.ORIGINAL);
+  const theirPub = sodium.from_base64(input.recipientPublicKeyB64, sodium.base64_variants.ORIGINAL);
+  const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES);
+  const ct = sodium.crypto_box_easy(input.sessionKey, nonce, theirPub, myPriv);
+  return {
+    ciphertextB64: sodium.to_base64(ct, sodium.base64_variants.ORIGINAL),
+    nonceB64: sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL),
+  };
+}
+
 /** Decrypt a session key that was encrypted for me (using sender's public key + my private key). */
 export async function decryptSessionKeyForMe(input: {
   myPrivateKeyB64: string;
