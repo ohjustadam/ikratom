@@ -102,11 +102,25 @@ export default async function LeaderPage() {
 
       {/* Tools grid */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <ToolCard
-          title="📍 Field signup"
-          status="soon"
-          body="At a booth, event, or door-to-door — collect just email + first name + zip on your phone. The new advocate completes their profile via a magic-link in their inbox. Privacy-first: no sensitive data sits on your device."
-        />
+        <a
+          href="/leader/field-signup"
+          className="rounded-lg border border-emerald-500 bg-emerald-950/20 p-5 transition hover:border-emerald-400 hover:bg-emerald-950/30"
+        >
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="text-base font-semibold">📍 Field signup</h3>
+            <span className="rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold uppercase text-zinc-950">
+              Live
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-zinc-300">
+            Onboard an advocate in 30 seconds. Collect email + first name + zip on your phone;
+            magic-link email lets them finish their profile from their own device. Open this on
+            your phone at events.
+          </p>
+          <p className="mt-2 text-xs font-semibold text-emerald-300">
+            Onboard a recruit now →
+          </p>
+        </a>
         <ToolCard
           title="🏪 Business outreach"
           status="soon"
