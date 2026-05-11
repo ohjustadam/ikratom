@@ -26,35 +26,39 @@ const STATE_RE = /^([A-Z]{2}|FED)$/;
 const BLOCKED_UA_RE = /(GPTBot|ClaudeBot|Claude-Web|anthropic-ai|CCBot|Google-Extended|PerplexityBot|YouBot|Bytespider|Meta-ExternalAgent|Meta-ExternalFetcher|Diffbot|ImagesiftBot|DataForSeoBot|cohere-ai|ai2bot|Timpibot|MJ12bot|AhrefsBot|SemrushBot|DotBot|MegaIndex|PetalBot|BLEXBot|SeznamBot|SerendeputyBot)/i;
 
 /**
- * Build the Content-Security-Policy header for a given nonce.
+ * Build the Content-Security-Policy header.
  *
  * Strategy:
- *   - script-src: 'self' + nonce + 'strict-dynamic' so scripts loaded
- *     by trusted (nonced) scripts also get trust. This is the modern
- *     approach Next.js recommends for App Router.
+ *   - script-src: 'self' + 'unsafe-inline' + Vercel analytics. Next.js
+ *     16 does not auto-apply nonces to its RSC streaming scripts, even
+ *     on dynamic routes, so a nonce-only script-src would flag every
+ *     legitimate page render as a violation and bury real signal.
+ *     Tracked for revisit when Next.js ships first-class nonce support.
  *   - style-src: 'self' 'unsafe-inline' — Tailwind v4 emits inline
- *     styles in dev + Next.js inlines critical CSS. A style-nonce would
- *     be tighter but breaks Tailwind utilities. Style XSS is a much
- *     smaller surface than script XSS so this is an acceptable tradeoff.
+ *     styles. Style XSS is a much smaller surface than script XSS so
+ *     this is an acceptable tradeoff.
  *   - connect-src: Supabase realtime + REST, Sentry, PostHog, Vercel
- *     analytics/speed-insights, our own R2 bucket public base.
- *   - img-src: 'self' data: blob: + R2 + Discord CDN + Vercel image
- *     optimization + Google news favicons.
- *   - frame-src: YouTube + Vimeo for library embeds (allow only the
- *     same domains the embed sanitizer in src/lib/embed-safety.ts
- *     accepts).
- *   - frame-ancestors: 'none' (we don't allow being embedded anywhere).
+ *     analytics/speed-insights, our own R2 bucket public base. STRICT
+ *     — narrows the exfiltration surface dramatically.
+ *   - img-src: 'self' data: blob: https: (user-supplied thumbnails).
+ *   - frame-src: YouTube + Vimeo only — matches the embed-safety.ts
+ *     allowlist.
+ *   - frame-ancestors: 'none' (no embedding us).
  *   - object-src: 'none' — defeats legacy plugin-based XSS.
- *   - base-uri / form-action: 'self' — locks down <base> and form
- *     submission targets.
- *   - upgrade-insecure-requests: forces any accidental http:// asset
- *     references over https.
+ *   - base-uri / form-action: 'self'.
+ *   - upgrade-insecure-requests: forces accidental http:// over https.
  *
- * report-uri intentionally omitted in v1; add later when we have a
- * collector. Browser console violations are visible to us during
- * development.
+ * Even without nonce-based script-src, the report-only version of this
+ * header is useful: it flags any connect-src / img-src / frame-src /
+ * form-action violation that the broader next.config.ts CSP currently
+ * misses. Cross-origin script tampering would still fire here even
+ * with 'unsafe-inline' in place.
+ *
+ * The `nonce` parameter is preserved as a future hook — once Next.js
+ * supports nonce injection cleanly we'll flip script-src to use it.
  */
 function buildCspHeader(nonce: string): string {
+  void nonce; // reserved for future nonce-based script-src
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const supabaseHost = supabaseUrl.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
   const r2Base = process.env.R2_PUBLIC_BASE_URL ?? "";
@@ -68,9 +72,7 @@ function buildCspHeader(nonce: string): string {
     "default-src": ["'self'"],
     "script-src": [
       "'self'",
-      `'nonce-${nonce}'`,
-      "'strict-dynamic'",
-      // Vercel Analytics + Speed Insights load from these:
+      "'unsafe-inline'",
       "https://va.vercel-scripts.com",
       "https://vitals.vercel-insights.com",
     ],
