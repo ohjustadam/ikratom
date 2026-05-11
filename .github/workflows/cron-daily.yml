@@ -88,6 +88,32 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/scrape-bop-browser.mjs
 
+  parse-bop-pdfs:
+    # Layer 1.5 of the BoP classifier pipeline. Downloads PDF agendas
+    # linked from BoP findings and extracts text via pdf-parse. The
+    # regex classifier only saw link text; this gives it the actual
+    # rule-proposal contents so PDF-only kratom rules can graduate
+    # from 'unrelated' to 'kratom_direct' and become eligible for AI
+    # classification on the next run.
+    #
+    # Runs AFTER bop-browser-scrape (so all candidates are present)
+    # and BEFORE classify-bop-ai (so the AI layer sees upgrades).
+    needs: bop-browser-scrape
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Download + parse PDFs from BoP findings
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/parse-bop-pdfs.mjs --limit 50
+
   classify-bop-ai:
     # Layer 2 of the BoP classifier pipeline. Regex pass runs inside
     # the scraper and flags candidates by title. This job picks up
@@ -95,9 +121,9 @@ jobs:
     # to read the linked PDF/page and produce a structured verdict.
     #
     # Quota: 1500 grounded requests/day on free tier. ~30 findings/run
-    # = well under. Runs AFTER bop-browser-scrape so all candidates
-    # from both Vercel + browser cron paths are present.
-    needs: bop-browser-scrape
+    # = well under. Runs AFTER parse-bop-pdfs so PDF-upgraded candidates
+    # are eligible (regex re-classified them based on PDF text).
+    needs: parse-bop-pdfs
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

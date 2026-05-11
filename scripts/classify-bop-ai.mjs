@@ -89,8 +89,13 @@ async function classifyFinding(finding) {
     `Finding title: ${(finding.title ?? "").slice(0, 400)}`,
     finding.snippet ? `Snippet: ${finding.snippet.slice(0, 800)}` : null,
     finding.url ? `Source URL: ${finding.url}` : "Source URL: (none)",
+    finding.pdf_text
+      ? `\nExtracted PDF text (first ${Math.min(finding.pdf_text.length, 8000)}c of the linked agenda packet):\n---\n${finding.pdf_text.slice(0, 8000)}\n---`
+      : null,
     "",
-    "Fetch the URL above (if any) and search Google to verify whether this is actually about kratom. Output your <result>.",
+    finding.pdf_text
+      ? "We already extracted text from the linked PDF (above). Verify whether it's actually about kratom and output your <result>. You can still search Google for additional context if helpful."
+      : "Fetch the URL above (if any) and search Google to verify whether this is actually about kratom. Output your <result>.",
   ].filter(Boolean).join("\n");
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_KEY}`;
@@ -155,7 +160,7 @@ if (SPECIFIC) {
   const { data } = await sb
     .from("bop_findings")
     .select(`
-      id, state, title, snippet, url, classified_relevance, classified_severity,
+      id, state, title, snippet, url, pdf_text, classified_relevance, classified_severity,
       ai_classified_at, reviewed_at,
       bop_sources!inner ( board_name, surface )
     `)
@@ -169,6 +174,7 @@ if (SPECIFIC) {
       title: data.title,
       snippet: data.snippet,
       url: data.url,
+      pdf_text: data.pdf_text,
       board_name: data.bop_sources.board_name,
       surface: data.bop_sources.surface,
     },
@@ -177,7 +183,7 @@ if (SPECIFIC) {
   const { data } = await sb
     .from("bop_findings")
     .select(`
-      id, state, title, snippet, url, classified_relevance,
+      id, state, title, snippet, url, pdf_text, classified_relevance,
       bop_sources!inner ( board_name, surface )
     `)
     .is("ai_classified_at", null)
@@ -191,6 +197,7 @@ if (SPECIFIC) {
     title: d.title,
     snippet: d.snippet,
     url: d.url,
+    pdf_text: d.pdf_text,
     board_name: d.bop_sources.board_name,
     surface: d.bop_sources.surface,
   }));
