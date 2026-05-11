@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { moderateNewContent } from "@/lib/moderation";
 import { recordAdminAction } from "@/lib/audit";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 const VALID_TAGS = ["general", "legislation", "news", "event", "meetup", "market"] as const;
 
@@ -15,6 +16,16 @@ export async function createThread(formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in to post." };
+
+  // Rate-limit: 10 threads/hour/user, 30 threads/hour/IP. Spam-account
+  // creating dozens of stub threads would otherwise be cheap.
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`forum:thread:user:${user.id}`, 10, 3600))) {
+    return { error: "You've created a lot of threads recently. Try again in an hour." };
+  }
+  if (!(await checkRateLimit(`forum:thread:ip:${ip}`, 30, 3600))) {
+    return { error: "Too many new threads from this network. Try again later." };
+  }
 
   const title = cap(String(formData.get("title") ?? ""), 200);
   const body = cap(String(formData.get("body") ?? ""), 20_000) || null;
@@ -158,6 +169,17 @@ export async function createPost(formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in to reply." };
+
+  // Rate-limit: 30 posts/hour/user, 100/hour/IP. Looser than threads
+  // because replies are the normal mode of conversation, but still
+  // caps an account-takeover from auto-replying to everything.
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`forum:post:user:${user.id}`, 30, 3600))) {
+    return { error: "You've replied a lot recently. Take a breather and try again in an hour." };
+  }
+  if (!(await checkRateLimit(`forum:post:ip:${ip}`, 100, 3600))) {
+    return { error: "Too many replies from this network. Try again later." };
+  }
 
   const threadId = String(formData.get("thread_id") ?? "");
   const parentPostId = String(formData.get("parent_post_id") ?? "") || null;
@@ -316,6 +338,12 @@ export async function reportContent(input: {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in to report content." };
+
+  // Rate-limit: 20 reports/hour/user. Spam-reporters can swamp the
+  // moderation queue with bogus reports and drown out real ones.
+  if (!(await checkRateLimit(`forum:report:user:${user.id}`, 20, 3600))) {
+    return { error: "You've reported a lot recently. If you're seeing real abuse, email support@ikratom.org." };
+  }
 
   if (!["post", "thread"].includes(input.targetType)) return { error: "Invalid target." };
   if (!VALID_REPORT_CATEGORIES.includes(input.reasonCategory)) return { error: "Invalid category." };

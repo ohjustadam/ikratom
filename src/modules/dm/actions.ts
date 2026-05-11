@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 /**
  * Set the user's public key (called from client after keypair generation).
@@ -66,6 +67,18 @@ export async function createConversation(input: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
   if (input.recipientUserId === user.id) return { error: "Can't message yourself." };
+
+  // Rate-limit: 10 new conversations/hour/user, 30/hour/IP.
+  // sendMessage already has its own DB-side rate limit; this prevents
+  // an account-takeover from spamming unique conversations to every
+  // user (which would bypass the per-message limit).
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`dm:create:user:${user.id}`, 10, 3600))) {
+    return { error: "You've started a lot of conversations recently. Try again in an hour." };
+  }
+  if (!(await checkRateLimit(`dm:create:ip:${ip}`, 30, 3600))) {
+    return { error: "Too many new conversations from this network." };
+  }
 
   // Check if a 1:1 conversation already exists between these users
   const { data: mine } = await supabase
