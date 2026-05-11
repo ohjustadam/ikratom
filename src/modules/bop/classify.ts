@@ -5,10 +5,16 @@
  * fix both.
  */
 
-const DIRECT_RE = /\b(kratom|mitragyna|mitragynine|7-?(?:hydroxy)?(?:mitragynine)?|7-oh)\b/i;
-const ADJACENT_RE = /\b(novel\s+psychoactive|emerging\s+substance|scheduling|controlled\s+substance|rule\s*23|"botanical")\b/i;
-const HOSTILE_RE = /\b(ban|prohibit|schedule\s+i|add\s+to\s+schedule|controlled|adulterated|emergency\s+rule)\b/i;
-const SUPPORTIVE_RE = /\b(consumer\s+protection|labeling|age\s+limit|standards|kcpa)\b/i;
+// Sync'd with scripts/lib/bop-engine.mjs. See that file's comment block
+// for the rationale on why the 7-OH/hydroxy sub-parts are required.
+const DIRECT_RE =
+  /\b(kratom|mitragyna\w*|7\s*-?\s*OH\b|7\s*-?\s*hydroxy(?:mitragynine)?)\b/i;
+const ADJACENT_RE =
+  /\b(novel\s+psychoactive|emerging\s+substance|schedule\s+[IVX]+\b|controlled\s+substance|"botanical")\b/i;
+const HOSTILE_RE =
+  /\b(ban|prohibit|schedule\s+[IVX]+|add\s+to\s+schedule|controlled|adulterated|emergency\s+rule)\b/i;
+const SUPPORTIVE_RE =
+  /\b(consumer\s+protection|labeling|age\s+limit|standards|kcpa)\b/i;
 
 export type BopRelevance = "kratom_direct" | "kratom_adjacent" | "unrelated";
 export type BopSeverity =

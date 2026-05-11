@@ -18,10 +18,20 @@
 // Keyword bank for first-pass classification. Tuned for high recall —
 // we'd rather over-flag and triage manually than miss a hostile rule
 // proposal. Admin can mark borderline cases "unrelated" via the UI.
-const DIRECT_RE = /\b(kratom|mitragyna|mitragynine|7-?(?:hydroxy)?(?:mitragynine)?|7-oh)\b/i;
-const ADJACENT_RE = /\b(novel\s+psychoactive|emerging\s+substance|scheduling|controlled\s+substance|rule\s*23|"botanical")\b/i;
-const HOSTILE_RE = /\b(ban|prohibit|schedule\s+i|add\s+to\s+schedule|controlled|adulterated|emergency\s+rule)\b/i;
-const SUPPORTIVE_RE = /\b(consumer\s+protection|labeling|age\s+limit|standards|kcpa)\b/i;
+//
+// CAREFUL: the original 7-OH alternative had every sub-group optional
+// (`7-?(?:hydroxy)?(?:mitragynine)?`) which collapsed to "any 7
+// followed by optional dash" — so titles like "June 7-8, 2006"
+// classified as kratom_direct. The fix below makes the OH/hydroxy
+// part REQUIRED in the 7-OH branches.
+const DIRECT_RE =
+  /\b(kratom|mitragyna\w*|7\s*-?\s*OH\b|7\s*-?\s*hydroxy(?:mitragynine)?)\b/i;
+const ADJACENT_RE =
+  /\b(novel\s+psychoactive|emerging\s+substance|schedule\s+[IVX]+\b|controlled\s+substance|"botanical")\b/i;
+const HOSTILE_RE =
+  /\b(ban|prohibit|schedule\s+[IVX]+|add\s+to\s+schedule|controlled|adulterated|emergency\s+rule)\b/i;
+const SUPPORTIVE_RE =
+  /\b(consumer\s+protection|labeling|age\s+limit|standards|kcpa)\b/i;
 
 function classify(textParts) {
   const text = textParts.filter(Boolean).join(" ");
