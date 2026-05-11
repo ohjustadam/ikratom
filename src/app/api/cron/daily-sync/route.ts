@@ -156,6 +156,30 @@ export async function GET(request: NextRequest) {
     log.push({ step: "prune_trusted_devices", result: { error: String(e).slice(0, 200) } });
   }
 
+  // BoP scraper — walk enabled state Board of Pharmacy surfaces for
+  // kratom-related agenda items / rule proposals / news. The keyword
+  // filter is loose (high recall) so admin still triages from
+  // /admin/bop-monitor before any user-facing alert fires. Best-effort:
+  // if a BoP source 404s or times out, the engine marks just that
+  // source as error and moves on. Capped at 25 sources/run to stay
+  // within the function budget.
+  try {
+    const { runBopScrape } = await import("@/modules/bop/engine");
+    const bop = await runBopScrape({ supabase });
+    log.push({
+      step: "bop",
+      result: {
+        sources: bop.length,
+        ok: bop.filter((b) => b.status === "ok").length,
+        empty: bop.filter((b) => b.status === "no_findings").length,
+        error: bop.filter((b) => b.status === "error").length,
+        new_findings: bop.reduce((a, b) => a + (b.inserted ?? 0), 0),
+      },
+    });
+  } catch (e) {
+    log.push({ step: "bop", result: { error: String(e).slice(0, 200) } });
+  }
+
   // Auto-create campaigns for newly-detected anti-kratom bills. This runs
   // AFTER enrichment so the confidence floor (0.6) is meaningful — a
   // freshly-synced bill that hasn't been enriched yet has confidence=null

@@ -173,6 +173,13 @@ export default async function AdminPage() {
         )}
         {adminOnly && (
           <AdminCard
+            href="/admin/bop-monitor"
+            title="BoP Monitor"
+            body="State Board of Pharmacy + adjacent agency surfaces. Early warning for the administrative path to a ban."
+          />
+        )}
+        {adminOnly && (
+          <AdminCard
             href="/admin/communities"
             title="Forum communities"
             body="Add, edit, archive topical communities (Veterans, Shop owners, etc.) shown alongside state forums."
