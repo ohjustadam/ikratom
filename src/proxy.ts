@@ -199,9 +199,16 @@ export async function proxy(request: NextRequest) {
 
   // Augment incoming request headers with the nonce so the layout can
   // read it via `headers().get('x-nonce')`. Skip for API routes.
+  //
+  // CRITICAL: Next.js auto-applies the nonce to its OWN injected
+  // <script> tags only if it sees a `Content-Security-Policy` value
+  // on the REQUEST headers. We set it here (always the enforcing-form
+  // name, even when we're sending the report-only header to the
+  // browser) so Next.js scripts get the nonce regardless of mode.
   const requestHeaders = new Headers(request.headers);
   if (nonce) {
     requestHeaders.set("x-nonce", nonce);
+    requestHeaders.set("Content-Security-Policy", buildCspHeader(nonce));
   }
 
   let response = NextResponse.next({
