@@ -21,7 +21,8 @@ export type WidgetId =
   | "activity_radar"
   | "badges"
   | "whats_new"
-  | "welcome_explore";
+  | "welcome_explore"
+  | "bop_watch";
 
 /**
  * One-click layout presets — apply via CockpitCustomizer's Preset row.
@@ -54,6 +55,7 @@ export const DEFAULT_WIDGETS: WidgetSlot[] = [
   { id: "my_reps", visible: true },
   { id: "activity_radar", visible: true },
   { id: "saved_searches", visible: true },
+  { id: "bop_watch", visible: true },
   { id: "streak", visible: false }, // hidden by default — scoreboard supersedes
 ];
 
@@ -114,6 +116,10 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
     title: "Welcome / Explore",
     description: "First-time tour cards for Community, DMs, and Campaigns. Hides itself once you've used any of those.",
   },
+  bop_watch: {
+    title: "BoP Watch",
+    description: "Daily monitoring of every state Board of Pharmacy for kratom rulemaking — the administrative path to a ban.",
+  },
 };
 
 /**
@@ -136,6 +142,7 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
       { id: "badges", visible: true },
       { id: "saved_searches", visible: false },
       { id: "activity_radar", visible: false },
+      { id: "bop_watch", visible: false },
       { id: "streak", visible: false },
     ],
   },
@@ -146,6 +153,7 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
       { id: "whats_new", visible: true },
       { id: "briefing", visible: true },
       { id: "activity_radar", visible: true },
+      { id: "bop_watch", visible: true },
       { id: "saved_searches", visible: true },
       { id: "active_campaigns", visible: true },
       { id: "profile_completion", visible: true },
@@ -172,6 +180,7 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
       { id: "my_reps", visible: false },
       { id: "rep_coverage", visible: false },
       { id: "profile_completion", visible: true },
+      { id: "bop_watch", visible: false },
       { id: "streak", visible: false },
     ],
   },

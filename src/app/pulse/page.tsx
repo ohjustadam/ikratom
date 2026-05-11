@@ -4,6 +4,7 @@ import matter from "gray-matter";
 import { createClient } from "@/lib/supabase/server";
 import { TourTooltip } from "@/modules/tour/TourTooltip";
 import { getTourSeen } from "@/modules/tour/actions";
+import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 
 export const metadata = { title: "Pulse — live policy feed" };
 // Force dynamic so newly-inserted alerts and breaking events appear on
@@ -225,6 +226,14 @@ export default async function PulsePage() {
         body="National + your state's biggest kratom-policy stories, refreshed every hour. National on the left, your state on the right. Click any card to read the full story in a new tab."
         anchorSelector="#pulse-news-section"
       />
+
+      {/* BoP Watch summary — the administrative-path-to-a-ban watch.
+          Reads via public RPCs so it works for signed-out users too.
+          Empty state is the common case right now (no kratom-related
+          BoP activity); shows real findings when they appear. */}
+      <div className="mb-6">
+        <BopWatchSummary />
+      </div>
 
       {((nationalNews?.length ?? 0) > 0 || (localNews?.length ?? 0) > 0 || (topStateNews?.length ?? 0) > 0) && (
         <section id="pulse-news-section" className="mb-8 grid gap-4 lg:grid-cols-2">
