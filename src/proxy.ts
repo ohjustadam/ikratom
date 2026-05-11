@@ -25,18 +25,51 @@ const STATE_RE = /^([A-Z]{2}|FED)$/;
 // list and it gets a 403 within seconds of redeploy.
 const BLOCKED_UA_RE = /(GPTBot|ClaudeBot|Claude-Web|anthropic-ai|CCBot|Google-Extended|PerplexityBot|YouBot|Bytespider|Meta-ExternalAgent|Meta-ExternalFetcher|Diffbot|ImagesiftBot|DataForSeoBot|cohere-ai|ai2bot|Timpibot|MJ12bot|AhrefsBot|SemrushBot|DotBot|MegaIndex|PetalBot|BLEXBot|SeznamBot|SerendeputyBot)/i;
 
+/**
+ * Apply our standard security-header set to any NextResponse. Called
+ * on every return path (including redirects) so we get coverage even
+ * on edge bounces. See the README block at the bottom of this file
+ * for what each header does.
+ */
+function withSecurityHeaders(res: NextResponse): NextResponse {
+  res.headers.set("X-Frame-Options", "DENY");
+  res.headers.set("X-Content-Type-Options", "nosniff");
+  res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.headers.set(
+    "Permissions-Policy",
+    [
+      "camera=()",
+      "microphone=()",
+      "geolocation=()",
+      "payment=()",
+      "usb=()",
+      "magnetometer=()",
+      "gyroscope=()",
+      "accelerometer=()",
+      "fullscreen=(self)",
+    ].join(", ")
+  );
+  res.headers.set(
+    "Strict-Transport-Security",
+    "max-age=31536000; includeSubDomains"
+  );
+  return res;
+}
+
 export async function proxy(request: NextRequest) {
   // ── Bot block at the edge — runs before any Supabase setup ───────
   // Don't bother with Supabase + cookies for crawlers we'd block anyway.
   const ua = request.headers.get("user-agent") ?? "";
   if (ua && BLOCKED_UA_RE.test(ua)) {
-    return new NextResponse("Forbidden", {
-      status: 403,
-      headers: {
-        "Content-Type": "text/plain",
-        "X-Robots-Tag": "noindex, nofollow",
-      },
-    });
+    return withSecurityHeaders(
+      new NextResponse("Forbidden", {
+        status: 403,
+        headers: {
+          "Content-Type": "text/plain",
+          "X-Robots-Tag": "noindex, nofollow",
+        },
+      })
+    );
   }
 
   let response = NextResponse.next({ request });
@@ -103,11 +136,13 @@ export async function proxy(request: NextRequest) {
   if (isProtected && !user) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("redirect", request.nextUrl.pathname);
-    return NextResponse.redirect(loginUrl);
+    return withSecurityHeaders(NextResponse.redirect(loginUrl));
   }
 
   if (request.nextUrl.pathname === "/login" && user) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return withSecurityHeaders(
+      NextResponse.redirect(new URL("/dashboard", request.url))
+    );
   }
 
   // Account-locked gate (migration 0082) + force-password-change gate
@@ -132,11 +167,13 @@ export async function proxy(request: NextRequest) {
         .single();
       const p = prof as { account_locked_at?: string | null; password_must_change_at?: string | null } | null;
       if (p?.account_locked_at) {
-        return NextResponse.redirect(new URL("/locked", request.url));
+        return withSecurityHeaders(
+          NextResponse.redirect(new URL("/locked", request.url))
+        );
       }
       if (p?.password_must_change_at) {
-        return NextResponse.redirect(
-          new URL("/account/security/force-change", request.url)
+        return withSecurityHeaders(
+          NextResponse.redirect(new URL("/account/security/force-change", request.url))
         );
       }
     } catch {
@@ -144,7 +181,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  return response;
+  return withSecurityHeaders(response);
 }
 
 export const config = {

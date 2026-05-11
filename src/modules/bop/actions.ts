@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { recordAdminAction } from "@/lib/audit";
 import { getAdminContext } from "@/modules/admin/actions";
+import { isSafePublicUrl } from "@/lib/url-safety";
 
 /**
  * Update a BoP source's URL and/or notes. Admin uses this from
@@ -22,11 +23,14 @@ export async function updateBopSource(input: {
   const patch: Record<string, string | null> = {};
   if (typeof input.agendaUrl === "string") {
     const trimmed = input.agendaUrl.trim();
-    if (!/^https?:\/\//i.test(trimmed)) {
-      return { error: "URL must start with http:// or https://" };
-    }
     if (trimmed.length > 1000) return { error: "URL too long." };
-    patch.agenda_url = trimmed;
+    // SSRF defense: block private IPs, loopback, link-local, weird
+    // schemes, non-standard ports, embedded credentials. The cron
+    // will fetch this URL server-side, so we must validate before
+    // ever storing it.
+    const check = isSafePublicUrl(trimmed);
+    if (!check.ok) return { error: check.reason };
+    patch.agenda_url = check.url.toString();
   }
   if (typeof input.notes === "string") {
     patch.notes = input.notes.slice(0, 1000) || null;
