@@ -28,12 +28,19 @@ type AdvocateType = typeof VALID_TYPES[number];
 const VALID_VISIBILITY = ["public", "recruiters_only", "private"] as const;
 type Visibility = typeof VALID_VISIBILITY[number];
 
-function detectVideoProvider(url: string): "youtube" | "vimeo" | "other" | null {
+function detectVideoProvider(
+  url: string
+): "youtube" | "vimeo" | "r2" | "other" | null {
   try {
     const u = new URL(url);
     const h = u.hostname.toLowerCase();
     if (h.includes("youtube.com") || h.includes("youtu.be")) return "youtube";
     if (h.includes("vimeo.com")) return "vimeo";
+    // R2 public URLs land on either pub-*.r2.dev or our configured custom
+    // domain. Treat anything that matches our configured public base as
+    // "r2" so the embed shape stays correct after re-saving the form.
+    const r2Base = (process.env.R2_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
+    if (r2Base && url.startsWith(`${r2Base}/`)) return "r2";
     return "other";
   } catch {
     return null;
@@ -80,7 +87,7 @@ export async function updateProfileCharacter(formData: FormData) {
   }
 
   let videoUrl: string | null = null;
-  let videoProvider: "youtube" | "vimeo" | "other" | null = null;
+  let videoProvider: "youtube" | "vimeo" | "r2" | "other" | null = null;
   if (videoUrlRaw) {
     if (videoUrlRaw.length > 500) return { error: "Video URL must be 500 characters or less." };
     if (!/^https?:\/\//i.test(videoUrlRaw)) return { error: "Video URL must start with http:// or https://" };

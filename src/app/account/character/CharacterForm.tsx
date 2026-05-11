@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateProfileCharacter } from "@/modules/auth/actions-character";
+import { VideoUploader } from "@/modules/auth/components/VideoUploader";
 
 const ADVOCATE_TYPES: { id: string; label: string; hint: string }[] = [
   { id: "consumer", label: "Consumer", hint: "Daily user — most advocates fall here" },
@@ -17,6 +18,7 @@ const ADVOCATE_TYPES: { id: string; label: string; hint: string }[] = [
 
 export function CharacterForm({
   initial,
+  uploadEnabled,
 }: {
   initial: {
     kratom_story: string;
@@ -24,8 +26,10 @@ export function CharacterForm({
     advocate_type: string;
     lose_if_banned: string;
     video_url: string;
+    video_provider: string | null;
     profile_visibility: string;
   };
+  uploadEnabled: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -134,21 +138,20 @@ export function CharacterForm({
         <p className="mt-1 text-[11px] text-zinc-500">{stake.length}/500</p>
       </div>
 
-      {/* Video URL */}
+      {/* Video advocacy clip */}
       <div>
         <label className="block text-sm font-medium text-zinc-200">Video advocacy clip <span className="text-zinc-500">(optional)</span></label>
         <p className="mt-1 text-xs text-zinc-500">
-          A YouTube (Unlisted is fine) or Vimeo link to a personal advocacy clip. Future feature
-          will let us include it inline with your story when reaching out to media or hearings.
-          We don&apos;t host video — paste a URL.
+          A personal advocacy clip surfaced on your public profile and (later) included inline
+          with your story when reaching out to media or hearings.
+          {uploadEnabled
+            ? " Upload an MP4/MOV/WebM (≤ 100 MB) or paste a YouTube / Vimeo URL."
+            : " Paste a YouTube (Unlisted is fine) or Vimeo URL."}
         </p>
-        <input
-          type="url"
-          name="video_url"
-          defaultValue={initial.video_url}
-          placeholder="https://youtu.be/…"
-          maxLength={500}
-          className="mt-2 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+        <VideoUploader
+          initialUrl={initial.video_url}
+          initialProvider={initial.video_provider}
+          uploadEnabled={uploadEnabled}
         />
       </div>
 
