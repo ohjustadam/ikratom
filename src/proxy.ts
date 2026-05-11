@@ -110,14 +110,16 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // Account-locked gate (migration 0082). Owner-locked accounts get
-  // bounced to /locked on every request except /locked itself and the
-  // auth + api callbacks they need to sign out. Cheap single-column
+  // Account-locked gate (migration 0082) + force-password-change gate
+  // (migration 0084). Both run on the same single profile read for
+  // perf — admin-locked users go to /locked, admin-temp-passworded
+  // users go to /account/security/force-change. Cheap single-column
   // read; non-fatal if it errors (don't block normal users on a DB
   // hiccup).
   if (
     user &&
     !request.nextUrl.pathname.startsWith("/locked") &&
+    !request.nextUrl.pathname.startsWith("/account/security/force-change") &&
     !request.nextUrl.pathname.startsWith("/auth/") &&
     !request.nextUrl.pathname.startsWith("/api/") &&
     !request.nextUrl.pathname.startsWith("/_next")
@@ -125,11 +127,17 @@ export async function proxy(request: NextRequest) {
     try {
       const { data: prof } = await supabase
         .from("profiles")
-        .select("account_locked_at")
+        .select("account_locked_at, password_must_change_at")
         .eq("id", user.id)
         .single();
-      if ((prof as { account_locked_at?: string | null } | null)?.account_locked_at) {
+      const p = prof as { account_locked_at?: string | null; password_must_change_at?: string | null } | null;
+      if (p?.account_locked_at) {
         return NextResponse.redirect(new URL("/locked", request.url));
+      }
+      if (p?.password_must_change_at) {
+        return NextResponse.redirect(
+          new URL("/account/security/force-change", request.url)
+        );
       }
     } catch {
       // fail-open — don't lock users out on transient DB errors

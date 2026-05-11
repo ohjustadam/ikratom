@@ -6,6 +6,7 @@ import {
   sendPasswordResetForUser,
   sendMagicLinkForUser,
   setAccountLocked,
+  generateTempPassword,
 } from "@/modules/admin/user-actions";
 
 type UserRow = {
@@ -35,6 +36,7 @@ export function UserRolesRow({
   const [isOwner, setIsOwner] = useState(user.is_owner);
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
+  const [tempModal, setTempModal] = useState<{ password: string; email: string } | null>(null);
 
   const isSelf = user.id === callerUserId;
 
@@ -72,6 +74,28 @@ export function UserRolesRow({
       const r = await sendPasswordResetForUser({ userId: user.id });
       setMsg(r.error ? `✗ ${r.error.slice(0, 80)}` : "✓ Reset email sent");
       setTimeout(() => setMsg(null), 4000);
+    });
+  }
+
+  function triggerTempPassword() {
+    if (
+      !confirm(
+        `Issue a temporary password for ${user.email}?\n\n` +
+          `You'll see the temp password ONCE on the next screen — copy it and read it to the user.\n\n` +
+          `The user will be forced to set their own password the moment they sign in with it. ` +
+          `The user is also emailed a heads-up. Audit-logged.`
+      )
+    )
+      return;
+    setMsg(null);
+    startTransition(async () => {
+      const r = await generateTempPassword({ userId: user.id });
+      if ("error" in r) {
+        setMsg(`✗ ${r.error.slice(0, 100)}`);
+        setTimeout(() => setMsg(null), 6000);
+      } else {
+        setTempModal({ password: r.tempPassword, email: r.email });
+      }
     });
   }
 
@@ -154,6 +178,15 @@ export function UserRolesRow({
               >
                 🔑 Send password reset
               </button>
+              {!isSelf && (
+                <button
+                  onClick={triggerTempPassword}
+                  disabled={pending}
+                  className="block w-full rounded px-2 py-1.5 text-left text-xs text-zinc-200 hover:bg-zinc-900"
+                >
+                  🎟 Generate temp password
+                </button>
+              )}
               {callerIsOwner && !isSelf && (
                 <button
                   onClick={toggleLock}
@@ -185,8 +218,90 @@ export function UserRolesRow({
         {user.account_locked_at && (
           <p className="mt-1 text-right text-[10px] font-bold text-red-400">🔒 LOCKED</p>
         )}
+        {tempModal && (
+          <TempPasswordModal
+            password={tempModal.password}
+            email={tempModal.email}
+            onClose={() => setTempModal(null)}
+          />
+        )}
       </td>
     </tr>
+  );
+}
+
+function TempPasswordModal({
+  password,
+  email,
+  onClose,
+}: {
+  password: string;
+  email: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Some browsers without clipboard API in non-https context;
+      // fall back to selecting the text.
+      const el = document.getElementById("temp-pw-display");
+      if (el) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
+    }
+  }
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-lg border border-emerald-700/40 bg-zinc-950 p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-bold text-emerald-300">Temporary password issued</h3>
+        <p className="mt-1 text-xs text-zinc-400">
+          For <span className="font-mono text-zinc-200">{email}</span>. Read this to
+          the user — they&apos;ll be forced to set their own password the moment they
+          sign in with it.
+        </p>
+        <div
+          id="temp-pw-display"
+          className="mt-4 select-all rounded-md border border-zinc-800 bg-zinc-900 px-3 py-3 text-center font-mono text-base font-bold tracking-wider text-emerald-200 break-all"
+        >
+          {password}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={copy}
+            className="flex-1 rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
+          >
+            {copied ? "✓ Copied" : "Copy to clipboard"}
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:border-zinc-500"
+          >
+            Done
+          </button>
+        </div>
+        <p className="mt-4 text-[11px] text-amber-300/80">
+          ⚠ This is shown ONCE. If the user loses it, generate a new one.
+        </p>
+        <p className="mt-2 text-[11px] text-zinc-500">
+          The user has also been emailed a heads-up that an admin set a temp
+          password — a safety net against unauthorized takeover.
+        </p>
+      </div>
+    </div>
   );
 }
 
