@@ -156,6 +156,7 @@ export default async function RootLayout({
               <a href="/campaigns" className="hover:text-emerald-400">Campaigns</a>
               <a href="/legislators" className="hover:text-emerald-400">Legislators</a>
               <a href="/bills" className="hover:text-emerald-400">Bills</a>
+              <a href="/bop-watch" className="hover:text-emerald-400">BoP Watch</a>
               <a href="/news" className="hover:text-emerald-400">News</a>
               <a href="/library" className="hover:text-emerald-400">Library</a>
               <a href="/briefings" className="hover:text-emerald-400">Briefings</a>
