@@ -6,6 +6,51 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { recordAdminAction } from "@/lib/audit";
 import { getAdminContext } from "@/modules/admin/actions";
 
+/**
+ * Update a BoP source's URL and/or notes. Admin uses this from
+ * /admin/bop-monitor to fix the 404/403 URLs the auto-seed got wrong.
+ */
+export async function updateBopSource(input: {
+  sourceId: string;
+  agendaUrl?: string;
+  notes?: string;
+}) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  if (!input.sourceId) return { error: "Missing source id." };
+
+  const patch: Record<string, string | null> = {};
+  if (typeof input.agendaUrl === "string") {
+    const trimmed = input.agendaUrl.trim();
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return { error: "URL must start with http:// or https://" };
+    }
+    if (trimmed.length > 1000) return { error: "URL too long." };
+    patch.agenda_url = trimmed;
+  }
+  if (typeof input.notes === "string") {
+    patch.notes = input.notes.slice(0, 1000) || null;
+  }
+  if (Object.keys(patch).length === 0) return { error: "Nothing to update." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("bop_sources")
+    .update(patch)
+    .eq("id", input.sourceId);
+  if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "bop_source_updated",
+    targetType: "policy_alert",
+    targetId: input.sourceId,
+    details: patch,
+  });
+
+  revalidatePath("/admin/bop-monitor");
+  return { ok: true };
+}
+
 /** Toggle a BoP source on/off. Admin only. */
 export async function setBopSourceEnabled(input: {
   sourceId: string;
