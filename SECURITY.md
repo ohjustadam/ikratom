@@ -97,10 +97,33 @@ Out of scope:
 - Gmail OAuth refresh tokens encrypted at rest with a per-user key
   derived from a server secret
 - Audit log of admin mutations (`admin_audit_log`) is append-only,
-  admin-read RLS, service-role-write only
+  admin-read RLS, service-role-write only — and protected against
+  service-role tampering by before-update/delete triggers that raise
+  42501 regardless of caller (PR #123)
 
 ### Application defenses
 - Open-redirect protection in `signIn` action (`safeRelative()`)
+- Email-enumeration defense on signup (PR #124): "user already
+  registered" errors are caught and the success shape returned
+  regardless, so an attacker can't probe which emails have accounts.
+  Best-effort heads-up email to existing-account holder via Resend.
+  Login + password-reset already had this protection.
+- SSRF defense on admin-supplied URLs (PR #118): `src/lib/url-safety.ts`
+  blocks non-http(s) schemes, private IPv4 (RFC 1918) + loopback +
+  link-local (covers AWS/GCP/Azure IMDS endpoints), private IPv6,
+  suspicious hostnames (`localhost`, `metadata.google.internal`,
+  `*.local|internal|lan|home|corp|intra`), non-standard ports, and
+  URLs with embedded credentials. Used by `updateBopSource` admin
+  action; both BoP adapters (`generic_html.mjs`, `playwright_browser.mjs`)
+  also enforce at fetch/navigate time as defense-in-depth.
+- Library embed iframe-allowlist sanitizer (PR #121,
+  `src/lib/embed-safety.ts`): `library_items.embed_html` is rendered
+  with `dangerouslySetInnerHTML`. Only single `<iframe>` elements
+  from YouTube / YouTube-nocookie / Vimeo accepted; canonical
+  reconstruction adds `sandbox`, `referrerpolicy`, `loading="lazy"`.
+  18 test cases including subdomain-prefix tricks
+  (`evil.com.www.youtube.com`), `on*` handlers, multiple iframes,
+  trailing junk.
 - Forum moderation (`src/lib/moderation.ts`): detects non-whitelisted
   URLs, bare domains, US phone numbers, emails, BTC/ETH wallet addresses;
   first 3 approved posts on a new account go to review queue
@@ -164,18 +187,27 @@ defense from CSP. The strict markdown sanitizer + framework defaults
 remain primary XSS defenses. Track upgrade when Next.js ships
 first-class nonce support.
 
-### Low — no breached-password check on signup
-HaveIBeenPwned k-anonymity API would catch users picking passwords
-from known breaches. Not yet integrated.
-
 ### Low — no session list / "sign out all other devices" UI
 If a user's session token leaks, current recovery is to change the
 password (which invalidates all sessions on Supabase). UI to view +
 revoke individual sessions is not yet built.
 
-### Low — no email alert on new device sign-in
-Account-takeover detection is reactive (audit log) rather than
-proactive (push notification on suspicious login).
+### Resolved tonight (2026-05-11)
+- ~~No breached-password check on signup~~ — `isPasswordPwned()` is
+  called in `signUp`. HIBP k-anonymity API; fails open on network error.
+- ~~No email alert on new device sign-in~~ — `recordSignIn()` triggers
+  in-app notification + Resend email (when configured) on every
+  not-previously-seen-on-this-account device fingerprint.
+- ~~Audit log tamper risk via service-role~~ — fixed in PR #123 via
+  before-update/delete triggers that work regardless of caller.
+- ~~Email enumeration on signup~~ — fixed in PR #124.
+- ~~`recordSignIn` callable as forged-notification vector~~ — fixed in
+  PR #120 by dropping `"use server"` and switching to `server-only`
+  module pattern.
+- ~~Rate-limit gaps on forum threads/posts/reports + stories + DM
+  conversations + admin support actions~~ — closed in PRs #119, #120.
+- ~~`get_public_profile` exposed `recruiters_only` users~~ — fixed in
+  PR #122; filter now `= 'public'`.
 
 ### Informational — backup-code recovery via owner
 If a user loses their phone *and* their backup codes, recovery requires
@@ -226,4 +258,4 @@ Out of bounds:
 
 ---
 
-_Last reviewed: 2026-05-05 — see `git log SECURITY.md` for change history._
+_Last reviewed: 2026-05-11 — see `git log SECURITY.md` for change history._
