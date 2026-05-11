@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isR2Configured } from "@/lib/r2";
 import { CharacterForm } from "./CharacterForm";
 
 export const metadata = { title: "Your character" };
@@ -24,6 +25,8 @@ export default async function CharacterPage() {
     .select("kratom_story, kratom_years, advocate_type, lose_if_banned, video_url, video_provider, profile_visibility, full_name, username")
     .eq("id", user.id)
     .single();
+
+  const uploadEnabled = isR2Configured();
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:px-8">
@@ -59,8 +62,10 @@ export default async function CharacterPage() {
           advocate_type: (profile as { advocate_type?: string | null } | null)?.advocate_type ?? "",
           lose_if_banned: (profile as { lose_if_banned?: string | null } | null)?.lose_if_banned ?? "",
           video_url: (profile as { video_url?: string | null } | null)?.video_url ?? "",
+          video_provider: (profile as { video_provider?: string | null } | null)?.video_provider ?? null,
           profile_visibility: (profile as { profile_visibility?: string } | null)?.profile_visibility ?? "public",
         }}
+        uploadEnabled={uploadEnabled}
       />
     </div>
   );
