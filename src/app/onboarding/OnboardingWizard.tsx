@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import {
   saveAddressStep,
-  saveRolesStep,
+  saveClassStep,
+  saveStakeStep,
   saveNotificationsStep,
   completeOnboarding,
   skipOnboarding,
@@ -11,6 +12,17 @@ import {
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+];
+
+const CLASSES: { id: string; label: string; tagline: string; bonus: string }[] = [
+  { id: "consumer", label: "Consumer", tagline: "Daily user", bonus: "The base voice — most advocates fall here. Legislators expect to hear from you." },
+  { id: "shop_owner", label: "Shop Owner", tagline: "You sell kratom", bonus: "Economic-impact angle, employees, local-business framing. Devastating in committee testimony." },
+  { id: "medical_pro", label: "Medical Pro", tagline: "Doctor / nurse / pharmacist", bonus: "Outsized credibility on health & safety arguments. Medical board outreach unlocked." },
+  { id: "family", label: "Family", tagline: "Loved one of a kratom user", bonus: "The 'this saved my husband' story is one of the most-cited in committee transcripts." },
+  { id: "veteran", label: "Veteran", tagline: "Served in the U.S. military", bonus: "Massive narrative weight on the Hill — both sides want to be seen helping vets." },
+  { id: "researcher", label: "Researcher", tagline: "Academic / industry", bonus: "You bring data. Quoted studies make staff fold." },
+  { id: "leader", label: "Leader", tagline: "Org work, hearings, organized outreach", bonus: "Coalition framing. The 'speaking on behalf of X advocates' move." },
+  { id: "other", label: "Other", tagline: "Doesn't fit above", bonus: "No bonus — pick something else if you can." },
 ];
 
 type InitialProfile = {
@@ -24,14 +36,18 @@ type InitialProfile = {
   is_medical_professional: boolean;
 };
 
-const STEPS = ["welcome", "address", "you", "notifications", "done"] as const;
+const STEPS = ["welcome", "class", "where", "stake", "alerts", "done"] as const;
 type Step = (typeof STEPS)[number];
 
 export function OnboardingWizard({ initialProfile }: { initialProfile: InitialProfile }) {
   const [step, setStep] = useState<Step>("welcome");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [isShop, setIsShop] = useState(initialProfile.is_shop_owner);
+  const [advocateType, setAdvocateType] = useState<string>(
+    initialProfile.is_shop_owner ? "shop_owner"
+    : initialProfile.is_medical_professional ? "medical_pro"
+    : ""
+  );
 
   function next() {
     const idx = STEPS.indexOf(step);
@@ -41,6 +57,17 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
   function back() {
     const idx = STEPS.indexOf(step);
     if (idx > 0) setStep(STEPS[idx - 1]);
+  }
+
+  function submitClass(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    const fd = new FormData(e.currentTarget);
+    startTransition(async () => {
+      const r = await saveClassStep(fd);
+      if (r.error) setError(r.error);
+      else next();
+    });
   }
 
   function submitAddress(e: React.FormEvent<HTMLFormElement>) {
@@ -54,12 +81,12 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
     });
   }
 
-  function submitRoles(e: React.FormEvent<HTMLFormElement>) {
+  function submitStake(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     const fd = new FormData(e.currentTarget);
     startTransition(async () => {
-      const r = await saveRolesStep(fd);
+      const r = await saveStakeStep(fd);
       if (r.error) setError(r.error);
       else next();
     });
@@ -83,15 +110,15 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
   }
 
   function skipAll() {
-    if (!confirm("Skip the welcome tour? You can complete your profile later from /account.")) return;
+    if (!confirm("Skip character creation? You can finish from /account anytime.")) return;
     startTransition(async () => {
       await skipOnboarding();
     });
   }
 
-  // Progress dots
-  const totalDots = 4; // welcome → address → you → notifications (done is final)
-  const currentDot = Math.min(STEPS.indexOf(step), 3);
+  // Progress dots: welcome → class → where → stake → alerts (done is final)
+  const totalDots = 5;
+  const currentDot = Math.min(STEPS.indexOf(step), totalDots - 1);
 
   return (
     <div>
@@ -117,41 +144,118 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
       {step === "welcome" && (
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-            Welcome to the war room
+            Character Creation
           </p>
           <h1 className="mt-3 text-4xl font-bold sm:text-5xl">
-            You&apos;re in. Let&apos;s get you set up in 60 seconds.
+            Let&apos;s build your advocate.
           </h1>
           <p className="mx-auto mt-4 max-w-md text-zinc-400">
-            iKratom is the advocate&apos;s toolbelt — emails to your reps in one click, real-time
-            bill alerts, encrypted DMs with other advocates, all anchored to your state and city.
+            iKratom is the advocate&apos;s toolbelt. The next 60 seconds shape how the platform
+            writes in <strong className="text-zinc-200">your voice</strong> — what stories
+            it picks up on, which legislators you reach, what alerts you get.
           </p>
           <ul className="mx-auto mt-8 max-w-md space-y-3 text-left text-sm">
-            <Bullet emoji="📍">Your address (private) → we match you to your specific reps</Bullet>
-            <Bullet emoji="🎯">Pick what you care about → only relevant alerts</Bullet>
-            <Bullet emoji="🔒">DMs are end-to-end encrypted, key never leaves your device</Bullet>
-            <Bullet emoji="🤝">Nonpartisan. Independent. Owned by no advocacy org.</Bullet>
+            <Bullet emoji="🎭">Pick a class — drives the voice of your legislator emails</Bullet>
+            <Bullet emoji="📍">Drop your pin — matches you to your specific reps</Bullet>
+            <Bullet emoji="🔥">Name your stake — the one line that makes the bill matter</Bullet>
+            <Bullet emoji="🔔">Set your alerts — only what hits your district + your interests</Bullet>
           </ul>
           <button
             onClick={next}
             className="mt-10 rounded-md bg-emerald-500 px-8 py-3 font-bold text-zinc-950 hover:bg-emerald-400"
           >
-            Let&apos;s go →
+            Start →
           </button>
+          <p className="mt-4 text-xs text-zinc-500">
+            All optional. All editable later. Nonpartisan. Independent.
+          </p>
         </div>
       )}
 
-      {step === "address" && (
+      {step === "class" && (
+        <form onSubmit={submitClass} className="space-y-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+              Step 1 of 4 · Pick your class
+            </p>
+            <h2 className="mt-2 text-3xl font-bold">Who are you fighting as?</h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              Drives the default tone of your legislator emails. Veterans and medical
+              pros get extra narrative weight by default. Pick the one that fits best
+              — you can change it later.
+            </p>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {CLASSES.map((c) => (
+              <label
+                key={c.id}
+                className="cursor-pointer rounded-md border border-zinc-800 p-3 text-sm transition has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-950/20 hover:border-zinc-700"
+              >
+                <input
+                  type="radio"
+                  name="advocate_type"
+                  value={c.id}
+                  checked={advocateType === c.id}
+                  onChange={(e) => setAdvocateType(e.target.value)}
+                  className="sr-only"
+                />
+                <div className="flex items-baseline justify-between">
+                  <span className="font-semibold text-zinc-100">{c.label}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">{c.tagline}</span>
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-400">{c.bonus}</p>
+              </label>
+            ))}
+          </div>
+
+          {advocateType === "shop_owner" && (
+            <Field
+              name="shop_name"
+              label="Shop name (optional)"
+              defaultValue={initialProfile.shop_name}
+              placeholder="Your shop's name"
+            />
+          )}
+
+          <div>
+            <label className="block text-xs font-medium text-zinc-400">
+              Years using kratom <span className="text-zinc-600">(optional, 0–80)</span>
+            </label>
+            <input
+              type="number"
+              name="kratom_years"
+              min={0}
+              max={80}
+              placeholder="—"
+              className="mt-1 w-32 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            />
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Surfaced in legislator letters (&ldquo;An 11-year kratom user from Toledo&rdquo;). Skip if you&apos;d rather not say.
+            </p>
+          </div>
+
+          {error && (
+            <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+              {error}
+            </p>
+          )}
+
+          <Nav back={back} canBack pending={pending} nextLabel="Drop my pin →" />
+        </form>
+      )}
+
+      {step === "where" && (
         <form onSubmit={submitAddress} className="space-y-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-              Step 1 of 3
+              Step 2 of 4 · Drop your pin
             </p>
-            <h2 className="mt-2 text-3xl font-bold">Where do you live?</h2>
+            <h2 className="mt-2 text-3xl font-bold">Where do you fight?</h2>
             <p className="mt-2 text-sm text-zinc-400">
               Used <strong className="text-zinc-200">only</strong> to match you to your
-              specific U.S. House and state legislative districts so the right
-              legislators get your emails.
+              specific U.S. House + state legislative districts so the right reps get
+              your emails.
             </p>
             <ul className="mt-3 space-y-1 rounded-md border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-400">
               <li>· Other users never see your address — only your city + state if you choose.</li>
@@ -181,52 +285,32 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
         </form>
       )}
 
-      {step === "you" && (
-        <form onSubmit={submitRoles} className="space-y-5">
+      {step === "stake" && (
+        <form onSubmit={submitStake} className="space-y-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-              Step 2 of 3
+              Step 3 of 4 · Name your stake
             </p>
-            <h2 className="mt-2 text-3xl font-bold">Tell us about you</h2>
+            <h2 className="mt-2 text-3xl font-bold">What would you lose if it&apos;s banned?</h2>
             <p className="mt-2 text-sm text-zinc-400">
-              Optional. Helps us tag the community and lets you weigh in on out-of-state campaigns
-              when relevant.
+              One sentence. <strong className="text-emerald-300">Specifics land harder than generalities.</strong>
+              {" "}This is the line iKratom will surface — with your permission — when your
+              legislator email needs to make a bill <em>matter</em>.
+            </p>
+            <p className="mt-2 text-xs text-zinc-500">
+              Stays private. Never shown to other users. Never sold or shared.
             </p>
           </div>
 
-          <div className="space-y-3">
-            <label className="flex items-start gap-3 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-sm">
-              <input
-                type="checkbox"
-                name="is_shop_owner"
-                checked={isShop}
-                onChange={(e) => setIsShop(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-zinc-700 bg-zinc-950"
-              />
-              <span>
-                <span className="font-medium">I own or manage a kratom shop</span>
-                <span className="block text-xs text-zinc-500">
-                  Shop owners can weigh in on local campaigns out-of-state and join private shop-owner groups.
-                </span>
-              </span>
-            </label>
-            {isShop && (
-              <Field name="shop_name" label="Shop name" defaultValue={initialProfile.shop_name} placeholder="Your shop's name" />
-            )}
-            <label className="flex items-start gap-3 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-sm">
-              <input
-                type="checkbox"
-                name="is_medical_professional"
-                defaultChecked={initialProfile.is_medical_professional}
-                className="mt-0.5 h-4 w-4 rounded border-zinc-700 bg-zinc-950"
-              />
-              <span>
-                <span className="font-medium">I&apos;m a medical professional</span>
-                <span className="block text-xs text-zinc-500">
-                  Doctor, nurse, pharmacist, etc. — you can contribute to medical-board outreach campaigns.
-                </span>
-              </span>
-            </label>
+          <div>
+            <textarea
+              name="lose_if_banned"
+              maxLength={500}
+              rows={5}
+              placeholder='e.g. "I would go back to opioids within a month — and I&apos;d be one more statistic Big Pharma uses to sell more pills."'
+              className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            />
+            <p className="mt-1 text-[11px] text-zinc-500">Up to 500 characters. Skip if you&apos;d rather write it later.</p>
           </div>
 
           {error && (
@@ -239,15 +323,15 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
         </form>
       )}
 
-      {step === "notifications" && (
+      {step === "alerts" && (
         <form onSubmit={submitNotifications} className="space-y-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-              Step 3 of 3
+              Step 4 of 4 · Tune your alerts
             </p>
-            <h2 className="mt-2 text-3xl font-bold">What should we tell you about?</h2>
+            <h2 className="mt-2 text-3xl font-bold">What should we ping you about?</h2>
             <p className="mt-2 text-sm text-zinc-400">
-              When new campaigns drop. You can fine-tune anytime in your account.
+              When new campaigns drop. You can fine-tune anytime from your account.
             </p>
           </div>
 
@@ -269,7 +353,7 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
             </p>
           )}
 
-          <Nav back={back} canBack pending={pending} nextLabel="Almost done →" />
+          <Nav back={back} canBack pending={pending} nextLabel="Almost there →" />
         </form>
       )}
 
@@ -278,10 +362,19 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-3xl text-zinc-950">
             ✓
           </div>
-          <h2 className="mt-6 text-3xl font-bold">You&apos;re ready.</h2>
+          <p className="mt-6 text-xs font-semibold uppercase tracking-widest text-emerald-400">
+            Character ready
+          </p>
+          <h2 className="mt-2 text-3xl font-bold">Your advocate is built.</h2>
           <p className="mx-auto mt-4 max-w-md text-zinc-400">
-            Your dashboard is waiting. Look for the <strong className="text-emerald-400">Your representatives</strong> section
-            — those are the specific officials we&apos;ll contact for you when a campaign matches your district.
+            Your dashboard is waiting. Look for the
+            {" "}<strong className="text-emerald-400">Your representatives</strong>{" "}
+            section — those are the specific officials we&apos;ll route your emails to
+            when a campaign matches your district.
+          </p>
+          <p className="mx-auto mt-3 max-w-md text-xs text-zinc-500">
+            Want to write a longer kratom story, upload a video clip, or change your
+            class later? Visit <span className="font-mono text-zinc-300">/account/character</span>.
           </p>
           <button
             onClick={finish}
