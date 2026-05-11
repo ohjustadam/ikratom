@@ -429,10 +429,74 @@ export async function setNewPassword(formData: FormData): Promise<AuthResult> {
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in. The reset link may have expired." };
+  if (!user || !user.email) {
+    return { error: "Not signed in. The reset link may have expired." };
+  }
 
   const { error } = await supabase.auth.updateUser({ password });
   if (error) return { error: error.message };
+
+  // Parity with changePassword — same followups that flow needs:
+  //   1. Audit-log for privileged accounts (so an admin's reset is
+  //      traceable, not invisible).
+  //   2. Clear password_must_change_at so a user who was on a temp
+  //      password can use the reset link instead of going through
+  //      the force-change page.
+  //   3. Best-effort "your password was changed" email so a session-
+  //      token thief who somehow obtained a reset link can't silently
+  //      lock the user out.
+  try {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_admin, is_owner, is_advocate_leader, password_must_change_at")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.is_admin || profile?.is_owner || profile?.is_advocate_leader) {
+      const { recordAdminAction } = await import("@/lib/audit");
+      await recordAdminAction({
+        action: "password_reset_completed",
+        targetType: "user",
+        targetId: user.id,
+      });
+    }
+
+    if (profile?.password_must_change_at) {
+      await supabase
+        .from("profiles")
+        .update({ password_must_change_at: null })
+        .eq("id", user.id);
+    }
+
+    const ip = await getClientIp();
+    const when = new Date().toLocaleString("en-US", { timeZone: "UTC" });
+    const { sendTransactionalEmail, brandedHtml } = await import("@/lib/email/transactional");
+    await sendTransactionalEmail({
+      to: user.email,
+      subject: "Your iKratom password was just reset",
+      text:
+        `Hi,\n\n` +
+        `Your iKratom password was just reset via the password-reset link.\n\n` +
+        `When: ${when} UTC\n` +
+        `IP:   ${ip.slice(0, 64)}\n\n` +
+        `If this was you, you can ignore this email.\n\n` +
+        `If this WASN'T you, your account may be compromised. Use https://www.ikratom.org/forgot to reset again with a NEW link, and contact support.`,
+      html: brandedHtml({
+        headline: "Your password was just reset",
+        body:
+          `<p>Your iKratom password was just reset via the password-reset link.</p>` +
+          `<table style="margin-top:16px;font-size:13px;color:#a1a1aa;"><tr><td style="padding-right:16px;">When</td><td style="color:#e4e4e7;">${when} UTC</td></tr><tr><td style="padding-right:16px;">IP</td><td style="color:#e4e4e7;font-family:monospace;">${ip.slice(0, 64)}</td></tr></table>` +
+          `<p style="margin-top:16px;">If this was you, you can ignore this email.</p>` +
+          `<p>If it <strong>wasn&apos;t</strong> you, your account may be compromised. Reset again with a new link.</p>`,
+        ctaLabel: "Sign in",
+        ctaHref: "https://www.ikratom.org/login",
+      }),
+      tag: "password_reset_completed",
+    });
+  } catch (e) {
+    // Followups must never block the actual reset succeeding.
+    console.error("[setNewPassword] post-reset followups failed:", e);
+  }
 
   return { success: true };
 }
