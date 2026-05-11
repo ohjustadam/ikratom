@@ -85,7 +85,7 @@ export async function changePassword(formData: FormData): Promise<ChangePassword
   // Audit-log if this is a privileged account
   const { data: profile } = await supabase
     .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader")
+    .select("is_admin, is_owner, is_advocate_leader, password_must_change_at")
     .eq("id", user.id)
     .single();
   if (profile?.is_admin || profile?.is_owner || profile?.is_advocate_leader) {
@@ -94,6 +94,15 @@ export async function changePassword(formData: FormData): Promise<ChangePassword
       targetType: "user",
       targetId: user.id,
     });
+  }
+
+  // If this user was on a temp password (admin-issued), clear the
+  // force-change gate now that they've set a real password.
+  if (profile?.password_must_change_at) {
+    await supabase
+      .from("profiles")
+      .update({ password_must_change_at: null })
+      .eq("id", user.id);
   }
 
   // Notify the email on file. This is the "if it wasn't you, click here"

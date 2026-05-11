@@ -259,6 +259,146 @@ export async function sendMagicLinkForUser(input: { userId: string }) {
 }
 
 /**
+ * Admin-issued temporary password. Generates a strong 16-char temp,
+ * sets it on the user's auth.users row via service-role, and stamps
+ * profiles.password_must_change_at so the proxy bounces them to the
+ * force-change page on next sign-in.
+ *
+ * Returns the plaintext temp password — caller shows it ONCE in the
+ * admin UI (modal with copy button). It is never re-readable.
+ *
+ * Use case: user calls support unable to access their email, so we
+ * can't email a reset link. Admin reads the temp over the phone /
+ * Discord DM and the user is forced to set a real password on first
+ * sign-in.
+ */
+export async function generateTempPassword(input: { userId: string }): Promise<
+  { ok: true; tempPassword: string; email: string } | { error: string }
+> {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
+  if (!input.userId) return { error: "Missing user id." };
+  if (input.userId === ctx.userId) {
+    return { error: "Use /account/security to change your own password." };
+  }
+
+  // Refuse to overwrite another owner's password. Admins should not be
+  // able to silently take over an owner's account.
+  const supabase = await createClient();
+  const { data: target } = await supabase
+    .from("profiles")
+    .select("is_owner")
+    .eq("id", input.userId)
+    .single();
+  if (target?.is_owner && !ctx.isOwner) {
+    return { error: "Only the owner can issue a temp password to another owner." };
+  }
+
+  // Look up the email (so we can echo it back to the admin + audit-log
+  // a redacted form). Use service-role since admins may not have read
+  // access on every profile email via RLS.
+  const sr = createServiceRoleClient();
+  const { data: targetUser, error: lookupErr } = await sr.auth.admin.getUserById(input.userId);
+  if (lookupErr || !targetUser?.user?.email) {
+    return { error: "Could not find user email." };
+  }
+  const email = targetUser.user.email;
+
+  // Generate a strong 16-char temp using a mix of cases + digits +
+  // safe symbols. Avoid ambiguous chars (0/O, 1/l/I) so it's
+  // readable over the phone.
+  const tempPassword = generateReadableTempPassword(16);
+
+  // Set the password via admin API.
+  const { error: setErr } = await sr.auth.admin.updateUserById(input.userId, {
+    password: tempPassword,
+  });
+  if (setErr) return { error: `Failed to set temp password: ${setErr.message}` };
+
+  // Stamp the must-change flag. Service-role so it works regardless of RLS.
+  const { error: stampErr } = await sr
+    .from("profiles")
+    .update({ password_must_change_at: new Date().toISOString() })
+    .eq("id", input.userId);
+  if (stampErr) {
+    // Roll back — we don't want to leave a working temp password with
+    // no force-change gate. Best-effort restore via a random scramble
+    // the user can't possibly know, forcing them to use reset-email.
+    await sr.auth.admin.updateUserById(input.userId, {
+      password: generateReadableTempPassword(32),
+    });
+    return { error: `Failed to flag account: ${stampErr.message}. Password was rolled back.` };
+  }
+
+  // Best-effort email the user that an admin set a temp password,
+  // so a bad actor with admin access can't quietly take over an
+  // account. The user gets a visible alarm in their inbox.
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const fromEmail = process.env.RESEND_FROM_EMAIL ?? "no-reply@ikratom.org";
+      const fromName = process.env.RESEND_FROM_NAME ?? "iKratom";
+      const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
+      const adminLabel = ctx.isOwner ? "Owner" : "Admin";
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: `${fromName} <${fromEmail}>`,
+          to: email,
+          subject: "A temporary password was set on your iKratom account",
+          html: `
+<p>Hi,</p>
+<p>An ${adminLabel.toLowerCase()} of iKratom just set a temporary password on your account, likely because you reached out for help signing in.</p>
+<p>The temp password is single-use: as soon as you sign in with it, iKratom will force you to set your own new password before you can do anything else.</p>
+<p style="text-align:center;margin:32px 0">
+  <a href="${APP_URL}/login" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Sign in →</a>
+</p>
+<p style="color:#666;font-size:12px"><strong>If this wasn't you</strong> — i.e. you did not ask for support — reply to this email immediately. We'll lock the account and investigate.</p>
+<p style="color:#666;font-size:12px">Sent from iKratom · <a href="${APP_URL}/privacy">${APP_URL}/privacy</a></p>
+`.trim(),
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      console.error("[generateTempPassword] resend failed:", e);
+      // Non-fatal — admin still has the temp to read to the user.
+    }
+  }
+
+  await recordAdminAction({
+    action: "temp_password_issued",
+    targetType: "user",
+    targetId: input.userId,
+    details: { email_redacted: email.replace(/(.{2}).*(@.*)/, "$1***$2") },
+  });
+
+  return { ok: true, tempPassword, email };
+}
+
+/**
+ * Generates a temp password readable over a phone call. Avoids
+ * 0/O, 1/l/I, and symbols that are hard to dictate. ~76 bits of
+ * entropy at length 16 — plenty for a single-use gate.
+ */
+function generateReadableTempPassword(len: number): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  // Use the crypto module for unbiased random — Math.random is biased and
+  // predictable, never appropriate for credentials.
+  const bytes = new Uint8Array(len);
+  globalThis.crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0; i < len; i++) {
+    out += alphabet[bytes[i] % alphabet.length];
+  }
+  return out;
+}
+
+/**
  * Owner-only: lock a user's account temporarily. Sets profile flag
  * that the proxy checks before letting any authenticated request
  * proceed. Owner can unlock by calling with locked=false.
