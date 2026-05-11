@@ -166,6 +166,12 @@ export function UserRolesRow({
                 </button>
               )}
               <a
+                href={`/admin/users/${user.id}/permissions`}
+                className="block w-full rounded px-2 py-1.5 text-left text-xs text-zinc-200 hover:bg-zinc-900"
+              >
+                🎚 Permissions matrix
+              </a>
+              <a
                 href={`/profile/${user.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
