@@ -10,11 +10,11 @@
 const DIRECT_RE =
   /\b(kratom|mitragyna\w*|7\s*-?\s*OH\b|7\s*-?\s*hydroxy(?:mitragynine)?)\b/i;
 const ADJACENT_RE =
-  /\b(novel\s+psychoactive|emerging\s+substance|schedule\s+[IVX]+\b|controlled\s+substance|"botanical")\b/i;
+  /\b(novel\s+psychoactive\s+substance|emerging\s+(?:drug|substance)|scheduling\s+petition|new\s+controlled\s+substance|botanical\s+(?:medicine|substance)|herbal\s+supplement)\b/i;
 const HOSTILE_RE =
-  /\b(ban|prohibit|schedule\s+[IVX]+|add\s+to\s+schedule|controlled|adulterated|emergency\s+rule)\b/i;
+  /\b(ban|prohibit|add\s+to\s+schedule|emergency\s+rule|criminaliz|adulterated|illegal\s+drug)\b/i;
 const SUPPORTIVE_RE =
-  /\b(consumer\s+protection|labeling|age\s+limit|standards|kcpa)\b/i;
+  /\b(consumer\s+protection|labeling|age\s+limit|kratom\s+consumer\s+protection|kcpa)\b/i;
 
 export type BopRelevance = "kratom_direct" | "kratom_adjacent" | "unrelated";
 export type BopSeverity =

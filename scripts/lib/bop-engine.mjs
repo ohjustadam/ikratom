@@ -26,12 +26,21 @@
 // part REQUIRED in the 7-OH branches.
 const DIRECT_RE =
   /\b(kratom|mitragyna\w*|7\s*-?\s*OH\b|7\s*-?\s*hydroxy(?:mitragynine)?)\b/i;
+// Adjacent is for things "in the kratom neighborhood" — emerging
+// substances, novel psychoactives, scheduling petitions. NOT every
+// reference to "controlled substance" or "schedule II" — every state
+// BoP agenda mentions those generically and the noise drowns out
+// real signal. Tightened to require kratom-relevant context (botanical,
+// emerging, novel psychoactive, etc.).
 const ADJACENT_RE =
-  /\b(novel\s+psychoactive|emerging\s+substance|schedule\s+[IVX]+\b|controlled\s+substance|"botanical")\b/i;
+  /\b(novel\s+psychoactive\s+substance|emerging\s+(?:drug|substance)|scheduling\s+petition|new\s+controlled\s+substance|botanical\s+(?:medicine|substance)|herbal\s+supplement)\b/i;
+// Hostile requires actual hostile-rulemaking language. Dropped the
+// bare "controlled" / "schedule [IVX]+" matches that fired on every
+// generic license/permit page.
 const HOSTILE_RE =
-  /\b(ban|prohibit|schedule\s+[IVX]+|add\s+to\s+schedule|controlled|adulterated|emergency\s+rule)\b/i;
+  /\b(ban|prohibit|add\s+to\s+schedule|emergency\s+rule|criminaliz|adulterated|illegal\s+drug)\b/i;
 const SUPPORTIVE_RE =
-  /\b(consumer\s+protection|labeling|age\s+limit|standards|kcpa)\b/i;
+  /\b(consumer\s+protection|labeling|age\s+limit|kratom\s+consumer\s+protection|kcpa)\b/i;
 
 function classify(textParts) {
   const text = textParts.filter(Boolean).join(" ");
