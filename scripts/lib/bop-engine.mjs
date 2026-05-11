@@ -138,22 +138,56 @@ async function scrapeOne({ source, supabase }) {
  * Default concurrency 8 keeps us polite (no single state's gov
  * server sees >1 connection from us) and well under any reasonable
  * outbound-fetch budget.
+ *
+ * Options:
+ *   excludeAdapters: skip sources whose adapter is in this list.
+ *     Vercel cron passes ['playwright_browser'] since serverless
+ *     can't launch Chromium.
+ *   onlyAdapters: opposite — only walk sources using these adapters.
+ *     The GitHub Actions browser job passes ['playwright_browser']
+ *     so it just picks up the TLS-blocked sites.
  */
 export async function runBopEngine({
   supabase,
   limit = 75,
   concurrency = 8,
+  excludeAdapters = [],
+  onlyAdapters = null,
 } = {}) {
-  const { data: sources, error } = await supabase
+  let q = supabase
     .from("bop_sources")
     .select("*")
     .eq("enabled", true)
-    .order("last_scraped_at", { ascending: true, nullsFirst: true })
-    .limit(limit);
+    .order("last_scraped_at", { ascending: true, nullsFirst: true });
+  if (onlyAdapters && onlyAdapters.length > 0) {
+    q = q.in("adapter", onlyAdapters);
+  } else if (excludeAdapters.length > 0) {
+    q = q.not("adapter", "in", `(${excludeAdapters.map((a) => `"${a}"`).join(",")})`);
+  }
+  q = q.limit(limit);
+
+  const { data: sources, error } = await q;
   if (error) throw new Error(`bop_sources read failed: ${error.message}`);
 
   const queue = [...(sources ?? [])];
   const results = [];
+  // If any of the sources use the playwright adapter, pre-warm it once
+  // up front so subsequent scrapes reuse the browser instance.
+  const usesPlaywright = (sources ?? []).some(
+    (s) => s.adapter === "playwright_browser"
+  );
+  if (usesPlaywright) {
+    try {
+      const pw = await import("./bop-adapters/playwright_browser.mjs");
+      await pw.preWarmBrowser();
+    } catch (e) {
+      // If playwright isn't installed (e.g. someone enabled a
+      // playwright source on a non-CI environment), each affected
+      // scrape will fail with a clear error from the adapter and the
+      // other generic_html sources will still run.
+      void e;
+    }
+  }
   await Promise.all(
     Array.from({ length: concurrency }, async () => {
       while (queue.length) {
@@ -164,6 +198,12 @@ export async function runBopEngine({
       }
     })
   );
+  if (usesPlaywright) {
+    try {
+      const pw = await import("./bop-adapters/playwright_browser.mjs");
+      await pw.closeBrowser();
+    } catch { /* best-effort */ }
+  }
   return results;
 }
 

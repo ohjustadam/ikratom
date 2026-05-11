@@ -25,15 +25,22 @@ export type BopRunResult = {
 type EngineFn = (input: {
   supabase: SupabaseClient;
   limit?: number;
+  excludeAdapters?: string[];
+  onlyAdapters?: string[] | null;
 }) => Promise<BopRunResult[]>;
 
 export async function runBopScrape(input: {
   supabase: SupabaseClient;
   limit?: number;
 }): Promise<BopRunResult[]> {
-  // 60 = all 50 states + DC + the 8 originals + headroom for adjacent
-  // agencies. Cron has a 60s budget on Hobby; each fetch is ~1-2s so
-  // we're well under even if every source has to retry.
+  // 75 = headroom for all 51 sources + future adjacent-agency rows.
+  // Vercel serverless can't launch Chromium, so we explicitly exclude
+  // playwright_browser sources here. Those run on the GitHub Actions
+  // browser cron instead (see .github/workflows/cron-daily.yml).
   const fn = (engine as unknown as { runBopEngine: EngineFn }).runBopEngine;
-  return fn({ supabase: input.supabase, limit: input.limit ?? 75 });
+  return fn({
+    supabase: input.supabase,
+    limit: input.limit ?? 75,
+    excludeAdapters: ["playwright_browser"],
+  });
 }
