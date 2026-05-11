@@ -60,6 +60,66 @@ export async function createGroupConversation(input: {
 }
 
 /**
+ * Returns the data the caller needs to decrypt THEIR slot of the
+ * conversation's session key — so they can re-encrypt the raw
+ * session key for a new group member. Used by the "Add member"
+ * flow on /messages/[id]/settings.
+ *
+ * Caller flow:
+ *   1. Call this → get {ciphertextB64, nonceB64, senderPublicKeyB64}
+ *   2. decryptSessionKeyForMe(...) using their own private key
+ *   3. encryptSessionKeyForRecipient(...) using the new member's pubkey
+ *   4. Call addGroupMember(...) with the new ciphertext + nonce
+ */
+export async function getMyConversationKeyData(conversationId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { data: conv } = await supabase
+    .from("dm_conversations")
+    .select("encrypted_session_keys, session_key_nonces, session_key_sender_id")
+    .eq("id", conversationId)
+    .single();
+  if (!conv) return { error: "Conversation not found." };
+
+  const keys = (conv.encrypted_session_keys as Record<string, string>) ?? {};
+  const nonces = (conv.session_key_nonces as Record<string, string>) ?? {};
+  const myCiphertext = keys[user.id];
+  const myNonce = nonces[user.id];
+  if (!myCiphertext || !myNonce) return { error: "You don't have a key slot in this conversation." };
+
+  const senderId = (conv as { session_key_sender_id?: string }).session_key_sender_id;
+  if (!senderId) return { error: "Conversation missing sender_id (legacy data?)." };
+
+  // Look up sender's pubkey via their participant snapshot (pubkey_at_join)
+  // falling back to current public_key
+  const { data: senderPart } = await supabase
+    .from("dm_participants")
+    .select("pubkey_at_join")
+    .eq("conversation_id", conversationId)
+    .eq("user_id", senderId)
+    .maybeSingle();
+  let senderPublicKeyB64 = (senderPart as { pubkey_at_join?: string } | null)?.pubkey_at_join;
+  if (!senderPublicKeyB64) {
+    const { data: senderProf } = await supabase
+      .from("profiles")
+      .select("public_key")
+      .eq("id", senderId)
+      .single();
+    senderPublicKeyB64 = (senderProf as { public_key?: string } | null)?.public_key ?? undefined;
+  }
+  if (!senderPublicKeyB64) return { error: "Sender public key missing." };
+
+  return {
+    ok: true as const,
+    ciphertextB64: myCiphertext,
+    nonceB64: myNonce,
+    senderPublicKeyB64,
+  };
+}
+
+/**
  * Add a new member to an existing group. The caller (an existing member)
  * must have re-encrypted the current session key for the new member's public key
  * client-side and pass the ciphertext + nonce here.
