@@ -39,6 +39,28 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/verify-bill-status-ai.mjs --all
 
+  openfec-donor-sync:
+    # Refresh OpenFEC donor data for federal legislators (us_senate +
+    # us_house). Once a day is plenty — campaign finance updates
+    # quarterly. 50 legs/run = ~2 days to cover full ~700 federal
+    # rep set on first pass; thereafter only refreshes the cache.
+    # Falls back to no-op if OPENFEC_API_KEY isn't set.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: OpenFEC donor sync (50 most-stale federal legs)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENFEC_API_KEY: ${{ secrets.OPENFEC_API_KEY }}
+        run: node scripts/sync-legislator-donors.mjs --limit 50
+
   legiscan-wide-pass:
     # Daily sweep of every active anti/pro bill via LegiScan. The hourly
     # cron only hits the 30 most-stale; this catches everything else
