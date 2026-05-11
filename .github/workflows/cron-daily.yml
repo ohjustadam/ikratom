@@ -88,6 +88,32 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/scrape-bop-browser.mjs
 
+  classify-bop-ai:
+    # Layer 2 of the BoP classifier pipeline. Regex pass runs inside
+    # the scraper and flags candidates by title. This job picks up
+    # candidates and runs Gemini Flash 2.5 with Google Search grounding
+    # to read the linked PDF/page and produce a structured verdict.
+    #
+    # Quota: 1500 grounded requests/day on free tier. ~30 findings/run
+    # = well under. Runs AFTER bop-browser-scrape so all candidates
+    # from both Vercel + browser cron paths are present.
+    needs: bop-browser-scrape
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: AI-classify recent BoP findings via Gemini grounding
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/classify-bop-ai.mjs --limit 50
+
   legiscan-wide-pass:
     # Daily sweep of every active anti/pro bill via LegiScan. The hourly
     # cron only hits the 30 most-stale; this catches everything else

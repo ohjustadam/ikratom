@@ -27,6 +27,8 @@ type Finding = {
   meeting_date: string | null;
   relevance: string;
   severity: string;
+  ai_confidence: number | null;
+  ai_reasoning: string | null;
   alert_emitted_at: string | null;
   found_at: string;
   board_name: string;
@@ -298,6 +300,15 @@ function FindingCard({ f }: { f: Finding }) {
           <h3 className="mt-1 font-medium text-zinc-100 break-words">{f.title}</h3>
           {f.snippet && (
             <p className="mt-1 text-sm text-zinc-400">{f.snippet}</p>
+          )}
+          {f.ai_reasoning && (
+            <p className="mt-2 rounded-md border border-emerald-800/30 bg-emerald-950/10 p-2 text-xs italic text-emerald-200/90">
+              <span className="font-semibold text-emerald-300">AI verdict</span>
+              {f.ai_confidence !== null && (
+                <span className="text-emerald-400/70"> · {Math.round(f.ai_confidence * 100)}% conf.</span>
+              )}{" "}
+              — {f.ai_reasoning}
+            </p>
           )}
           {f.url && (
             <a

@@ -31,6 +31,7 @@
     "seed:bill-officials": "node --env-file=.env.local scripts/seed-bill-officials.mjs",
     "scrape:bop": "node --env-file=.env.local scripts/scrape-bop.mjs",
     "scrape:bop:browser": "node --env-file=.env.local scripts/scrape-bop-browser.mjs",
+    "classify:bop:ai": "node --env-file=.env.local scripts/classify-bop-ai.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

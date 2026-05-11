@@ -13,6 +13,8 @@ type Finding = {
   url: string | null;
   relevance: string;
   severity: string;
+  ai_confidence: number | null;
+  ai_reasoning: string | null;
   found_at: string;
   board_name: string;
 };
@@ -160,8 +162,18 @@ export async function BopWatchSummary({
             >
               <p className="text-[10px] uppercase tracking-wider text-zinc-500">
                 {f.state} · {f.board_name}
+                {f.ai_confidence !== null && (
+                  <span className="ml-2 text-emerald-400">
+                    AI: {Math.round(f.ai_confidence * 100)}%
+                  </span>
+                )}
               </p>
               <p className="mt-0.5 text-zinc-100">{f.title}</p>
+              {f.ai_reasoning && (
+                <p className="mt-1 text-[11px] italic text-zinc-400">
+                  {f.ai_reasoning}
+                </p>
+              )}
               {f.url && (
                 <a
                   href={f.url}
