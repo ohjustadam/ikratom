@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { BillsBrowser } from "./BillsBrowser";
+import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 
 export const metadata = { title: "Bill tracker" };
 // Force fresh — bills sync hourly via the cron + we don't want stale renders
@@ -65,6 +66,14 @@ export default async function BillsPage() {
           {" "}— pro/anti/neutral relevance auto-classified from bill text patterns. Human review recommended.
         </p>
       </header>
+
+      {/* BoP-watch summary belongs next to the legislative bill tracker —
+          they're the two parallel paths to a kratom ban. Bills = legislative
+          (votes), BoP = administrative (rulemaking). Side-by-side gives
+          advocates the full picture of where threats can come from. */}
+      <div className="mb-6">
+        <BopWatchSummary state={userState ?? undefined} />
+      </div>
 
       <BillsBrowser bills={bills} userState={userState} />
     </div>
