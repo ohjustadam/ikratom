@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 const VALID_TAGS = [
   "pain", "recovery", "mental_health", "energy", "medical_pro",
@@ -21,6 +22,17 @@ export async function submitStory(input: {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in to submit a story." };
+
+  // Rate-limit: 5 stories/day/user, 20/day/IP. Stories are heavy
+  // long-form submissions that go to a moderation queue; a single
+  // account submitting 5 in a day is suspicious.
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`story:submit:user:${user.id}`, 5, 86_400))) {
+    return { error: "You've already submitted several stories today. Try again tomorrow." };
+  }
+  if (!(await checkRateLimit(`story:submit:ip:${ip}`, 20, 86_400))) {
+    return { error: "Too many story submissions from this network. Try again tomorrow." };
+  }
 
   const title = input.title.trim().slice(0, 200);
   const body = input.body.trim().slice(0, 10_000);
