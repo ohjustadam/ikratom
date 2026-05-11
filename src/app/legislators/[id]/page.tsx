@@ -98,6 +98,27 @@ export default async function LegislatorDetailPage({
     targetingCampaigns.set(c.id, c);
   }
 
+  // Donor profile (OpenFEC) — federal legislators only
+  const isFederalLegislator = leg.role === "us_senate" || leg.role === "us_house";
+  type DonorProfile = {
+    cycle: number | null;
+    total_receipts: number | null;
+    top_industries: Array<{ industry: string; amount: number }> | null;
+    top_employers: Array<{ employer: string; amount: number }> | null;
+    kratom_relevant: { pharma?: number; retail?: number; alcohol?: number; tobacco?: number; hospital_health?: number; total?: number } | null;
+    resolved_status: string | null;
+    synced_at: string | null;
+  };
+  let donorProfile: DonorProfile | null = null;
+  if (isFederalLegislator) {
+    const { data: dp } = await supabase
+      .from("legislator_donors")
+      .select("cycle, total_receipts, top_industries, top_employers, kratom_relevant, resolved_status, synced_at")
+      .eq("legislator_id", id)
+      .maybeSingle();
+    donorProfile = (dp as DonorProfile | null) ?? null;
+  }
+
   // Quick stance summary for sponsored bills
   const summary = {
     pro: 0, anti: 0, neutral: 0, total: sponsored.length,
@@ -243,6 +264,72 @@ export default async function LegislatorDetailPage({
               );
             })}
           </ul>
+        </section>
+      )}
+
+      {/* Donor profile (federal only) */}
+      {donorProfile && donorProfile.resolved_status === "matched" && donorProfile.total_receipts && donorProfile.total_receipts > 0 && (
+        <section className="mb-6 rounded-lg border border-amber-700/40 bg-amber-950/10 p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-300">
+              💰 Donor profile — {donorProfile.cycle} cycle
+            </h2>
+            <span className="text-[10px] text-zinc-500">
+              public data via OpenFEC · synced {donorProfile.synced_at ? new Date(donorProfile.synced_at).toLocaleDateString() : "?"}
+            </span>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-zinc-100">
+            ${(donorProfile.total_receipts / 1_000_000).toFixed(2)}M total receipts
+          </p>
+
+          {donorProfile.kratom_relevant && (
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+              {[
+                { key: "pharma", label: "💊 Pharma", color: "text-red-300" },
+                { key: "tobacco", label: "🚬 Tobacco", color: "text-red-300" },
+                { key: "alcohol", label: "🍷 Alcohol", color: "text-amber-300" },
+                { key: "retail", label: "🛒 Retail", color: "text-zinc-300" },
+                { key: "hospital_health", label: "🏥 Hospital/Health", color: "text-zinc-300" },
+              ].map((b) => {
+                const amount = donorProfile.kratom_relevant?.[b.key as keyof typeof donorProfile.kratom_relevant] ?? 0;
+                if (!amount || amount <= 0) return null;
+                const total = donorProfile.kratom_relevant?.total ?? donorProfile.total_receipts ?? 0;
+                const share = total > 0 ? (amount / total * 100).toFixed(1) : "?";
+                return (
+                  <div key={b.key} className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
+                    <div className={`text-[10px] font-bold uppercase ${b.color}`}>{b.label}</div>
+                    <div className="mt-1 font-mono text-sm font-bold text-zinc-100">
+                      ${(amount / 1000).toFixed(0)}k
+                    </div>
+                    <div className="text-[10px] text-zinc-500">{share}% of receipts</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {(donorProfile.top_industries?.length ?? 0) > 0 && (
+            <details className="mt-3 rounded border border-zinc-800 bg-zinc-950/60 p-3">
+              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                Top {Math.min(donorProfile.top_industries!.length, 10)} industries by contribution
+              </summary>
+              <ol className="mt-2 space-y-1 text-xs">
+                {donorProfile.top_industries!.slice(0, 10).map((i, idx) => (
+                  <li key={idx} className="flex items-baseline gap-2 border-b border-zinc-900 py-1 last:border-b-0">
+                    <span className="font-mono text-zinc-600">{idx + 1}.</span>
+                    <span className="flex-1 text-zinc-300">{i.industry}</span>
+                    <span className="font-mono text-zinc-400">${(i.amount / 1000).toFixed(0)}k</span>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
+
+          <p className="mt-3 text-[11px] text-zinc-500">
+            Public campaign-finance data. Useful narrative for legislator emails — &ldquo;You took $X from
+            industries that profit when kratom is banned. Please vote on the merits, not on donor
+            interest.&rdquo;
+          </p>
         </section>
       )}
 
