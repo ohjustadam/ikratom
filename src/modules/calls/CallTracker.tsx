@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { startCallSession, updateCallTranscript, endCallSession } from "./actions";
 import { TWO_PARTY_CONSENT_STATES } from "./consent";
+import { MicVisualizer } from "./MicVisualizer";
 
 /**
  * In-app call-tracking UI.
@@ -50,6 +51,8 @@ export function CallTracker({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [summaryMd, setSummaryMd] = useState<string | null>(null);
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
+  const [micError, setMicError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionWrapper | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -87,8 +90,21 @@ export function CallTracker({
       setSessionId(r.sessionId);
       startedAtRef.current = Date.now();
       setPhase("calling");
-      if (recordingConsent && supportsSpeechRecognition) {
-        startRecognition();
+
+      // Request mic ONCE — same stream feeds the visualizer + speech
+      // recognition. No mic = no visualizer, no transcript. Audio
+      // bytes never leave the device.
+      if (recordingConsent) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          });
+          setMicStream(stream);
+          if (supportsSpeechRecognition) startRecognition();
+        } catch (e) {
+          setMicError("Microphone permission denied — visualizer + transcript will be disabled, but the call still works.");
+          console.error("[mic]", e);
+        }
       }
     }
     // Launch the dialer
@@ -99,6 +115,8 @@ export function CallTracker({
     if (!supportsSpeechRecognition) return;
     // Web Speech API is non-standard; TypeScript's DOM lib doesn't ship
     // its constructor types. Use a structural cast.
+    // NOTE: Web Speech API requests its OWN mic permission internally;
+    // we already prompted via getUserMedia, so this call is silent.
     type SRConstructor = new () => {
       continuous: boolean;
       interimResults: boolean;
@@ -150,6 +168,11 @@ export function CallTracker({
       recognitionRef.current = null;
     }
     if (intervalRef.current) clearInterval(intervalRef.current);
+    // Release microphone — turns off the OS-level "mic in use" indicator.
+    if (micStream) {
+      micStream.getTracks().forEach((t) => t.stop());
+      setMicStream(null);
+    }
     if (!sessionId) {
       setPhase("ended");
       return;
@@ -198,6 +221,7 @@ export function CallTracker({
   }
 
   if (phase === "calling") {
+    const initials = recipientName.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
     return (
       <div className="rounded-lg border border-emerald-700/60 bg-emerald-950/25 p-5">
         <div className="flex items-baseline justify-between">
@@ -209,6 +233,23 @@ export function CallTracker({
           </a>
         </div>
         <h3 className="mt-2 text-lg font-bold">{recipientName}</h3>
+
+        {/* Live mic visualizer — pulses with user's voice while on call.
+            Audio stays on device. Recommends earbuds for private listen. */}
+        {micStream && (
+          <div className="mt-3">
+            <MicVisualizer stream={micStream} recipientInitials={initials} />
+            <p className="mt-1 text-[10px] text-zinc-500">
+              💡 <strong>Use earbuds with a mic</strong> for a private call. Otherwise put your phone on speakerphone so the app can pick up both sides.
+            </p>
+          </div>
+        )}
+        {micError && (
+          <p className="mt-3 rounded border border-amber-700/40 bg-amber-950/15 p-2 text-[11px] text-amber-200">
+            {micError}
+          </p>
+        )}
+
         {recordingConsent && supportsSpeechRecognition && (
           <div className="mt-3">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
@@ -309,15 +350,22 @@ export function CallTracker({
       </label>
 
       {trackingEnabled && supportsSpeechRecognition && (
-        <label className="mt-2 flex items-center gap-2 text-sm text-zinc-200">
-          <input
-            type="checkbox"
-            checked={recordingConsent}
-            onChange={(e) => setRecordingConsent(e.target.checked)}
-            className="accent-emerald-500"
-          />
-          Transcribe live via on-device speech recognition (free, no audio leaves your device)
-        </label>
+        <>
+          <label className="mt-2 flex items-center gap-2 text-sm text-zinc-200">
+            <input
+              type="checkbox"
+              checked={recordingConsent}
+              onChange={(e) => setRecordingConsent(e.target.checked)}
+              className="accent-emerald-500"
+            />
+            Transcribe live + show audio waveform (free, on-device only)
+          </label>
+          {recordingConsent && (
+            <p className="ml-6 mt-1 text-[11px] text-zinc-500">
+              💡 <strong>Use earbuds with a mic</strong> to keep the call private. Speakerphone also works but anyone nearby will hear.
+            </p>
+          )}
+        </>
       )}
 
       {trackingEnabled && !supportsSpeechRecognition && (
