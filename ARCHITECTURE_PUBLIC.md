@@ -112,8 +112,8 @@ flowchart TB
   regex --> ai[Layer 2:<br/>Gemini grounded re-classify<br/>reads linked content + cross-refs]
   ai -->|conf ≥0.85 + hostile + 2-signal| autoemit[Auto-emit policy_alert]
   ai -->|all other direct findings| admin_notify[Admin push notification]
-  autoemit --> pulse[/pulse live feed]
-  ai --> bop_watch[Public /bop-watch page]
+  autoemit --> pulse["/pulse live feed"]
+  ai --> bop_watch["Public /bop-watch page"]
   findings --> bop_watch
 ```
 
@@ -122,14 +122,14 @@ flowchart TB
 ```mermaid
 flowchart LR
   rss[Google News RSS<br/>51 scopes] --> sync[Daily sync]
-  user[User intel tips<br>/alerts/submit] --> review[Admin intel queue]
+  user["User intel tips<br/>/alerts/submit"] --> review[Admin intel queue]
   sync --> classify[AI relevance scoring]
   classify --> news[news_items table]
   review --> news
-  news --> pulse[/pulse news widget]
+  news --> pulse["/pulse news widget"]
   news --> alerts{Auto-trigger<br/>kratom_direct +<br/>high-severity?}
   alerts -->|yes| policy[policy_alerts]
-  alerts -->|no| quiet[stays in /news]
+  alerts -->|no| quiet["stays in /news"]
 ```
 
 ---
