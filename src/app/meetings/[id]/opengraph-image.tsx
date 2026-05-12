@@ -19,7 +19,9 @@ export const contentType = "image/png";
  * Uses next/og's ImageResponse (JSX → PNG). Service-role read on
  * municipal_meetings since the og-image route runs unauthenticated.
  */
-export default async function Image({ params }: { params: { id: string } }) {
+export default async function Image({ params }: { params: Promise<{ id: string }> }) {
+  // Next 16: params is a Promise. Awaiting it fixes the fallback-tile rendering.
+  const { id } = await params;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
@@ -29,7 +31,7 @@ export default async function Image({ params }: { params: { id: string } }) {
   const { data: m } = await sb
     .from("municipal_meetings")
     .select("state, locality, body_name, meeting_at, agenda_text, livestream_url, zoom_url")
-    .eq("id", params.id)
+    .eq("id", id)
     .maybeSingle();
 
   if (!m) {
