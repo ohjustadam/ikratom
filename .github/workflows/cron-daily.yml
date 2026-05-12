@@ -140,20 +140,46 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/classify-bop-ai.mjs --limit 50
 
+  resolve-news-urls:
+    # Phase 2 of FP defense — Playwright resolves Google News redirect
+    # URLs to publisher URLs so verify-news-body can actually fetch
+    # the article content. HTTP fetch can't follow Google's JS-based
+    # redirect; real Chromium can.
+    #
+    # Caches resolutions in news_items.resolved_url so we only pay the
+    # browser cost once per article. Runs BEFORE verify-news-body so
+    # the body fetcher has fresh resolved URLs to work with.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      # Full install (not --omit=dev) because we need playwright-chromium.
+      - run: npm ci --no-audit --no-fund
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Resolve Google News redirect URLs to publisher URLs
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/resolve-news-urls.mjs --limit 100
+
   verify-news-body:
-    # False-positive defense for the news pipeline. Fetches each
-    # unverified news_item, extracts the article main body (no
-    # sidebar / footer / related-stories), and flags items where no
-    # kratom keyword appears in the body — those are FPs from Google
-    # News matching the keyword in a recirculation widget.
+    # False-positive defense — two-phase pipeline:
+    #   Phase 1: cheap title+summary keyword check (no network)
+    #   Phase 2: fetch resolved_url, extract main body, keyword check
     #
-    # Runs AFTER sync-news (Vercel hourly cron) so fresh items get
-    # verified within a day of intake. /pulse + /news display layers
-    # hide FALSE; NULL (not-yet-verified) passes through so we don't
-    # blackout fresh news.
+    # Phase 2 rescues legit news-roundup articles whose title doesn't
+    # mention kratom but whose body does (e.g. "Magnolia Mornings:
+    # Feb 19"). Phase 2 only runs on items that the resolver job has
+    # populated resolved_url for — see job above.
     #
-    # Polite: 1.5s delay per fetch, 15s timeout, single concurrent
-    # worker. Caps at 200 items/run to stay well under 30 min.
+    # /pulse + /news display layers hide body_has_kratom_keyword=FALSE;
+    # NULL passes through so fresh items don't get blacked out.
+    needs: resolve-news-urls
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
