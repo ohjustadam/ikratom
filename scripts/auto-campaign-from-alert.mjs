@@ -282,11 +282,46 @@ async function processAlert(alert) {
     .select("id, slug")
     .single();
   if (error) {
-    // Unique-violation = the trigger already created this campaign
-    // for the same alert in a different cron tick. Not an error — the
-    // trigger is the canonical path. Just skip.
     if (error.code === "23505") {
-      console.log(`  ⏭  campaign slug already exists (trigger handled it): ${campaignRow.slug}`);
+      // Could be slug collision OR topic_key collision (ux_campaigns_topic_key_live
+      // from migration 0108). Either way, an existing campaign covers this event —
+      // find it and link the alert to it instead of failing.
+      const violatedConstraint = error.message?.match(/constraint "([^"]+)"/)?.[1]
+        ?? error.details?.match(/constraint "([^"]+)"/)?.[1] ?? "";
+      const isTopicViolation = /topic_key_live/i.test(violatedConstraint)
+        || /topic_key/i.test(error.details ?? "");
+      let canonicalId = null;
+      if (isTopicViolation) {
+        // Look up the existing live campaign with the same topic_key
+        const topicKey = error.details?.match(/Key \(topic_key\)=\(([^)]+)\)/)?.[1];
+        if (topicKey) {
+          const { data: existing } = await sb.from("campaigns")
+            .select("id, slug")
+            .eq("topic_key", topicKey)
+            .in("review_state", ["pending_review", "auto_active", "manual"])
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (existing) {
+            canonicalId = existing.id;
+            console.log(`  ↪  topic-dedup: linking alert to existing canonical ${existing.slug} (${canonicalId.slice(0, 8)})`);
+          }
+        }
+      }
+      if (!canonicalId) {
+        // Fall back to slug match (the original 0068 trigger may have inserted first)
+        const { data: bySlug } = await sb.from("campaigns")
+          .select("id").eq("slug", campaignRow.slug).maybeSingle();
+        if (bySlug) {
+          canonicalId = bySlug.id;
+          console.log(`  ↪  slug-dedup: linking alert to existing campaign ${campaignRow.slug}`);
+        }
+      }
+      if (canonicalId) {
+        await sb.from("policy_alerts").update({ campaign_id: canonicalId }).eq("id", alert.id);
+        return "skip";
+      }
+      console.log(`  ⏭  unique-violation but couldn't find canonical: ${campaignRow.slug}`);
       return "skip";
     }
     console.log(`  ✗ campaign insert failed: ${error.message}`);
