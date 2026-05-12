@@ -182,11 +182,21 @@ async function syncScope(scope) {
   // summary check next). Avoids over-trusting headlines that mention
   // the substance but aren't real policy events.
   const cap = (s, n) => (s ? String(s).slice(0, n).trim() || null : null);
+  // Strip the " - <Publisher>" suffix Google News appends to every
+  // RSS title. The publisher name lives in source_name; the suffix
+  // is pure noise. Matches " - <source>", " · <source>", etc.
+  const stripPublisherSuffix = (title, source) => {
+    if (!title || !source) return title;
+    const escaped = String(source).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = new RegExp(`\\s+[-–—·|]\\s+${escaped}\\s*$`, "i");
+    return title.replace(rx, "");
+  };
   const rows = resolved.map((i) => {
-    const titleHasKw = hasKratomKeyword(i.title ?? "");
+    const cleanTitle = stripPublisherSuffix(i.title, i.source_name);
+    const titleHasKw = hasKratomKeyword(cleanTitle ?? "");
     return {
       state: isFed ? null : scope,
-      title: cap(i.title, 300),
+      title: cap(cleanTitle, 300),
       summary: null,                       // filled later by enrich:news
       url: cap(i.url, 1000),
       source_name: cap(i.source_name, 100),
