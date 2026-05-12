@@ -227,12 +227,20 @@ export default async function PulsePage({
           </p>
         </div>
         <div className="hidden flex-col items-end gap-2 sm:flex">
-          <a
-            href="/alerts/submit"
-            className="rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition hover:border-emerald-500 hover:bg-emerald-950/40"
-          >
-            + Submit a tip
-          </a>
+          <div className="flex gap-2">
+            <a
+              href="/calendar"
+              className="rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 text-xs text-zinc-300 transition hover:border-emerald-500 hover:text-emerald-300"
+            >
+              📅 Calendar
+            </a>
+            <a
+              href="/alerts/submit"
+              className="rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition hover:border-emerald-500 hover:bg-emerald-950/40"
+            >
+              + Submit a tip
+            </a>
+          </div>
           <span className="text-[10px] font-mono text-zinc-600">
             synced {new Date().toISOString().slice(0, 16).replace("T", " ")} UTC
           </span>
