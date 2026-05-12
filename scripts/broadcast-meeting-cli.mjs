@@ -169,6 +169,34 @@ await sb.from("municipal_meetings").update({
   broadcast_recipient_count: userIds.length,
 }).eq("id", MEETING_ID);
 
+// ---------- 8. Flush OG cache so FB / Messenger renders fresh preview ----------
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
+const shareUrl = `${appUrl}/meetings/${meeting.id}`;
+const FB_TOKEN = process.env.FB_APP_ACCESS_TOKEN;
+try {
+  if (FB_TOKEN) {
+    const params = new URLSearchParams({ id: shareUrl, scrape: "true", access_token: FB_TOKEN });
+    const r = await fetch(`https://graph.facebook.com/v18.0/?${params}`, {
+      method: "POST",
+      signal: AbortSignal.timeout(10_000),
+    });
+    console.log(`   FB OG scrape (authenticated): HTTP ${r.status}`);
+  } else {
+    // No token — hit the URL with FB's crawler UA to pre-warm our edge cache;
+    // FB will fetch fresh when shared.
+    await fetch(shareUrl, {
+      headers: {
+        "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+        Accept: "text/html",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    console.log(`   FB OG: pre-warmed via facebookexternalhit UA (no FB_APP_ACCESS_TOKEN set)`);
+  }
+} catch (e) {
+  console.log(`   FB OG flush failed (non-blocking): ${e.message?.slice(0, 80)}`);
+}
+
 console.log(`\n✅ Broadcast complete.`);
-console.log(`   Shareable URL: ${process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org"}/meetings/${meeting.id}`);
+console.log(`   Shareable URL: ${shareUrl}`);
 process.exit(0);
