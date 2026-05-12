@@ -126,6 +126,9 @@ export default async function CallsPage() {
           on-device (free), summarizes after, and feeds intel back to the platform.
         </p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <Link href="/calendar" className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500">
+            📅 Full kratom calendar
+          </Link>
           <Link href="/calls/board" className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500">
             📞 What calls work · community intel
           </Link>

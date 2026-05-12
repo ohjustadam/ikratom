@@ -198,6 +198,12 @@ export default async function StateBriefingPage({
         >
           🛡️ {stateName} BoP watch
         </Link>
+        <Link
+          href={`/calendar?state=${code}`}
+          className="rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500"
+        >
+          📅 {stateName} calendar
+        </Link>
       </section>
     </div>
   );
