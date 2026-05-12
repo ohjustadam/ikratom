@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators } from "@/lib/legislators";
 import { listMyCalls, listMyAchievements } from "@/modules/calls/actions";
+import { listUpcomingMeetingsForState } from "@/modules/calls/upcoming-meetings";
+import { CallsTour } from "./CallsTour";
 
 export const metadata = { title: "Call your reps — track + earn" };
 export const dynamic = "force-dynamic";
@@ -102,6 +104,7 @@ export default async function CallsPage() {
 
   const myCalls = await listMyCalls(20);
   const myAchievements = await listMyAchievements();
+  const upcomingMeetings = await listUpcomingMeetingsForState(profile?.state ?? null, 14);
 
   const totalCalls = myCalls.filter((c) => c.ended_at).length;
   const reachedCalls = myCalls.filter((c) => c.outcome === "reached").length;
@@ -109,6 +112,9 @@ export default async function CallsPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
+      {/* First-visit tour. Lazy-loaded driver.js. No-op if user already
+          completed it; replay via ?tour=1. */}
+      <CallsTour />
       <header className="mb-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
           Calls — direct line to power
@@ -119,6 +125,14 @@ export default async function CallsPage() {
           below — the app launches your dialer, optionally transcribes the call
           on-device (free), summarizes after, and feeds intel back to the platform.
         </p>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <Link href="/calls/board" className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500">
+            📞 What calls work · community intel
+          </Link>
+          <Link href="/calls?tour=1" className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500">
+            🎓 Replay tour
+          </Link>
+        </div>
       </header>
 
       {/* Stats */}
@@ -147,6 +161,79 @@ export default async function CallsPage() {
               );
             })}
           </div>
+        </section>
+      )}
+
+      {/* Upcoming Zoom/in-person meetings — surface on /calls so users
+          can show up to City Council, Board of Supervisors, etc. The
+          biggest "free leverage" we have beyond phone calls. */}
+      {upcomingMeetings.length > 0 && (
+        <section className="mb-6">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-amber-400">
+            🎤 Upcoming public meetings in {profile?.state} (next 14 days)
+          </h2>
+          <p className="mb-2 text-xs text-zinc-500">
+            Show up by phone, Zoom, or in person. Public comment is more
+            powerful than email — sometimes you only need 3-5 attendees to
+            shift a vote.
+          </p>
+          <ul className="space-y-2">
+            {upcomingMeetings.map((m) => {
+              const when = new Date(m.meeting_at);
+              const days = Math.ceil((when.getTime() - Date.now()) / 86_400_000);
+              return (
+                <li key={m.id} className="rounded-md border border-amber-700/30 bg-amber-950/10 p-3">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="rounded bg-amber-900/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                      in {days}d
+                    </span>
+                    <span className="text-sm font-semibold text-zinc-100">
+                      {m.locality ?? "(locality)"}{m.body_name ? ` · ${m.body_name}` : ""}
+                    </span>
+                    <span className="text-[11px] text-zinc-500">
+                      {when.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  </div>
+                  {m.agenda_text && (
+                    <p className="mt-1 text-xs italic text-zinc-400">
+                      &ldquo;{m.agenda_text.slice(0, 200)}{m.agenda_text.length > 200 ? "…" : ""}&rdquo;
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                    {m.zoom_url && (
+                      <a href={m.zoom_url} target="_blank" rel="noopener noreferrer"
+                         className="rounded bg-emerald-600 px-2.5 py-1 font-semibold text-zinc-950 hover:bg-emerald-500">
+                        📹 Join Zoom
+                      </a>
+                    )}
+                    {m.livestream_url && (
+                      <a href={m.livestream_url} target="_blank" rel="noopener noreferrer"
+                         className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
+                        📺 Livestream
+                      </a>
+                    )}
+                    {m.public_comment_signup_url && (
+                      <a href={m.public_comment_signup_url} target="_blank" rel="noopener noreferrer"
+                         className="rounded border border-amber-700/60 bg-amber-950/30 px-2.5 py-1 text-amber-200 hover:border-amber-500">
+                        🎤 Sign up to speak
+                      </a>
+                    )}
+                    {m.agenda_url && (
+                      <a href={m.agenda_url} target="_blank" rel="noopener noreferrer"
+                         className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
+                        📄 Agenda
+                      </a>
+                    )}
+                    {m.in_person_address && (
+                      <span className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-zinc-400">
+                        📍 {m.in_person_address.slice(0, 60)}{m.in_person_address.length > 60 ? "…" : ""}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </section>
       )}
 
