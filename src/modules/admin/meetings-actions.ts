@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { sendPush, isPushConfigured } from "@/lib/push/send";
+import { flushOpenGraphCache } from "@/lib/og-cache-flush";
 
 const VALID_STATUSES = ["pending_review", "approved", "rejected", "archived"] as const;
 type Status = (typeof VALID_STATUSES)[number];
@@ -149,6 +150,13 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
     broadcast_recipient_count: userIds.length,
     broadcast_by: ctx.userId,
   }).eq("id", input.id);
+
+  // 5. Flush OG cache so the share URL preview is fresh on FB / Messenger.
+  // Fire-and-forget — never blocks the broadcast on cache-flush.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
+  flushOpenGraphCache(`${appUrl}/meetings/${input.id}`).catch((e) => {
+    console.error("[og-flush] meeting", input.id, e);
+  });
 
   await recordAdminAction({
     action: "municipal_meeting_broadcast",

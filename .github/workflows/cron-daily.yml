@@ -242,6 +242,31 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/discover-municipal-meetings.mjs --priority-only
 
+  scan-granicus-tenants:
+    # Proactive scan of ~45 major US Granicus tenants (LA, SF, Chicago,
+    # Boston, etc.) for kratom-relevant agenda items. Complements the
+    # Gemini-grounded discovery — Gemini covers anywhere on the web but
+    # has limited recall; this directly hits each tenant's ViewPublisher
+    # and is exhaustive for the largest municipal-meeting platform in
+    # the US (~5000 agencies on Granicus).
+    #
+    # Free — just static HTTP fetches. Rate-limited at ~1 req/sec per
+    # tenant to stay polite. Hits land in pending_review.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Scan major-city Granicus tenants for kratom agenda items
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/scan-granicus-tenants.mjs
+
   sync-research-pubmed:
     # Ingest newest kratom + 7-OH research from PubMed (NCBI E-utils,
     # free + no key). Then run AI evaluation on anything new.

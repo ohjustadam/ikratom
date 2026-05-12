@@ -414,4 +414,26 @@ try {
   });
 } catch { /* best-effort */ }
 
+// Flush OG cache for each regenerated briefing so social-share previews
+// reflect the new content. Fire-and-forget.
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
+const FB_TOKEN = process.env.FB_APP_ACCESS_TOKEN;
+const flushedUrls = results.filter(r => r.status === "ok").map(r => `${appUrl}/briefings/state/${r.state}`);
+await Promise.allSettled(flushedUrls.map(async (url) => {
+  try {
+    if (FB_TOKEN) {
+      const params = new URLSearchParams({ id: url, scrape: "true", access_token: FB_TOKEN });
+      await fetch(`https://graph.facebook.com/v18.0/?${params}`, { method: "POST", signal: AbortSignal.timeout(8_000) });
+    } else {
+      await fetch(url, {
+        headers: { "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)", Accept: "text/html" },
+        signal: AbortSignal.timeout(8_000),
+      });
+    }
+  } catch { /* best-effort */ }
+}));
+if (flushedUrls.length > 0) {
+  console.log(`OG cache flushed for ${flushedUrls.length} briefing URL(s)${FB_TOKEN ? " (authenticated)" : " (UA pre-warm)"}`);
+}
+
 process.exit(0);
