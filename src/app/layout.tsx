@@ -3,6 +3,8 @@ import { Geist } from "next/font/google";
 import { siteConfig } from "@/config/site.config";
 import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
 import { MobileAuthPill } from "@/modules/auth/components/MobileAuthPill";
+import { HeaderNav } from "@/components/HeaderNav";
+import { HeaderShare } from "@/components/HeaderShare";
 import { CookieBanner } from "@/components/CookieBanner";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { MobileNav } from "@/components/MobileNav";
@@ -150,18 +152,16 @@ export default async function RootLayout({
               <span>Kratom</span>
             </a>
 
-            {/* Desktop nav (md+) */}
-            <nav className="hidden md:flex items-center gap-5 text-sm">
-              <a href="/pulse" className="hover:text-emerald-400 font-semibold text-emerald-400">Pulse</a>
-              <a href="/campaigns" className="hover:text-emerald-400">Campaigns</a>
-              <a href="/legislators" className="hover:text-emerald-400">Legislators</a>
-              <a href="/bills" className="hover:text-emerald-400">Bills</a>
-              <a href="/bop-watch" className="hover:text-emerald-400">BoP Watch</a>
-              <a href="/news" className="hover:text-emerald-400">News</a>
-              <a href="/library" className="hover:text-emerald-400">Library</a>
-              <a href="/briefings" className="hover:text-emerald-400">Briefings</a>
-              <a href="/forum" className="hover:text-emerald-400">Forum</a>
-              <a href="/communities" className="hover:text-emerald-400">Communities</a>
+            {/* Desktop nav (md+). The 10 flat sections from v1 are
+                grouped into 4 dropdown categories inside HeaderNav so
+                the toolbar reads cleanly. The Share button is server-
+                rendered (HeaderShare) so we can pre-pick the user's
+                personal /i/CODE link or a generic URL depending on
+                auth state without round-tripping to the client. */}
+            <nav className="hidden items-center gap-3 text-sm md:flex">
+              <HeaderNav />
+              <span className="mx-1 h-5 w-px bg-zinc-800" aria-hidden />
+              <HeaderShare />
               <HeaderAuth />
             </nav>
 
