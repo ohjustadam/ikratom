@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { startCallSession, updateCallTranscript, endCallSession, TWO_PARTY_CONSENT_STATES } from "./actions";
+import { startCallSession, updateCallTranscript, endCallSession } from "./actions";
+import { TWO_PARTY_CONSENT_STATES } from "./consent";
 
 /**
  * In-app call-tracking UI.
