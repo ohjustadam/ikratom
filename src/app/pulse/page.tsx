@@ -121,12 +121,19 @@ export default async function PulsePage({
   const tourSeen = await getTourSeen();
   const seenPulseNews = !!tourSeen["pulse-news"];
 
+  // False-positive defense: exclude items whose article-body fetch
+  // proved the kratom keyword only existed in a related-stories sidebar
+  // (body_has_kratom_keyword = false). Items not yet verified (NULL) are
+  // kept visible so we don't blackout fresh news while the verifier
+  // worker catches up — fetch failures are NULL too, same treatment.
+  // See migration 0103 + scripts/verify-news-body.mjs.
   const { data: nationalNews } = await supabase
     .from("news_items")
     .select("id, title, url, source_name, state, published_at, ai_relevance_score")
     .or("state.is.null,policy_event_kind.in.(fda_action,dea_action,federal)")
     .gte("ai_relevance_score", 0.75)
     .gte("published_at", since14d)
+    .not("body_has_kratom_keyword", "is", false)
     .order("published_at", { ascending: false, nullsFirst: false })
     .limit(5);
 
@@ -137,6 +144,7 @@ export default async function PulsePage({
         .eq("state", viewerState)
         .gte("ai_relevance_score", 0.7)
         .gte("published_at", since14d)
+        .not("body_has_kratom_keyword", "is", false)
         .order("published_at", { ascending: false, nullsFirst: false })
         .limit(5)
     : { data: null };
@@ -148,6 +156,7 @@ export default async function PulsePage({
         .not("state", "is", null)
         .gte("ai_relevance_score", 0.85)
         .gte("published_at", since14d)
+        .not("body_has_kratom_keyword", "is", false)
         .order("published_at", { ascending: false, nullsFirst: false })
         .limit(5)
     : { data: null };

@@ -13,6 +13,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { hasKratomKeyword } from "./lib/kratom-keywords.mjs";
 
 const STATE_NAMES = {
   AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",
@@ -117,17 +118,24 @@ async function syncScope(scope) {
 
   // Multi-query strategy: kratom alone gets a lot of noise, so we add state
   // context for state scopes and use 7-OH variants for federal.
+  //
+  // Keywords are PHRASE-QUOTED ("kratom") so Google News requires the
+  // exact word in the article text. Without quotes, Google's fuzzy
+  // matcher returns articles where "kratom" appears only in related-
+  // stories sidebars. The quote-strict version dramatically cuts false
+  // positives. The verify-news-body.mjs script catches what still slips
+  // through (sidebars whose link text is the exact word).
   const queries = isFed
     ? [
-        `kratom legislation`,
-        `mitragynine FDA`,
-        `7-hydroxymitragynine`,
-        `kratom Congress bill`,
+        `"kratom" legislation`,
+        `"mitragynine" FDA`,
+        `"7-hydroxymitragynine"`,
+        `"kratom" Congress bill`,
       ]
     : [
-        `kratom ${stateName}`,
-        `kratom ban ${stateName}`,
-        `kratom bill ${stateName}`,
+        `"kratom" "${stateName}"`,
+        `"kratom" ban "${stateName}"`,
+        `"kratom" bill "${stateName}"`,
       ];
 
   process.stdout.write(`  ${scope}: `);
@@ -163,17 +171,33 @@ async function syncScope(scope) {
     await sleep(100);
   }
 
+  // Pre-filter false positives at insert time. Google News matches the
+  // keyword anywhere on the source page (including sidebars), so an
+  // article whose TITLE doesn't mention kratom or related terms is
+  // almost certainly an FP. Pre-flagging body_has_kratom_keyword=false
+  // means the display layers skip it on day-one — no need to wait for
+  // the daily verifier to catch up.
+  //
+  // Titles WITH a kratom keyword stay NULL (verifier confirms with
+  // summary check next). Avoids over-trusting headlines that mention
+  // the substance but aren't real policy events.
   const cap = (s, n) => (s ? String(s).slice(0, n).trim() || null : null);
-  const rows = resolved.map((i) => ({
-    state: isFed ? null : scope,
-    title: cap(i.title, 300),
-    summary: null,                       // filled later by enrich:news
-    url: cap(i.url, 1000),
-    source_name: cap(i.source_name, 100),
-    published_at: i.published_at,
-    kratom_topic: null,                  // filled later by enrich:news
-    ai_relevance_score: 0.5,             // default; enrich:news adjusts
-  })).filter((r) => r.url && /^https?:\/\//.test(r.url));
+  const rows = resolved.map((i) => {
+    const titleHasKw = hasKratomKeyword(i.title ?? "");
+    return {
+      state: isFed ? null : scope,
+      title: cap(i.title, 300),
+      summary: null,                       // filled later by enrich:news
+      url: cap(i.url, 1000),
+      source_name: cap(i.source_name, 100),
+      published_at: i.published_at,
+      kratom_topic: null,                  // filled later by enrich:news
+      ai_relevance_score: 0.5,             // default; enrich:news adjusts
+      // Pre-flag obvious FPs (no keyword in title). Titles WITH the
+      // keyword stay NULL for the verifier to confirm via summary.
+      body_has_kratom_keyword: titleHasKw ? null : false,
+    };
+  }).filter((r) => r.url && /^https?:\/\//.test(r.url));
 
   const { error, data } = await supabase
     .from("news_items")
