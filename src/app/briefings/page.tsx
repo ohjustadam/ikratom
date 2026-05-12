@@ -59,6 +59,27 @@ export default function BriefingsIndexPage() {
         </p>
       </header>
 
+      {/* State briefings entry — points at the 50+DC index */}
+      <section className="mb-10 rounded-lg border border-emerald-700/40 bg-emerald-950/15 p-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+          📍 State of your state
+        </p>
+        <h2 className="mt-1 text-xl font-bold">
+          Per-state briefings — every state, regenerated nightly
+        </h2>
+        <p className="mt-2 text-sm text-zinc-300">
+          AI-synthesized field-work briefings drawn from live platform data:
+          active bills, BoP status, key reps, capital access, tactical advice
+          for your meetings. Print one before walking into your capital.
+        </p>
+        <a
+          href="/briefings/state"
+          className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-emerald-400 hover:underline"
+        >
+          Browse all 50 + DC →
+        </a>
+      </section>
+
       {briefings.length === 0 ? (
         <p className="text-zinc-500">No briefings yet.</p>
       ) : (

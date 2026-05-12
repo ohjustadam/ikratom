@@ -195,6 +195,32 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/verify-news-body.mjs --limit 200
 
+  generate-state-briefings:
+    # Per-state field-work briefings — AI synthesizes live platform data
+    # into a tactical briefing for each state's advocates. Page lives at
+    # /briefings/state/[code]. See scripts/generate-state-briefing.mjs.
+    #
+    # Runs AFTER all the data-collection jobs so the briefing reflects
+    # today's bill/news/BoP state. ~5s per state × 51 states ≈ 5 min.
+    needs: classify-bop-ai
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Regenerate all 50+DC state briefings
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        run: node scripts/generate-state-briefing.mjs --all-states
+
   legiscan-wide-pass:
     # Daily sweep of every active anti/pro bill via LegiScan. The hourly
     # cron only hits the 30 most-stale; this catches everything else
