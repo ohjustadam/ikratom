@@ -27,6 +27,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/pulse", label: "Pulse", description: "Live alerts: hostile bills, BoP rules, breaking news." },
       { href: "/campaigns", label: "Campaigns", description: "One-click letters to your reps." },
+      { href: "/submit", label: "Submit", description: "Intel tips, stories, forum threads — central submit hub." },
     ],
   },
   {
