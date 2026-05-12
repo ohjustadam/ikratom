@@ -1,0 +1,73 @@
+name: Sync ARCHITECTURE_PUBLIC.md → public gist
+
+# Auto-pushes ARCHITECTURE_PUBLIC.md content to the public gist used as
+# the dev-friend share link. The repo is private; the gist is the
+# shareable mirror. Keeping them in sync removes the manual "remember
+# to update the gist" step.
+#
+# Triggers only when ARCHITECTURE_PUBLIC.md changes on main — no waste
+# on unrelated PRs.
+#
+# Required repo secret:
+#   GIST_TOKEN — PAT with `gist` scope (the default GITHUB_TOKEN cannot
+#     modify user-owned gists; only repo-scoped artifacts). Create at
+#     https://github.com/settings/tokens?type=beta with Account → Gists →
+#     Read and Write access.
+#
+# Gist ID is committed in plaintext below — it's a public URL, no secret.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ARCHITECTURE_PUBLIC.md"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sync-architecture-gist
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GIST_ID: ad6a0d4c0a19303878a8534c17bc9efa
+      GIST_FILENAME: ARCHITECTURE_PUBLIC.md
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Push content to gist via GitHub API
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          if [ -z "${GIST_TOKEN}" ]; then
+            echo "::error::GIST_TOKEN secret not set. Workflow cannot update gist."
+            echo "Create a fine-grained PAT with Gists: Read and Write access at"
+            echo "https://github.com/settings/tokens?type=beta and add it as GIST_TOKEN."
+            exit 1
+          fi
+
+          # Build the PATCH body with jq so we get correct JSON-escaping
+          # of the markdown (quotes, newlines, backticks all survive).
+          BODY=$(jq -n \
+            --arg fn "${GIST_FILENAME}" \
+            --rawfile content "${GIST_FILENAME}" \
+            '{ files: { ($fn): { content: $content } } }')
+
+          HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: Bearer ${GIST_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/gists/${GIST_ID}" \
+            -d "${BODY}")
+
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "::error::Gist update failed with HTTP ${HTTP_CODE}"
+            cat response.json
+            exit 1
+          fi
+
+          echo "✓ Gist ${GIST_ID} updated"
+          echo "  → https://gist.github.com/$(jq -r '.owner.login' response.json)/${GIST_ID}"
