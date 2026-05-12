@@ -132,7 +132,7 @@ export default async function StateBriefingPage({
         </div>
       ) : (
         <article
-          className="prose prose-invert prose-zinc max-w-none prose-headings:font-bold prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-3 prose-h2:border-b prose-h2:border-zinc-800 prose-h2:pb-2 prose-p:text-zinc-300 prose-strong:text-zinc-100 prose-li:text-zinc-300 prose-a:text-emerald-400 prose-code:text-emerald-300 prose-code:bg-zinc-900 prose-code:px-1 prose-code:py-0.5 prose-code:rounded"
+          className="briefing-md"
           dangerouslySetInnerHTML={{ __html: bodyHtml }}
         />
       )}

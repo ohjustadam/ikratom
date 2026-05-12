@@ -119,6 +119,27 @@ for synthetics — many bills only target the latter.
 Return ONLY the JSON object. No prose around it, no markdown fences.`;
 
 function buildUserPrompt(data) {
+  const billLines = data.bills.length === 0 ? "  (none)" : data.bills.map(b => {
+    const sponsorSummary = (b.sponsors ?? []).length === 0
+      ? "    sponsors: (not yet synced)"
+      : `    sponsors (${b.sponsors.length}): ${b.sponsors.map(s => `${s.name}${s.party ? ` [${s.party}]` : ""}${s.classification === "primary" ? " *primary*" : ""}`).slice(0, 8).join(" · ")}${b.sponsors.length > 8 ? ` +${b.sponsors.length - 8} more` : ""}`;
+    return `  ${b.bill_number} [${b.kratom_relevance}] status=${b.status ?? "?"} last=${(b.last_action_at ?? "?").slice(0,10)}\n    title: ${b.title ?? "?"}\n    summary: ${(b.summary_ai ?? b.summary ?? "?").slice(0, 220)}\n    targets_natural_leaf=${b.targets_natural_leaf} targets_synthetic_only=${b.targets_synthetic_only}\n${sponsorSummary}`;
+  }).join("\n");
+
+  const capitalSection = data.capital ? `\nSTATE CAPITAL (hand-curated):
+  City: ${data.capital.capital_city}
+  Address: ${data.capital.capital_address ?? "?"}
+  Current session: ${data.capital.current_session_id ?? "?"} (${data.capital.current_session_start ?? "?"} → ${data.capital.current_session_end ?? "?"})
+  Public comment URL: ${data.capital.public_comment_url ?? "?"}
+  Hearing schedule URL: ${data.capital.hearing_schedule_url ?? "?"}
+  Staff directory: ${data.capital.staff_directory_url ?? "?"}
+${data.capital.notes_md ? `  ADMIN FIELD-WORK NOTES (use verbatim where relevant):\n${data.capital.notes_md}` : ""}` : `
+STATE CAPITAL: (no row in state_capital_info — admin has not curated yet)
+`;
+
+  const stanceSection = (data.stances ?? []).length === 0 ? `\nLEGISLATOR STANCES (admin-curated): (none flagged yet)` : `\nLEGISLATOR STANCES (admin-curated champion/hostile flags):
+${data.stances.map(s => `  ${s.stance.toUpperCase()}: ${s.legislators?.full_name ?? "?"} (${s.legislators?.role ?? "?"}${s.legislators?.district ? ` · ${s.legislators.district}` : ""}) — ${(s.rationale_md ?? "no rationale").slice(0, 200)}`).join("\n")}`;
+
   return `STATE: ${data.state} (${data.stateName || data.state})
 
 LEGISLATOR COVERAGE:
@@ -127,13 +148,13 @@ LEGISLATOR COVERAGE:
   Stale (>30d since sync): ${data.legStale}
   Missing contact: ${data.legNoContact}
 
-ACTIVE BILLS (${data.bills.length} total):
-${data.bills.length === 0 ? "  (none)" : data.bills.map(b => `  ${b.bill_number} [${b.kratom_relevance}] status=${b.status ?? "?"} last=${(b.last_action_at ?? "?").slice(0,10)}\n    title: ${b.title ?? "?"}\n    summary: ${(b.summary_ai ?? b.summary ?? "?").slice(0, 220)}\n    targets_natural_leaf=${b.targets_natural_leaf} targets_synthetic_only=${b.targets_synthetic_only}`).join("\n")}
-
+ACTIVE BILLS (${data.bills.length} total — each row includes the primary sponsor + cosponsors. Name the primary sponsor in your Active legislation section so advocates know who to email first):
+${billLines}
+${capitalSection}
 BOARD OF PHARMACY:
   Sources configured: ${data.bopSrcCount}
   Findings logged: ${data.bopFindingCount}
-${data.bopSrc.length === 0 ? "  WARNING: No BoP source URL is configured. The state may not have one, OR we may simply not have onboarded it yet — admin should investigate." : data.bopSrc.map(s => `  - ${s.name}: ${s.url} (last scrape: ${s.last_scraped_at ?? "never"}, status: ${s.last_status ?? "?"})`).join("\n")}
+${data.bopSrc.length === 0 ? "  WARNING: No BoP source URL is configured. The state may not have one, OR we may simply not have onboarded it yet — admin should investigate." : data.bopSrc.map(s => `  - ${s.board_name}: ${s.agenda_url} (last scrape: ${s.last_scraped_at ?? "never"}, status: ${s.last_status ?? "?"})${s.notes ? `\n    notes: ${s.notes.slice(0, 200)}` : ""}`).join("\n")}
 
 CAMPAIGNS:
   Active: ${data.campAct.length} - ${data.campAct.map(c => c.title).slice(0, 3).join(" / ") || "(none)"}
@@ -141,6 +162,7 @@ CAMPAIGNS:
 
 RECENT NEWS (last 30 days, body-verified, deduplicated):
 ${data.news.length === 0 ? "  (none in last 30 days)" : data.news.map(n => `  - ${(n.published_at ?? "").slice(0, 10)} · ${n.source_name ?? "?"} · ${n.title}`).join("\n")}
+${stanceSection}
 
 STATE STATUS (from states table):
   kratom_status: ${data.stateStatus ?? "(unset)"}
@@ -149,22 +171,28 @@ STATE STATUS (from states table):
 MUNICIPAL OFFICIALS ON FILE:
   ${data.municipalCount} (city councils, mayors) — anything below ~5 means we don't have meaningful local coverage yet.
 
-Synthesize this into the briefing.`;
+Synthesize this into the briefing. Name primary bill sponsors when discussing each bill. Use capital + scheduling info verbatim when relevant. Quote admin stance rationales when listing champions/hostiles.`;
 }
 
 async function loadStateData(state) {
-  // Parallel data fetch
-  const [stateRow, legsAll, bills, bopSrc, bopFindings, news, camps] = await Promise.all([
+  // Parallel data fetch — now includes capital info, sponsors, stances
+  const [
+    stateRow, capitalRow, legsAll, bills, bopSrc, bopFindings, news, camps,
+    stanceRows,
+  ] = await Promise.all([
     sb.from("states").select("abbr, name, kratom_status, notes").eq("abbr", state).maybeSingle(),
+    sb.from("state_capital_info")
+      .select("capital_city, capital_address, current_session_id, current_session_start, current_session_end, public_comment_url, hearing_schedule_url, staff_directory_url, notes_md")
+      .eq("state", state).maybeSingle(),
     sb.from("legislators")
-      .select("id, role, level, full_name, district, last_synced_at, email, phone")
+      .select("id, role, level, full_name, district, last_synced_at, email, phone, party")
       .eq("state", state).eq("active", true).limit(2000),
     sb.from("bills")
       .select("id, bill_number, title, summary, summary_ai, kratom_relevance, status, last_action_at, targets_natural_leaf, targets_synthetic_only")
       .eq("state", state).eq("active", true).in("kratom_relevance", ["anti", "pro", "neutral"])
       .order("last_action_at", { ascending: false, nullsFirst: false })
       .limit(30),
-    sb.from("bop_sources").select("name, url, last_scraped_at, last_status").eq("state", state),
+    sb.from("bop_sources").select("board_name, agenda_url, last_scraped_at, last_status, notes").eq("state", state),
     sb.from("bop_findings").select("id", { count: "exact", head: true }).eq("state", state),
     sb.from("news_items")
       .select("title, source_name, published_at, url")
@@ -176,7 +204,27 @@ async function loadStateData(state) {
       .limit(10),
     sb.from("campaigns")
       .select("id, title, active, review_state").eq("state", state),
+    // Per-legislator kratom stance (champion / hostile / etc) joined to legislators
+    sb.from("legislator_kratom_stance")
+      .select("legislator_id, stance, rationale_md, last_evidence_url, legislators!inner(full_name, role, district, state)")
+      .eq("legislators.state", state),
   ]);
+
+  // Sponsors: pull all rows for these specific bills + their resolved legislator names.
+  const billIds = (bills.data ?? []).map(b => b.id);
+  let sponsors = [];
+  if (billIds.length > 0) {
+    const { data: spRows } = await sb.from("bill_sponsors")
+      .select("bill_id, name, classification, party, district, legislator_id")
+      .in("bill_id", billIds);
+    sponsors = spRows ?? [];
+  }
+  // Group sponsors by bill
+  const sponsorsByBill = new Map();
+  for (const s of sponsors) {
+    if (!sponsorsByBill.has(s.bill_id)) sponsorsByBill.set(s.bill_id, []);
+    sponsorsByBill.get(s.bill_id).push(s);
+  }
 
   const legByRole = {};
   let legStale = 0, legNoContact = 0, municipalCount = 0;
@@ -187,23 +235,31 @@ async function loadStateData(state) {
     if (r.level === "municipal") municipalCount++;
   }
 
+  // Annotate each bill with its sponsor list
+  const billsWithSponsors = (bills.data ?? []).map(b => ({
+    ...b,
+    sponsors: sponsorsByBill.get(b.id) ?? [],
+  }));
+
   return {
     state,
     stateName: stateRow.data?.name ?? state,
     stateStatus: stateRow.data?.kratom_status ?? null,
     stateNotes: stateRow.data?.notes ?? null,
+    capital: capitalRow.data ?? null,
     legCount: legsAll.data?.length ?? 0,
     legByRole,
     legStale,
     legNoContact,
     municipalCount,
-    bills: bills.data ?? [],
+    bills: billsWithSponsors,
     bopSrc: bopSrc.data ?? [],
     bopSrcCount: bopSrc.data?.length ?? 0,
     bopFindingCount: bopFindings.count ?? 0,
     news: news.data ?? [],
     campAct: (camps.data ?? []).filter(c => c.active),
     campPending: (camps.data ?? []).filter(c => c.review_state === "pending_review").length,
+    stances: stanceRows.data ?? [],
   };
 }
 
@@ -270,7 +326,25 @@ const STATE_LIST = [
 
 console.log(`Providers available: ${listAvailableProviders().join(", ")}\n`);
 
-const targets = STATE ? [STATE.toUpperCase()] : STATE_LIST;
+// Gating: --all-states honors states.briefing_gen_enabled. Explicit
+// --state overrides the gate (admin can manually regenerate any state).
+// This lets owner hand-tune NY before unlocking the other 50.
+let targets;
+if (STATE) {
+  targets = [STATE.toUpperCase()];
+} else {
+  const { data: enabled } = await sb.from("states")
+    .select("abbr")
+    .eq("briefing_gen_enabled", true);
+  const enabledSet = new Set((enabled ?? []).map(r => r.abbr));
+  targets = STATE_LIST.filter(s => enabledSet.has(s));
+  console.log(`--all-states: ${targets.length} of ${STATE_LIST.length} states have briefing_gen_enabled=true`);
+  console.log(`  Enabled: ${targets.join(", ") || "(none)"}\n`);
+  if (targets.length === 0) {
+    console.log("No states enabled. Toggle in DB: UPDATE states SET briefing_gen_enabled=true WHERE abbr='XX'");
+    process.exit(0);
+  }
+}
 const t0 = Date.now();
 const results = [];
 for (const s of targets) {
