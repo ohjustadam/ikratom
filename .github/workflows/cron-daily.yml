@@ -140,6 +140,35 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/classify-bop-ai.mjs --limit 50
 
+  verify-news-body:
+    # False-positive defense for the news pipeline. Fetches each
+    # unverified news_item, extracts the article main body (no
+    # sidebar / footer / related-stories), and flags items where no
+    # kratom keyword appears in the body — those are FPs from Google
+    # News matching the keyword in a recirculation widget.
+    #
+    # Runs AFTER sync-news (Vercel hourly cron) so fresh items get
+    # verified within a day of intake. /pulse + /news display layers
+    # hide FALSE; NULL (not-yet-verified) passes through so we don't
+    # blackout fresh news.
+    #
+    # Polite: 1.5s delay per fetch, 15s timeout, single concurrent
+    # worker. Caps at 200 items/run to stay well under 30 min.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Verify news article bodies for false-positive defense
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/verify-news-body.mjs --limit 200
+
   legiscan-wide-pass:
     # Daily sweep of every active anti/pro bill via LegiScan. The hourly
     # cron only hits the 30 most-stale; this catches everything else

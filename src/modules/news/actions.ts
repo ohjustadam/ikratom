@@ -26,13 +26,18 @@ export type NewsListItem = {
   duplicate_count: number | null;
 };
 
+// False-positive defense: filter out items whose title+summary+body
+// fetch proved kratom-free (`body_has_kratom_keyword = false`). NULL
+// passes through — fresh items awaiting verification still display.
+// See migration 0103 + scripts/verify-news-body.mjs.
 export async function listNewsForState(state: string | null, limit = 20): Promise<NewsListItem[]> {
   const supabase = await createClient();
   let q = supabase
     .from("news_items")
     .select(NEWS_FIELDS)
     .eq("active", true)
-    .is("duplicate_of", null);
+    .is("duplicate_of", null)
+    .not("body_has_kratom_keyword", "is", false);
 
   if (state === null) {
     q = q.is("state", null);
@@ -54,6 +59,7 @@ export async function listAllRecentNews(limit = 50): Promise<NewsListItem[]> {
     .select(NEWS_FIELDS)
     .eq("active", true)
     .is("duplicate_of", null)
+    .not("body_has_kratom_keyword", "is", false)
     .order("published_at", { ascending: false, nullsFirst: false })
     .limit(limit);
   return (data ?? []) as unknown as NewsListItem[];

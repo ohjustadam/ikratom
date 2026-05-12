@@ -105,7 +105,14 @@ async function classifyOnce(_unused, sys, user) {
 // ---------- main ----------
 console.log(`Providers: ${avail().join(", ")}`);
 
-let q = sb.from("news_items").select("id, title, url, source_name, state, published_at, summary").eq("active", true).limit(LIMIT);
+// False-positive defense: pull body_has_kratom_keyword so we can refuse
+// to auto-publish items whose article body proved kratom-free. NULL
+// passes through (verifier hasn't run yet — don't blackout fresh news).
+let q = sb.from("news_items")
+  .select("id, title, url, source_name, state, published_at, summary, body_has_kratom_keyword")
+  .eq("active", true)
+  .not("body_has_kratom_keyword", "is", false)
+  .limit(LIMIT);
 if (!REFRESH) q = q.is("policy_classified_at", null);
 if (SINCE) q = q.gte("published_at", SINCE);
 q = q.order("published_at", { ascending: false });
