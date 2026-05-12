@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 import { displayTitle, displaySubtitle } from "@/lib/bill-title";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
@@ -98,10 +99,35 @@ export async function generateMetadata({
   const supabase = await createClient();
   const { data } = await supabase
     .from("bills")
-    .select("state, bill_number, title")
+    .select("state, bill_number, title, summary_ai, summary, kratom_relevance, status")
     .eq("id", id)
     .single();
-  return { title: data ? `${data.state} ${data.bill_number} — ${data.title?.slice(0, 80) ?? ""}` : "Bill" };
+
+  if (!data) return { title: "Bill" };
+  const stance = data.kratom_relevance === "anti"
+    ? "kratom-hostile" : data.kratom_relevance === "pro" ? "kratom-supportive" : "kratom-neutral";
+  const title = `${data.state} ${data.bill_number} — ${data.title?.slice(0, 80) ?? ""}`;
+  const description = (data.summary_ai ?? data.summary ?? "").slice(0, 200) ||
+    `${data.state} bill ${data.bill_number}, ${stance}. Status: ${data.status ?? "tracking"}. Tracked live on iKratom.`;
+  const url = `${(process.env.APP_URL ?? "https://www.ikratom.org").replace(/\/+$/, "")}/bills/${id}`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      type: "article",
+      title,
+      description,
+      url,
+      siteName: "iKratom",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+    alternates: { canonical: url },
+  };
 }
 
 export default async function BillDetailPage({
@@ -256,9 +282,16 @@ export default async function BillDetailPage({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href={`/bills?state=${bill.state}`} className="text-xs text-zinc-500 hover:text-emerald-400">
-        ← All {bill.state} bills
-      </a>
+      <div className="flex items-center justify-between">
+        <a href={`/bills?state=${bill.state}`} className="text-xs text-zinc-500 hover:text-emerald-400">
+          ← All {bill.state} bills
+        </a>
+        <PageShareWithAttribution
+          path={`/bills/${bill.id}`}
+          title={`${bill.state} ${bill.bill_number}: ${bill.title?.slice(0, 80) ?? "(no title)"}`}
+          summary={(bill.summary_ai ?? bill.summary ?? "").slice(0, 180) || `Tracked on iKratom — ${bill.state} bill ${bill.bill_number}.`}
+        />
+      </div>
 
       {/* Header */}
       <header className="mt-3 mb-6">
