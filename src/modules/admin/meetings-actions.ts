@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
+import { sendPush, isPushConfigured } from "@/lib/push/send";
 
 const VALID_STATUSES = ["pending_review", "approved", "rejected", "archived"] as const;
 type Status = (typeof VALID_STATUSES)[number];
@@ -14,12 +16,164 @@ export async function listMeetingsForReview() {
   const sb = await createClient();
   const { data } = await sb
     .from("municipal_meetings")
-    .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, source_url, ai_confidence, discovered_via, moderation_status, created_at")
+    .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, source_url, ai_confidence, discovered_via, moderation_status, created_at, broadcast_at, broadcast_recipient_count")
     .in("moderation_status", ["pending_review", "approved"])
     .gte("meeting_at", new Date().toISOString())
     .order("meeting_at", { ascending: true })
     .limit(200);
   return data ?? [];
+}
+
+/**
+ * Broadcast a meeting NOW — fires push notifications to all users in
+ * the meeting's state + creates a critical-severity policy_alert that
+ * surfaces on /pulse with the Zoom link.
+ *
+ * Marks the meeting as broadcast_at NOW so the admin UI shows
+ * "📢 already broadcast to N users" instead of re-firing.
+ *
+ * Idempotent — if already broadcast, returns the previous counts.
+ */
+export async function broadcastMeeting(input: { id: string; force?: boolean }) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+
+  const sb = await createClient();
+  const { data: meeting, error: readErr } = await sb
+    .from("municipal_meetings")
+    .select("*")
+    .eq("id", input.id)
+    .single();
+  if (readErr || !meeting) return { error: readErr?.message ?? "Meeting not found." };
+  if (meeting.broadcast_at && !input.force) {
+    return {
+      ok: true,
+      already: true,
+      broadcast_at: meeting.broadcast_at,
+      recipient_count: meeting.broadcast_recipient_count ?? 0,
+    };
+  }
+  if (meeting.moderation_status !== "approved") {
+    return { error: "Meeting must be approved before broadcasting." };
+  }
+
+  // Use service-role client for the user-fanout reads (RLS-bypass on profiles).
+  const admin = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  );
+
+  // Find all in-state users + (as fallback for tiny user counts) FED-locality.
+  const { data: targetUsers } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("state", meeting.state)
+    .limit(50_000);
+  const userIds = (targetUsers ?? []).map((u: { id: string }) => u.id);
+
+  // Compose the notification payload
+  const when = new Date(meeting.meeting_at);
+  const title = `🚨 LIVE NOW: ${meeting.locality ?? meeting.state} ${meeting.body_name ?? "meeting"}`;
+  const body = meeting.zoom_url
+    ? `Kratom is on the agenda. Join the Zoom now or watch the livestream.`
+    : `Kratom is on the agenda. Tap for the link.`;
+  const link = `/calendar?state=${meeting.state}`;
+
+  // 1. In-app notifications inserted for every target user
+  if (userIds.length > 0) {
+    const rows = userIds.map((uid) => ({
+      user_id: uid,
+      kind: "meeting_live",
+      title,
+      body,
+      link,
+    }));
+    // Chunk inserts to stay under the row-size limit
+    for (let i = 0; i < rows.length; i += 200) {
+      const chunk = rows.slice(i, i + 200);
+      await admin.from("notifications").insert(chunk);
+    }
+  }
+
+  // 2. Web push fanout to all subscriptions for these users
+  let pushSent = 0;
+  let pushGone: string[] = [];
+  if (isPushConfigured() && userIds.length > 0) {
+    const { data: subs } = await admin
+      .from("push_subscriptions")
+      .select("id, user_id, endpoint, p256dh, auth")
+      .in("user_id", userIds)
+      .limit(10_000);
+    const payload = { title, body, link, tag: `meeting-${meeting.id}` };
+    for (const s of (subs ?? []) as Array<{ id: string; endpoint: string; p256dh: string; auth: string }>) {
+      const r = await sendPush(
+        { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        payload,
+      );
+      if (r.ok) pushSent++;
+      else if ("gone" in r && r.gone) pushGone.push(s.id);
+    }
+    // Prune dead subscriptions
+    if (pushGone.length > 0) {
+      await admin.from("push_subscriptions").delete().in("id", pushGone);
+    }
+  }
+
+  // 3. Create a critical policy_alert that surfaces on /pulse with the Zoom link
+  const alertBody =
+    `Live meeting in ${meeting.locality ?? meeting.state}: kratom is on the agenda right now.\n\n` +
+    (meeting.zoom_url ? `**Join Zoom:** ${meeting.zoom_url}\n\n` : "") +
+    (meeting.livestream_url ? `**Livestream:** ${meeting.livestream_url}\n\n` : "") +
+    (meeting.agenda_url ? `**Agenda:** ${meeting.agenda_url}\n\n` : "") +
+    (meeting.in_person_address ? `**In person:** ${meeting.in_person_address}\n\n` : "") +
+    (meeting.public_comment_signup_url ? `**Sign up to speak:** ${meeting.public_comment_signup_url}\n\n` : "") +
+    (meeting.agenda_text ? `\n_Agenda excerpt:_\n${meeting.agenda_text.slice(0, 500)}` : "");
+
+  await admin.from("policy_alerts").insert({
+    kind: "bop_hearing", // closest existing kind for a public-meeting alert
+    severity: "critical",
+    title: `🚨 LIVE: ${meeting.locality ?? meeting.state} ${meeting.body_name ?? "meeting"} — kratom on agenda`,
+    body: alertBody,
+    locality: meeting.state,
+    source_url: meeting.agenda_url ?? meeting.source_url,
+    occurs_at: when.toISOString(),
+    expires_at: new Date(when.getTime() + 6 * 60 * 60 * 1000).toISOString(), // 6h
+    action_required: true,
+    moderation_status: "approved",
+  });
+
+  // 4. Mark broadcast complete
+  await admin.from("municipal_meetings").update({
+    broadcast_at: new Date().toISOString(),
+    broadcast_recipient_count: userIds.length,
+    broadcast_by: ctx.userId,
+  }).eq("id", input.id);
+
+  await recordAdminAction({
+    action: "municipal_meeting_broadcast",
+    targetType: "policy_alert",
+    targetId: input.id,
+    details: {
+      state: meeting.state,
+      locality: meeting.locality,
+      user_count: userIds.length,
+      push_sent: pushSent,
+      push_pruned: pushGone.length,
+      zoom_url: meeting.zoom_url ?? null,
+    },
+  });
+
+  revalidatePath("/admin/meetings");
+  revalidatePath("/calendar");
+  revalidatePath("/pulse");
+  revalidatePath("/calls");
+  return {
+    ok: true,
+    user_count: userIds.length,
+    push_sent: pushSent,
+    push_pruned: pushGone.length,
+  };
 }
 
 export async function setMeetingStatus(input: { id: string; status: string; note?: string }) {
