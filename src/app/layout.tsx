@@ -10,6 +10,7 @@ import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
 import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
@@ -207,6 +208,7 @@ export default async function RootLayout({
         <CookieBanner />
         <MobileTabBar />
         <RegisterSW />
+        <InstallPrompt />
         </PostHogProvider>
       </body>
     </html>
