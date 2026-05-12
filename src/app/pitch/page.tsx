@@ -45,7 +45,11 @@ export default function PitchPage() {
         </p>
         <ul className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatChip n="50+DC" l="states monitored" />
+          <StatChip n="340" l="active bills tracked" />
           <StatChip n="51" l="BoP surfaces daily" />
+          <StatChip n="5,482" l="BoP findings logged" />
+          <StatChip n="1,049" l="kratom news verified" />
+          <StatChip n="8,273" l="legislators on file" />
           <StatChip n="5+" l="AI providers" />
           <StatChip n="1-click" l="legislator emails" />
         </ul>

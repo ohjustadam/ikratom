@@ -20,12 +20,19 @@ It's the operational backbone for an unfunded, distributed, mostly-volunteer adv
 |---|---|
 | U.S. states monitored (legislative + regulatory) | **50 + DC + federal** |
 | State Board of Pharmacy surfaces scraped daily | **51** (47 via Node fetch, 4 via headless Chromium) |
+| Active bills tracked (anti + pro) | **340** (197 restrictive, 143 supportive) |
+| BoP findings logged for early-warning | **5,482** |
+| Active legislators in directory | **8,273** (state + federal) |
+| Kratom news visible after FP defense | **1,049 canonical** (from 3,801 active — 73% noise filtered) |
+| Approved policy alerts in /pulse feed | **1,090** |
+| Active campaigns live right now | **82** |
 | AI providers in the routing layer | **5** (Gemini, Groq, Cerebras, Mistral, Cloudflare AI) + local Ollama |
 | Free-tier APIs integrated | **8+** (OpenStates, LegiScan, Google Civic, Census, HIBP, Resend, etc.) |
 | User actions per legislator email | **1 click** |
 | End-to-end encrypted feature | **Direct messages** (libsodium / Curve25519 + XChaCha20-Poly1305) |
-| Migrations applied to schema | **102+** |
-| Production deploys this month | **30+** (Vercel CI) |
+| Migrations applied to schema | **109** |
+| Commits to main (last 30 days) | **260+** |
+| Scraper runs (last 7 days) | **267** automated cron executions |
 | Tables under Row Level Security | **62 of 62** in `public` schema |
 
 ---
