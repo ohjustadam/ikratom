@@ -32,48 +32,32 @@ It's the operational backbone for an unfunded, distributed, mostly-volunteer adv
 
 ## System architecture — the 10,000-ft view
 
+Eight categories of sources flow through one processing spine, persist to one database, and fan out to seven delivery surfaces. The diagram below is the one you should hold in your head — everything else in this doc is a zoom-in on one band.
+
 ```mermaid
-flowchart LR
-  subgraph SOURCES["📥 Data sources"]
-    A1[OpenStates API<br/>bill catalog]
-    A2[LegiScan API<br/>bill verification]
-    A3[Google News RSS<br/>per state]
-    A4[State BoP websites<br/>51 surfaces]
-    A5[Google Civic API<br/>address → reps]
-    A6[Census Geocoding<br/>districts]
-    A7[OpenFEC<br/>donor data]
-    A8[User submissions<br/>tips / stories / forum]
-  end
+flowchart TB
+  classDef src fill:#1e3a8a,stroke:#3b82f6,color:#e0f2fe
+  classDef proc fill:#065f46,stroke:#10b981,color:#d1fae5
+  classDef store fill:#581c87,stroke:#a855f7,color:#f3e8ff
+  classDef surf fill:#7c2d12,stroke:#f59e0b,color:#fef3c7
 
-  subgraph PROCESS["⚙️ Processing pipeline"]
-    B1[Ingest + dedupe]
-    B2[AI enrichment<br/>multi-provider router]
-    B3[Classification<br/>regex + AI grounded]
-    B4[Cross-reference<br/>bills ↔ news ↔ BoP]
-    B5[Auto-alerts<br/>policy_alerts table]
-    B6[Auto-campaigns<br/>from hostile bills]
-  end
+  S["📥 Sources · 8+<br/>OpenStates · LegiScan · Google News RSS<br/>51 state BoP websites · Civic · Census<br/>OpenFEC · user submissions"]:::src
 
-  subgraph STORE["💾 Persistence"]
-    C1[Supabase Postgres<br/>RLS on every table]
-    C2[Cloudflare R2<br/>video uploads]
-  end
+  P1["⚙️ Ingest + dedupe"]:::proc
+  P2["🧠 AI enrichment + classification<br/>multi-provider router (5 LLMs)"]:::proc
+  P3["🔗 Cross-reference<br/>bills ↔ news ↔ BoP, by state + week"]:::proc
+  P4["🚨 Auto-alerts + auto-campaigns"]:::proc
 
-  subgraph SURFACES["📤 User-facing surfaces"]
-    D1[/pulse — live feed/]
-    D2[/dashboard — cockpit/]
-    D3[/bills, /legislators/]
-    D4[/bop-watch/]
-    D5[Push notifications<br/>web + iOS + Android]
-    D6[Discord webhooks<br/>partner channels]
-    D7[Embed widget<br/>partner sites]
-  end
+  DB["💾 Supabase Postgres<br/>RLS on every table · audit log<br/>+ Cloudflare R2 for video"]:::store
 
-  SOURCES --> PROCESS
-  PROCESS --> STORE
-  STORE --> SURFACES
-  SURFACES -.user actions.-> A8
+  U["📤 Delivery surfaces · 7<br/>/pulse live feed · /dashboard cockpit<br/>/bills · /legislators · /bop-watch<br/>web push · Discord webhooks · embed widget"]:::surf
+
+  S --> P1 --> P2 --> P3 --> P4
+  P4 --> DB --> U
+  U -.user actions feed back as new tips.-> S
 ```
+
+The dotted return arrow is the network-effect loop: every user action (story submitted, intel tip filed, forum thread started) feeds back into the source pool. The platform gets smarter the more it gets used.
 
 ---
 
