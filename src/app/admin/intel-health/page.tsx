@@ -85,6 +85,16 @@ export default async function IntelHealthPage() {
         </span>
       </header>
 
+      {/* Sub-page links */}
+      <nav className="mb-6 flex flex-wrap gap-2 text-xs">
+        <a
+          href="/admin/intel-health/false-positives"
+          className="rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 text-zinc-300 hover:border-emerald-500 hover:text-emerald-400"
+        >
+          🛡️ News FP review
+        </a>
+      </nav>
+
       {/* Top-line counters */}
       <section className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Active bills" value={billsTotal.count ?? 0} sub={`+${billsThisWeek.count ?? 0} this week`} />
