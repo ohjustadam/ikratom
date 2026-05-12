@@ -9,8 +9,11 @@ export default function robots(): MetadataRoute.Robots {
   const base = process.env.APP_URL ?? "https://www.ikratom.org";
   return {
     rules: [
-      // Normal search engines
-      { userAgent: "*", allow: "/", disallow: ["/admin/", "/api/", "/account/", "/messages/", "/dashboard/"] },
+      // Normal search engines. /pitch is intentionally unlisted (investor/
+      // dev-friend share link) — explicit Disallow in addition to the page's
+      // own `robots: { index: false }` metatag gives a second layer for
+      // well-behaved crawlers that obtain the URL via a forwarded share.
+      { userAgent: "*", allow: "/", disallow: ["/admin/", "/api/", "/account/", "/messages/", "/dashboard/", "/pitch"] },
 
       // Block declared AI training crawlers explicitly
       ...[
