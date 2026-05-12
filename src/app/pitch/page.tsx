@@ -90,30 +90,29 @@ export default function PitchPage() {
       <Slide>
         <Eyebrow>System architecture</Eyebrow>
         <h2 className="mt-2 text-3xl font-bold">Sources → AI pipeline → user surfaces</h2>
-        <Mermaid>{`flowchart LR
-  subgraph SOURCES["Data sources (8+)"]
-    A1[OpenStates]
-    A2[LegiScan]
-    A3[Google News RSS]
-    A4[State BoPs · 51]
-    A5[Civic + Census]
-    A6[User submissions]
-  end
-  subgraph PROCESS["Processing"]
-    B1[Ingest + dedupe]
-    B2[AI enrichment]
-    B3[Classification]
-    B4[Cross-reference]
-    B5[Auto-alerts + auto-campaigns]
-  end
-  subgraph SURFACES["Surfaces"]
-    D1[Live alert feed]
-    D2[Personal dashboard]
-    D3[Push notifications]
-    D4[Discord webhooks]
-    D5[Public bill detail pages]
-  end
-  SOURCES --> PROCESS --> SURFACES`}</Mermaid>
+        <Mermaid>{`flowchart TB
+  classDef src fill:#1e3a8a,stroke:#3b82f6,color:#e0f2fe
+  classDef proc fill:#065f46,stroke:#10b981,color:#d1fae5
+  classDef surf fill:#7c2d12,stroke:#f59e0b,color:#fef3c7
+
+  S["📥 Sources · 8+<br/>OpenStates · LegiScan · Google News · 51 state BoPs · Civic · Census · OpenFEC · user tips"]:::src
+  P1["⚙️ Ingest + dedupe"]:::proc
+  P2["🧠 AI router · 5 providers<br/>classify · summarize · fact-check"]:::proc
+  P3["🔗 Cross-correlate by state<br/>bills ↔ BoP ↔ news"]:::proc
+  P4["🚨 Auto-alerts + auto-campaigns"]:::proc
+  U1["📡 Live pulse feed"]:::surf
+  U2["🎛️ Personal dashboard"]:::surf
+  U3["🔔 Push · Discord · email"]:::surf
+
+  S --> P1 --> P2 --> P3 --> P4
+  P4 --> U1
+  P4 --> U2
+  P4 --> U3`}</Mermaid>
+        <p className="mt-4 text-sm text-zinc-400">
+          One pipeline. Eight categories of sources flow through a single
+          processing spine to three delivery surfaces — no per-source branching
+          for an investor or developer to memorize.
+        </p>
       </Slide>
 
       {/* ────────────────────────────────────────────────────────── */}
