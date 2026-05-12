@@ -3,17 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { aiSummarizeCall } from "./ai-summarize";
-
-// States requiring TWO-PARTY consent to record a call.
-// Source: well-established list. Updated 2026.
-export const TWO_PARTY_CONSENT_STATES = new Set([
-  "CA", "CT", "DE", "FL", "IL", "MD", "MA", "MI", "MT", "NV",
-  "NH", "PA", "WA",
-  // NY: technically one-party (NY Penal Law § 250.05) but we treat
-  // it as two-party here because the legislative records being captured
-  // are sensitive and the consumer-facing UI errs on the safer side.
-  "NY",
-]);
+import { TWO_PARTY_CONSENT_STATES } from "./consent";
 
 export type StartSessionInput = {
   legislatorId?: string | null;
