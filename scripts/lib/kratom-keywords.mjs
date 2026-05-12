@@ -16,7 +16,7 @@
  * "mitragynine-like" without explicit intent. Case-insensitive.
  */
 export const KRATOM_KEYWORD_RX =
-  /\b(kratom[s]?|kratomite|mitragyna|mitragynine|7-?\s*OH(?:M)?|7-?hydroxymitragynine|gas[- ]?station\s+drugs?|tianeptine)\b/i;
+  /\b(kratom[s]?|kratomite|mitragyna|mitragynine|7-?\s*OH(?:M)?|7-?hydroxymitragynine|gas[- ]?station\s+(?:drugs?|heroin|opioids?)|tianeptine)\b/i;
 
 /**
  * Returns true if any kratom-related keyword appears in the haystack.
