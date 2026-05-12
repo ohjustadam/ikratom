@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import matter from "gray-matter";
 import { marked } from "marked";
+import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -11,7 +12,20 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const file = path.join(process.cwd(), "src", "content", "briefings", `${slug}.md`);
   if (!fs.existsSync(file)) return { title: "Briefing" };
   const { data } = matter(fs.readFileSync(file, "utf8"));
-  return { title: (data.title as string) ?? "Briefing" };
+  const title = (data.title as string) ?? "Briefing";
+  const description =
+    (data.subtitle as string) ??
+    (typeof data.description === "string" ? data.description : "") ??
+    "Print-friendly kratom advocacy briefing — short read with talking points + sources.";
+  const base = (process.env.APP_URL ?? "https://www.ikratom.org").replace(/\/+$/, "");
+  const url = `${base}/briefings/${slug}`;
+  return {
+    title,
+    description,
+    openGraph: { type: "article", title, description, url, siteName: "iKratom" },
+    twitter: { card: "summary_large_image", title, description },
+    alternates: { canonical: url },
+  };
 }
 
 /**
@@ -38,9 +52,16 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/briefings" className="text-xs text-zinc-500 hover:text-emerald-400">
-        ← All briefings
-      </a>
+      <div className="flex items-center justify-between">
+        <a href="/briefings" className="text-xs text-zinc-500 hover:text-emerald-400">
+          ← All briefings
+        </a>
+        <PageShareWithAttribution
+          path={`/briefings/${slug}`}
+          title={String(data.title ?? "iKratom Briefing")}
+          summary={(data.subtitle as string | undefined) ?? "Kratom advocacy briefing — talking points + sources."}
+        />
+      </div>
 
       <header className="mt-3 mb-6 border-b border-zinc-800 pb-6">
         <div className="flex flex-wrap items-center gap-3 text-xs">

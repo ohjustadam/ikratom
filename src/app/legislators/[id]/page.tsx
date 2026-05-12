@@ -48,12 +48,22 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const supabase = await createClient();
   const { data } = await supabase
     .from("legislators")
-    .select("full_name, state, role")
+    .select("full_name, state, role, district, party, title")
     .eq("id", id)
     .single();
-  return data
-    ? { title: `${(data as { full_name: string }).full_name} (${(data as { state: string }).state})` }
-    : { title: "Legislator" };
+  if (!data) return { title: "Legislator" };
+  const d = data as { full_name: string; state: string; role: string; district: string | null; party: string | null; title: string | null };
+  const roleStr = ROLE_LABEL[d.role] ?? d.role;
+  const title = `${d.full_name} — ${d.state} ${roleStr}${d.district ? ` D${d.district}` : ""}`;
+  const description = `Contact + kratom voting record for ${d.full_name}, ${d.state} ${roleStr}${d.party ? ` (${d.party})` : ""}. Tracked live on iKratom.`;
+  const url = `${APP_URL.replace(/\/+$/, "")}/legislators/${id}`;
+  return {
+    title,
+    description,
+    openGraph: { type: "profile", title, description, url, siteName: "iKratom" },
+    twitter: { card: "summary", title, description },
+    alternates: { canonical: url },
+  };
 }
 
 export default async function LegislatorDetailPage({
