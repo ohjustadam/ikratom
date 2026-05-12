@@ -25,6 +25,7 @@
  *   node --env-file=.env.local scripts/classify-news-policy.mjs --refresh  # re-classify already-done
  */
 import { createClient } from "@supabase/supabase-js";
+import { hasKratomKeyword } from "./lib/kratom-keywords.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -47,6 +48,20 @@ const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 // ---------- prompt ----------
 const SYSTEM = `You are a kratom-policy news analyst. Classify ONE news article and return strict JSON.
 
+CRITICAL — REFUSE TO SPECULATE:
+The article MUST be about kratom, mitragynine, 7-OH, "gas station drugs/heroin/opioids",
+or tianeptine (commonly bundled with kratom in ordinances) DIRECTLY. If the title
+and summary make no mention of these substances:
+  - Set is_policy_event: false
+  - Set confidence: 0.00
+  - Do NOT invent kratom angles like "could potentially impact kratom vendors"
+    or "may affect kratom retailers"
+  - Do NOT write speculative summaries projecting kratom relevance onto
+    unrelated topics (tobacco licensing, abortion rulings, drone regulations,
+    real-estate news, etc.)
+This is a CATCH-ALL refusal — if you can't quote a kratom-related phrase from
+the article inputs, return is_policy_event: false.
+
 You're looking for ACTIONABLE policy events advocates need to know about NOW:
   - city/county/town ordinances (introduced, voted, passed)
   - state legislation moving (committee, floor, signed/vetoed)
@@ -56,12 +71,14 @@ You're looking for ACTIONABLE policy events advocates need to know about NOW:
   - court rulings on kratom-related cases
   - significant industry self-regulation announcements
 
-NOT actionable:
-  - general "kratom is dangerous" public-health editorials with no event
-  - product recalls of single brands (unless they trigger broader action)
-  - personal-injury lawsuits without policy implications
-  - articles about kratom culture / use trends with no policy hook
-  - reposts of news older than 14 days
+NOT actionable (return is_policy_event: false):
+  - General "kratom is dangerous" public-health editorials with no event
+  - Product recalls of single brands (unless they trigger broader action)
+  - Personal-injury lawsuits without policy implications
+  - Articles about kratom culture / use trends with no policy hook
+  - Reposts of news older than 14 days
+  - Articles that don't directly mention kratom or its relatives by name
+  - Articles where the kratom connection would require speculation to construct
 
 Return JSON with EXACT fields:
 
@@ -138,9 +155,28 @@ for (const item of items) {
     const start = null; // router picks internally
     const { provider, result } = await classifyOnce(start, SYSTEM, userPrompt);
 
-    const isEvent = !!result.is_policy_event;
-    const conf = Number.isFinite(result.confidence) ? result.confidence : 0;
+    let isEvent = !!result.is_policy_event;
+    let conf = Number.isFinite(result.confidence) ? result.confidence : 0;
     let alertId = null;
+
+    // Post-classify hallucination guard. The AI sometimes invents
+    // kratom angles for unrelated articles ("could potentially impact
+    // kratom vendors"). If the source inputs (title + summary) lack
+    // any kratom keyword and the AI claims is_policy_event=true,
+    // we refuse — force is_policy_event=false. This catches the
+    // Aurora-tobacco-license class of FP that slipped through before.
+    //
+    // We DON'T apply this guard if the inputs DO contain a keyword
+    // and the AI just disagrees on severity — that's a legitimate
+    // judgment call we trust the AI to make.
+    const inputHasKw =
+      hasKratomKeyword(item.title ?? "") ||
+      hasKratomKeyword(item.summary ?? "");
+    if (isEvent && !inputHasKw) {
+      console.log(`\n  ⚠ hallucination-guard: AI said is_policy_event=true but inputs lack kratom keyword — forcing false`);
+      isEvent = false;
+      conf = 0;
+    }
 
     if (isEvent && conf >= 0.6) {
       // Auto-publish at high confidence; mark pending at moderate
