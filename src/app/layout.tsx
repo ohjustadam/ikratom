@@ -184,8 +184,12 @@ export default async function RootLayout({
           <div className="mx-auto max-w-6xl px-4 text-center text-xs text-zinc-500 sm:px-6 lg:px-8">
             <nav className="mb-4 flex flex-wrap justify-center gap-x-4 gap-y-2">
               <a href="/how-it-works" className="hover:text-emerald-400">How it works</a>
+              <a href="/research" className="hover:text-emerald-400">Research</a>
+              <a href="/calendar" className="hover:text-emerald-400">Calendar</a>
+              <a href="/whats-new" className="hover:text-emerald-400">What&apos;s new</a>
               <a href="/glossary" className="hover:text-emerald-400">Glossary</a>
               <a href="/communities" className="hover:text-emerald-400">Communities</a>
+              <a href="/install" className="hover:text-emerald-400">Install</a>
               <a href="/terms" className="hover:text-emerald-400">Terms</a>
               <a href="/privacy" className="hover:text-emerald-400">Privacy</a>
               <a href="/cookies" className="hover:text-emerald-400">Cookies</a>

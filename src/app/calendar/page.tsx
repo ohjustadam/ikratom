@@ -241,7 +241,7 @@ export default async function CalendarPage({ searchParams }: {
                     {dayDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
                   </span>
                   <span className="text-xs text-zinc-500">
-                    {isToday ? "today" : days === 1 ? "tomorrow" : `in ${days}d`}
+                    {isToday ? "today" : days === 1 ? "tomorrow" : days === -1 ? "yesterday" : days < 0 ? `${Math.abs(days)}d ago` : `in ${days}d`}
                   </span>
                 </h2>
                 <ul className="space-y-2">
