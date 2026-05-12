@@ -22,7 +22,7 @@ It's the operational backbone for an unfunded, distributed, mostly-volunteer adv
 | State Board of Pharmacy surfaces scraped daily | **51** (47 via Node fetch, 4 via headless Chromium) |
 | Active bills tracked (anti + pro) | **340** (197 restrictive, 143 supportive) |
 | BoP findings logged for early-warning | **5,482** |
-| Active legislators in directory | **8,273** (state + federal) |
+| Active legislators in directory | **8,273** total — 7,368 state · 531 federal · 374 municipal |
 | Kratom news visible after FP defense | **1,049 canonical** (from 3,801 active — 73% noise filtered) |
 | Approved policy alerts in /pulse feed | **1,090** |
 | Active campaigns live right now | **82** |
