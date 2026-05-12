@@ -421,6 +421,21 @@ function AlertCard({ alert, campaign, compact }: { alert: Alert; campaign?: Camp
   const occursDate = alert.occurs_at ? new Date(alert.occurs_at).toLocaleString(undefined, {
     month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
   }) : null;
+  // Always-available "when did this enter the feed" stamp — critical for
+  // the watch list where occurs_at is usually null (ongoing context, not
+  // a scheduled event). Relative format for recency, absolute past 7d.
+  const createdAt = new Date(alert.created_at);
+  const ageMs = Date.now() - createdAt.getTime();
+  const ageHours = Math.floor(ageMs / 3_600_000);
+  const ageDays = Math.floor(ageMs / 86_400_000);
+  const createdLabel =
+    ageHours < 1 ? "just now" :
+    ageHours < 24 ? `${ageHours}h ago` :
+    ageDays < 7 ? `${ageDays}d ago` :
+    createdAt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const createdAbs = createdAt.toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
 
   return (
     <article
@@ -438,7 +453,17 @@ function AlertCard({ alert, campaign, compact }: { alert: Alert; campaign?: Camp
           {kindMeta.label}
         </span>
         <span className="font-mono text-zinc-500">{alert.locality}</span>
-        {occursDate && <span className="text-zinc-500">{occursDate}</span>}
+        {occursDate && (
+          <span className="text-zinc-400" title="When the event occurs">
+            📅 {occursDate}
+          </span>
+        )}
+        <span
+          className="text-zinc-500"
+          title={`Added ${createdAbs}`}
+        >
+          · added {createdLabel}
+        </span>
       </div>
       <h3 className={`font-semibold leading-snug ${compact ? "text-sm" : "text-base"}`}>
         {alert.title}
