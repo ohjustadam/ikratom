@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { setMeetingStatus } from "@/modules/admin/meetings-actions";
+import { setMeetingStatus, broadcastMeeting } from "@/modules/admin/meetings-actions";
 
 export function MeetingRow({ m }: { m: {
   id: string;
@@ -18,9 +18,13 @@ export function MeetingRow({ m }: { m: {
   ai_confidence: number | null;
   discovered_via: string;
   moderation_status: string;
+  broadcast_at?: string | null;
+  broadcast_recipient_count?: number | null;
 } }) {
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState(m.moderation_status);
+  const [broadcastAt, setBroadcastAt] = useState<string | null>(m.broadcast_at ?? null);
+  const [broadcastCount, setBroadcastCount] = useState<number | null>(m.broadcast_recipient_count ?? null);
   const [err, setErr] = useState<string | null>(null);
 
   const flip = (next: "approved" | "rejected" | "archived") => {
@@ -30,6 +34,23 @@ export function MeetingRow({ m }: { m: {
         setErr(r.error ?? "Update failed");
       } else {
         setStatus(next);
+        setErr(null);
+      }
+    });
+  };
+
+  const broadcast = () => {
+    const label = `${m.locality ?? m.state}`;
+    if (!confirm(`📢 Broadcast "${label}" as LIVE NOW to all users in ${m.state}?\n\nThis sends a push notification + creates a critical /pulse alert with the Zoom link. Irreversible.`)) return;
+    startTransition(async () => {
+      const r = await broadcastMeeting({ id: m.id });
+      if ("error" in r) {
+        setErr(r.error ?? "Broadcast failed");
+      } else if ("already" in r && r.already) {
+        setErr(`Already broadcast at ${r.broadcast_at?.slice(0, 16)} to ${r.recipient_count} user(s)`);
+      } else if ("user_count" in r) {
+        setBroadcastAt(new Date().toISOString());
+        setBroadcastCount(r.user_count ?? 0);
         setErr(null);
       }
     });
@@ -61,6 +82,17 @@ export function MeetingRow({ m }: { m: {
           <span className="text-[10px] text-zinc-500">conf {Math.round(m.ai_confidence * 100)}%</span>
         )}
         <span className="ml-auto flex flex-wrap gap-1">
+          {status === "approved" && !broadcastAt && (
+            <button type="button" disabled={pending} onClick={broadcast}
+              className="rounded px-2 py-0.5 text-[10px] font-bold uppercase bg-red-600 text-white hover:bg-red-500 animate-pulse">
+              📢 Broadcast NOW
+            </button>
+          )}
+          {broadcastAt && (
+            <span className="rounded bg-red-900/40 px-2 py-0.5 text-[10px] font-bold uppercase text-red-300">
+              📢 sent · {broadcastCount ?? 0} users
+            </span>
+          )}
           <button type="button" disabled={pending} onClick={() => flip("approved")}
             className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${status === "approved" ? "bg-emerald-600 text-zinc-950" : "bg-zinc-900 text-zinc-400 hover:text-emerald-400"}`}>
             approve
