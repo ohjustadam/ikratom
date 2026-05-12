@@ -63,8 +63,13 @@ The reader is an advocate, not a lawyer. They want to know:
   - When and where? (capital, session dates, hearing schedule)
   - What works? (talking points that landed in this state, common pushbacks)
 
-Return a JSON object: { "body_md": "<the full markdown briefing>" }
-The body_md must use these section headers exactly:
+Return a JSON object with a single field "body_md" whose value is a string
+containing the full markdown briefing. Example shape (DO NOT copy the
+content — write your own based on the data provided):
+
+  {"body_md": "## Snapshot\n\nNew York currently has...\n\n## Active legislation\n\n..."}
+
+The body_md string MUST use these section headers exactly:
 
 ## Snapshot
 
@@ -119,12 +124,16 @@ for synthetics — many bills only target the latter.
 Return ONLY the JSON object. No prose around it, no markdown fences.`;
 
 function buildUserPrompt(data) {
-  const billLines = data.bills.length === 0 ? "  (none)" : data.bills.map(b => {
-    const sponsorSummary = (b.sponsors ?? []).length === 0
-      ? "    sponsors: (not yet synced)"
-      : `    sponsors (${b.sponsors.length}): ${b.sponsors.map(s => `${s.name}${s.party ? ` [${s.party}]` : ""}${s.classification === "primary" ? " *primary*" : ""}`).slice(0, 8).join(" · ")}${b.sponsors.length > 8 ? ` +${b.sponsors.length - 8} more` : ""}`;
-    return `  ${b.bill_number} [${b.kratom_relevance}] status=${b.status ?? "?"} last=${(b.last_action_at ?? "?").slice(0,10)}\n    title: ${b.title ?? "?"}\n    summary: ${(b.summary_ai ?? b.summary ?? "?").slice(0, 220)}\n    targets_natural_leaf=${b.targets_natural_leaf} targets_synthetic_only=${b.targets_synthetic_only}\n${sponsorSummary}`;
-  }).join("\n");
+  // Cap to most-recent 15 bills + primary sponsor only (cosponsors omitted
+  // for prompt budget; admin can see full list at /bills/[id])
+  const billLines = data.bills.length === 0 ? "  (none)" : data.bills.slice(0, 15).map(b => {
+    const primary = (b.sponsors ?? []).find(s => s.classification === "primary");
+    const cosponsorCount = (b.sponsors ?? []).filter(s => s.classification !== "primary").length;
+    const sponsorSummary = primary
+      ? `    primary: ${primary.name}${primary.party ? ` [${primary.party}]` : ""}${cosponsorCount > 0 ? ` + ${cosponsorCount} cosponsor(s)` : ""}`
+      : "    sponsors: (not yet synced)";
+    return `  ${b.bill_number} [${b.kratom_relevance}] status=${b.status ?? "?"} last=${(b.last_action_at ?? "?").slice(0,10)}\n    title: ${(b.title ?? "?").slice(0, 110)}\n${sponsorSummary}`;
+  }).join("\n") + (data.bills.length > 15 ? `\n  ... +${data.bills.length - 15} older bills omitted` : "");
 
   const capitalSection = data.capital ? `\nSTATE CAPITAL (hand-curated):
   City: ${data.capital.capital_city}
@@ -137,8 +146,30 @@ ${data.capital.notes_md ? `  ADMIN FIELD-WORK NOTES (use verbatim where relevant
 STATE CAPITAL: (no row in state_capital_info — admin has not curated yet)
 `;
 
-  const stanceSection = (data.stances ?? []).length === 0 ? `\nLEGISLATOR STANCES (admin-curated): (none flagged yet)` : `\nLEGISLATOR STANCES (admin-curated champion/hostile flags):
-${data.stances.map(s => `  ${s.stance.toUpperCase()}: ${s.legislators?.full_name ?? "?"} (${s.legislators?.role ?? "?"}${s.legislators?.district ? ` · ${s.legislators.district}` : ""}) — ${(s.rationale_md ?? "no rationale").slice(0, 200)}`).join("\n")}`;
+  // Group stances by category, surface non-unknown most prominently
+  const stanceGroups = { champion: [], sympathetic: [], hostile: [], neutral: [], unknown: [] };
+  for (const s of data.stances ?? []) {
+    if (stanceGroups[s.stance]) stanceGroups[s.stance].push(s);
+  }
+  // Cap rationale length to keep prompt within provider input budgets.
+  // Champions + hostiles get full rationale (they matter most), sympathetic
+  // gets short rationale, neutral/unknown just names + counts.
+  const renderFull = s => `${s.legislators?.full_name ?? "?"} (${s.legislators?.role ?? "?"}${s.legislators?.district ? ` · D${s.legislators.district}` : ""}) — ${(s.rationale_md ?? "").slice(0, 180)}`;
+  const renderShort = s => `${s.legislators?.full_name ?? "?"}${s.legislators?.district ? ` (D${s.legislators.district})` : ""}`;
+  const stanceSection = (data.stances ?? []).length === 0
+    ? `\nLEGISLATOR STANCES (AI-drafted): (none drafted yet)`
+    : `\nLEGISLATOR STANCES (AI-drafted, admin-reviewable at /admin/stance):
+  CHAMPIONS (${stanceGroups.champion.length}):${stanceGroups.champion.length === 0 ? " (none yet)" : "\n" + stanceGroups.champion.slice(0, 5).map(s => "    - " + renderFull(s)).join("\n")}
+  HOSTILE (${stanceGroups.hostile.length}):${stanceGroups.hostile.length === 0 ? " (none yet)" : "\n" + stanceGroups.hostile.slice(0, 5).map(s => "    - " + renderFull(s)).join("\n")}
+  SYMPATHETIC (${stanceGroups.sympathetic.length}):${stanceGroups.sympathetic.length === 0 ? " (none yet)" : " " + stanceGroups.sympathetic.slice(0, 12).map(renderShort).join(" · ")}
+  NEUTRAL: ${stanceGroups.neutral.length}  ·  Unknown: ${stanceGroups.unknown.length}`;
+
+  // Committee chairs of kratom-relevant committees — most leverage targets
+  const chairRows = (data.committees ?? []).filter(c => c.role === "chair");
+  const committeeSection = chairRows.length === 0
+    ? `\nKRATOM-RELEVANT COMMITTEE CHAIRS: (committee data not yet scraped for this state)`
+    : `\nKRATOM-RELEVANT COMMITTEE CHAIRS (${chairRows.length}; these are the decision-makers — bills die in their committees):
+${chairRows.map(c => `  ${c.chamber.toUpperCase()} · ${c.committee_name}: chair = ${c.legislators?.full_name ?? "?"} (${c.legislators?.district ? "district " + c.legislators.district : "?"})`).join("\n")}`;
 
   return `STATE: ${data.state} (${data.stateName || data.state})
 
@@ -162,6 +193,7 @@ CAMPAIGNS:
 
 RECENT NEWS (last 30 days, body-verified, deduplicated):
 ${data.news.length === 0 ? "  (none in last 30 days)" : data.news.map(n => `  - ${(n.published_at ?? "").slice(0, 10)} · ${n.source_name ?? "?"} · ${n.title}`).join("\n")}
+${committeeSection}
 ${stanceSection}
 
 STATE STATUS (from states table):
@@ -175,10 +207,10 @@ Synthesize this into the briefing. Name primary bill sponsors when discussing ea
 }
 
 async function loadStateData(state) {
-  // Parallel data fetch — now includes capital info, sponsors, stances
+  // Parallel data fetch — includes capital info, sponsors, stances, committees
   const [
     stateRow, capitalRow, legsAll, bills, bopSrc, bopFindings, news, camps,
-    stanceRows,
+    stanceRows, committeeRows,
   ] = await Promise.all([
     sb.from("states").select("abbr, name, kratom_status, notes").eq("abbr", state).maybeSingle(),
     sb.from("state_capital_info")
@@ -208,6 +240,12 @@ async function loadStateData(state) {
     sb.from("legislator_kratom_stance")
       .select("legislator_id, stance, rationale_md, last_evidence_url, legislators!inner(full_name, role, district, state)")
       .eq("legislators.state", state),
+    // Kratom-relevant committee chairs in this state
+    sb.from("legislator_committees")
+      .select("committee_name, chamber, role, legislator_id, legislators!inner(full_name, role, district, state)")
+      .eq("legislators.state", state)
+      .eq("is_kratom_relevant", true)
+      .eq("session_id", "2025-2026"),
   ]);
 
   // Sponsors: pull all rows for these specific bills + their resolved legislator names.
@@ -260,6 +298,7 @@ async function loadStateData(state) {
     campAct: (camps.data ?? []).filter(c => c.active),
     campPending: (camps.data ?? []).filter(c => c.review_state === "pending_review").length,
     stances: stanceRows.data ?? [],
+    committees: committeeRows.data ?? [],
   };
 }
 
@@ -274,15 +313,16 @@ async function generateOne(state) {
     return { state, status: "dry" };
   }
 
-  process.stdout.write(`${tag} generating via AI… `);
+  const userPrompt = buildUserPrompt(data);
+  process.stdout.write(`${tag} generating via AI (prompt ${userPrompt.length} chars)… `);
   let result;
   try {
     result = await aiRouter({
       systemPrompt: SYSTEM,
-      userPrompt: buildUserPrompt(data),
+      userPrompt,
       maxTokens: 2400,
       providerOverride: PROVIDER_OVERRIDE,
-      verbose: false,
+      verbose: true,
     });
   } catch (e) {
     console.log(`✗ AI: ${e.message?.slice(0, 80)}`);
@@ -290,7 +330,11 @@ async function generateOne(state) {
   }
   const body = (result.parsed?.body_md ?? "").trim();
   if (!body || body.length < 200) {
-    console.log(`✗ empty/short response (${body.length} chars)`);
+    // Some providers return JSON schema fragments ({"type":"object"}) instead
+    // of valid responses under JSON-mode + large prompts. The router will
+    // already have tried multiple providers; surface what we got for debug.
+    console.log(`✗ empty/short response (${body.length} chars) from ${result.provider}`);
+    console.log(`  parsed=${JSON.stringify(result.parsed).slice(0, 200)}`);
     return { state, status: "empty" };
   }
   console.log(`✓ ${body.length} chars via ${result.provider}`);
