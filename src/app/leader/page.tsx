@@ -100,82 +100,88 @@ export default async function LeaderPage() {
         )}
       </section>
 
-      {/* Tools grid */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <a
-          href="/leader/field-signup"
-          className="rounded-lg border border-emerald-500 bg-emerald-950/20 p-5 transition hover:border-emerald-400 hover:bg-emerald-950/30"
-        >
-          <div className="flex items-baseline justify-between gap-2">
-            <h3 className="text-base font-semibold">📍 Field signup</h3>
-            <span className="rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold uppercase text-zinc-950">
-              Live
-            </span>
-          </div>
-          <p className="mt-2 text-sm text-zinc-300">
-            Onboard an advocate in 30 seconds. Collect email + first name + zip on your phone;
-            magic-link email lets them finish their profile from their own device. Open this on
-            your phone at events.
-          </p>
-          <p className="mt-2 text-xs font-semibold text-emerald-300">
-            Onboard a recruit now →
-          </p>
-        </a>
-        <ToolCard
-          title="🏪 Business outreach"
-          status="soon"
-          body="Walk into a shop, log the visit (consent collected, materials left, follow-up scheduled). Build a real-time map of which shops are active partners vs. cold."
-        />
-        <ToolCard
-          title="🚪 Door-to-door tracker"
-          status="soon"
-          body="Walking lists scoped to your campaign. Mark each door (interested, not home, refused, signed up). Auto-sync with the platform&apos;s engagement stats."
-        />
-        <ToolCard
-          title="🎤 Hearing turnout"
-          status="soon"
-          body="When a critical bill hits a hearing, organize a turnout from your area. RSVP roster, ride-share coordination, talking points distribution."
-        />
-        <ToolCard
-          title="📋 QR recruitment kit"
-          status="soon"
-          body="Print/share a QR poster with your leader code. Anyone who scans signs up under you. Track which event/shop/booth converts best."
-        />
-        <ToolCard
-          title="🏆 Achievements + ranks"
-          status="planned"
-          body="Recognition for advocates who show up. Earn ranks based on actions taken, recruits brought in, hearings attended. Public leaderboard opt-in."
-        />
-        <ToolCard
-          title="👥 Teams + captains"
-          status="planned"
-          body="Once we hit critical mass: organize leaders into teams, designate captains, run regional campaigns with hierarchical roll-ups."
-        />
-        <ToolCard
-          title="🎓 Leader playbook"
-          status="planned"
-          body="A library of proven scripts, talking points, objection handlers, and templates from the most effective leaders on the platform — opt-in shared."
-        />
-      </section>
-
-      {/* Existing tools that ARE shipped — link them in */}
-      <section className="mt-10">
+      {/* ── Shipped tools — what you can do today ──────────────── */}
+      <section className="mb-10">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-400">
           What you can do today
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <a
+            href="/leader/field-signup"
+            className="rounded-lg border border-emerald-500 bg-emerald-950/20 p-5 transition hover:border-emerald-400 hover:bg-emerald-950/30 sm:col-span-2 lg:col-span-3"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-lg font-semibold">📍 Field signup</h3>
+              <span className="rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold uppercase text-zinc-950">
+                Live
+              </span>
+            </div>
+            <p className="mt-2 text-sm text-zinc-300">
+              Onboard an advocate in 30 seconds. Collect email + first name + zip on
+              your phone; magic-link email lets them finish their profile from their
+              own device. Open this on your phone at events.
+            </p>
+            <p className="mt-2 text-xs font-semibold text-emerald-300">
+              Onboard a recruit now →
+            </p>
+          </a>
           <ShippedCard
             href="/admin/campaigns"
             title="Author a campaign"
-            body="As a leader you can create call-to-action campaigns. They go through admin review before activation."
+            body="Create call-to-action campaigns. They go through admin review before activation."
           />
           <ShippedCard
             href="/admin/locals"
             title="Add local officials"
-            body="Add city or county officials your area's bills should target. Once added they appear on /bills, /pulse, and any local-scope campaigns auto-pick them up."
+            body="City or county officials your area's bills should target. Once added they appear on /bills, /pulse, and any local-scope campaigns auto-pick them up."
           />
         </div>
       </section>
+
+      {/* ── Roadmap (collapsed) ────────────────────────────────── */}
+      <details className="rounded-lg border border-dashed border-zinc-800 bg-zinc-950/40 p-5 group">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-zinc-300 hover:text-emerald-400 [&::-webkit-details-marker]:hidden">
+          <span className="inline-block transition-transform group-open:rotate-90">▸</span>{" "}
+          Coming soon for leaders (7 tools)
+        </summary>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ToolCard
+            title="🏪 Business outreach"
+            status="soon"
+            body="Walk into a shop, log the visit (consent collected, materials left, follow-up scheduled). Real-time map of active vs. cold shops."
+          />
+          <ToolCard
+            title="🚪 Door-to-door tracker"
+            status="soon"
+            body="Walking lists scoped to your campaign. Mark each door (interested, not home, refused, signed up). Auto-sync engagement stats."
+          />
+          <ToolCard
+            title="🎤 Hearing turnout"
+            status="soon"
+            body="When a critical bill hits a hearing, organize turnout from your area. RSVP roster, ride-share coordination, talking points."
+          />
+          <ToolCard
+            title="📋 QR recruitment kit"
+            status="soon"
+            body="Print/share a QR poster with your leader code. Anyone who scans signs up under you. Track which event converts best."
+          />
+          <ToolCard
+            title="🏆 Achievements + ranks"
+            status="planned"
+            body="Recognition for advocates who show up. Earn ranks based on actions, recruits, hearings. Public leaderboard opt-in."
+          />
+          <ToolCard
+            title="👥 Teams + captains"
+            status="planned"
+            body="Organize leaders into teams, designate captains, run regional campaigns with hierarchical roll-ups."
+          />
+          <ToolCard
+            title="🎓 Leader playbook"
+            status="planned"
+            body="Library of proven scripts, talking points, objection handlers, and templates from the most effective leaders — opt-in shared."
+          />
+        </div>
+      </details>
 
       <p className="mt-8 text-xs text-zinc-500">
         These tools light up as we ship them. Owner is shipping fastest on the

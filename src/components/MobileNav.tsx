@@ -29,6 +29,7 @@ const PRIMARY_LINKS = [
   { href: "/campaigns", label: "Campaigns", icon: "📣" },
   { href: "/bills", label: "Bills", icon: "📜" },
   { href: "/bop-watch", label: "BoP Watch", icon: "🛡️" },
+  { href: "/submit", label: "Submit", icon: "➕" },
   { href: "/legislators", label: "Legislators", icon: "🏛️" },
   { href: "/forum", label: "Community", icon: "💬" },
   { href: "/news", label: "News", icon: "📰" },

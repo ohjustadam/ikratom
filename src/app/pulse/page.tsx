@@ -58,7 +58,13 @@ const SEV_DOT: Record<string, string> = {
   routine: "bg-zinc-600",
 };
 
-export default async function PulsePage() {
+export default async function PulsePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ tip_submitted?: string; state?: string }>;
+}) {
+  const sp = (await searchParams) ?? {};
+  const tipSubmitted = sp.tip_submitted === "1";
   const supabase = await createClient();
 
   // Pull alerts. Severity-gated zones (critical / alert / watch). We
@@ -173,6 +179,32 @@ export default async function PulsePage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+      {tipSubmitted && (
+        <div className="mb-6 rounded-lg border border-emerald-700/50 bg-emerald-950/20 p-4">
+          <p className="text-sm font-semibold text-emerald-300">
+            ✓ Thanks — your tip is in the queue
+          </p>
+          <p className="mt-1 text-xs text-emerald-200/80">
+            An admin reviews submitted tips and publishes the verified ones to /pulse.
+            You&apos;ll see your tip here once it&apos;s approved.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a
+              href="/alerts/my-tips"
+              className="rounded-md border border-emerald-700/50 px-3 py-1 text-xs text-emerald-300 hover:border-emerald-500"
+            >
+              See my submitted tips →
+            </a>
+            <a
+              href="/alerts/submit"
+              className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:border-emerald-500"
+            >
+              Submit another
+            </a>
+          </div>
+        </div>
+      )}
+
       <header className="mb-8 flex items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">

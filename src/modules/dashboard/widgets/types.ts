@@ -43,21 +43,42 @@ export type WidgetSlot = {
  * "what needs me right now." Order reflects priority: announcements →
  * status → personal proof → action → social → monitoring.
  */
+// Reorganized per ROADMAP.md audit (2026-05-12) into priority bands.
+//
+//   P0 (top — blockers + actions)
+//     profile_completion gates the one-click experience; renders FIRST when firing
+//     whats_new auto-hides when empty
+//     briefing is the at-a-glance status
+//     active_campaigns is THE primary CTA — moved up from old slot 7
+//     my_battles closes the loop on prior action
+//
+//   P1 (mid — personal radar)
+//     my_reps + rep_coverage = the action target
+//     saved_searches + activity_radar = signal tracking
+//     bop_watch = early warning
+//
+//   P2 (bottom — identity, growth, utility)
+//     scoreboard / badges / streak = self-stats
+//     invite = growth
+//     welcome_explore = first-time discovery (auto-hides once used)
 export const DEFAULT_WIDGETS: WidgetSlot[] = [
-  { id: "whats_new", visible: true },
-  { id: "welcome_explore", visible: true },
-  { id: "briefing", visible: true },
+  // P0 — blockers + primary action
   { id: "profile_completion", visible: true },
-  { id: "rep_coverage", visible: true },
-  { id: "scoreboard", visible: true },
+  { id: "whats_new", visible: true },
+  { id: "briefing", visible: true },
   { id: "active_campaigns", visible: true },
   { id: "my_battles", visible: true },
-  { id: "badges", visible: true },
+  // P1 — personal radar
   { id: "my_reps", visible: true },
-  { id: "activity_radar", visible: true },
+  { id: "rep_coverage", visible: true },
   { id: "saved_searches", visible: true },
+  { id: "activity_radar", visible: true },
   { id: "bop_watch", visible: true },
+  // P2 — identity, growth, utility
+  { id: "scoreboard", visible: true },
+  { id: "badges", visible: true },
   { id: "invite", visible: true },
+  { id: "welcome_explore", visible: true },
   { id: "streak", visible: false }, // hidden by default — scoreboard supersedes
 ];
 
