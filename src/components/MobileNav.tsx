@@ -42,6 +42,7 @@ const ACCOUNT_LINKS = [
   { href: "/account", label: "Profile + civic info" },
   { href: "/account/security", label: "Security · 2FA · trusted devices" },
   { href: "/account/saved-searches", label: "Saved searches" },
+  { href: "/account/invite", label: "Invite friends" },
   { href: "/account/email-presets", label: "Email tone presets" },
   { href: "/account/badges", label: "Mission patches" },
   { href: "/account/vendor", label: "Vendor status" },

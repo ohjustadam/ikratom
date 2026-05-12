@@ -22,7 +22,8 @@ export type WidgetId =
   | "badges"
   | "whats_new"
   | "welcome_explore"
-  | "bop_watch";
+  | "bop_watch"
+  | "invite";
 
 /**
  * One-click layout presets — apply via CockpitCustomizer's Preset row.
@@ -56,6 +57,7 @@ export const DEFAULT_WIDGETS: WidgetSlot[] = [
   { id: "activity_radar", visible: true },
   { id: "saved_searches", visible: true },
   { id: "bop_watch", visible: true },
+  { id: "invite", visible: true },
   { id: "streak", visible: false }, // hidden by default — scoreboard supersedes
 ];
 
@@ -120,6 +122,10 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
     title: "BoP Watch",
     description: "Daily monitoring of every state Board of Pharmacy for kratom rulemaking — the administrative path to a ban.",
   },
+  invite: {
+    title: "Invite friends",
+    description: "Your personal /i/CODE share link + funnel counts. Full hub at /account/invite.",
+  },
 };
 
 /**
@@ -143,6 +149,7 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
       { id: "saved_searches", visible: false },
       { id: "activity_radar", visible: false },
       { id: "bop_watch", visible: false },
+      { id: "invite", visible: false },
       { id: "streak", visible: false },
     ],
   },
@@ -181,6 +188,7 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
       { id: "rep_coverage", visible: false },
       { id: "profile_completion", visible: true },
       { id: "bop_watch", visible: false },
+      { id: "invite", visible: false },
       { id: "streak", visible: false },
     ],
   },

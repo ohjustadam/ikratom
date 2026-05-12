@@ -18,6 +18,7 @@ import { ActivityRadarWidget } from "@/modules/dashboard/widgets/ActivityRadarWi
 import { BadgesWidget } from "@/modules/dashboard/widgets/BadgesWidget";
 import { WhatsNewWidget } from "@/modules/dashboard/widgets/WhatsNewWidget";
 import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
+import { InviteWidget } from "@/modules/dashboard/widgets/InviteWidget";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 /**
@@ -127,6 +128,7 @@ export default async function DashboardPage({
     whats_new: userId ? <WhatsNewWidget /> : null,
     welcome_explore: userId ? <WelcomeExploreWidget userId={userId} /> : null,
     bop_watch: <BopWatchSummary state={profile?.state ?? undefined} compact />,
+    invite: userId ? <InviteWidget /> : null,
     my_reps:
       myReps.length > 0 ? (
         (() => {

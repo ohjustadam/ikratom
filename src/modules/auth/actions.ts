@@ -241,6 +241,30 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
       // first profile save. Surface the error so they know.
       return { error: `Couldn't set username: ${updateErr.message}` };
     }
+
+    // Invite-redemption link. If the prospect landed via a friend's
+    // /i/CODE link, proxy.ts wrote the code into the invite_ref
+    // cookie. Call the SECURITY DEFINER RPC to:
+    //   - validate the code → find inviter
+    //   - insert a row into invite_redemptions (signed_up_at = now)
+    //   - mirror onto profiles.referrer_id
+    // Best-effort: any failure (bad code, self-invite, etc.) is
+    // non-fatal. We don't want a flaky invite to block legit signups.
+    try {
+      const cookieJar = await cookies();
+      const inviteCode = cookieJar.get("invite_ref")?.value;
+      if (inviteCode) {
+        await supabase.rpc("record_invite_redemption", {
+          p_invitee: data.user.id,
+          p_invite_code: inviteCode,
+        });
+        // Clear the cookie so we don't double-record on a later
+        // re-signup edge case.
+        cookieJar.set("invite_ref", "", { maxAge: 0, path: "/" });
+      }
+    } catch (e) {
+      console.warn("[signup] invite redemption failed:", e);
+    }
   }
 
   return { success: true };
