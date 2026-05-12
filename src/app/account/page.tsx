@@ -208,6 +208,20 @@ export default async function AccountPage({
       </div>
 
       <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <h3 className="mb-1 text-sm font-semibold">Invite friends</h3>
+        <p className="mb-3 text-xs text-zinc-500">
+          Your share link with QR + 11-platform share buttons. See who joined and
+          who&apos;s taken action through your link.
+        </p>
+        <a
+          href="/account/invite"
+          className="rounded-md border border-emerald-700/40 bg-emerald-950/20 px-3 py-1.5 text-xs text-emerald-300 hover:border-emerald-500"
+        >
+          Open invite hub →
+        </a>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <h3 className="mb-1 text-sm font-semibold">Cockpit tour</h3>
         <p className="mb-3 text-xs text-zinc-500">
           Replay the first-time walkthrough on your dashboard.

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { InviteFriends } from "@/components/InviteFriends";
+import { getMyInviteSummary, buildInviteUrl } from "@/modules/invite/actions";
 import { AnnotatedScreenshot, type Pin } from "@/components/AnnotatedScreenshot";
 
 export const metadata = { title: "How iKratom works" };
@@ -296,10 +297,23 @@ function FbMigration() {
         <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
           Invite specific people you trust
         </p>
-        <InviteFriends inviteUrl={process.env.APP_URL ?? "https://www.ikratom.org"} />
+        <HowItWorksInvite />
       </div>
     </Block>
   );
+}
+
+/**
+ * Lightweight wrapper that prefers the signed-in user's personal invite
+ * URL (gets them attribution credit) and falls back to the unattributed
+ * homepage URL for signed-out visitors.
+ */
+async function HowItWorksInvite() {
+  const summary = await getMyInviteSummary();
+  const url = summary?.invite_code
+    ? await buildInviteUrl(summary.invite_code)
+    : (process.env.APP_URL ?? "https://www.ikratom.org");
+  return <InviteFriends inviteUrl={url} />;
 }
 
 function ForLeaders() {
