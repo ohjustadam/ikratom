@@ -479,7 +479,8 @@ function AlertCard({ alert, campaign, compact }: { alert: Alert; campaign?: Camp
 
   return (
     <article
-      className={`rounded-lg border p-4 ${
+      id={`alert-${alert.id}`}
+      className={`scroll-mt-20 rounded-lg border p-4 ${
         alert.severity === "critical"
           ? "border-red-700/50 bg-red-950/10"
           : alert.severity === "alert"
@@ -506,7 +507,9 @@ function AlertCard({ alert, campaign, compact }: { alert: Alert; campaign?: Camp
         </span>
       </div>
       <h3 className={`font-semibold leading-snug ${compact ? "text-sm" : "text-base"}`}>
-        {alert.title}
+        <a href={`/alerts/${alert.id}`} className="hover:text-emerald-400 hover:underline">
+          {alert.title}
+        </a>
       </h3>
       {!compact && alert.body && (
         <p className="mt-2 line-clamp-3 text-sm text-zinc-400">
