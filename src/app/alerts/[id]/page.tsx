@@ -96,6 +96,33 @@ export default async function AlertDetailPage({ params }: Props) {
   const occurs = a.occurs_at ? new Date(a.occurs_at) : null;
   const expires = a.expires_at ? new Date(a.expires_at) : null;
 
+  // Resolve "real event date" (mirrors push-critical-alerts.mjs logic
+  // from PR #199). Used to surface a stale-news banner when users
+  // arrive via direct URL, /pulse browse, or a shared link to an
+  // older alert.
+  let realEventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;
+  if (!realEventDate) {
+    const { data: linkedNews } = await sb
+      .from("news_items")
+      .select("published_at")
+      .eq("policy_alert_id", a.id)
+      .order("published_at", { ascending: false })
+      .limit(1);
+    if (linkedNews?.[0]?.published_at) realEventDate = new Date(linkedNews[0].published_at);
+  }
+  if (!realEventDate && a.bill_id) {
+    const { data: linkedBill } = await sb
+      .from("bills")
+      .select("last_action_at")
+      .eq("id", a.bill_id)
+      .maybeSingle();
+    if (linkedBill?.last_action_at) realEventDate = new Date(linkedBill.last_action_at);
+  }
+  const eventAgeDays = realEventDate
+    ? Math.floor((Date.now() - realEventDate.getTime()) / 86_400_000)
+    : null;
+  const isStale = eventAgeDays !== null && eventAgeDays > 7;
+
   // Locality state extraction for cross-links
   let stateCode: string | null = null;
   const loc = a.locality?.trim() ?? "";
@@ -110,6 +137,20 @@ export default async function AlertDetailPage({ params }: Props) {
       <Link href="/pulse" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Pulse feed
       </Link>
+
+      {/* Stale-news warning — shown when the underlying event is
+          older than 7 days. Direct visitors (shared link, /pulse
+          browse) get visual context that this is archive, not breaking. */}
+      {isStale && (
+        <div className="mt-3 rounded-md border border-amber-700/40 bg-amber-950/20 p-3 text-xs text-amber-200">
+          <span className="font-bold">📜 Archive notice</span> — the underlying
+          event for this alert happened <strong>{eventAgeDays} days ago</strong>.
+          We surface it here for context, but it&apos;s not breaking news.
+          {stateCode && (
+            <> Want what&apos;s happening now? <Link href={`/pulse?state=${stateCode}`} className="font-semibold text-amber-300 hover:underline">See live {stateCode} alerts →</Link></>
+          )}
+        </div>
+      )}
 
       {/* Hero */}
       <header className="mt-2 mb-6">
