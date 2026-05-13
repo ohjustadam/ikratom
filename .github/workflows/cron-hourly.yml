@@ -93,6 +93,16 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           NEXT_PUBLIC_APP_URL: ${{ secrets.APP_URL }}
         run: node scripts/push-critical-alerts.mjs
+      - name: Push bill_actions to users who took action on them
+        # Surgical-targeted notifications: when a bill changes status
+        # (e.g. enacted, signed, dead in committee), find every user
+        # who emailed their rep about that bill via campaign_actions
+        # and push them. Per-user-per-action dedupe via
+        # bill_action_user_pushes (migration 0121).
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/push-bill-actions-to-actors.mjs
       - name: Auto-create campaigns from new actionable alerts (safety net)
         # As of migration 0068, this is handled in real-time by a Postgres
         # trigger (`trg_auto_campaign_on_alert`). Keeping the cron run as
