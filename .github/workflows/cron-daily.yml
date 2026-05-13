@@ -268,6 +268,32 @@ jobs:
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
         run: node scripts/fire-meeting-reminders.mjs
 
+  scan-legistar-tenants:
+    # Proactive scan of ~22 major US Legistar tenants (NYC, SF, LA
+    # County, Chicago, Philadelphia, San Antonio, Atlanta, Miami,
+    # Seattle, etc.) for kratom-relevant agenda items.
+    #
+    # Parallel to scan-granicus-tenants — Legistar is the third major
+    # US municipal-meeting platform (after CivicPlus + Granicus), runs
+    # ~500 large cities + counties incl. NYC City Council.
+    #
+    # Free — static HTTP fetches, ~1 req/sec per tenant. Hits land
+    # in pending_review for admin moderation.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Scan major-city Legistar tenants for kratom agenda items
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/scan-legistar-tenants.mjs
+
   scan-granicus-tenants:
     # Proactive scan of ~45 major US Granicus tenants (LA, SF, Chicago,
     # Boston, etc.) for kratom-relevant agenda items. Complements the
