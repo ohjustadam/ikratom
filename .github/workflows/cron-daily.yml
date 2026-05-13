@@ -221,6 +221,29 @@ jobs:
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
         run: node scripts/generate-state-briefing.mjs --all-states
 
+  sync-committees-openstates:
+    # Pull legislator committee assignments for all priority states
+    # from OpenStates v3 API. Was NY-only before — now generalized.
+    # Stance drafter needs this data to identify kratom-relevant
+    # candidates (Health / Judiciary / etc. committees).
+    # Idempotent: upsert on (legislator_id, committee_name, session_id).
+    needs: legiscan-wide-pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Sync committee assignments across priority states
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+        run: node scripts/sync-committees-openstates.mjs --priority-only
+
   draft-legislator-stance:
     # Multi-state expansion of the legislator-stance pipeline.
     # PRIORITY_STATES (10) processed daily: NY, FL, TX, CA, OH, MI, TN,
@@ -230,7 +253,10 @@ jobs:
     #
     # Stances land as draft in legislator_kratom_stance with rationale_md
     # populated; admin reviews + flips final stance at /admin/stance.
-    needs: legiscan-wide-pass
+    #
+    # Runs AFTER sync-committees-openstates so today's committee data
+    # is available when AI is asked to draft.
+    needs: sync-committees-openstates
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
