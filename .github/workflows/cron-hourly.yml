@@ -103,6 +103,17 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/push-bill-actions-to-actors.mjs
+      - name: Push high-relevance state news to in-state users
+        # Complements push-critical-alerts: not all newsworthy stories
+        # become policy_alerts, but high-relevance state-specific news
+        # (>= 0.85 score, < 12h fresh, body-verified kratom mention)
+        # deserves to reach in-state advocates. Strict gating + per-
+        # item dedupe via news_items.auto_pushed_at (migration 0122).
+        # Skips items whose linked policy_alert already auto-pushed.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/push-state-news.mjs
       - name: Auto-create campaigns from new actionable alerts (safety net)
         # As of migration 0068, this is handled in real-time by a Postgres
         # trigger (`trg_auto_campaign_on_alert`). Keeping the cron run as
