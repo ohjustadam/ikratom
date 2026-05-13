@@ -31,6 +31,7 @@ const PRIMARY_LINKS = [
   { href: "/bop-watch", label: "BoP Watch", icon: "🛡️" },
   { href: "/submit", label: "Submit", icon: "➕" },
   { href: "/legislators", label: "Legislators", icon: "🏛️" },
+  { href: "/states", label: "By state", icon: "📍" },
   { href: "/forum", label: "Community", icon: "💬" },
   { href: "/news", label: "News", icon: "📰" },
   { href: "/messages", label: "Messages", icon: "✉️" },

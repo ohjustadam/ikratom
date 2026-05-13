@@ -36,6 +36,7 @@ const GROUPS: NavGroup[] = [
       { href: "/bills", label: "Bills", description: "Every kratom + 7-OH bill in every state." },
       { href: "/bop-watch", label: "BoP Watch", description: "Daily monitoring of state pharmacy boards." },
       { href: "/legislators", label: "Legislators", description: "Find + contact your federal + state reps." },
+      { href: "/states", label: "By state", description: "Single-state landing pages aggregating bills, meetings, alerts, campaigns." },
     ],
   },
   {
