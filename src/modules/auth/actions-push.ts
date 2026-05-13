@@ -72,3 +72,59 @@ export async function listMyPushSubscriptions() {
     .order("created_at", { ascending: false });
   return data ?? [];
 }
+
+/**
+ * Send a test push to all of the current user's subscriptions.
+ * Lets users verify their setup works without waiting for a real
+ * alert to fire — confidence-building after they enable push.
+ *
+ * Returns counts so the UI can confirm delivery attempts.
+ */
+export async function sendTestPushToMe() {
+  const { sendPush, isPushConfigured } = await import("@/lib/push/send");
+  if (!isPushConfigured()) {
+    return { error: "Push notifications aren't configured on this server." };
+  }
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { data: subs, error } = await supabase
+    .from("push_subscriptions")
+    .select("id, endpoint, p256dh, auth")
+    .eq("user_id", user.id);
+  if (error) return { error: error.message };
+  if (!subs || subs.length === 0) {
+    return { error: "You don't have any push subscriptions yet. Enable push above first." };
+  }
+
+  let sent = 0;
+  let failed = 0;
+  const dead: string[] = [];
+  const payload = {
+    title: "🔔 Test push from iKratom",
+    body: "Push notifications are working. Real alerts (live meetings, bill events) will reach you the same way.",
+    link: "/notifications",
+    tag: "test-push",
+  };
+  for (const s of subs as Array<{ id: string; endpoint: string; p256dh: string; auth: string }>) {
+    const r = await sendPush(
+      { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+      payload,
+    );
+    if (r.ok) sent++;
+    else if ("gone" in r && r.gone) dead.push(s.id);
+    else failed++;
+  }
+  // Prune dead subscriptions (revoked from browser)
+  if (dead.length > 0) {
+    await supabase.from("push_subscriptions").delete().in("id", dead);
+  }
+  return {
+    ok: true,
+    sent,
+    failed,
+    pruned: dead.length,
+    subscriptions: subs.length,
+  };
+}

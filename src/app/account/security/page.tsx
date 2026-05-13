@@ -11,6 +11,8 @@ import { BackupCodes } from "@/modules/auth/components/BackupCodes";
 import { ChangePasswordForm } from "@/modules/auth/components/ChangePasswordForm";
 import { SessionsPanel } from "@/modules/auth/components/SessionsPanel";
 import { PushSubscribe } from "@/modules/auth/components/PushSubscribe";
+import { TestPushButton } from "@/modules/auth/components/TestPushButton";
+import { listMyPushSubscriptions } from "@/modules/auth/actions-push";
 
 export const metadata = { title: "Security" };
 
@@ -36,6 +38,7 @@ export default async function SecurityPage() {
   const sessions = await listMySessions();
   const trustedDevices = await listMyTrustedDevices();
   const vapidPublicKey = await getPushVapidPublicKey();
+  const myPushSubs = await listMyPushSubscriptions();
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
@@ -142,6 +145,7 @@ export default async function SecurityPage() {
           </p>
         </div>
         <PushSubscribe vapidPublicKey={vapidPublicKey} />
+        <TestPushButton hasSubscriptions={myPushSubs.length > 0} />
       </section>
 
       <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 text-sm text-zinc-400">
