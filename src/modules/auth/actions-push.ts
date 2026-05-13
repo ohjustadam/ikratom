@@ -31,6 +31,16 @@ export async function savePushSubscription(input: {
     return { error: "Missing subscription fields." };
   }
 
+  // Detect new-subscription vs reconnect so we only fire the welcome
+  // push on first-ever device subscribe.
+  const { data: existing } = await supabase
+    .from("push_subscriptions")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("endpoint", input.endpoint)
+    .maybeSingle();
+  const isNewSubscription = !existing;
+
   const { error } = await supabase
     .from("push_subscriptions")
     .upsert(
@@ -44,6 +54,26 @@ export async function savePushSubscription(input: {
       { onConflict: "user_id,endpoint" },
     );
   if (error) return { error: error.message };
+
+  // Fire-and-forget welcome push on first-ever subscribe per device.
+  // Closes the "did push actually work?" doubt the moment user opts
+  // in — without waiting for the test-push button or a real alert.
+  if (isNewSubscription) {
+    const { sendPush, isPushConfigured } = await import("@/lib/push/send");
+    if (isPushConfigured()) {
+      sendPush(
+        { endpoint: input.endpoint, keys: { p256dh: input.p256dh, auth: input.auth } },
+        {
+          title: "🎉 Push notifications are on",
+          body: "You'll get a ping the moment a kratom bill, hearing, or live meeting moves in your state. Welcome to the war room.",
+          link: "/dashboard",
+          tag: "welcome-push",
+        },
+      ).catch((e) => {
+        console.error("[push-welcome] failed (non-blocking):", e);
+      });
+    }
+  }
   return { ok: true };
 }
 
