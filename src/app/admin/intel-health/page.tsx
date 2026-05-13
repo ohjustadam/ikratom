@@ -99,6 +99,12 @@ export default async function IntelHealthPage() {
         >
           🗺️ Per-state coverage
         </a>
+        <a
+          href="/admin/stance/coverage"
+          className="rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 text-zinc-300 hover:border-emerald-500 hover:text-emerald-400"
+        >
+          🎯 Stance coverage matrix
+        </a>
       </nav>
 
       {/* Top-line counters */}

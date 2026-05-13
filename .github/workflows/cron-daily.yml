@@ -221,6 +221,35 @@ jobs:
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
         run: node scripts/generate-state-briefing.mjs --all-states
 
+  draft-legislator-stance:
+    # Multi-state expansion of the legislator-stance pipeline.
+    # PRIORITY_STATES (10) processed daily: NY, FL, TX, CA, OH, MI, TN,
+    # MO, PA, GA. Each run skips already-stanced legislators, so steady-
+    # state cost is low (only new candidates with sponsorships or kratom
+    # committee memberships).
+    #
+    # Stances land as draft in legislator_kratom_stance with rationale_md
+    # populated; admin reviews + flips final stance at /admin/stance.
+    needs: legiscan-wide-pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Draft legislator stances across priority states
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: node scripts/draft-legislator-stance.mjs --priority-only
+
   discover-municipal-meetings:
     # Discover city/county council meetings with kratom on the agenda.
     # Uses Gemini grounded search per state. ~50 calls/day, well under
