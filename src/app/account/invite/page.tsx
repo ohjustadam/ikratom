@@ -152,15 +152,48 @@ export default async function InvitePage() {
         )}
       </section>
 
-      <footer className="mt-10 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-xs text-zinc-500">
-        <p className="font-semibold text-zinc-200">A note on privacy</p>
-        <p className="mt-1">
-          We don&apos;t scan your contacts, sync friend lists, or auto-send messages
-          on your behalf. Every share opens a draft you edit and send yourself. We
-          do log which signed-up accounts came from your link so we can credit you
-          — but the people you DIDN&apos;T invite don&apos;t exist to us.
-        </p>
-      </footer>
+      {/* Privacy disclosure — explicit, line-by-line on what we do / don't do.
+          Owner principle: "we must keep our safety and autonomy." */}
+      <section className="mt-10 rounded-lg border border-emerald-700/30 bg-emerald-950/10 p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
+          🔒 Your contacts. Your friends. Your business.
+        </h2>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-xs font-bold uppercase text-emerald-300">What stays private</p>
+            <ul className="mt-2 space-y-1.5 text-xs text-zinc-300">
+              <li>✅ Your phone book — never sent to our servers</li>
+              <li>✅ Who you message — invisible to us; we only see who clicks</li>
+              <li>✅ Your social media friends — we don&apos;t connect to any platform&apos;s friend list, ever</li>
+              <li>✅ Your draft messages — composed in your phone, edited by you, sent by you</li>
+              <li>✅ Who you didn&apos;t invite — doesn&apos;t exist to us</li>
+            </ul>
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase text-emerald-300">What we track</p>
+            <ul className="mt-2 space-y-1.5 text-xs text-zinc-300">
+              <li>📊 When someone signs up via your link, we credit you here</li>
+              <li>📊 How many of your invitees took their first advocacy action</li>
+              <li>📊 Aggregate platform-share counts (no PII) — to know which deep links actually work</li>
+            </ul>
+          </div>
+        </div>
+        <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/60 p-3 text-[11px] text-zinc-400">
+          <p className="font-semibold text-zinc-200">Why no &ldquo;connect Facebook friends&rdquo; button?</p>
+          <p className="mt-1">
+            Because that button would be a lie. Facebook removed third-party access to friend lists
+            in 2014. Twitter/X moved friend-list access to a $100+/month paid tier. Instagram, TikTok,
+            and Snapchat never offered it. Any &ldquo;sync your social friends&rdquo; flow you see
+            in any other app today is either gated behind paid API access or is repurposing different
+            data than you think. We won&apos;t pretend to do something we can&apos;t do safely.
+          </p>
+          <p className="mt-2">
+            What works without any of that: your phone&apos;s native share sheet shows every messaging
+            app you have installed (Messenger, WhatsApp, Signal, Discord, Snapchat, Instagram DMs,
+            etc.) plus your AirDrop / Quick Share recipients. One tap, you pick who. We never see.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }
