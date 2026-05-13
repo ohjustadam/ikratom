@@ -34,14 +34,28 @@ const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1); }
 const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
-const since = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+// Freshness: filter on action_date (when the action ACTUALLY happened)
+// not created_at (when we INGESTED the row). LegiScan / OpenStates
+// backfills land months-old actions with today's created_at — same
+// bug class as PR #199 on push-critical-alerts.
+//
+// 7-day window: bills move slowly; a status change a week ago is
+// still actionable news to someone who emailed about that bill,
+// but anything 30+ days old is definitely stale.
+const sinceAction = new Date(Date.now() - 7 * 86_400_000).toISOString();
+// Also exclude actions whose row was ingested >6h ago — even if the
+// action is recent, if we ingested it before our last push run, we
+// already had the chance to push then. This prevents re-pushing
+// on every cron tick after a wide bill_actions backfill.
+const sinceIngested = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
 
-// 1. Fresh bill_actions
+// 1. Fresh bill_actions — BOTH the action itself and our ingest must be recent
 const { data: actions, error: actErr } = await sb
   .from("bill_actions")
-  .select("id, bill_id, action_date, description, chamber, bills!inner(id, state, bill_number, title, status, kratom_relevance)")
-  .gte("created_at", since)
-  .order("created_at", { ascending: false })
+  .select("id, bill_id, action_date, description, chamber, created_at, bills!inner(id, state, bill_number, title, status, kratom_relevance)")
+  .gte("action_date", sinceAction)
+  .gte("created_at", sinceIngested)
+  .order("action_date", { ascending: false })
   .limit(50);
 
 if (actErr) {
