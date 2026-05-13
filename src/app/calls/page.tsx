@@ -110,6 +110,27 @@ export default async function CallsPage() {
   const reachedCalls = myCalls.filter((c) => c.outcome === "reached").length;
   const distinctRecipients = new Set(myCalls.map((c) => c.recipient_name).filter(Boolean)).size;
 
+  // Top-3 callers this week — inline social proof so the leaderboard
+  // isn't hidden behind a navigation tap. Falls back to empty render
+  // when the leaderboard's not populated. Privacy: names only for
+  // profile_visibility='public' users via get_public_profiles.
+  const sinceIso = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const { data: top3Rows } = await sb.rpc("call_leaderboard", {
+    p_since: sinceIso,
+    p_limit: 3,
+  });
+  const top3 = ((top3Rows ?? []) as Array<{ user_id: string; count: number; state: string | null }>);
+  let top3Profiles = new Map<string, { username: string | null; full_name: string | null }>();
+  if (top3.length > 0) {
+    const { data: profs } = await sb.rpc("get_public_profiles", {
+      p_ids: top3.map((r) => r.user_id),
+    });
+    top3Profiles = new Map(
+      ((profs ?? []) as Array<{ id: string; username: string | null; full_name: string | null }>)
+        .map((p) => [p.id, { username: p.username, full_name: p.full_name }])
+    );
+  }
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       {/* First-visit tour. Lazy-loaded driver.js. No-op if user already
@@ -147,6 +168,43 @@ export default async function CallsPage() {
         <Stat label="Reached" value={reachedCalls} sub={`${totalCalls > 0 ? Math.round((reachedCalls / totalCalls) * 100) : 0}% rate`} />
         <Stat label="Distinct recipients" value={distinctRecipients} />
       </section>
+
+      {/* Top-3 callers this week — inline social proof. Empty-renders
+          when leaderboard isn't populated yet. */}
+      {top3.length > 0 && (
+        <section className="mb-6 rounded-md border border-amber-700/30 bg-amber-950/10 p-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-300">
+              🏆 Top callers this week
+            </h2>
+            <Link href="/calls/leaderboard" className="text-[11px] text-amber-400 hover:underline">
+              full board →
+            </Link>
+          </div>
+          <ol className="mt-2 space-y-1.5">
+            {top3.map((r, i) => {
+              const p = top3Profiles.get(r.user_id);
+              const name = p?.username
+                ? `@${p.username}`
+                : p?.full_name
+                ? (p.full_name.split(/\s+/)[0] || "Advocate")
+                : `Advocate from ${r.state ?? "?"}`;
+              const isMe = r.user_id === user.id;
+              const medal = ["🥇", "🥈", "🥉"][i] ?? `#${i + 1}`;
+              return (
+                <li key={r.user_id} className="flex items-baseline gap-2 text-sm">
+                  <span className="w-7 text-center">{medal}</span>
+                  <span className={`flex-1 truncate ${p ? "text-zinc-100" : "italic text-zinc-400"}`}>
+                    {name}
+                    {isMe && <span className="ml-2 rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-zinc-950">You</span>}
+                  </span>
+                  <span className="font-mono text-sm font-bold text-amber-200">{r.count}</span>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      )}
 
       {/* Badges */}
       {myAchievements.length > 0 && (
