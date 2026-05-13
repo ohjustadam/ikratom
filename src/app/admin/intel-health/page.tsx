@@ -93,6 +93,12 @@ export default async function IntelHealthPage() {
         >
           🛡️ News FP review
         </a>
+        <a
+          href="/admin/intel-health/states"
+          className="rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 text-zinc-300 hover:border-emerald-500 hover:text-emerald-400"
+        >
+          🗺️ Per-state coverage
+        </a>
       </nav>
 
       {/* Top-line counters */}
