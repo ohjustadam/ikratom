@@ -31,6 +31,7 @@ export default async function OnboardingPage() {
           shop_name: profile?.shop_name ?? "",
           is_medical_professional: profile?.is_medical_professional ?? false,
         }}
+        vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null}
       />
     </div>
   );

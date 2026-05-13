@@ -9,6 +9,7 @@ import {
   completeOnboarding,
   skipOnboarding,
 } from "@/modules/onboarding/actions";
+import { PushSubscribe } from "@/modules/auth/components/PushSubscribe";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
@@ -36,10 +37,16 @@ type InitialProfile = {
   is_medical_professional: boolean;
 };
 
-const STEPS = ["welcome", "class", "where", "stake", "alerts", "done"] as const;
+const STEPS = ["welcome", "class", "where", "stake", "alerts", "push", "done"] as const;
 type Step = (typeof STEPS)[number];
 
-export function OnboardingWizard({ initialProfile }: { initialProfile: InitialProfile }) {
+export function OnboardingWizard({
+  initialProfile,
+  vapidPublicKey,
+}: {
+  initialProfile: InitialProfile;
+  vapidPublicKey: string | null;
+}) {
   const [step, setStep] = useState<Step>("welcome");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -353,8 +360,75 @@ export function OnboardingWizard({ initialProfile }: { initialProfile: InitialPr
             </p>
           )}
 
-          <Nav back={back} canBack pending={pending} nextLabel="Almost there →" />
+          <Nav back={back} canBack pending={pending} nextLabel="One more step →" />
         </form>
+      )}
+
+      {step === "push" && (
+        <div className="space-y-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+              Step 5 of 5 · Get real-time alerts
+            </p>
+            <h2 className="mt-2 text-3xl font-bold">Don&apos;t miss a vote.</h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              Enable browser notifications and we&apos;ll push you the moment a
+              kratom bill, hearing, or city ordinance moves in
+              {" "}<strong className="text-zinc-100">{initialProfile.state || "your state"}</strong>.
+              You can turn this off anytime.
+            </p>
+          </div>
+
+          {/* Concrete value-prop list — what users actually get from saying yes */}
+          <ul className="space-y-2 rounded-md border border-emerald-700/30 bg-emerald-950/10 p-4 text-sm text-zinc-300">
+            <li className="flex items-start gap-2">
+              <span aria-hidden>🚨</span>
+              <span><strong className="text-emerald-300">LIVE meeting alerts</strong> — city council or BoP hearing on kratom starts → push within seconds</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span aria-hidden>📅</span>
+              <span><strong className="text-emerald-300">Calendar reminders</strong> — 7 days, 3 days, and 1 day before any approved meeting</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span aria-hidden>📰</span>
+              <span><strong className="text-emerald-300">Critical news alerts</strong> — DEA action, bill signing, AG move, ordinance vote in your state</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span aria-hidden>🎯</span>
+              <span><strong className="text-emerald-300">Personalized only</strong> — we filter by your state, so you don&apos;t get pinged about Idaho if you live in Texas</span>
+            </li>
+          </ul>
+
+          {/* Hard privacy beat — same tone as the invite page */}
+          <p className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3 text-[11px] text-zinc-400">
+            🔒 <strong className="text-zinc-200">No tracking, no data sales.</strong>{" "}
+            Push notifications are delivered through your browser&apos;s built-in
+            mechanism. We only see WHEN we sent you a push, not what you do
+            after. You can disable anytime in /account/security.
+          </p>
+
+          {/* The actual subscribe button — handles browser permission prompt */}
+          <PushSubscribe vapidPublicKey={vapidPublicKey} />
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={back}
+              disabled={pending}
+              className="text-xs text-zinc-500 hover:text-zinc-300"
+            >
+              ← Back
+            </button>
+            <button
+              type="button"
+              onClick={next}
+              disabled={pending}
+              className="rounded-md bg-emerald-500 px-6 py-2 text-sm font-bold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
+            >
+              Continue →
+            </button>
+          </div>
+        </div>
       )}
 
       {step === "done" && (
