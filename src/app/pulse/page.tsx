@@ -65,15 +65,29 @@ export default async function PulsePage({
 }) {
   const sp = (await searchParams) ?? {};
   const tipSubmitted = sp.tip_submitted === "1";
+  // ?state=NY filters the whole page to that state — both alerts (via
+  // locality match) and news. Shareable links like /pulse?state=CA
+  // give advocates a way to focus on a specific state and send the
+  // URL to local organizers.
+  const requestedState = sp.state ? sp.state.toUpperCase() : null;
+  const isValidState = requestedState && /^[A-Z]{2}$/.test(requestedState);
   const supabase = await createClient();
 
   // Pull alerts. Severity-gated zones (critical / alert / watch). We
   // don't expose 'routine' on the main feed — too noisy.
-  const { data: alertsRaw } = await supabase
+  // If ?state= is set, scope the locality filter so users see only
+  // events for that state (locality can be "NY" or "Marshall, IL"
+  // so we use ilike to match either).
+  let alertsQuery = supabase
     .from("policy_alerts")
     .select("id, kind, severity, title, body, locality, source_url, campaign_id, occurs_at, expires_at, created_at, bill_id")
     .eq("moderation_status", "approved")
-    .in("severity", ["critical", "alert", "watch"])
+    .in("severity", ["critical", "alert", "watch"]);
+  if (isValidState) {
+    // Match bare state code OR "City, ST" pattern. PostgreSQL ilike pattern.
+    alertsQuery = alertsQuery.or(`locality.eq.${requestedState},locality.ilike.%, ${requestedState}`);
+  }
+  const { data: alertsRaw } = await alertsQuery
     .order("severity", { ascending: false }) // alphabetic — critical before watch — close enough
     .order("created_at", { ascending: false })
     .limit(40);
@@ -107,15 +121,17 @@ export default async function PulsePage({
   // the "what's happening right now in the kratom-policy world" panel.
   const since14d = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const { data: { user } } = await supabase.auth.getUser();
-  let viewerState: string | null = null;
+  let profileState: string | null = null;
   if (user) {
     const { data: prof } = await supabase
       .from("profiles")
       .select("state")
       .eq("id", user.id)
       .single();
-    viewerState = (prof as { state: string | null } | null)?.state ?? null;
+    profileState = (prof as { state: string | null } | null)?.state ?? null;
   }
+  // ?state= overrides profile state for "view a different state" link sharing
+  const viewerState: string | null = isValidState ? requestedState : profileState;
 
   // First-visit tooltip state — fires once per surface
   const tourSeen = await getTourSeen();
@@ -225,6 +241,13 @@ export default async function PulsePage({
             board-of-pharmacy, news, and advocate intel — sorted by urgency.
             Action campaigns are linked directly from each alert.
           </p>
+          {isValidState && (
+            <p className="mt-2 inline-flex items-baseline gap-2 rounded-md border border-emerald-700/40 bg-emerald-950/20 px-3 py-1 text-xs">
+              <span className="font-mono font-bold text-emerald-300">{requestedState}</span>
+              <span className="text-zinc-300">— filtered to this state only</span>
+              <a href="/pulse" className="text-emerald-400 hover:underline">clear filter →</a>
+            </p>
+          )}
         </div>
         <div className="hidden flex-col items-end gap-2 sm:flex">
           <div className="flex gap-2">
