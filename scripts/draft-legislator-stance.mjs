@@ -27,9 +27,22 @@ import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
 const STATE = arg("--state") ?? "NY";
+const ALL_STATES = args.includes("--all-states");
+const PRIORITY_ONLY = args.includes("--priority-only");
 const DRY_RUN = args.includes("--dry-run");
 const REFRESH = args.includes("--refresh");
 const PROVIDER_OVERRIDE = arg("--provider");
+const STATE_LIMIT = parseInt(arg("--state-limit") ?? "0", 10) || null;
+
+// Priority states for stance-coverage rollout — match
+// discover-municipal-meetings.mjs and other state-rotation crons.
+const PRIORITY_STATES = ["NY", "FL", "TX", "CA", "OH", "MI", "TN", "MO", "PA", "GA"];
+const ALL_STATE_CODES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN",
+  "IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH",
+  "NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT",
+  "VT","VA","WA","WV","WI","WY",
+];
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -93,17 +106,65 @@ Synthesize stance + rationale.`;
 // ---------- main ----------
 console.log(`Providers: ${listAvailableProviders().join(", ")}\n`);
 
+// Determine which states to process
+const statesToProcess = ALL_STATES
+  ? ALL_STATE_CODES
+  : PRIORITY_ONLY
+  ? PRIORITY_STATES
+  : [STATE];
+
+const grandT0 = Date.now();
+const grandTotals = { ok: 0, errored: 0, statesProcessed: 0, statesSkipped: 0 };
+
+for (const currentState of statesToProcess) {
+  if (STATE_LIMIT && grandTotals.statesProcessed >= STATE_LIMIT) {
+    console.log(`Hit --state-limit ${STATE_LIMIT}. Stopping.`);
+    break;
+  }
+  console.log(`\n${"=".repeat(60)}\n[${currentState}] starting…\n${"=".repeat(60)}`);
+  const result = await processState(currentState);
+  grandTotals.ok += result.ok;
+  grandTotals.errored += result.errored;
+  if (result.skipped) grandTotals.statesSkipped++;
+  else grandTotals.statesProcessed++;
+}
+
+const grandElapsed = ((Date.now() - grandT0) / 1000 / 60).toFixed(1);
+console.log(`\n\n========== ALL DONE ==========`);
+console.log(`States processed: ${grandTotals.statesProcessed}, skipped (no candidates): ${grandTotals.statesSkipped}`);
+console.log(`Total drafts: ${grandTotals.ok}, errors: ${grandTotals.errored}`);
+console.log(`Elapsed: ${grandElapsed} min`);
+
+try {
+  await sb.from("scraper_runs").insert({
+    source: "draft_legislator_stance",
+    started_at: new Date(grandT0).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: grandTotals.errored > grandTotals.ok ? "error" : "success",
+    rows_added: grandTotals.ok,
+    notes: ALL_STATES
+      ? `ALL: ${grandTotals.statesProcessed} states · ${grandTotals.ok} drafted · ${grandTotals.errored} errored`
+      : PRIORITY_ONLY
+      ? `PRIORITY: ${grandTotals.statesProcessed} states · ${grandTotals.ok} drafted · ${grandTotals.errored} errored`
+      : `${STATE}: ${grandTotals.ok} drafted, ${grandTotals.errored} errored`,
+  });
+} catch { /* */ }
+
+process.exit(0);
+
+// ────────────────────────────────────────────────────────────────────
+async function processState(STATE_CODE) {
 // 1. Load state legislators
 const { data: legs } = await sb.from("legislators")
   .select("id, full_name, role, district, state, party")
-  .eq("state", STATE)
+  .eq("state", STATE_CODE)
   .eq("active", true)
   .limit(2000);
 
 // 2. Load their kratom bill sponsorships (any kratom bill in the state)
 const { data: bills } = await sb.from("bills")
   .select("id, bill_number, title, kratom_relevance")
-  .eq("state", STATE)
+  .eq("state", STATE_CODE)
   .eq("active", true)
   .in("kratom_relevance", ["anti", "pro", "neutral"]);
 const billsById = new Map((bills ?? []).map(b => [b.id, b]));
@@ -146,7 +207,7 @@ const candidates = (legs ?? []).map(l => ({
   committees: committeesByLeg.get(l.id) ?? [],
 })).filter(l => l.sponsorships.length > 0 || l.committees.length > 0);
 
-console.log(`${STATE}: ${candidates.length} candidate legislators (out of ${legs?.length ?? 0}) with kratom signal\n`);
+console.log(`${STATE_CODE}: ${candidates.length} candidate legislators (out of ${legs?.length ?? 0}) with kratom signal\n`);
 
 // 5. Skip those who already have a stance unless --refresh
 const { data: existing } = await sb.from("legislator_kratom_stance")
@@ -157,8 +218,8 @@ const toProcess = REFRESH ? candidates : candidates.filter(c => !haveStance.has(
 console.log(`To process: ${toProcess.length} (${haveStance.size} already have a stance)\n`);
 
 if (toProcess.length === 0) {
-  console.log("Nothing to draft.");
-  process.exit(0);
+  console.log(`[${STATE_CODE}] Nothing to draft.`);
+  return { ok: 0, errored: 0, skipped: true };
 }
 
 let ok = 0, errored = 0;
@@ -196,16 +257,6 @@ for (const leg of toProcess) {
 }
 
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
-console.log(`\nDone in ${elapsed} min — ${ok} drafted, ${errored} errored`);
-
-try {
-  await sb.from("scraper_runs").insert({
-    source: "draft_legislator_stance",
-    started_at: new Date(t0).toISOString(),
-    finished_at: new Date().toISOString(),
-    status: errored > toProcess.length / 2 ? "error" : "success",
-    rows_added: ok,
-    notes: `${STATE}: ${ok} drafted, ${errored} errored`,
-  });
-} catch { /* best-effort */ }
-process.exit(0);
+console.log(`\n[${STATE_CODE}] Done in ${elapsed} min — ${ok} drafted, ${errored} errored`);
+return { ok, errored, skipped: false };
+}  // end processState

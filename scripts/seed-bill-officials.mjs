@@ -184,6 +184,15 @@ async function processBill(bill) {
   console.log(`\n=== ${bill.id.slice(0, 8)} | ${bill.state} ${bill.bill_number} | ${bill.locality} ===`);
   if (!bill.locality) { console.log("  ⏭  no locality on bill"); return "skip"; }
 
+  // Sanity check: locality should be a short "City, ST" string. If it
+  // looks like a paragraph (>120 chars) or contains newlines, the
+  // upstream promote-alert-to-bill mis-extracted the field. Skip
+  // rather than feed garbage to Gemini.
+  if (bill.locality.length > 120 || /\n|^\s*Arguments|^\s*[A-Z][a-z]+\s+\d/.test(bill.locality)) {
+    console.log(`  ⏭  malformed locality (${bill.locality.length} chars or paragraph-like); skip — needs admin cleanup`);
+    return "skip";
+  }
+
   // Parse "Marshall, IL" → "Marshall"
   const cityMatch = bill.locality.match(/^([^,]+),\s*([A-Z]{2})/);
   const city = cityMatch?.[1]?.trim() ?? bill.locality.trim();
