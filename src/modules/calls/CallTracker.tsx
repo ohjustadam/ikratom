@@ -195,6 +195,24 @@ export function CallTracker({
   // ─── Render states ───────────────────────────────────────────────
 
   if (phase === "ended") {
+    // Brag-share copy — pre-filled message users can share to bring in
+    // more advocates. Recipient's name and call result deliberately
+    // OMITTED for privacy (we don't reveal which legislator they called).
+    // Generic "I just made a kratom advocacy call" + link to platform.
+    const bragText = `I just called a legislator about kratom. iKratom made it one tap — they found my rep, drafted what to say, tracked the call. Worth 30 seconds: https://www.ikratom.org`;
+    const u = encodeURIComponent("https://www.ikratom.org");
+    const m = encodeURIComponent(bragText);
+
+    async function nativeShare() {
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        try {
+          await navigator.share({ title: "iKratom", text: bragText, url: "https://www.ikratom.org" });
+        } catch (e) {
+          if ((e as Error)?.name !== "AbortError") console.warn(e);
+        }
+      }
+    }
+
     return (
       <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/15 p-5">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-300">
@@ -210,6 +228,39 @@ export function CallTracker({
             {summaryMd}
           </div>
         )}
+
+        {/* Brag-share — surfaces immediately after a successful call.
+            Privacy: we never reveal WHO the user called, just that
+            they took action. Recruitment-funnel multiplier. */}
+        <div className="mt-4 rounded border border-amber-700/30 bg-amber-950/10 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+            📣 Bring an advocate
+          </p>
+          <p className="mt-1 text-xs text-zinc-400">
+            Tell people you just acted. We don&apos;t reveal who you called —
+            just that you took action — and link them to iKratom.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <button
+              type="button"
+              onClick={nativeShare}
+              className="rounded bg-emerald-600 px-3 py-1 font-semibold text-zinc-950 hover:bg-emerald-500"
+            >
+              📲 Share
+            </button>
+            <a href={`https://twitter.com/intent/tweet?text=${m}`} target="_blank" rel="noopener noreferrer"
+              className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1 hover:border-zinc-400">𝕏</a>
+            <a href={`https://bsky.app/intent/compose?text=${m}`} target="_blank" rel="noopener noreferrer"
+              className="rounded border border-sky-900/50 bg-sky-950/20 px-3 py-1 text-sky-300 hover:border-sky-500">🦋</a>
+            <a href={`https://www.threads.net/intent/post?text=${m}`} target="_blank" rel="noopener noreferrer"
+              className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1 hover:border-zinc-400">@</a>
+            <a href={`https://www.facebook.com/sharer/sharer.php?u=${u}`} target="_blank" rel="noopener noreferrer"
+              className="rounded border border-blue-900/50 bg-blue-950/20 px-3 py-1 text-blue-300 hover:border-blue-500">📘</a>
+            <a href={`sms:?&body=${m}`}
+              className="rounded border border-emerald-900/50 bg-emerald-950/20 px-3 py-1 text-emerald-300 hover:border-emerald-500">📱</a>
+          </div>
+        </div>
+
         <a
           href="/account/calls"
           className="mt-4 inline-block text-xs font-semibold text-emerald-400 hover:underline"
