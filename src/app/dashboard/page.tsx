@@ -19,6 +19,7 @@ import { BadgesWidget } from "@/modules/dashboard/widgets/BadgesWidget";
 import { WhatsNewWidget } from "@/modules/dashboard/widgets/WhatsNewWidget";
 import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 import { InviteWidget } from "@/modules/dashboard/widgets/InviteWidget";
+import { PolicyPulseWidget } from "@/modules/dashboard/widgets/PolicyPulseWidget";
 import { PushOptInBanner } from "@/components/PushOptInBanner";
 import { listMyPushSubscriptions } from "@/modules/auth/actions-push";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
@@ -130,6 +131,7 @@ export default async function DashboardPage({
     ) : null,
     saved_searches: userId ? <SavedSearchesWidget /> : null,
     activity_radar: <ActivityRadarWidget />,
+    policy_pulse: <PolicyPulseWidget userState={profile?.state ?? null} />,
     badges: userId ? <BadgesWidget /> : null,
     whats_new: userId ? <WhatsNewWidget /> : null,
     welcome_explore: userId ? <WelcomeExploreWidget userId={userId} /> : null,
