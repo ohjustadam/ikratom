@@ -242,6 +242,32 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/discover-municipal-meetings.mjs --priority-only
 
+  fire-meeting-reminders:
+    # Push reminders for upcoming approved meetings — 7d / 3d / 1d
+    # before the meeting fires. Each window is per-meeting dedupe'd
+    # via reminder_Nd_sent_at columns; if a meeting already got the
+    # "LIVE NOW" broadcast it's skipped here.
+    #
+    # Free — uses our existing VAPID keys for web push.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Fire 7d/3d/1d meeting reminders
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+        run: node scripts/fire-meeting-reminders.mjs
+
   scan-granicus-tenants:
     # Proactive scan of ~45 major US Granicus tenants (LA, SF, Chicago,
     # Boston, etc.) for kratom-relevant agenda items. Complements the
