@@ -85,13 +85,13 @@ export default async function StatePage({ params }: Props) {
       .limit(15),
     supabase
       .from("policy_alerts")
-      .select("id, kind, severity, title, body, locality, created_at, source_url")
+      .select("id, kind, severity, title, body, locality, created_at, occurs_at, bill_id, source_url")
       .or(`locality.eq.${codeUpper},locality.ilike.%, ${codeUpper}`)
       .eq("moderation_status", "approved")
       .in("severity", ["critical", "alert"])
       .gte("created_at", since30d)
       .order("created_at", { ascending: false })
-      .limit(10),
+      .limit(30),  // larger pull — many drop after real-event-date filter
     supabase
       .from("campaigns")
       .select("id, slug, title, blurb")
@@ -106,9 +106,58 @@ export default async function StatePage({ params }: Props) {
       .maybeSingle(),
   ]);
 
+  // Real-event-date filter for alerts — match the freshness logic
+  // from PRs #199 + #203 so this page doesn't surface 100-day-old
+  // news as 'recent alerts' just because the alert row was
+  // classified today.
+  const rawAlerts = (alerts.data ?? []) as Array<{
+    id: string; kind: string; severity: string; title: string; body: string | null;
+    locality: string; created_at: string; occurs_at: string | null;
+    bill_id: string | null; source_url: string | null;
+  }>;
+  const alertIds = rawAlerts.map((a) => a.id);
+  const newsByAlertId = new Map<string, string>();
+  if (alertIds.length > 0) {
+    const { data: newsLinks } = await supabase
+      .from("news_items")
+      .select("policy_alert_id, published_at")
+      .in("policy_alert_id", alertIds);
+    for (const n of (newsLinks ?? []) as Array<{ policy_alert_id: string; published_at: string }>) {
+      if (n.policy_alert_id && !newsByAlertId.has(n.policy_alert_id)) {
+        newsByAlertId.set(n.policy_alert_id, n.published_at);
+      }
+    }
+  }
+  const billIds = rawAlerts.map((a) => a.bill_id).filter(Boolean) as string[];
+  const billLastActionByBillId = new Map<string, string>();
+  if (billIds.length > 0) {
+    const { data: bs } = await supabase
+      .from("bills")
+      .select("id, last_action_at")
+      .in("id", billIds);
+    for (const b of (bs ?? []) as Array<{ id: string; last_action_at: string | null }>) {
+      if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
+    }
+  }
+  const STATE_FRESH_DAYS = 30;
+  const STATE_FRESH_MS = STATE_FRESH_DAYS * 86_400_000;
+  const freshAlerts = rawAlerts.filter((a) => {
+    let eventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;
+    if (!eventDate) {
+      const newsPub = newsByAlertId.get(a.id);
+      if (newsPub) eventDate = new Date(newsPub);
+    }
+    if (!eventDate && a.bill_id) {
+      const billPub = billLastActionByBillId.get(a.bill_id);
+      if (billPub) eventDate = new Date(billPub);
+    }
+    if (!eventDate) eventDate = new Date(a.created_at);
+    return Date.now() - eventDate.getTime() <= STATE_FRESH_MS;
+  }).slice(0, 10);
+
   const totalSignals = (bills.data?.length ?? 0)
     + (meetings.data?.length ?? 0)
-    + (alerts.data?.length ?? 0)
+    + freshAlerts.length
     + (campaigns.data?.length ?? 0);
 
   return (
@@ -267,13 +316,13 @@ export default async function StatePage({ params }: Props) {
       )}
 
       {/* Recent alerts */}
-      {(alerts.data ?? []).length > 0 && (
+      {freshAlerts.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-red-300">
             Recent alerts · last 30 days
           </h2>
           <ul className="space-y-2">
-            {(alerts.data ?? []).map((a) => {
+            {freshAlerts.map((a) => {
               const when = new Date(a.created_at);
               const daysAgo = Math.floor((Date.now() - when.getTime()) / 86_400_000);
               return (
