@@ -1,0 +1,238 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
+
+const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
+
+const KIND_LABEL: Record<string, string> = {
+  bill_event: "Legislation",
+  bop_hearing: "Board of Pharmacy",
+  ag_enforcement: "AG action",
+  ag_action: "AG action",
+  fda_action: "FDA action",
+  dea_action: "DEA action",
+  court_ruling: "Court ruling",
+  news_break: "Breaking news",
+  intel_tip: "Intel tip",
+  city_event: "Municipal event",
+  city_ordinance: "Municipal ordinance",
+  scraper_stale: "Pipeline",
+};
+
+type Props = { params: Promise<{ id: string }> };
+
+export async function generateMetadata({ params }: Props) {
+  const { id } = await params;
+  const sb = await createClient();
+  const { data: a } = await sb
+    .from("policy_alerts")
+    .select("title, body, locality, kind, severity")
+    .eq("id", id)
+    .maybeSingle();
+  if (!a) return { title: "Alert · iKratom" };
+  const sevEmoji = a.severity === "critical" ? "🚨" : a.severity === "alert" ? "⚠️" : "👁️";
+  return {
+    title: `${sevEmoji} ${a.locality ?? "Federal"}: ${a.title.slice(0, 80)} · iKratom`,
+    description: a.body
+      ? a.body.split("\n")[0].slice(0, 200)
+      : `${KIND_LABEL[a.kind] ?? "Policy"} alert in ${a.locality ?? "the US"}.`,
+    openGraph: {
+      title: `${sevEmoji} ${a.title}`,
+      description: a.body?.split("\n")[0].slice(0, 200) ?? "",
+      url: `${SITE}/alerts/${id}`,
+      siteName: "iKratom",
+      type: "article",
+    },
+  };
+}
+
+/**
+ * /alerts/[id] — single-alert detail page.
+ *
+ * Replaces the previous /pulse#alert-{id} anchor-jump approach (which
+ * silently no-op'd because /pulse never rendered alert anchors).
+ * Now notification clicks land on a dedicated page with full body,
+ * source link, linked campaign, and cross-links.
+ *
+ * Public read — anyone can view if approved + visible.
+ */
+export default async function AlertDetailPage({ params }: Props) {
+  const { id } = await params;
+  const sb = await createClient();
+  const { data: a } = await sb
+    .from("policy_alerts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!a || a.moderation_status !== "approved") notFound();
+
+  // Linked campaign (if auto-created)
+  const linkedCampaign = a.campaign_id
+    ? (await sb.from("campaigns")
+        .select("id, slug, title, blurb, active, mobilization_type, state")
+        .eq("id", a.campaign_id)
+        .maybeSingle()).data
+    : null;
+
+  // Linked bill (if attached)
+  const linkedBill = a.bill_id
+    ? (await sb.from("bills")
+        .select("id, state, bill_number, title, status, kratom_relevance")
+        .eq("id", a.bill_id)
+        .maybeSingle()).data
+    : null;
+
+  const sevEmoji = a.severity === "critical" ? "🚨" : a.severity === "alert" ? "⚠️" : "👁️";
+  const sevLabel = a.severity?.toUpperCase() ?? "WATCH";
+  const sevTone =
+    a.severity === "critical" ? "border-red-700/50 bg-red-950/15 text-red-300" :
+    a.severity === "alert" ? "border-amber-700/40 bg-amber-950/15 text-amber-300" :
+    "border-zinc-800 bg-zinc-950/40 text-zinc-300";
+
+  const created = new Date(a.created_at);
+  const occurs = a.occurs_at ? new Date(a.occurs_at) : null;
+  const expires = a.expires_at ? new Date(a.expires_at) : null;
+
+  // Locality state extraction for cross-links
+  let stateCode: string | null = null;
+  const loc = a.locality?.trim() ?? "";
+  if (/^[A-Z]{2}$/.test(loc)) stateCode = loc;
+  else {
+    const m = loc.match(/,\s*([A-Z]{2})\s*$/i);
+    if (m) stateCode = m[1].toUpperCase();
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+      <Link href="/pulse" className="text-xs text-zinc-500 hover:text-emerald-400">
+        ← Pulse feed
+      </Link>
+
+      {/* Hero */}
+      <header className="mt-2 mb-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded border px-3 py-1 text-xs font-bold uppercase tracking-wider ${sevTone}`}>
+            {sevEmoji} {sevLabel}
+          </span>
+          <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-[11px] uppercase text-zinc-300">
+            {KIND_LABEL[a.kind] ?? a.kind}
+          </span>
+          {a.locality && (
+            <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-[11px] uppercase text-zinc-400">
+              📍 {a.locality}
+            </span>
+          )}
+          {a.action_required && (
+            <span className="rounded bg-emerald-950/40 px-2 py-0.5 text-[11px] font-bold uppercase text-emerald-300 animate-pulse">
+              ⚡ action required
+            </span>
+          )}
+        </div>
+        <h1 className="mt-3 text-3xl font-bold leading-tight sm:text-4xl">{a.title}</h1>
+        <p className="mt-2 text-xs text-zinc-500">
+          Added {created.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+          {occurs && (
+            <> · Occurs {occurs.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>
+          )}
+          {expires && expires.getTime() > Date.now() && (
+            <> · Expires {expires.toLocaleString(undefined, { month: "short", day: "numeric" })}</>
+          )}
+        </p>
+      </header>
+
+      {/* Linked campaign — top CTA when available */}
+      {linkedCampaign?.active && (
+        <section className="mb-6 rounded-lg border border-emerald-700/50 bg-emerald-950/20 p-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+            ⚡ Take action now
+          </p>
+          <p className="mt-2 text-base font-semibold text-zinc-100">{linkedCampaign.title}</p>
+          {linkedCampaign.blurb && (
+            <p className="mt-1 text-sm text-zinc-400">{linkedCampaign.blurb}</p>
+          )}
+          <Link
+            href={`/campaigns/${linkedCampaign.slug}`}
+            className="mt-3 inline-block rounded-md bg-emerald-500 px-5 py-2 font-bold text-zinc-950 hover:bg-emerald-400"
+          >
+            Open campaign →
+          </Link>
+        </section>
+      )}
+
+      {/* Body */}
+      {a.body && (
+        <section className="mb-6 rounded-md border border-zinc-800 bg-zinc-950/40 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+            Details
+          </h2>
+          <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
+            {a.body}
+          </div>
+        </section>
+      )}
+
+      {/* Linked bill */}
+      {linkedBill && (
+        <section className="mb-6 rounded-md border border-zinc-800 bg-zinc-950/40 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+            Linked bill
+          </h2>
+          <Link
+            href={`/bills/${linkedBill.id}`}
+            className="mt-2 flex items-baseline gap-2 hover:text-emerald-400"
+          >
+            <span className="font-mono text-base font-bold">{linkedBill.state} {linkedBill.bill_number}</span>
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+              linkedBill.kratom_relevance === "anti"
+                ? "bg-red-950/40 text-red-300"
+                : "bg-emerald-950/40 text-emerald-300"
+            }`}>
+              {linkedBill.kratom_relevance === "anti" ? "🚫 restrictive" : "✅ supportive"}
+            </span>
+            <span className="text-xs text-zinc-500">{linkedBill.status}</span>
+          </Link>
+          {linkedBill.title && (
+            <p className="mt-1 text-sm text-zinc-400">{linkedBill.title}</p>
+          )}
+        </section>
+      )}
+
+      {/* Source */}
+      {a.source_url && (
+        <section className="mb-6">
+          <a
+            href={a.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:border-emerald-500"
+          >
+            📎 Open source ↗
+          </a>
+        </section>
+      )}
+
+      {/* Cross-links */}
+      <section className="mt-8 flex flex-wrap gap-2 text-xs">
+        <Link href="/pulse" className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500">
+          🚨 All alerts
+        </Link>
+        {stateCode && (
+          <>
+            <Link href={`/states/${stateCode}`} className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500">
+              📍 {stateCode} hub
+            </Link>
+            <Link href={`/pulse?state=${stateCode}`} className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500">
+              🚨 {stateCode} alerts only
+            </Link>
+            <Link href={`/calendar?state=${stateCode}`} className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500">
+              📅 {stateCode} calendar
+            </Link>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}

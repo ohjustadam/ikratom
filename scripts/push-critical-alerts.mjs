@@ -114,7 +114,10 @@ async function processAlert(a) {
   const severityEmoji = a.severity === "critical" ? "🚨" : "⚠️";
   const title = `${severityEmoji} ${stateLabel}: ${a.title.slice(0, 100)}`;
   const body = a.body ? a.body.split("\n")[0].slice(0, 180) : "Tap for the full briefing.";
-  const link = `/pulse#alert-${a.id}`;
+  // Dedicated detail page — /pulse anchor jumps were silently no-op
+  // because /pulse never rendered alert-id anchors. /alerts/[id] is
+  // the full-context detail page.
+  const link = `/alerts/${a.id}`;
 
   if (DRY_RUN) {
     console.log(`  [dry] ${title.slice(0, 80)} → ${userIds.length} ${stateLabel} users`);
