@@ -19,6 +19,7 @@ export type WidgetId =
   | "my_battles"
   | "saved_searches"
   | "activity_radar"
+  | "policy_pulse"
   | "badges"
   | "whats_new"
   | "welcome_explore"
@@ -72,6 +73,7 @@ export const DEFAULT_WIDGETS: WidgetSlot[] = [
   { id: "my_reps", visible: true },
   { id: "rep_coverage", visible: true },
   { id: "saved_searches", visible: true },
+  { id: "policy_pulse", visible: true },
   { id: "activity_radar", visible: true },
   { id: "bop_watch", visible: true },
   // P2 — identity, growth, utility
@@ -126,6 +128,10 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
   activity_radar: {
     title: "Activity radar",
     description: "Real-time platform activity — recent threads, campaigns, advocate actions.",
+  },
+  policy_pulse: {
+    title: "Live policy pulse",
+    description: "Last-24h policy events: live broadcasts, critical alerts, new meetings, bill actions. Your state highlighted.",
   },
   badges: {
     title: "Mission patches",
