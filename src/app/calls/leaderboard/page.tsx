@@ -7,7 +7,7 @@ export const metadata = {
 };
 export const dynamic = "force-dynamic";
 
-type Window = "week" | "month" | "all";
+type Window = "today" | "week" | "month" | "all";
 
 type LeaderRow = {
   user_id: string;
@@ -17,12 +17,14 @@ type LeaderRow = {
 };
 
 const WINDOW_DAYS: Record<Window, number | null> = {
+  today: 1,
   week: 7,
   month: 30,
   all: null,
 };
 
 const WINDOW_LABELS: Record<Window, string> = {
+  today: "Today",
   week: "This week",
   month: "This month",
   all: "All time",
@@ -63,9 +65,9 @@ export default async function CallsLeaderboardPage({ searchParams }: {
   searchParams?: Promise<{ w?: string }>;
 }) {
   const sp = (await searchParams) ?? {};
-  const window: Window = (["week", "month", "all"].includes(sp.w ?? "")
+  const window: Window = (["today", "week", "month", "all"].includes(sp.w ?? "")
     ? (sp.w as Window)
-    : "week");
+    : "today");
 
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -121,7 +123,7 @@ export default async function CallsLeaderboardPage({ searchParams }: {
 
       {/* Window tabs */}
       <nav className="mb-4 flex flex-wrap gap-2 text-xs">
-        {(["week", "month", "all"] as Window[]).map((w) => (
+        {(["today", "week", "month", "all"] as Window[]).map((w) => (
           <Link
             key={w}
             href={`/calls/leaderboard?w=${w}`}
