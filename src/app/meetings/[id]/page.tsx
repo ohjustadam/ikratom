@@ -50,6 +50,23 @@ export async function generateMetadata({ params }: Props) {
 
 export const dynamic = "force-dynamic";
 
+// Format a Date as Google Calendar's expected URL format:
+// YYYYMMDDTHHMMSSZ (UTC). Same shape as iCal but without the colon
+// separators.
+function formatGoogleDate(d: Date): string {
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return (
+    d.getUTCFullYear() +
+    pad(d.getUTCMonth() + 1) +
+    pad(d.getUTCDate()) +
+    "T" +
+    pad(d.getUTCHours()) +
+    pad(d.getUTCMinutes()) +
+    pad(d.getUTCSeconds()) +
+    "Z"
+  );
+}
+
 export default async function MeetingDetailPage({ params }: Props) {
   const { id } = await params;
   const sb = await createClient();
@@ -136,12 +153,35 @@ export default async function MeetingDetailPage({ params }: Props) {
           </a>
         )}
         {m.in_person_address && (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <a
+            href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(m.in_person_address)}`}
+            target="_blank" rel="noopener noreferrer"
+            className="block rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 hover:border-emerald-500"
+          >
             <p className="text-2xl">📍</p>
-            <p className="mt-2 text-lg font-bold text-zinc-200">In person</p>
+            <p className="mt-2 text-lg font-bold text-zinc-200">In person · get directions</p>
             <p className="mt-1 text-xs text-zinc-400">{m.in_person_address}</p>
-          </div>
+          </a>
         )}
+      </section>
+
+      {/* Add-to-calendar button — single-event .ics download lets the
+          user one-tap add this meeting to their phone's native
+          calendar so they get a reminder before it starts. */}
+      <section className="mb-6 flex flex-wrap gap-2 text-xs">
+        <a href={`/meetings/${m.id}/event.ics`} download={`ikratom-${m.id}.ics`}
+          className="rounded bg-emerald-600 px-3 py-1.5 font-semibold text-zinc-950 hover:bg-emerald-500">
+          📅 Add to my calendar
+        </a>
+        <a href={`webcal://${(process.env.NEXT_PUBLIC_APP_URL ?? "www.ikratom.org").replace(/^https?:\/\//, "")}/meetings/${m.id}/event.ics`}
+          className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 hover:border-emerald-500">
+          📲 Apple Calendar
+        </a>
+        <a href={`https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(`${m.locality ?? m.state} ${m.body_name ?? "meeting"} — kratom on agenda`)}&dates=${formatGoogleDate(when)}/${formatGoogleDate(new Date(when.getTime() + 2 * 60 * 60 * 1000))}&details=${encodeURIComponent(`Detail: ${process.env.NEXT_PUBLIC_APP_URL ?? "https://www.ikratom.org"}/meetings/${m.id}\n\n${m.agenda_text ?? ""}`.slice(0, 800))}${m.in_person_address ? `&location=${encodeURIComponent(m.in_person_address)}` : ""}`}
+          target="_blank" rel="noopener noreferrer"
+          className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 hover:border-emerald-500">
+          📲 Google Calendar
+        </a>
       </section>
 
       {/* What's on the agenda */}
