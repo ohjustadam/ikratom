@@ -25,14 +25,32 @@ function arrayBufferToBase64Url(buffer: ArrayBuffer | null): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+// iOS Safari requires the user to install the PWA to home screen
+// BEFORE Push API becomes available. Detecting "iOS Safari that hasn't
+// been installed yet" lets us show install instructions instead of a
+// dead-end "your browser doesn't support web push" message.
+function detectIosNeedsInstall(): boolean {
+  if (typeof navigator === "undefined" || typeof window === "undefined") return false;
+  const ua = navigator.userAgent;
+  const isIos = /iPhone|iPad|iPod/.test(ua) && !(window as { MSStream?: unknown }).MSStream;
+  if (!isIos) return false;
+  // Already running as a standalone PWA? Push works there.
+  const isStandalone =
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    (navigator as { standalone?: boolean }).standalone === true;
+  return !isStandalone;
+}
+
 export function PushSubscribe({ vapidPublicKey }: { vapidPublicKey: string | null }) {
   const [supported, setSupported] = useState<boolean | null>(null);
   const [subscribed, setSubscribed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [iosNeedsInstall, setIosNeedsInstall] = useState(false);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    setIosNeedsInstall(detectIosNeedsInstall());
     const ok = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
     setSupported(ok);
     if (!ok) return;
@@ -101,11 +119,36 @@ export function PushSubscribe({ vapidPublicKey }: { vapidPublicKey: string | nul
 
   if (supported === null) return null;
 
+  // iOS Safari needs the PWA installed to home screen before Push API
+  // becomes available. Surface the install path instead of a dead-end.
+  if (iosNeedsInstall) {
+    return (
+      <div className="rounded-md border border-emerald-700/40 bg-emerald-950/15 p-4">
+        <p className="text-sm font-semibold text-emerald-200">
+          📱 iOS needs one extra step
+        </p>
+        <p className="mt-1 text-xs text-zinc-300">
+          Push notifications only work on iPhone/iPad after you install iKratom
+          to your home screen — Apple&apos;s requirement, not ours.
+          Tap the Share icon in Safari, then &ldquo;Add to Home Screen&rdquo;.
+          Open iKratom from the home-screen icon, sign in again, and the
+          push button will appear.
+        </p>
+        <a
+          href="/install/ios"
+          className="mt-3 inline-block rounded bg-emerald-500 px-4 py-1.5 text-xs font-bold text-zinc-950 hover:bg-emerald-400"
+        >
+          📲 Show me how to install →
+        </a>
+      </div>
+    );
+  }
+
   if (!supported) {
     return (
       <p className="text-xs text-zinc-500">
-        Your browser doesn&apos;t support web push. (iOS Safari requires installing
-        as a PWA via Add to Home Screen first.)
+        Your browser doesn&apos;t support web push. Try Chrome, Firefox, or Edge —
+        or on iOS, install iKratom to your home screen first via Safari.
       </p>
     );
   }

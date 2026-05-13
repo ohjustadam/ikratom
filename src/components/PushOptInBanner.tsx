@@ -32,6 +32,20 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return new Uint8Array([...rawData].map((c) => c.charCodeAt(0)));
 }
 
+// iOS Safari requires PWA install before Push API becomes available.
+// Detect that case so the banner routes users to /install/ios instead
+// of attempting a subscribe that will silently fail.
+function detectIosNeedsInstall(): boolean {
+  if (typeof navigator === "undefined" || typeof window === "undefined") return false;
+  const ua = navigator.userAgent;
+  const isIos = /iPhone|iPad|iPod/.test(ua) && !(window as { MSStream?: unknown }).MSStream;
+  if (!isIos) return false;
+  const isStandalone =
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    (navigator as { standalone?: boolean }).standalone === true;
+  return !isStandalone;
+}
+
 export function PushOptInBanner({
   hasSubscriptions,
   vapidPublicKey,
@@ -42,6 +56,7 @@ export function PushOptInBanner({
   userState: string | null;
 }) {
   const [supported, setSupported] = useState<boolean | null>(null);
+  const [iosNeedsInstall, setIosNeedsInstall] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [subscribed, setSubscribed] = useState(hasSubscriptions);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +64,7 @@ export function PushOptInBanner({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    setIosNeedsInstall(detectIosNeedsInstall());
     const ok = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
     setSupported(ok);
 
@@ -119,11 +135,52 @@ export function PushOptInBanner({
     try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch { /* */ }
   }
 
-  // Hide if already subscribed (server-confirmed), browser unsupported,
-  // dismissed in the last 14 days, or we haven't yet feature-detected.
-  if (subscribed || supported === null || !supported || dismissed) return null;
+  // Hide if already subscribed (server-confirmed), dismissed in last 14d,
+  // or we haven't yet feature-detected. Note: iOS-needs-install case
+  // is NOT hidden — we want to nudge those users to install the PWA.
+  if (subscribed || supported === null || dismissed) return null;
+  // If neither installed-iOS-PWA NOR a supporting browser, hide.
+  if (!supported && !iosNeedsInstall) return null;
 
   const stateLabel = userState ?? "your state";
+
+  // iOS-on-Safari (not installed): route to /install/ios instead of
+  // attempting a doomed subscribe. Same red-accent CTA, different action.
+  if (iosNeedsInstall) {
+    return (
+      <section className="rounded-lg border border-red-700/40 bg-red-950/15 p-4">
+        <div className="flex items-start gap-3">
+          <span aria-hidden className="text-2xl">📱</span>
+          <div className="flex-1">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-red-300">
+              Get critical kratom alerts on your iPhone
+            </h2>
+            <p className="mt-1 text-sm text-zinc-200">
+              On iOS you need to install iKratom to your home screen first
+              (Apple&apos;s rule). 30 seconds, free, no app store. Then push
+              notifications for {stateLabel} hearings, bill events, and live
+              meetings start working immediately.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a
+                href="/install/ios"
+                className="rounded bg-emerald-500 px-4 py-1.5 text-sm font-bold text-zinc-950 hover:bg-emerald-400"
+              >
+                📲 Show me how →
+              </a>
+              <button
+                type="button"
+                onClick={dismiss}
+                className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="rounded-lg border border-red-700/40 bg-red-950/15 p-4">
