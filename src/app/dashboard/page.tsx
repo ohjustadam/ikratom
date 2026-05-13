@@ -19,6 +19,8 @@ import { BadgesWidget } from "@/modules/dashboard/widgets/BadgesWidget";
 import { WhatsNewWidget } from "@/modules/dashboard/widgets/WhatsNewWidget";
 import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 import { InviteWidget } from "@/modules/dashboard/widgets/InviteWidget";
+import { PushOptInBanner } from "@/components/PushOptInBanner";
+import { listMyPushSubscriptions } from "@/modules/auth/actions-push";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 /**
@@ -43,6 +45,10 @@ export default async function DashboardPage({
   const { profile, email } = await getProfile();
   const layout = await getCockpitLayout();
   const replay = (await searchParams)?.replay ?? null;
+
+  // For the push opt-in banner — server-side detect whether this user
+  // has any push subscription. Banner hides itself when they do.
+  const pushSubs = await listMyPushSubscriptions();
 
   // Streak fields (fetched separately since getProfile doesn't include them)
   const streak = {
@@ -202,9 +208,18 @@ export default async function DashboardPage({
         )}
       </header>
 
+      {/* Push opt-in nudge for existing users who never saw the new
+          onboarding push step. Banner hides itself when the user has
+          push enabled, dismisses it, or runs an unsupported browser. */}
+      <PushOptInBanner
+        hasSubscriptions={pushSubs.length > 0}
+        vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null}
+        userState={profile?.state ?? null}
+      />
+
       {/* Render widgets in saved order. Falsey nodes (e.g. profile
           banner when profile is complete) silently render nothing. */}
-      <div className="space-y-6">
+      <div className="mt-6 space-y-6">
         {visibleWidgets.map((slot) => {
           const node = widgetNodes[slot.id];
           if (!node) return null;
