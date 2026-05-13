@@ -43,12 +43,17 @@ export async function PolicyPulseWidget({
       .limit(5),
     supabase
       .from("policy_alerts")
-      .select("id, kind, severity, title, locality, auto_pushed_at, created_at")
+      // bill_id + occurs_at needed for real-event-date resolve below
+      .select("id, kind, severity, title, locality, auto_pushed_at, created_at, occurs_at, bill_id")
       .eq("moderation_status", "approved")
       .in("severity", ["critical", "alert"])
-      .gte("created_at", since)
+      // 7-day ingest window (vs 24h before) — but second pass below
+      // filters to events that actually happened in last 24h. Wider
+      // ingest window means we catch alerts whose underlying event
+      // was today but our classifier ran today too.
+      .gte("created_at", new Date(Date.now() - 7 * 86_400_000).toISOString())
       .order("created_at", { ascending: false })
-      .limit(5),
+      .limit(20),
     supabase
       .from("municipal_meetings")
       .select("id, state, locality, body_name, meeting_at, moderation_reviewed_at")
@@ -77,14 +82,57 @@ export async function PolicyPulseWidget({
     });
   }
 
-  for (const a of alerts.data ?? []) {
+  // Resolve real event date per alert (same pattern as PRs #199, #203, #204).
+  // Only include alerts whose underlying event happened in the last 24h.
+  const alertRows = (alerts.data ?? []) as Array<{
+    id: string; kind: string; severity: string; title: string;
+    locality: string | null; created_at: string; occurs_at: string | null;
+    bill_id: string | null;
+  }>;
+  const alertIds = alertRows.map((a) => a.id);
+  const newsPubByAlertId = new Map<string, string>();
+  if (alertIds.length > 0) {
+    const { data: newsLinks } = await supabase
+      .from("news_items")
+      .select("policy_alert_id, published_at")
+      .in("policy_alert_id", alertIds);
+    for (const n of (newsLinks ?? []) as Array<{ policy_alert_id: string; published_at: string }>) {
+      if (n.policy_alert_id && !newsPubByAlertId.has(n.policy_alert_id)) {
+        newsPubByAlertId.set(n.policy_alert_id, n.published_at);
+      }
+    }
+  }
+  const widgetBillIds = alertRows.map((a) => a.bill_id).filter(Boolean) as string[];
+  const billLastActionMap = new Map<string, string>();
+  if (widgetBillIds.length > 0) {
+    const { data: bs } = await supabase
+      .from("bills")
+      .select("id, last_action_at")
+      .in("id", widgetBillIds);
+    for (const b of (bs ?? []) as Array<{ id: string; last_action_at: string | null }>) {
+      if (b.last_action_at) billLastActionMap.set(b.id, b.last_action_at);
+    }
+  }
+  for (const a of alertRows) {
+    let eventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;
+    if (!eventDate) {
+      const newsPub = newsPubByAlertId.get(a.id);
+      if (newsPub) eventDate = new Date(newsPub);
+    }
+    if (!eventDate && a.bill_id) {
+      const billPub = billLastActionMap.get(a.bill_id);
+      if (billPub) eventDate = new Date(billPub);
+    }
+    if (!eventDate) eventDate = new Date(a.created_at);
+    // 24h freshness gate — this widget is "what happened in last 24h"
+    if (Date.now() - eventDate.getTime() > 24 * 60 * 60 * 1000) continue;
     events.push({
       id: `alert-${a.id}`,
       kind: "alert",
       title: `${a.severity === "critical" ? "🚨" : "⚠️"} ${a.title.slice(0, 80)}`,
       state: /^[A-Z]{2}$/.test(a.locality ?? "") ? a.locality : null,
-      occurred_at: a.created_at,
-      link: `/pulse`,
+      occurred_at: eventDate.toISOString(),   // real event time, not ingest time
+      link: `/alerts/${a.id}`,                 // route to detail page (PR #193 fix)
     });
   }
 
