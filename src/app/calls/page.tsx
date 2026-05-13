@@ -126,6 +126,9 @@ export default async function CallsPage() {
           on-device (free), summarizes after, and feeds intel back to the platform.
         </p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <Link href="/calls/leaderboard" className="rounded border border-amber-700/40 bg-amber-950/20 px-3 py-1.5 text-amber-200 hover:border-amber-500">
+            🏆 Top callers leaderboard
+          </Link>
           <Link href="/calendar" className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 hover:border-emerald-500">
             📅 Full kratom calendar
           </Link>
