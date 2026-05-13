@@ -83,6 +83,16 @@ jobs:
         # Limit 200 per run = ~7 minutes at 2s polite delay between
         # items. Cooldown-aware router handles rate limits.
         run: node scripts/classify-news-policy.mjs --limit 200
+      - name: Auto-push approved critical alerts to in-state users
+        # Runs after the classifier so any newly-approved alerts this
+        # hour get pushed in the same cron tick. Whitelist of kinds
+        # excludes admin-only data-quality flags (scraper_stale, etc.)
+        # Per-alert dedupe via policy_alerts.auto_pushed_at.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.APP_URL }}
+        run: node scripts/push-critical-alerts.mjs
       - name: Auto-create campaigns from new actionable alerts (safety net)
         # As of migration 0068, this is handled in real-time by a Postgres
         # trigger (`trg_auto_campaign_on_alert`). Keeping the cron run as
