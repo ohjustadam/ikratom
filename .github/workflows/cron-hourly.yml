@@ -30,7 +30,13 @@ name: Hourly cron
 
 on:
   schedule:
+    # GitHub Actions cron is best-effort under load — observed actual
+    # cadence with single 'hourly' schedule was every 2-3h. Two
+    # schedules at :00 and :30 double our chances of hitting close
+    # to the hour. The concurrency lock below prevents pile-up if
+    # both fire while a prior run is still going.
     - cron: "0 * * * *"
+    - cron: "30 * * * *"
   workflow_dispatch: {}
 
 concurrency:
