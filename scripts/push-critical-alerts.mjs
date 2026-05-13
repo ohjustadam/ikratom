@@ -95,7 +95,66 @@ async function findTargetUsers(stateCode) {
   return (data ?? []).map((u) => u.id);
 }
 
+// Freshness gate: don't push alerts whose underlying event is stale.
+// Real events to check (in order of precedence):
+//   1. occurs_at — explicit event scheduled time (e.g. BoP hearing date)
+//   2. Linked news_item.published_at — for news_break / city_event / etc.
+//      where the alert was spawned from a news article
+//   3. Linked bill.last_action_at — for bill_event alerts
+//   4. Fallback: created_at (matches old behavior, but capped at 24h
+//      via the outer query anyway)
+//
+// Returns the most authoritative event date we can find, or null if
+// none — which means we treat the alert as 'undated' and skip it (a
+// classifier reprocessing old news shouldn't fire push).
+async function resolveRealEventDate(a) {
+  // Explicit scheduled time wins
+  if (a.occurs_at) return new Date(a.occurs_at);
+
+  // News-derived alerts: linked news_items via policy_alert_id back-ref
+  const { data: news } = await sb
+    .from("news_items")
+    .select("published_at")
+    .eq("policy_alert_id", a.id)
+    .order("published_at", { ascending: false })
+    .limit(1);
+  if (news?.[0]?.published_at) return new Date(news[0].published_at);
+
+  // Bill-derived alerts
+  if (a.bill_id) {
+    const { data: bill } = await sb
+      .from("bills")
+      .select("last_action_at")
+      .eq("id", a.bill_id)
+      .maybeSingle();
+    if (bill?.last_action_at) return new Date(bill.last_action_at);
+  }
+
+  // No real event date found — fall back to created_at so we don't
+  // silently drop alerts that legitimately lack source linkage.
+  return new Date(a.created_at);
+}
+
+const FRESHNESS_DAYS = 7;
+const FRESHNESS_MS = FRESHNESS_DAYS * 86_400_000;
+
 async function processAlert(a) {
+  // ─── Freshness gate ───────────────────────────────────────────────
+  const eventDate = await resolveRealEventDate(a);
+  const eventAgeMs = Date.now() - eventDate.getTime();
+  if (eventAgeMs > FRESHNESS_MS) {
+    const days = Math.floor(eventAgeMs / 86_400_000);
+    console.log(`  · skip (stale ${days}d): ${a.title?.slice(0, 70)}`);
+    // STAMP it so we don't reconsider every hour — once stale, always stale
+    if (!DRY_RUN) {
+      await sb.from("policy_alerts").update({
+        auto_pushed_at: new Date().toISOString(),
+        auto_pushed_count: 0,
+      }).eq("id", a.id);
+    }
+    return { alert: a.id, userIds: 0, inserted: 0, skippedStale: true };
+  }
+
   const stateCode = extractStateCode(a.locality);
   const userIds = await findTargetUsers(stateCode);
 
@@ -155,14 +214,14 @@ async function processAlert(a) {
 const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 const { data: alerts, error } = await sb
   .from("policy_alerts")
-  .select("id, kind, title, body, severity, locality, created_at")
+  .select("id, kind, title, body, severity, locality, created_at, occurs_at, bill_id")
   .in("severity", ["critical", "alert"])
   .in("kind", [...USER_FACING_KINDS])    // exclude scraper_stale + other admin-only kinds
   .eq("moderation_status", "approved")
   .is("auto_pushed_at", null)
   .gte("created_at", since)
   .order("created_at", { ascending: true })
-  .limit(20);
+  .limit(40);   // larger pool — many will fail freshness gate, so widen the slate
 
 if (error) {
   // Most likely auto_pushed_at column hasn't been migrated yet.
@@ -175,16 +234,18 @@ console.log(`Push-critical-alerts${DRY_RUN ? " [DRY RUN]" : ""}: ${alerts.length
 const t0 = Date.now();
 let totalInserted = 0;
 let totalUsers = 0;
+let totalStale = 0;
 const results = [];
 for (const a of alerts) {
   const r = await processAlert(a);
   results.push(r);
   totalInserted += r.inserted ?? 0;
   totalUsers += r.userIds ?? 0;
+  if (r.skippedStale) totalStale++;
 }
 
 const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-console.log(`\nDone in ${elapsed}s — ${results.length} alerts, ${totalInserted} notifications inserted, ${totalUsers} unique user-touches.`);
+console.log(`\nDone in ${elapsed}s — ${results.length} alerts (${totalStale} stale-skipped, ${results.length - totalStale} fresh), ${totalInserted} notifications inserted, ${totalUsers} user-touches.`);
 
 try {
   await sb.from("scraper_runs").insert({
