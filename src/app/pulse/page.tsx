@@ -75,23 +75,72 @@ export default async function PulsePage({
 
   // Pull alerts. Severity-gated zones (critical / alert / watch). We
   // don't expose 'routine' on the main feed — too noisy.
-  // If ?state= is set, scope the locality filter so users see only
-  // events for that state (locality can be "NY" or "Marshall, IL"
-  // so we use ilike to match either).
+  // If ?state= is set, scope the locality filter.
+  // Freshness gate: ingested in last 30 days (covers the active intel
+  // window). Stale alerts past 30d only surface via /alerts/[id]
+  // direct URL or /states/[code] archive.
+  const since30dIso = new Date(Date.now() - 30 * 86_400_000).toISOString();
   let alertsQuery = supabase
     .from("policy_alerts")
     .select("id, kind, severity, title, body, locality, source_url, campaign_id, occurs_at, expires_at, created_at, bill_id")
     .eq("moderation_status", "approved")
-    .in("severity", ["critical", "alert", "watch"]);
+    .in("severity", ["critical", "alert", "watch"])
+    .gte("created_at", since30dIso);
   if (isValidState) {
-    // Match bare state code OR "City, ST" pattern. PostgreSQL ilike pattern.
     alertsQuery = alertsQuery.or(`locality.eq.${requestedState},locality.ilike.%, ${requestedState}`);
   }
   const { data: alertsRaw } = await alertsQuery
-    .order("severity", { ascending: false }) // alphabetic — critical before watch — close enough
+    .order("severity", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(40);
-  const alerts = (alertsRaw ?? []) as Alert[];
+    .limit(60);   // larger pull — many drop after real-event-date filter
+  const allRecentAlerts = (alertsRaw ?? []) as Alert[];
+
+  // Second-pass: resolve REAL event date per alert (same logic as
+  // push-critical-alerts.mjs from PR #199) and bucket into
+  //   - 'fresh' (event in last 14d) — shown in critical/alert sections
+  //   - 'recent' (14-30d, but fresh ingest) — shown in watch section
+  // This stops 'Today's breaking' from displaying 100-day-old news
+  // that just got classified today.
+  const alertIds = allRecentAlerts.map((a) => a.id);
+  const newsByAlertId = new Map<string, string>();   // alert_id → news published_at
+  if (alertIds.length > 0) {
+    const { data: newsLinks } = await supabase
+      .from("news_items")
+      .select("policy_alert_id, published_at")
+      .in("policy_alert_id", alertIds)
+      .order("published_at", { ascending: false });
+    for (const n of (newsLinks ?? []) as Array<{ policy_alert_id: string; published_at: string }>) {
+      if (n.policy_alert_id && !newsByAlertId.has(n.policy_alert_id)) {
+        newsByAlertId.set(n.policy_alert_id, n.published_at);
+      }
+    }
+  }
+  const billIdsToFetch = allRecentAlerts.map((a) => a.bill_id).filter(Boolean) as string[];
+  const billLastActionByBillId = new Map<string, string>();
+  if (billIdsToFetch.length > 0) {
+    const { data: bills } = await supabase
+      .from("bills")
+      .select("id, last_action_at")
+      .in("id", billIdsToFetch);
+    for (const b of (bills ?? []) as Array<{ id: string; last_action_at: string | null }>) {
+      if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
+    }
+  }
+  function resolveEventAgeDays(a: Alert): number {
+    let eventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;
+    if (!eventDate) {
+      const newsPub = newsByAlertId.get(a.id);
+      if (newsPub) eventDate = new Date(newsPub);
+    }
+    if (!eventDate && a.bill_id) {
+      const billPub = billLastActionByBillId.get(a.bill_id);
+      if (billPub) eventDate = new Date(billPub);
+    }
+    if (!eventDate) eventDate = new Date(a.created_at);
+    return Math.floor((Date.now() - eventDate.getTime()) / 86_400_000);
+  }
+  const FRESH_DAYS = 14;
+  const alerts = allRecentAlerts.filter((a) => resolveEventAgeDays(a) <= FRESH_DAYS);
 
   const critical = alerts.filter((a) => a.severity === "critical");
   const alert = alerts.filter((a) => a.severity === "alert");
