@@ -191,7 +191,7 @@ export default async function CallsLeaderboardPage({ searchParams }: {
 
       <p className="mt-6 text-[10px] text-zinc-600">
         Privacy: only users with profile visibility set to <span className="font-mono">public</span> appear by name.
-        Others are aggregated anonymously by state. Set your visibility in <Link href="/account/privacy" className="text-emerald-400 hover:underline">account settings</Link>.
+        Others are aggregated anonymously by state. Set your visibility in <Link href="/account/character" className="text-emerald-400 hover:underline">your profile</Link>.
       </p>
     </div>
   );

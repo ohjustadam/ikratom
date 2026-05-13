@@ -186,6 +186,17 @@ export default async function CalendarPage({ searchParams }: {
           Found something we missed? Drop the URL in <Link href="/alerts/submit" className="text-emerald-400 hover:underline">intel-tip</Link>.
         </p>
 
+        {/* Coverage stat — surfaces the breadth of what's being surfaced
+            so users immediately see "this platform is actually working." */}
+        {events.length > 0 && (
+          <p className="mt-2 inline-flex flex-wrap items-baseline gap-1 rounded-md border border-emerald-700/40 bg-emerald-950/15 px-2.5 py-1 text-xs text-emerald-200">
+            <span className="font-mono font-bold">{events.length}</span>
+            <span>{events.length === 1 ? "event" : "events"} across</span>
+            <span className="font-mono font-bold">{[...new Set(events.map((e) => e.state).filter(Boolean))].length}</span>
+            <span>{[...new Set(events.map((e) => e.state).filter(Boolean))].length === 1 ? "state" : "states"} · next 90 days</span>
+          </p>
+        )}
+
         {/* Subscribe-to-calendar CTA — exposes the iCal feed users can
             add to Apple Calendar / Google Calendar / Outlook so every
             new event auto-syncs to their phone + computer. */}
