@@ -48,6 +48,7 @@ export async function generateMetadata({ params }: { params: Params }) {
  *      (all rule-based — see src/lib/legislator-action-plan.ts)
  *   5. Currently deciding — bills in their committees right now
  *   6. Sponsorship history — bills they've authored or cosponsored
+ *   6b. Voting record — Phase 3 D1; roll-call history on kratom bills
  *   7. Committee positions — full assignment list, kratom-relevant flagged
  *   8. Donor profile — federal only (matched_status='matched')
  *   9. Intel gaps — honest "we don't have X yet" with admin-request links
@@ -80,6 +81,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
     committeesRaw,
     donorRow,
     viewerData,
+    votingRaw,
   ] = await Promise.all([
     sb.from("legislator_kratom_stance")
       .select("stance, rationale_md, last_evidence_url, last_updated_at")
@@ -98,6 +100,15 @@ export default async function BriefingPage({ params }: { params: Params }) {
           .maybeSingle()
       : Promise.resolve({ data: null }),
     sb.auth.getUser(),
+    // Phase 3 D1: voting record. Wrapped in try-style fallback so
+    // pre-migration deploys (before 0126) render the rest of the
+    // page without erroring. Pulls every kratom-bill vote where this
+    // legislator participated, joined to the bill metadata.
+    sb.from("bill_vote_members")
+      .select("vote_text, vote_value, bill_vote_id, bill_votes!inner(vote_date, chamber, motion, passed, yea_count, nay_count, bills!inner(id, bill_number, kratom_relevance, title, state))")
+      .eq("legislator_id", id)
+      .order("bill_votes(vote_date)", { ascending: false })
+      .limit(50),
   ]);
 
   const stance: Stance =
@@ -191,6 +202,72 @@ export default async function BriefingPage({ params }: { params: Params }) {
   const cosponsor = sponsorships.filter((s) => s.classification !== "primary");
   const has_anti_sponsorship = sponsorships.some((s) => s.kratom_relevance === "anti");
   const has_pro_sponsorship = sponsorships.some((s) => s.kratom_relevance === "pro");
+
+  // ── Voting record (Phase 3 D1). Flatten the joined response into
+  // a clean shape. votingRaw.data may be null on pre-migration deploys
+  // (table doesn't exist yet) — wrap defensively.
+  type VotingRecord = {
+    bill_id: string;
+    bill_number: string;
+    bill_title: string | null;
+    bill_state: string;
+    kratom_relevance: string | null;
+    vote_text: string;
+    vote_value: number;
+    vote_date: string | null;
+    chamber: string | null;
+    motion: string | null;
+    passed: boolean | null;
+    yea_count: number | null;
+    nay_count: number | null;
+  };
+  type BillVoteJoinedBill = {
+    id: string;
+    bill_number: string;
+    kratom_relevance: string | null;
+    title: string | null;
+    state: string;
+  };
+  type BillVoteJoined = {
+    vote_date: string | null;
+    chamber: string | null;
+    motion: string | null;
+    passed: boolean | null;
+    yea_count: number | null;
+    nay_count: number | null;
+    bills: BillVoteJoinedBill | BillVoteJoinedBill[] | null;
+  };
+  type VoteMemberJoined = {
+    vote_text: string;
+    vote_value: number;
+    bill_votes: BillVoteJoined | BillVoteJoined[] | null;
+  };
+  const votingRecord: VotingRecord[] = [];
+  try {
+    for (const row of ((votingRaw?.data ?? []) as VoteMemberJoined[])) {
+      const bv = Array.isArray(row.bill_votes) ? row.bill_votes[0] : row.bill_votes;
+      if (!bv) continue;
+      const b = Array.isArray(bv.bills) ? bv.bills[0] : bv.bills;
+      if (!b) continue;
+      votingRecord.push({
+        bill_id: b.id,
+        bill_number: b.bill_number,
+        bill_title: b.title,
+        bill_state: b.state,
+        kratom_relevance: b.kratom_relevance,
+        vote_text: row.vote_text,
+        vote_value: row.vote_value,
+        vote_date: bv.vote_date,
+        chamber: bv.chamber,
+        motion: bv.motion,
+        passed: bv.passed,
+        yea_count: bv.yea_count,
+        nay_count: bv.nay_count,
+      });
+    }
+  } catch {
+    // Pre-migration deploy — silently empty.
+  }
 
   // ── Donor signals (federal only)
   type DonorJsonKratomRelevant = { pharma?: number; alcohol?: number; tobacco?: number; retail?: number; hospital_health?: number; total?: number };
@@ -490,6 +567,89 @@ export default async function BriefingPage({ params }: { params: Params }) {
           </ul>
         </section>
       ) : null}
+
+      {/* ── Voting record (Phase 3 D1) ─────────────────────────── */}
+      {votingRecord.length > 0 && (() => {
+        // Compute summary stats for the section header
+        const yeaCount = votingRecord.filter((v) => v.vote_text?.toLowerCase().includes("yea") || v.vote_value === 1).length;
+        const nayCount = votingRecord.filter((v) => v.vote_text?.toLowerCase().includes("nay") || v.vote_value === 2).length;
+        const otherCount = votingRecord.length - yeaCount - nayCount;
+        const VOTE_STYLE: Record<string, string> = {
+          yea: "bg-emerald-950/40 text-emerald-300",
+          nay: "bg-red-950/40 text-red-300",
+        };
+        return (
+          <section className="mb-6 rounded-lg border-2 border-amber-500/40 bg-amber-950/10 p-5">
+            <h2 className="mb-2 flex flex-wrap items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-amber-300">
+              🗳 Voting record on kratom bills
+              <span className="text-[10px] font-normal text-zinc-500">
+                ({votingRecord.length} roll-call vote{votingRecord.length === 1 ? "" : "s"} · {yeaCount} yea · {nayCount} nay{otherCount > 0 ? ` · ${otherCount} other` : ""})
+              </span>
+            </h2>
+            <p className="text-[11px] text-zinc-400">
+              Actual voting history is the strongest predictive signal — much stronger than stance drafts. A YES on the last kratom bill is a near-certain YES on the next.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {votingRecord.slice(0, 15).map((v, i) => {
+                const voteKey = v.vote_text?.toLowerCase().includes("yea") ? "yea"
+                  : v.vote_text?.toLowerCase().includes("nay") ? "nay"
+                  : "other";
+                const voteCls = VOTE_STYLE[voteKey] ?? "bg-zinc-900 text-zinc-400";
+                const isAnti = v.kratom_relevance === "anti";
+                const isPro = v.kratom_relevance === "pro";
+                return (
+                  <li key={i}>
+                    <a
+                      href={`/bills/${v.bill_id}`}
+                      className="block rounded-md border border-amber-700/20 bg-zinc-950/40 p-2.5 transition hover:border-amber-500"
+                    >
+                      <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                        <span className={`rounded px-1.5 py-0.5 font-bold uppercase ${voteCls}`}>
+                          {v.vote_text || "?"}
+                        </span>
+                        <span className="font-mono font-semibold text-zinc-200">
+                          {v.bill_state} · {v.bill_number}
+                        </span>
+                        {isAnti && (
+                          <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-300">Anti</span>
+                        )}
+                        {isPro && (
+                          <span className="rounded bg-emerald-950/40 px-1.5 py-0.5 text-emerald-300">Pro</span>
+                        )}
+                        <span className="ml-auto text-zinc-500">
+                          {v.vote_date ? new Date(v.vote_date).toLocaleDateString() : "—"}
+                        </span>
+                      </div>
+                      {v.motion && (
+                        <p className="mt-1 text-[11px] text-zinc-500">{v.motion}</p>
+                      )}
+                      {v.bill_title && (
+                        <p className="mt-1 text-xs leading-snug text-zinc-100">
+                          {v.bill_title.slice(0, 110)}{v.bill_title.length > 110 ? "…" : ""}
+                        </p>
+                      )}
+                      <p className="mt-1 text-[10px] text-zinc-600">
+                        Final tally: {v.yea_count ?? "?"}–{v.nay_count ?? "?"}
+                        {v.passed != null && (
+                          <span className="ml-1">
+                            ({v.passed ? "passed" : "failed"})
+                          </span>
+                        )}
+                        {v.chamber && <span className="ml-1">· {v.chamber}</span>}
+                      </p>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+            {votingRecord.length > 15 && (
+              <p className="mt-2 text-[11px] text-zinc-500">
+                + {votingRecord.length - 15} older votes not shown.
+              </p>
+            )}
+          </section>
+        );
+      })()}
 
       {/* ── Committee positions ────────────────────────────────── */}
       {committees.length > 0 && (
