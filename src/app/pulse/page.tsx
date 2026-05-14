@@ -119,13 +119,31 @@ export default async function PulsePage({
   }
   const billIdsToFetch = allRecentAlerts.map((a) => a.bill_id).filter(Boolean) as string[];
   const billLastActionByBillId = new Map<string, string>();
+  const billCommitteeByBillId = new Map<string, string>();
   if (billIdsToFetch.length > 0) {
-    const { data: bills } = await supabase
-      .from("bills")
-      .select("id, last_action_at")
-      .in("id", billIdsToFetch);
-    for (const b of (bills ?? []) as Array<{ id: string; last_action_at: string | null }>) {
-      if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
+    // Pull last_action_at (used for event-age bucketing) + current
+    // committee assignment (used for the per-viewer "Your rep decides"
+    // chip below). Wrapped in try/catch so the page degrades gracefully
+    // on pre-migration deploys where current_committee_name doesn't
+    // exist as a column yet.
+    try {
+      const { data: bills } = await supabase
+        .from("bills")
+        .select("id, last_action_at, current_committee_name")
+        .in("id", billIdsToFetch);
+      for (const b of (bills ?? []) as Array<{ id: string; last_action_at: string | null; current_committee_name: string | null }>) {
+        if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
+        if (b.current_committee_name) billCommitteeByBillId.set(b.id, b.current_committee_name);
+      }
+    } catch {
+      // Pre-migration fallback: query without the new column.
+      const { data: bills } = await supabase
+        .from("bills")
+        .select("id, last_action_at")
+        .in("id", billIdsToFetch);
+      for (const b of (bills ?? []) as Array<{ id: string; last_action_at: string | null }>) {
+        if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
+      }
     }
   }
   function resolveEventAgeDays(a: Alert): number {
@@ -147,6 +165,11 @@ export default async function PulsePage({
   const critical = alerts.filter((a) => a.severity === "critical");
   const alert = alerts.filter((a) => a.severity === "alert");
   const watch = alerts.filter((a) => a.severity === "watch");
+
+  // myLeverageBillIds is populated AFTER user + viewerProfile resolve
+  // (further down). Declared as let so the alert-card render can read
+  // it; the value is filled in below.
+  let myLeverageBillIds: Set<string> = new Set();
 
   // Active campaigns linked to alerts (the ones we just auto-generated)
   const alertCampaignIds = alerts.map((a) => a.campaign_id).filter(Boolean) as string[];
@@ -173,16 +196,62 @@ export default async function PulsePage({
   const since14d = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const { data: { user } } = await supabase.auth.getUser();
   let profileState: string | null = null;
+  type ViewerProfile = {
+    state: string | null;
+    congressional_district: string | null;
+    state_senate_district: string | null;
+    state_house_district: string | null;
+    city: string | null;
+    county: string | null;
+  };
+  let viewerProfile: ViewerProfile | null = null;
   if (user) {
     const { data: prof } = await supabase
       .from("profiles")
-      .select("state")
+      .select("state, congressional_district, state_senate_district, state_house_district, city, county")
       .eq("id", user.id)
       .single();
-    profileState = (prof as { state: string | null } | null)?.state ?? null;
+    viewerProfile = (prof as unknown) as ViewerProfile | null;
+    profileState = viewerProfile?.state ?? null;
   }
   // ?state= overrides profile state for "view a different state" link sharing
   const viewerState: string | null = isValidState ? requestedState : profileState;
+
+  // Cross-reference: which of the alerts are about bills currently
+  // sitting in a committee where the viewer has a representative?
+  // These get the ⚡ "Your rep decides" chip — the structural-leverage
+  // signal the platform exists to surface.
+  //
+  // Requires: viewer signed in, has profile state, has reps resolved
+  // via getUserLegislators, AND those reps have at least one committee
+  // assignment matching one of the alert-linked bills'
+  // current_committee_name. Empty set when any missing — the chip just
+  // doesn't render. Wrapped in try/catch so failures degrade silently.
+  if (user && viewerProfile?.state && billCommitteeByBillId.size > 0) {
+    try {
+      const { getUserLegislators } = await import("@/lib/legislators");
+      const { committeesMatch } = await import("@/lib/bill-committee");
+      const reps = await getUserLegislators(supabase, viewerProfile);
+      if (reps.length > 0) {
+        const { data: assignments } = await supabase
+          .from("legislator_committees")
+          .select("committee_name")
+          .in("legislator_id", reps.map((r) => r.id));
+        const myCommitteeNames = (assignments ?? []).map(
+          (a) => (a as { committee_name: string }).committee_name,
+        );
+        if (myCommitteeNames.length > 0) {
+          for (const [billId, committeeName] of billCommitteeByBillId) {
+            if (myCommitteeNames.some((mc) => committeesMatch(committeeName, mc))) {
+              myLeverageBillIds.add(billId);
+            }
+          }
+        }
+      }
+    } catch {
+      // best-effort: chips just won't show
+    }
+  }
 
   // First-visit tooltip state — fires once per surface
   const tourSeen = await getTourSeen();
@@ -428,7 +497,7 @@ export default async function PulsePage({
           </h2>
           <div className="space-y-3">
             {critical.map((a) => (
-              <AlertCard key={a.id} alert={a} campaign={alertCampaigns?.find((c) => c.id === a.campaign_id) as Campaign | undefined} />
+              <AlertCard key={a.id} alert={a} campaign={alertCampaigns?.find((c) => c.id === a.campaign_id) as Campaign | undefined} isMyLeverage={!!a.bill_id && myLeverageBillIds.has(a.bill_id)} />
             ))}
           </div>
         </section>
@@ -510,7 +579,7 @@ export default async function PulsePage({
           </h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {watch.map((a) => (
-              <AlertCard key={a.id} alert={a} compact />
+              <AlertCard key={a.id} alert={a} compact isMyLeverage={!!a.bill_id && myLeverageBillIds.has(a.bill_id)} />
             ))}
           </div>
         </section>
@@ -519,7 +588,7 @@ export default async function PulsePage({
   );
 }
 
-function AlertCard({ alert, campaign, compact }: { alert: Alert; campaign?: Campaign; compact?: boolean }) {
+function AlertCard({ alert, campaign, compact, isMyLeverage }: { alert: Alert; campaign?: Campaign; compact?: boolean; isMyLeverage?: boolean }) {
   const kindMeta = KIND_BADGE[alert.kind] ?? KIND_BADGE.news_break;
   const sevDot = SEV_DOT[alert.severity] ?? "bg-zinc-600";
   const occursDate = alert.occurs_at ? new Date(alert.occurs_at).toLocaleString(undefined, {
@@ -557,6 +626,14 @@ function AlertCard({ alert, campaign, compact }: { alert: Alert; campaign?: Camp
         <span className={`rounded border px-2 py-0.5 font-mono uppercase ${kindMeta.cls}`}>
           {kindMeta.label}
         </span>
+        {isMyLeverage && (
+          <span
+            className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-950"
+            title="Your representative sits on the committee currently deciding this bill — your call carries outsized weight here."
+          >
+            ⚡ Your rep decides
+          </span>
+        )}
         <span className="font-mono text-zinc-500">{alert.locality}</span>
         {occursDate && (
           <span className="text-zinc-400" title="When the event occurs">
