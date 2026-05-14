@@ -7,8 +7,10 @@
  *   2. Cache the openfec_candidate_id on first match
  *   3. Pull /candidates/<id>/totals for the current cycle
  *   4. Pull /candidates/<id>/committees → principal committee_id
- *   5. Pull /schedules/schedule_a/by_industry?committee_id=Y → industries
- *   6. Categorize industries as kratom-relevant (pharma, retail, etc.)
+ *   5. Pull /schedules/schedule_a/by_employer?committee_id=Y → top donors
+ *   6. Categorize employers as kratom-relevant (pharma, retail, etc.)
+ *      via brand-name substring match. OpenFEC has no industry
+ *      aggregation endpoint — industry data is OpenSecrets, not FEC.
  *
  * Cron: daily-cron.yml weekly slot would be ideal; for now run
  * manually:
@@ -61,12 +63,46 @@ const CYCLE = new Date().getFullYear() % 2 === 0
   ? new Date().getFullYear()
   : new Date().getFullYear() + 1;
 
-const KRATOM_RELEVANT_INDUSTRIES = {
-  pharma: ["H4100", "H4200", "H4300"],         // pharmaceutical manufacturing
-  retail: ["F2000", "F3000"],                  // general retail incl. convenience
-  alcohol: ["N2000", "N2200"],                 // beer + wine + spirits
-  tobacco: ["N3000"],                          // tobacco
-  hospital_health: ["H1100", "H1300"],         // hospital + nursing home (opioid Rx volume)
+// Employer-name → kratom-relevance bucket. Matched case-insensitively
+// as substrings against employer names from FEC schedule_a/by_employer.
+// (OpenFEC has no industry-aggregation endpoint; industry data is
+// OpenSecrets, not FEC. Matching against well-known employer brand
+// names is what FEC actually exposes via the by_employer aggregation.)
+//
+// Conservative list — only well-known industry-leader brands. Misses
+// the long tail of small donors but captures the major-corporate-PAC
+// money that matters for conflict-of-interest signaling. Expand here
+// as new patterns emerge from real data.
+const EMPLOYER_BUCKETS = {
+  pharma: [
+    "pfizer", "merck", "johnson & johnson", "j&j ", "novartis", "roche",
+    "abbvie", "bristol myers", "bristol-myers", "eli lilly", "lilly ",
+    "gilead", "amgen", "biogen", "regeneron", "vertex pharma", "moderna",
+    "phrma", "pharmaceutical research", "biotech",
+    "pharmaceutical", "pharma ", "biopharma",
+  ],
+  alcohol: [
+    "anheuser-busch", "anheuser busch", "ab inbev", "diageo",
+    "molson coors", "constellation brands", "brown-forman", "brown forman",
+    "heineken", "bacardi", "pernod ricard",
+    "beer ", "wine ", "liquor", "distilled spirits", "alcohol",
+    "brewers", "vintners",
+  ],
+  tobacco: [
+    "altria", "philip morris", "reynolds american", "british american tobacco",
+    "swedish match", "imperial brands",
+    "tobacco", "cigarette", "vapor",
+  ],
+  retail: [
+    "walmart", "amazon", "target corp", "kroger", "costco", "walgreens",
+    "cvs ", "cvs health", "rite aid", "national retail federation",
+    "convenience stores", "nacs ",
+  ],
+  hospital_health: [
+    "hca healthcare", "hca ", "ascension", "cleveland clinic", "mayo clinic",
+    "kaiser permanente", "tenet healthcare", "universal health services",
+    "american hospital association", "aha ",
+  ],
 };
 
 async function fec(path, params = {}) {
@@ -83,13 +119,20 @@ async function fec(path, params = {}) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function categorizeRelevant(industries) {
+// Categorize by employer name. Matches substrings case-insensitively
+// against the EMPLOYER_BUCKETS lookup. Returns aggregate totals per
+// bucket so the briefing UI can flag conflict-of-interest signals.
+function categorizeRelevant(employers) {
   const buckets = { pharma: 0, retail: 0, alcohol: 0, tobacco: 0, hospital_health: 0, total: 0 };
-  for (const i of industries) {
-    buckets.total += Number(i.total ?? 0);
-    for (const [bucket, codes] of Object.entries(KRATOM_RELEVANT_INDUSTRIES)) {
-      if (codes.includes(i.disbursement_purpose_category_full ?? i.fec_industry)) {
-        buckets[bucket] += Number(i.total ?? 0);
+  for (const e of employers) {
+    const amount = Number(e.total ?? 0);
+    buckets.total += amount;
+    const name = String(e.employer ?? "").toLowerCase();
+    if (!name) continue;
+    for (const [bucket, patterns] of Object.entries(EMPLOYER_BUCKETS)) {
+      if (patterns.some((p) => name.includes(p))) {
+        buckets[bucket] += amount;
+        break; // employer goes into at most one bucket; first match wins
       }
     }
   }
@@ -166,43 +209,37 @@ async function syncOne(leg) {
     console.log(`  ⚠ committees failed: ${e.message?.slice(0, 100)}`);
   }
 
-  // Industries (only if we have a committee)
-  let industries = [];
+  // Employers (only if we have a committee). OpenFEC has no industry-
+  // aggregation endpoint; we derive industry buckets from employer
+  // names below via categorizeRelevant.
+  //
+  // Previously also called /schedules/schedule_a/by_industry/ — that
+  // endpoint returns 500 (industry data is OpenSecrets, not FEC). Also
+  // used sort '-contribution_receipt_amount' which is 422; only
+  // committee_id, count, cycle, employer, employer_text, idx, and
+  // total are valid sort fields here.
   let employers = [];
   if (committeeId) {
-    try {
-      const indData = await fec(`/schedules/schedule_a/by_industry/`, {
-        committee_id: committeeId,
-        cycle: CYCLE,
-        per_page: 20,
-        sort: "-contribution_receipt_amount",
-      });
-      industries = (indData.results ?? []).map((r) => ({
-        ...r,
-        total: Number(r.total ?? r.contribution_receipt_amount ?? 0),
-      }));
-    } catch (e) {
-      console.log(`  ⚠ industries failed: ${e.message?.slice(0, 100)}`);
-    }
-    await sleep(500);
     try {
       const empData = await fec(`/schedules/schedule_a/by_employer/`, {
         committee_id: committeeId,
         cycle: CYCLE,
-        per_page: 20,
-        sort: "-contribution_receipt_amount",
+        per_page: 100,
+        sort: "-total",
       });
       employers = (empData.results ?? []).map((r) => ({
-        ...r,
-        total: Number(r.total ?? r.contribution_receipt_amount ?? 0),
+        employer: r.employer,
+        total: Number(r.total ?? 0),
+        count: Number(r.count ?? 0),
       }));
     } catch (e) {
       console.log(`  ⚠ employers failed: ${e.message?.slice(0, 100)}`);
     }
   }
 
-  // Categorize relevance
-  const relevant = categorizeRelevant(industries);
+  // Categorize relevance by matching employer names against bucket
+  // patterns (pharma / alcohol / tobacco / retail / hospital_health).
+  const relevant = categorizeRelevant(employers);
 
   // Persist
   const row = {
@@ -211,13 +248,14 @@ async function syncOne(leg) {
     cycle: CYCLE,
     total_receipts: Number(totals?.receipts ?? 0),
     total_disbursements: Number(totals?.disbursements ?? 0),
-    top_industries: industries.slice(0, 10).map((i) => ({
-      industry: i.disbursement_purpose_category_full ?? i.industry ?? "(unknown)",
-      amount: Number(i.total ?? 0),
-    })),
-    top_employers: employers.slice(0, 10).map((e) => ({
+    // top_industries kept as empty array for schema backward compat —
+    // OpenFEC's by_industry endpoint doesn't exist, so we no longer
+    // populate this. The briefing UI already prefers top_employers.
+    top_industries: [],
+    top_employers: employers.slice(0, 20).map((e) => ({
       employer: e.employer ?? "(unknown)",
       amount: Number(e.total ?? 0),
+      count: Number(e.count ?? 0),
     })),
     kratom_relevant: relevant,
     resolved_status: committeeId ? "matched" : "no_committee",
@@ -238,7 +276,11 @@ async function syncOne(leg) {
       .eq("id", leg.id);
   }
 
-  console.log(`  ✓ $${(row.total_receipts/1000).toFixed(0)}k receipts | ${industries.length} industries | pharma $${(relevant.pharma/1000).toFixed(0)}k`);
+  const flags = [];
+  if (relevant.pharma > 1000) flags.push(`pharma $${(relevant.pharma/1000).toFixed(0)}k`);
+  if (relevant.alcohol > 1000) flags.push(`alcohol $${(relevant.alcohol/1000).toFixed(0)}k`);
+  if (relevant.tobacco > 1000) flags.push(`tobacco $${(relevant.tobacco/1000).toFixed(0)}k`);
+  console.log(`  ✓ $${(row.total_receipts/1000).toFixed(0)}k receipts | ${employers.length} top employers${flags.length ? " | " + flags.join(" | ") : ""}`);
   return "ok";
 }
 
