@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
+import { BillTimeline } from "./BillTimeline";
 import { displayTitle, displaySubtitle } from "@/lib/bill-title";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
@@ -390,6 +391,11 @@ export default async function BillDetailPage({
           for "get pushed when this bill changes status". */}
       <SignUpNudge context="bill" stateCode={bill.state} className="mb-6" />
       <EnablePushNudge context="bill" stateCode={bill.state} className="mb-6" />
+
+      {/* Per-bill timeline — surfaces the legislative-journey stage tracker
+          + full action history. Lobbyists know the planned next-step
+          calendar; this gives advocates the same intel + a status badge. */}
+      <BillTimeline billId={bill.id} currentStatus={bill.status} />
 
       {/* Stale warning — most important for SB-1639-style problems */}
       {isStale && (
