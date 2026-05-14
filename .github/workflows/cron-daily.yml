@@ -38,6 +38,19 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/verify-bill-status-ai.mjs --all
+      - name: Auto-resolve sync discrepancies that don't need admin
+        # For each scraper_stale alert, check:
+        #   1. Did DB catch up since the alert was created? (resolve)
+        #   2. Are DB+AI just status-synonyms? (resolve, e.g. committee == in_committee)
+        #   3. Else if LegiScan key present: tie-break via LegiScan
+        #      - LegiScan matches DB → AI was wrong (resolve)
+        #      - LegiScan matches AI → update bill from LegiScan (resolve)
+        # Cases that fail all of the above stay open for /admin/sync-discrepancies.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
+        run: node scripts/auto-resolve-sync-discrepancies.mjs --limit 100
 
   openfec-donor-sync:
     # Refresh OpenFEC donor data for federal legislators (us_senate +

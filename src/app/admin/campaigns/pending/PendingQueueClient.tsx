@@ -313,8 +313,38 @@ export function PendingQueueClient({ rows, totalCount, stateCounts, currentParam
           Showing {rows.length} of {totalCount}.{" "}
           {totalCount > rows.length && <span>Refine the filter to see the rest.</span>}
         </p>
-        {msg && <p className="text-zinc-300">{msg}</p>}
       </div>
+
+      {/* Toast — much more visible than a footer line. MFA errors get
+          a direct re-verify link so admin doesn't have to hunt. */}
+      {msg && (
+        <div className={`fixed left-1/2 top-20 z-40 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border p-4 shadow-2xl ${
+          msg.startsWith("✗")
+            ? "border-red-700/60 bg-red-950/90"
+            : "border-emerald-700/60 bg-emerald-950/90"
+        }`}>
+          <p className={`text-sm font-semibold ${msg.startsWith("✗") ? "text-red-200" : "text-emerald-200"}`}>
+            {msg}
+          </p>
+          {msg.toLowerCase().includes("two-factor") && (
+            <div className="mt-3 flex items-center gap-3 text-xs">
+              <a
+                href="/login/mfa"
+                className="rounded bg-emerald-500 px-3 py-1.5 font-semibold text-zinc-950 hover:bg-emerald-400"
+              >
+                Verify TOTP now →
+              </a>
+              <button
+                type="button"
+                onClick={() => setMsg(null)}
+                className="text-zinc-400 hover:text-zinc-200"
+              >
+                dismiss
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Sticky bulk action bar (only when selection exists) */}
       {selectedIds.length > 0 && (
