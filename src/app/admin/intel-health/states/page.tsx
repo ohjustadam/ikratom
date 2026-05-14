@@ -45,7 +45,15 @@ type StateStat = {
   active_bills: number;
   upcoming_meetings: number;
   alerts_30d: number;
-  briefing_published_at: string | null;
+  briefing_generated_at: string | null;
+  briefing_body_len: number;
+  briefing_critique: {
+    enabled: boolean;
+    revisions_applied: number;
+    unresolved_reason: string | null;
+  } | null;
+  news_mentions: number;
+  audit_flags: string[];
 };
 
 export default async function PerStateIntelHealthPage() {
@@ -57,9 +65,14 @@ export default async function PerStateIntelHealthPage() {
   const horizon = new Date(now.getTime() + 90 * 86_400_000);
   const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
 
-  // Pull aggregates per state. We do these as 4 separate queries
+  // Pull aggregates per state. We do these as 6 separate queries
   // and merge in JS — each is bounded by state and is fast.
-  const [users, bills, meetings, alerts, briefings] = await Promise.all([
+  //
+  // briefings: only the currently-active row per state (the table
+  // stacks old briefings via is_active=false), and include the
+  // critique audit trail from D5 + the body length for the D7
+  // health check.
+  const [users, bills, meetings, alerts, briefings, newsMentions] = await Promise.all([
     supabase.from("profiles").select("state").not("state", "is", null),
     supabase.from("bills").select("state").eq("active", true),
     supabase.from("municipal_meetings")
@@ -73,13 +86,22 @@ export default async function PerStateIntelHealthPage() {
       .in("severity", ["critical", "alert", "watch"])
       .gte("created_at", since30d),
     supabase.from("state_briefings")
-      .select("state, published_at"),
+      .select("state, generated_at, body_md, data_snapshot")
+      .eq("is_active", true),
+    // D4 Phase 1: news mentions per state. Joined through legislators
+    // since the mentions table has legislator_id, not state directly.
+    supabase.from("legislator_news_mentions")
+      .select("legislator_id, legislators!inner(state)"),
   ]);
 
   // Aggregate
   const stats: Record<string, StateStat> = {};
   for (const code of Object.keys(STATE_NAMES)) {
-    stats[code] = { state: code, users: 0, active_bills: 0, upcoming_meetings: 0, alerts_30d: 0, briefing_published_at: null };
+    stats[code] = {
+      state: code, users: 0, active_bills: 0, upcoming_meetings: 0, alerts_30d: 0,
+      briefing_generated_at: null, briefing_body_len: 0, briefing_critique: null,
+      news_mentions: 0, audit_flags: [],
+    };
   }
 
   for (const r of users.data ?? []) {
@@ -105,9 +127,52 @@ export default async function PerStateIntelHealthPage() {
     }
     if (code && stats[code]) stats[code].alerts_30d++;
   }
-  for (const r of briefings.data ?? []) {
+  // D5 + D7 telemetry from active briefings
+  type BriefingRow = { state: string; generated_at: string | null; body_md: string | null; data_snapshot: BriefingSnapshot | null };
+  type BriefingSnapshot = {
+    critique?: {
+      enabled?: boolean;
+      revisions_applied?: number;
+      history?: Array<{ needs_revision?: boolean; revised?: boolean; issues?: string[]; rejection_reason?: string }>;
+    };
+  };
+  for (const r of (briefings.data ?? []) as BriefingRow[]) {
     const s = r.state?.toUpperCase();
-    if (s && stats[s]) stats[s].briefing_published_at = r.published_at;
+    if (!s || !stats[s]) continue;
+    stats[s].briefing_generated_at = r.generated_at;
+    stats[s].briefing_body_len = r.body_md?.length ?? 0;
+    const c = r.data_snapshot?.critique;
+    if (c) {
+      const history = Array.isArray(c.history) ? c.history : [];
+      const stuck = history.find(h => h.needs_revision === true && h.revised === false);
+      stats[s].briefing_critique = {
+        enabled: !!c.enabled,
+        revisions_applied: c.revisions_applied ?? 0,
+        unresolved_reason: stuck
+          ? `critique flagged ${stuck.issues?.length ?? 0} issue(s), revision blocked (${stuck.rejection_reason ?? "provider_or_quota"})`
+          : null,
+      };
+    }
+    // D7 audit flags — inlined here so the page shows the same
+    // signals the audit script produces, without shelling out.
+    const ageMs = r.generated_at ? Date.now() - new Date(r.generated_at).getTime() : Infinity;
+    const ageDays = ageMs / 86_400_000;
+    if (ageDays > 7) stats[s].audit_flags.push(`stale ${ageDays.toFixed(0)}d`);
+    if ((r.body_md?.length ?? 0) < 2000) stats[s].audit_flags.push(`low quality ${r.body_md?.length ?? 0} chars`);
+    if (stats[s].briefing_critique?.unresolved_reason) stats[s].audit_flags.push("critique blocked");
+  }
+  // States with no active briefing at all
+  for (const code of Object.keys(STATE_NAMES)) {
+    if (stats[code].briefing_generated_at === null) {
+      stats[code].audit_flags.push("no briefing");
+    }
+  }
+  // D4 news mentions
+  type MentionJoined = { legislator_id: string; legislators: { state: string | null } | { state: string | null }[] | null };
+  for (const r of (newsMentions.data ?? []) as MentionJoined[]) {
+    const legState = Array.isArray(r.legislators) ? r.legislators[0]?.state : r.legislators?.state;
+    const s = legState?.toUpperCase();
+    if (s && stats[s]) stats[s].news_mentions++;
   }
 
   // Sort by activity total descending
@@ -130,8 +195,10 @@ export default async function PerStateIntelHealthPage() {
       bills: acc.bills + s.active_bills,
       meetings: acc.meetings + s.upcoming_meetings,
       alerts: acc.alerts + s.alerts_30d,
+      news_mentions: acc.news_mentions + s.news_mentions,
+      flagged: acc.flagged + (s.audit_flags.length > 0 ? 1 : 0),
     }),
-    { users: 0, bills: 0, meetings: 0, alerts: 0 },
+    { users: 0, bills: 0, meetings: 0, alerts: 0, news_mentions: 0, flagged: 0 },
   );
 
   return (
@@ -150,11 +217,13 @@ export default async function PerStateIntelHealthPage() {
       </header>
 
       {/* Top-line totals */}
-      <section className="mb-6 grid grid-cols-4 gap-3">
+      <section className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-6">
         <Stat label="Total advocates" value={totals.users} />
         <Stat label="Active bills" value={totals.bills} />
         <Stat label="Upcoming meetings" value={totals.meetings} />
         <Stat label="Alerts (30d)" value={totals.alerts} />
+        <Stat label="News mentions" value={totals.news_mentions} />
+        <Stat label="Briefings flagged" value={totals.flagged} tone={totals.flagged > 0 ? "warn" : undefined} />
       </section>
 
       {/* Per-state grid */}
@@ -162,18 +231,22 @@ export default async function PerStateIntelHealthPage() {
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {sorted.map((s) => {
             const { tier, tone } = tierOf(s);
-            const briefingAge = s.briefing_published_at
-              ? Math.floor((Date.now() - new Date(s.briefing_published_at).getTime()) / 86_400_000)
+            const briefingAge = s.briefing_generated_at
+              ? Math.floor((Date.now() - new Date(s.briefing_generated_at).getTime()) / 86_400_000)
               : null;
+            const flagged = s.audit_flags.length > 0;
+            const cardTone = flagged ? "border-red-700/50 bg-red-950/15" : tone;
             return (
-              <div key={s.state} className={`rounded-md border p-3 ${tone}`}>
+              <div key={s.state} className={`rounded-md border p-3 ${cardTone}`}>
                 <div className="flex items-baseline justify-between">
                   <p className="font-mono text-lg font-bold text-zinc-100">{s.state}</p>
                   <span className={`text-[10px] font-bold uppercase ${
+                    flagged ? "text-red-300" :
                     tier === "high" ? "text-emerald-300" :
                     tier === "mid" ? "text-amber-300" : "text-red-300"
                   }`}>
-                    {tier === "high" ? "covered" : tier === "mid" ? "partial" : "blind"}
+                    {flagged ? "needs regen" :
+                     tier === "high" ? "covered" : tier === "mid" ? "partial" : "blind"}
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-500">{STATE_NAMES[s.state]}</p>
@@ -182,11 +255,24 @@ export default async function PerStateIntelHealthPage() {
                   <li className="flex justify-between"><span>📜 Bills</span><span className="font-mono">{s.active_bills}</span></li>
                   <li className="flex justify-between"><span>📅 Meetings</span><span className="font-mono">{s.upcoming_meetings}</span></li>
                   <li className="flex justify-between"><span>🚨 Alerts (30d)</span><span className="font-mono">{s.alerts_30d}</span></li>
+                  <li className="flex justify-between"><span>📰 News mentions</span><span className="font-mono">{s.news_mentions}</span></li>
                 </ul>
+                {flagged && (
+                  <ul className="mt-2 space-y-0.5 rounded border border-red-800/40 bg-red-950/20 p-1.5 text-[10px] text-red-200">
+                    {s.audit_flags.map((f, i) => (<li key={i}>⚠ {f}</li>))}
+                  </ul>
+                )}
+                {s.briefing_critique && !flagged && (
+                  <p className="mt-2 text-[10px] text-zinc-500">
+                    🔄 critique{s.briefing_critique.revisions_applied > 0
+                      ? ` · ${s.briefing_critique.revisions_applied} revision${s.briefing_critique.revisions_applied === 1 ? "" : "s"} applied`
+                      : " ✓ clean"}
+                  </p>
+                )}
                 <div className="mt-2 flex items-center justify-between text-[10px]">
                   <span className="text-zinc-600">
                     {briefingAge !== null
-                      ? `briefing ${briefingAge}d old`
+                      ? `briefing ${briefingAge}d old · ${s.briefing_body_len.toLocaleString()} chars`
                       : <span className="text-red-400">no briefing</span>}
                   </span>
                   <Link href={`/briefings/state/${s.state}`} className="text-emerald-400 hover:underline">
@@ -206,11 +292,13 @@ export default async function PerStateIntelHealthPage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value, tone }: { label: string; value: number; tone?: "warn" }) {
+  const borderCls = tone === "warn" ? "border-red-700/50 bg-red-950/20" : "border-zinc-800 bg-zinc-950/40";
+  const valueCls = tone === "warn" ? "text-red-200" : "text-zinc-100";
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+    <div className={`rounded-lg border p-3 ${borderCls}`}>
       <p className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="mt-1 text-2xl font-bold tabular-nums text-zinc-100">{value}</p>
+      <p className={`mt-1 text-2xl font-bold tabular-nums ${valueCls}`}>{value}</p>
     </div>
   );
 }
