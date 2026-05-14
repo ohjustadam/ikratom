@@ -301,41 +301,15 @@ jobs:
         run: node scripts/intel-coverage-audit.mjs --check
 
   sync-committees-openstates:
-    # Pull legislator committee assignments for all priority states
-    # from OpenStates v3 API. Was NY-only before — now generalized.
-    # Stance drafter needs this data to identify kratom-relevant
-    # candidates (Health / Judiciary / etc. committees).
+    # Pull legislator committee assignments across ALL 51 states from
+    # OpenStates v3 API. Stance drafter needs this data to identify
+    # kratom-relevant candidates (Health / Judiciary / etc. committees).
     # Idempotent: upsert on (legislator_id, committee_name, session_id).
+    #
+    # 2026-05-14: widened from --priority-only (10 states) to --all-states
+    # (51 states). OpenStates free tier handles this — ~150 API calls
+    # per run, well under the 100k/day limit.
     needs: legiscan-wide-pass
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-      - run: npm ci --omit=dev --no-audit --no-fund
-      - name: Sync committee assignments across priority states
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
-        run: node scripts/sync-committees-openstates.mjs --priority-only
-
-  draft-legislator-stance:
-    # Multi-state expansion of the legislator-stance pipeline.
-    # PRIORITY_STATES (10) processed daily: NY, FL, TX, CA, OH, MI, TN,
-    # MO, PA, GA. Each run skips already-stanced legislators, so steady-
-    # state cost is low (only new candidates with sponsorships or kratom
-    # committee memberships).
-    #
-    # Stances land as draft in legislator_kratom_stance with rationale_md
-    # populated; admin reviews + flips final stance at /admin/stance.
-    #
-    # Runs AFTER sync-committees-openstates so today's committee data
-    # is available when AI is asked to draft.
-    needs: sync-committees-openstates
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -345,23 +319,31 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
-      - name: Draft legislator stances across priority states
+      - name: Sync committee assignments across ALL 51 states
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
-          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/draft-legislator-stance.mjs --priority-only
+          OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+        run: node scripts/sync-committees-openstates.mjs --all-states
 
-  discover-municipal-meetings:
-    # Discover city/county council meetings with kratom on the agenda.
-    # Uses Gemini grounded search per state. ~50 calls/day, well under
-    # the 1500/day free tier. Found meetings land in pending_review
-    # for admin moderation before user notification.
+  draft-legislator-stance:
+    # Multi-state expansion of the legislator-stance pipeline.
+    # 2026-05-14: widened from --priority-only (10 states) to --all-states
+    # (51 states). Each run skips already-stanced legislators, so the
+    # first run may take a while (catching up the 41 newly-covered states)
+    # but steady-state cost remains low (only NEW candidates with
+    # sponsorships or kratom committee memberships).
+    #
+    # Stances land as draft in legislator_kratom_stance with rationale_md
+    # populated; admin reviews + flips final stance at /admin/stance.
+    #
+    # Runs AFTER sync-committees-openstates so today's committee data
+    # is available when AI is asked to draft. Falls through to local
+    # Ollama when cloud providers are saturated — graceful catchup
+    # over multiple daily runs is fine.
+    needs: sync-committees-openstates
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -369,12 +351,41 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
-      - name: Discover municipal meetings (priority states + long tail)
+      - name: Draft legislator stances across ALL 51 states
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: node scripts/draft-legislator-stance.mjs --all-states
+
+  discover-municipal-meetings:
+    # Discover city/county council + town-hall meetings with kratom
+    # (or related: gas-station-heroin, 7-OH, tianeptine) on the agenda.
+    # Uses Gemini grounded search per state. Found meetings land in
+    # pending_review for admin moderation; once approved they fire
+    # 7d/3d/1d push reminders to users in the locality.
+    #
+    # 2026-05-14: widened from --priority-only (10 states) to --all-states
+    # (51 states). ~51 Gemini grounded calls per run, well under the
+    # 1500/day free tier.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Discover municipal meetings across ALL 51 states
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/discover-municipal-meetings.mjs --priority-only
+        run: node scripts/discover-municipal-meetings.mjs --all-states
 
   fire-meeting-reminders:
     # Push reminders for upcoming approved meetings — 7d / 3d / 1d

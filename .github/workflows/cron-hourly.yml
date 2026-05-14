@@ -201,3 +201,16 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/fanout-bill-reminders.mjs
+      - name: Fire user-set custom reminders
+        # User-controlled reminders set via 🔔 Remind me button on
+        # bills/meetings/etc. (migration 0132). Hourly because
+        # reminder_at is user-set arbitrary minute granularity — not
+        # aligned to the daily-cron windows that the 7d/3d/1d meeting
+        # reminders use. Cheap: partial index over the "due" rows
+        # makes the query trivial. Push delivery rides the existing
+        # fire-waves fanout that fires next.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: node scripts/fire-custom-reminders.mjs
