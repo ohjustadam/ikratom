@@ -30,7 +30,7 @@ const STATE_NAMES: Record<string, string> = {
  *
  * Briefings regenerate via the daily cron job that calls
  * scripts/generate-state-briefing.mjs --all-states. Admin can manually
- * regenerate via the /admin/intel-health page (TODO link).
+ * regenerate via the /admin/intel-health page.
  */
 export default async function StateBriefingPage({
   params,

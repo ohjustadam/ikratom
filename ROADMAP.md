@@ -1,144 +1,181 @@
-# iKratom — Audit + Roadmap
+# iKratom — Master Roadmap
 
-_Living doc. Updated 2026-05-14 — committee-urgency feature set saturated across 5 surfaces (PRs #223–#238). Migration 0123 + 0124 applied; backfill ran; 30 bills with structured committee assignments across NJ/TN/WA/AL/CO. PostHog + Vercel MCPs connected. Production health: 0 errors / warnings / 5xx / 4xx in last 24h (Vercel runtime logs)._
-_See `SECURITY.md` for the security side, `APP_STORE_READINESS.md` for store path._
+_Living doc. Last updated 2026-05-14 — major intel-network buildout complete (PRs #221–#254)._
+_See companion docs for deep dives: `docs/NY_COMPLETION_CHECKLIST.md`, `docs/MULTI_STATE_EXPANSION.md`, `docs/NY_INTEL_DEPTH_AND_AI_ROADMAP.md`, `docs/ROADMAP-NEWSROOM.md`, `docs/USER_TODOS.md`, `docs/VISION.md`, `SECURITY.md`, `APP_STORE_READINESS.md`._
 
-## Committee-urgency feature (shipped 2026-05-13 → 14)
+---
 
-The mission lever the platform's whole shape exists for: when a bill sits in committee, only the ~10-20 legislators on that committee can vote it out. Of those, only their constituents have leverage. Lobbyists target precisely; advocates almost never do.
+## Where we are right now
+
+**Production**: Vercel runtime logs show 0 errors / 0 warnings / 0 5xx in last 24h. Migrations 0123 + 0124 + 0125 applied. 37+ PRs merged this stretch. **34 actors in the kratom-industry intel registry, all citing public-record evidence. 131 LDA lobbying filings indexed. Federal donor profiles populated for 257 of 531 federal legislators.**
+
+**Three feature complexes are live across the platform:**
+
+| Complex | Surfaces | What it does |
+|---|---|---|
+| **Committee-urgency** (Phase 1) | `/bills/[id]` callout · `/dashboard` widget · `/pulse` chip · `/alerts/[id]` callout · `/legislators/[id]` section · `/bills?filter=in-my-committees` · `/legislators/committee` · `/status` stat | When a bill sits in a committee where the signed-in user's rep serves, surface that as urgency everywhere. Mission-lever: bills die in committees; constituents of committee members have the only real leverage. |
+| **Intel-briefing** (Phase 2) | `/legislators/[id]/briefing` per-person · `/states/[code]/briefing` per-state triage · `/intel` hub · `/intel/lobbying` LDA filings · `/intel/actors` registry · cross-references on briefings | "True intel agency work" — rule-based action plan per legislator, faction-tagged actor registry, federal lobbying disclosures all in one navigable structure. |
+| **URL auto-fill** | `/admin/library/new` · `/admin/library/new/quick` · `/admin/library/[id]/edit` · `/alerts/submit` | Paste YouTube/article URL → AI fetches metadata → review & save. Library item creation went from 30s of typing to 3s of glancing. |
+
+---
+
+## Phase A — Committee urgency (✅ shipped May 13–14)
+
+The mission lever the platform's entire shape exists for. When a bill sits in committee, only the ~10–20 legislators on that committee can vote it out. Of those, only their constituents have leverage.
 
 | PR | What | Where |
 |---|---|---|
-| #223 | "YOUR rep is deciding this bill" callout when signed-in user's rep is on the bill's current committee. Migration `0123_bill_current_committee.sql` adds `bills.current_committee_name` + chamber + updated_at + inline backfill from `bill_actions`. New `src/lib/bill-committee.ts` parser. | `/bills/[id]` |
-| #224 | Wires the same regex into the hourly LegiScan sync so `current_committee_name` stays fresh as bills move through committees | `scripts/sync-bills-via-legiscan.mjs` |
-| #225 | `/legislators/committee?name=X` chair-first member roster — backs the no-match fallback link from #223 | New route |
-| #227 | 20 vitest cases for the parser + matcher. Caught a real regex bug on multi-chamber strings and hardened with a negative lookahead. | `tests/bill-committee.test.ts` |
-| #228 | `MyCommitteeBillsWidget` dashboard widget — shows every active bill in committees where the user has a rep | `/dashboard` |
-| #230 | `is_kratom_relevant` accent: matches in admin-flagged battleground committees render in 🔥 amber instead of ⚡ emerald | `/bills/[id]` |
-| #231 | Form B regex (`Chamber Committee on Body` → rewrites to canonical form). Without this the OpenStates-sourced majority of bills couldn't be parsed. 7 new tests. Backfill script `scripts/backfill-bill-committees.mjs`. | parser + backfill |
-| #232 | OpenStates daily sync writes `current_committee_name` on every bill refresh. Daily cron `backfill-bill-committees` job as safety net. | sync + cron |
-| #233 | `/bills?filter=in-my-committees` pre-filtered browse view with banner + escape link | `/bills` |
-| #234 | `/status` surfaces committee-leverage windows count (public proof-of-life metric) | `/status` |
-| #236 | `⚡ Your rep decides` chip in `AlertCard` meta row on `/pulse` | `/pulse` |
-| #237 | "Currently deciding" section on legislator detail — shows every active bill in committees they sit on | `/legislators/[id]` |
-| #238 | Mounts `YourRepDecidingThisBill` callout on `/alerts/[id]` — surfaces leverage on the first-touchpoint surface (push-notification destination) | `/alerts/[id]` |
+| #223 | "YOUR rep is deciding this bill" callout. Migration `0123` + `src/lib/bill-committee.ts` parser. | `/bills/[id]` |
+| #224 | LegiScan sync writes `current_committee_name` hourly. | `scripts/sync-bills-via-legiscan.mjs` |
+| #225 | `/legislators/committee?name=X` chair-first member roster. | New route |
+| #227 | 20 vitest cases for parser + matcher; caught a real regex bug, hardened with negative lookahead. | `tests/bill-committee.test.ts` |
+| #228 | `MyCommitteeBillsWidget` dashboard widget. | `/dashboard` |
+| #230 | `is_kratom_relevant` battleground accent (amber instead of emerald for admin-flagged committees). | `/bills/[id]` |
+| #231 | Form B regex (`Chamber Committee on Body` → canonicalized). Without this most OpenStates bills weren't parseable. | parser + backfill |
+| #232 | OpenStates daily sync writes `current_committee_name` on every refresh. Daily-cron safety-net backfill. | sync + cron |
+| #233 | `/bills?filter=in-my-committees` pre-filtered browse view. | `/bills` |
+| #234 | `/status` public committee-leverage stat. | `/status` |
+| #236 | `⚡ Your rep decides` chip on `/pulse` alert cards. | `/pulse` |
+| #237 | "Currently deciding" section on legislator detail pages. | `/legislators/[id]` |
+| #238 | Callout mounted on `/alerts/[id]`. | `/alerts/[id]` |
+| #245 | Donor-sync pipeline bugs fixed (broken `/by_industry/` endpoint + invalid sort param + employer-name categorization). | sync |
 
-**5 user-facing surfaces now carry the committee-urgency signal:**
-1. `/bills/[id]` — full callout when viewing a bill page
-2. `/dashboard` — `MyCommitteeBillsWidget` listing all your leverage bills
-3. `/pulse` — chip on alert cards in the feed
-4. `/alerts/[id]` — full callout on alert detail
-5. `/legislators/[id]` — "Currently deciding" section showing bills the legislator has direct power over
+**Coverage**: 30 of 467 active bills now have `current_committee_name` populated (NJ:20, TN:3, WA:3, AL:3, CO:1). OpenStates daily sync keeps it fresh. Remaining 437 mostly use chamber-less action text ("Died In Committee" etc.) and correctly stay null.
 
-Plus 2 supporting surfaces:
-- `/bills?filter=in-my-committees` — pre-filtered browse for signed-in users
-- `/legislators/committee?name=X` — chair-first member roster lookup
-- `/status` — public stat counting all open leverage windows
+---
 
-**Coverage as of merge:** 30 of 467 active bills have `current_committee_name` populated. Breakdown: NJ:20, TN:3, WA:3, AL:3, CO:1. The remaining 437 either don't mention a committee in their `last_action` text or use ambiguous phrasing ("Died In Committee" / "Re-referred to Rules Committee"). OpenStates daily sync now writes the column on every refresh, so coverage grows organically as bills move.
+## Phase B — Intel-briefing system (✅ shipped May 14)
 
-**Next compounds to consider (still open):**
-- State-legislature hearing alerts (no data source yet; LegiScan/OpenStates have calendar APIs — separate effort)
-- Push notification when a battleground-committee bill changes state
-- Server-side PostHog capture for funnel analytics (currently `posthog-js` only captures client-side; bots don't fire events). Needs explicit go from owner before shipping.
-- `/leverage` cross-cutting hub page that combines committee bills + upcoming deadlines + active campaigns into a single "what should I do RIGHT NOW" view.
+Per-legislator action plans grounded in real research. Sourced from Senate LDA (no auth), ProPublica Nonprofit Explorer (no auth), OpenFEC (key required, in env), Tampa Bay Times "Deadly Dose" investigation series, Courthouse News "Inside kratom's political underbelly", and platform-owner first-hand observations clearly labeled.
 
-## Audit highlights
+| PR | What |
+|---|---|
+| #240 | `/legislators/[id]/briefing` — stance + leverage signals + rule-based action plan + 7 sections per person |
+| #241 | Donor-sync `--all-federal` + smarter candidate matching |
+| #242 | `/states/[code]/briefing` — 6-bucket state-level legislator triage |
+| #243 | Stance chip + briefing CTA on dashboard `MyRepCard` |
+| #244 | Briefing CTAs on urgency callouts + committee roster |
+| #246 | "Preview brief" link in `/admin/stance` row |
+| #247 | LDA lobbying-filings pipeline + migration 0125 + `/intel/lobbying` + `/intel` hub |
+| #248 | Kratom-industry actor registry (23 actors initially) + `/intel/actors` |
+| #249 | Cross-reference industry actors on legislator briefings |
+| #250 | Major registry corrections — factional restructure (split `aka_aligned` into `aka_coalition` + `gkc_coalition`) + 7 new actors (J.W. Ross, Matthew Lowe, Kelly Dunn, Curt Bramble, Vernon Jones, Markwayne Mullin, Center For Plant Science and Health) |
+| #251 | Library quick-add URL auto-fill |
+| #252 | URL auto-fill extended to `/alerts/submit` + `/admin/library/[id]/edit` |
+| #253 | Multi-state KCPA wave registry expansion — 9 new actors (Rivero AZ / Yeager+Wheeler NV / McKell+MacPherson+Hall UT 2026 / Chris Bell / OPMS supply chain) + Vernon Jones upgrade from owner-testimony to documented co-sponsor |
+| #254 | Speed-up tooling — `npm run verify` (3.7× faster than build), repo settings flipped via gh api |
 
-**Strengths**
-- Codebase has **no `TODO`/`FIXME`/`HACK` debt** in `src/` — feature flags are intentional.
-- All admin pages reachable from `/admin`. No orphan routes.
-- Bill + news + forum titles already use shared normalization (`displayTitle()`).
-- Cron pipeline fully wired (Vercel daily + GH Actions hourly + GH Actions daily-deeper).
-- Security posture documented + hardened across PRs #118-#127.
-- BoP pipeline end-to-end (scrape → PDF → AI classify → auto-emit-on-confident).
-- Invite friends v2 with attribution funnel + 11 share platforms.
-- PWA manifest installable; APP_STORE_READINESS.md documents both store paths.
+### Intel-network — current state
 
-**Gaps surfaced by the audit**
-| Surface | Problem | Severity |
-|---|---|---|
-| `/admin` | 26 cards in flat grid; queue cards (7 of them carry numeric backlog) scattered among static config | P0 |
-| `/admin` | `Emergency mode` at slot 26 (bottom). Should be unmissable | P0 |
-| `/leader` | 7 of 8 grid cards are "coming soon" stubs that drown the 1 shipped tool | P1 |
-| `/dashboard` | `active_campaigns` at slot 7 (too low). `profile_completion` mid-stack instead of top-when-firing | P0 |
-| `/dashboard` | Bottom 8-card chrome grid duplicates the global nav | P2 |
-| `/account` | 17 sections in one scroll. Notifications fragmented across 5 unrelated sections | P0 |
-| `/account` | `My templates` links to `/dashboard/templates` (outside `/account` tree, no breadcrumb back) | P1 |
-| `/admin/announcements` | No "Add new" CTA visible despite being admin-creatable | P1 |
-| `/alerts/submit` | Form submits but no next-step CTA — dead-end | P1 |
-| no `/submit` hub | No single discoverable surface for "submit something" — users have to know each form's URL | P1 |
-| Campaign titles | Auto-generated use `"Stop [STATE] [BILL]: ..."` but manual campaigns have no enforced format; no visual auto-vs-manual indicator in the list | P2 |
-| `package.json` | `sync:capitals` script orphaned (never called by any cron) | P3 |
+- **34 named actors** with public-record evidence URLs across 5 factions (`aka_coalition`, `gkc_coalition`, `pro_7oh`, `cross_coalition`, `regulator`, `academic`)
+- **131 federal lobbying filings** indexed (LDA, 2016 → 2026)
+- **257 federal donor profiles** matched (~50% of 531 federal legislators)
+- **AKA + GKC 990 financials** indexed: $4.5M and $3M respectively, with structural deltas (AKA member-dues model vs GKC single-funder shell)
+- **Multi-state KCPA wave (2019)** fully mapped: UT-Bramble → GA-Jones → AZ-Rivero → NV-Yeager/Wheeler
+- **LDS-network influence pipeline** documented: Hatch 1976 → DSHEA 1994 → Haddow → Bramble → 4-state wave → 2026 Utah "Word of Wisdom" stunt
+- **Influence-laundering chain** documented: Urban Ice $ → kratom research → "A Leaf of Faith" doc → Netflix → Joe Rogan → policy advocacy
+- **OPMS Indonesia supply chain** documented: West Kalimantan → Pontianak port → Oakland/Tampa (Indonesian gov DENIED Tampa Bay Times's journalist visa to Pontianak — active press blockage)
 
-## Prioritized work plan
+---
 
-### P0 — ✅ Shipped (PR #137)
-1. ~~**Admin dashboard reorg**~~ — priority bands live (queue inbox auto-floats, emergency-mode pinned right, P1/P2/P3 sections)
-2. ~~**User dashboard reorder**~~ — `DEFAULT_WIDGETS` reorganized into P0 blockers / P1 radar / P2 identity
-3. ~~**/account sidebar nav**~~ — 7-section sticky-sidebar layout (Identity / Security / Notifications / Integrations / Advocacy / Growth / Data)
-4. ~~**`/submit` hub page**~~ — `/submit` lists every intake form, filtered by role
+## Phase C — IA / UX cleanup (✅ shipped May 13–14)
 
-### P1 — High value
-5. ~~**Leader dashboard collapse**~~ — shipped in PR #137
-6. ~~**Missing "Add" CTAs**~~ — `/admin/announcements` has explicit "+ New announcement" toggle; `/admin/discord-integrations` verified
-7. ~~**/alerts/submit success CTA**~~ — submit redirects to `/pulse?tip_submitted=1` (good enough; a banner there could come later)
-8. ~~**Campaign title normalization**~~ — shipped PR #221: `🤖 auto` / `👤 manual` badges on `/admin/campaigns` list
-9. ~~**Cockpit tour move**~~ — shipped PR #221: `ReplayTourButton` now sits next to `CockpitCustomizer` in the dashboard header
+| PR | What |
+|---|---|
+| #137 | P0 IA polish (admin reorg + dashboard reorder + account sidebar + /submit hub + leader collapse) |
+| #221 | ReplayTourButton moved to dashboard header; auto/manual badge column on `/admin/campaigns` |
+| #222 | `/dashboard/templates` rehosted to `/account/templates` + orphan `sync:capitals` archived |
+| #226 | ROADMAP refresh capturing committee-urgency trilogy |
+| #229 | News title cleanup — strip TV-callsign suffixes (`KTVB`, `WCYB` etc.) that 0105 migration missed |
+| #235 | ROADMAP refresh after intel work |
+| #239 | ROADMAP refresh for 5-surface committee-urgency saturation |
 
-### P2 — Polish
-10. ~~**Municipal bill locality prefix**~~ — already handled via `scope`/`locality` chips.
-11. ~~**`/dashboard/templates` re-host**~~ — moved to `/account/templates` (PR #222); legacy URL permanent-redirects.
-12. ~~**News title cleanup migration**~~ — PR #229: migration 0124 strips TV-callsign suffixes (`KTVB`, `WCYB`, etc.) that 0105 missed; sync-news-rss script updated to prevent recurrence.
+---
 
-### P3 — Cleanup
-13. ~~**`sync:capitals`**~~ — removed from `package.json`; script moved to `scripts/.archive/` (PR #222)
-14. **Dead-CSS / unused tailwind classes** — sweep after the UI moves above settle (still pending; speculative without observed metrics)
+## Phase D — Open work (next in queue)
 
-### Out of scope / intentional
-- Medical recruitment feature (`siteConfig.features.medicalRecruitment: false` — v2)
-- AI personalization (`aiPersonalization: false` — v2)
-- BoP per-state custom adapters (current Playwright + generic_html covers 47/51, the 4 remaining are stubborn JA3 TLS — defer until signal warrants headless-browser-per-state work)
-- AI-assisted owner editor (user shelved earlier)
+### D1. Voting records (medium leverage, medium effort)
+**~2 hours.** Extend `scripts/sync-bills.mjs` to pull OpenStates `include=votes` field + write to new `bill_votes` table. Per-legislator roll-call history becomes a briefing field. **Unblocks:** "Sen. X voted YES on 2024 KCPA so she'll likely vote YES on 2026 bill" predictive intel.
 
-### User-side waiting list (no code action needed)
-- R2 bucket creds → activate in-app video uploads
-- LEGISCAN_API_KEY → Layer 2 of bill sync
-- OPENFEC_API_KEY → mirror to Vercel
-- Home page A/B/C pick (`/home-a` vs `/home-b` vs `/home-c`)
-- ~7 BoP source URLs still erroring after the URL-fix migration; verify on `/admin/bop-monitor`
-- Repo setting: **enable auto-merge** at `github.com/<owner>/<repo>/settings → General → "Allow auto-merge"` so future PRs don't require manual `gh pr merge`
+### D2. NY Senate committee scraper (high leverage, blocked on tooling)
+**Cloudflare-blocked at nysenate.gov.** Free workaround: use Claude in Chrome MCP to drive a logged-in browser one committee at a time. Paid workaround: Browserbase ($39/mo). Until done, NY committee coverage is Assembly-only.
 
-## MCP / tool recommendations
+### D3. State-level lobbying disclosures (Phase 3, multi-state scraping effort)
+**50 different state lobbying-disclosure portals.** Per the AKA $4.4M-over-5-years figure cited in the Tampa Bay Times investigation, state lobbying spend dwarfs federal. Each state portal needs its own scraper. **Pilot recommendation: UT first** (LDS network + Bramble payment trail) → FL (DeSantis kratom bill + OPMS supply chain) → CA (GKC's home state).
 
-Auto mode currently uses: Supabase, Gmail, Notion, Chrome, scheduled-tasks, ccd-session/directory, mcp-registry, Claude_Preview.
+### D4. STOCK Act federal personal-investment disclosures
+PDF parsing. Periodic Transaction Reports for House + Senate members. Would expose more conflicts of interest beyond donor PACs (Mullin/Botanic Tonics pattern repeated for others).
 
-**Just added (2026-05-13):**
-- **Vercel MCP** — `https://mcp.vercel.com` (HTTP, OAuth). Awaiting first-use OAuth handshake.
-- **PostHog MCP** — `https://mcp.posthog.com/mcp` (HTTP, OAuth). Awaiting first-use OAuth handshake.
+### D5. Press release scraping per legislator
+**Different news ingestion source needed first.** Current news pipeline pulls kratom-policy news; would need to add a per-legislator-website press-release scraper. Cross-references back to the briefing's "intel gaps" section.
 
-**Investigated, skipped:**
-- **GitHub MCP** — both the Copilot-hosted endpoint and the open-source stdio variant failed (paid Copilot dep + sandbox blocked PAT-in-env install). `gh` CLI already handles 95% of what we'd use the MCP for; skip.
-- **MCP Market** (https://app.mcpmarket.com) — registry/marketplace of MCP servers. Adds zero capability over `claude mcp add` direct-attach and creates a credentials surface area we'd have to trust. Keep the account for browsing only.
+### D6. State legislator stance drafting at scale
+**Script exists** (`scripts/draft-legislator-stance.mjs`) but is gated by AI router rate limits. Daily cron currently runs `--priority-only` (10 states). Once that queue is drained, switch to `--all-states` weekly cadence. Need owner sign-off on token budget.
 
-**Still worth considering:**
-| Tool | Why | Effort |
-|---|---|---|
-| **Sentry MCP** | Browse production errors. `@sentry/nextjs` wired in. Defer until error volume signals it. | 1 line + API key |
-| **Linear MCP** | Persist todo list across sessions (would replace in-session-only todos). Single-owner, lower priority. | 1 line |
-| **Browserbase / Browser-use** | Managed headless-browser. Could replace Playwright in GH Actions for the 4 TLS-blocked BoP states. | Signup + 1 line |
+### D7. Self-critique loop on AI outputs (per `NY_INTEL_DEPTH_AND_AI_ROADMAP.md` item C)
+Wrap `generate-state-briefing.mjs` in critique loop. AI generates → second AI critiques → regenerate if flagged → ship best-of-N. Half-day effort.
 
-For "Hermes or another free working agent": closest fits for our shape are workflow orchestrators, not additional LLMs. **n8n** (self-hosted) or **Inngest** (cloud free tier) would let us declare durable workflows (retry, fan-out, scheduling) without building it custom. Not urgent — current cron + GH Actions stack does this fine.
+### D8. Vector memory + cross-state similarity (per same doc, item B)
+pgvector extension + `mxbai-embed-large` via Ollama. Cross-state bill similarity ("MI just introduced — 87% match to TX HB 5 2024"). One-day effort.
 
-## Memory enrichment — what next sessions should know
+### D9. Self-improvement feedback loop (item E)
+`ai_decisions` table + `recordAdminAction` hook + weekly failure-mode report. Six hours.
 
-When the next Claude session opens, the priority context is:
+### D10. Admin dashboards over all signals (item F)
+Briefing freshness per state, stance coverage per state, committee coverage, FP rates, cron health. Six hours.
 
-1. **The site is feature-rich and shipping daily.** Don't re-explore from scratch — read `AGENTS.md`, `ARCHITECTURE.md`, this `ROADMAP.md`, and `SECURITY.md` for context.
-2. **Auto-merge is disabled at repo settings** — every PR requires `gh pr merge <n> --squash` manually. Owner can enable in repo settings.
-3. **The BoP pipeline is the highest-leverage feature.** It's the early-warning system. Keep its data quality high.
-4. **The campaign queue has ~1100 pending after the dedup pass.** Use `/admin/campaigns/pending` filters before approving.
-5. **The owner is a non-developer** — proposals should include rationale and tradeoffs, not just diffs.
-6. **Hard rules** (from `CLAUDE.md`): nonpartisan, one-click standard, free-tier only for v1, real data only.
+---
 
-This doc is the entry point for "where are we?". Update it when priorities shift.
+## Phase E — Long-defer (intentional)
+
+- **App store listings** (Google $25 + Apple $99/yr) — paid; defer until revenue starts
+- **Browserbase** ($39/mo) — Cloudflare-bypass scraping. Free workaround: Claude in Chrome MCP, slower but works
+- **Twilio** — current `tel:` + Web Speech approach is free and works for 80%
+- **Vercel Pro** ($20/mo) — current Hobby + GitHub Actions sub-daily cron works
+- **Medical-pro recruitment** (`siteConfig.features.medicalRecruitment: false`) — v2
+- **AI personalization** (`aiPersonalization: false`) — v2
+
+---
+
+## User-side waiting list (the only things blocked on you)
+
+Listed in priority order. See `docs/USER_TODOS.md` for the full free-tonight checklist.
+
+1. **PostHog key in Vercel env** — `NEXT_PUBLIC_POSTHOG_KEY` not set in deploy env yet, so prod doesn't fire client-side events. MCP is connected but seeing 0 pageviews because of this. ~30s.
+2. **Brave Search API key** — `BRAVE_API_KEY`. Backup grounded search when Gemini hits quota. Free 2k/mo. ~5min signup.
+3. **GlitchTip or Sentry DSN** — error monitoring. `SENTRY_DSN` env var works for both. Free tier on each. ~5min.
+4. **Home page A/B/C pick** — pick one of `/home-a` / `/home-b` / `/home-c` as the canonical homepage.
+5. **R2 bucket creds** — activates in-app video uploads. Cloudflare R2 free tier exists. ~10min.
+6. **Stance review** at `/admin/stance?state=NY` — 153 AI-drafted stances need 5-10s clicks each. Focus on champions (8) and hostiles (16). ~30min for spot-check or full review.
+7. **PWA install test** on phone — verify `/install/android` and `/install/ios` flows. ~5min.
+8. ~~**Enable repo auto-merge**~~ — gated by GitHub Pro on private repos; user chose to skip ($4/mo).
+9. ~~**OPENFEC_API_KEY**~~ — done.
+10. ~~**OpenSecrets API key**~~ — discontinued April 2025 (api no longer free). Bypassed via Senate LDA + ProPublica 990s + direct FEC PAC tracking.
+
+---
+
+## How to know we're "done with NY" (the model state template)
+
+Per `docs/NY_COMPLETION_CHECKLIST.md`: a stranger NY advocate visits `/briefings/state/NY` and within 60 seconds knows their champions + hostiles + committees + sponsors + field-work. Currently **6.5 of 7 green** (Senate committees missing per D2).
+
+---
+
+## Open intel branches (where to push next per owner ask)
+
+1. **Trace Botanic Tonics → MAHA PAC → Mullin → RFK pipeline** through any other vehicle. Specifically: RFK Jr's HHS appointments and whether any kratom-positioned officials are landing inside HHS / FDA / DEA leadership.
+2. **AKA complete 990 officers list** via ProPublica detail endpoint (we have aggregate financials, not officer names).
+3. **State lobbying disclosure pilot** — UT (LDS / Bramble) first.
+4. **Salt Lake City kratom summit** — who organized, who paid for venue, attendee list. Currently this is the only owner-testimony-only line item in the registry.
+
+---
+
+## Repo health snapshot
+
+- Production: 0 errors / 0 warnings / 0 5xx in last 24h (Vercel runtime logs)
+- 27 vitest tests, 100% pass (parser + matcher + civic + rate-limit + setup)
+- ESLint: configured, runs in `npm run verify:full`
+- TypeScript: strict, no errors
+- Migrations: 125 applied
+- Dependencies: no known security advisories
+- Auto-merge: disabled (GitHub plan-gated)
+- `npm run verify` = typecheck + tests = ~9s; full `npm run build` = ~33s

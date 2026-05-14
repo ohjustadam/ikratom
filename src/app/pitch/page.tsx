@@ -45,13 +45,13 @@ export default function PitchPage() {
         </p>
         <ul className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatChip n="50+DC" l="states monitored" />
-          <StatChip n="340" l="active bills tracked" />
+          <StatChip n="467" l="active bills tracked" />
           <StatChip n="51" l="BoP surfaces daily" />
-          <StatChip n="5,482" l="BoP findings logged" />
-          <StatChip n="1,049" l="kratom news verified" />
           <StatChip n="8,273" l="legislators on file" />
-          <StatChip n="5+" l="AI providers" />
-          <StatChip n="1-click" l="legislator emails" />
+          <StatChip n="131" l="federal lobbying filings indexed" />
+          <StatChip n="34" l="named industry actors" />
+          <StatChip n="257" l="federal donor profiles" />
+          <StatChip n="9,642" l="committee assignments" />
         </ul>
       </Slide>
 
@@ -88,6 +88,26 @@ export default function PitchPage() {
   X -->|yes| EMERGE[Emergency-class alert<br/>+ auto-campaign]
   X -->|no| MONITOR[Standard tracking]
   EMERGE --> ADVOC[Advocates mobilized<br/>within hours]`}</Mermaid>
+      </Slide>
+
+      {/* ────────────────────────────────────────────────────────── */}
+      <Slide>
+        <Eyebrow>The intel network</Eyebrow>
+        <h2 className="mt-2 text-3xl font-bold">Federal lobbying. Donors. Industry actors. All public-record.</h2>
+        <p className="mt-4 text-zinc-300">
+          The kratom industry&apos;s political influence is structurally hidden by
+          design — opaque 501(c)(4) lobbying, single-purpose LLCs, retained DC
+          firms across multiple registrants, revolving-door legislators. iKratom
+          indexes the public-record half of that structure so advocates can read it.
+        </p>
+        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+          <Card emoji="📜" title="Federal lobbying" body="131 Senate LDA filings disclose ~$400k+ in 2026 Q1 alone (AKA + GKC + STOP GAS STATION HEROIN LLC + MIT45). Available at /intel/lobbying." />
+          <Card emoji="🎭" title="Industry actors" body="34 named lobbyists, executives, regulators, and academics — each entry cites public-record evidence URLs. Available at /intel/actors." />
+          <Card emoji="💰" title="Federal donors" body="OpenFEC pipeline matches 257 of 531 federal legislators. Pharma / alcohol / tobacco buckets flag conflict-of-interest signals on every briefing." />
+        </div>
+        <p className="mt-4 text-sm text-zinc-400">
+          Surfaces include <code className="font-mono">/legislators/[id]/briefing</code> per-person memos with rule-based action plans, <code className="font-mono">/states/[code]/briefing</code> 6-bucket triage views, and cross-references that fire automatically when a known industry actor connects to the legislator a user is viewing.
+        </p>
       </Slide>
 
       {/* ────────────────────────────────────────────────────────── */}
@@ -248,15 +268,25 @@ export default function PitchPage() {
     BoP early-warning system      :done, p5, 2026-04, 1M
     Invite + attribution funnel   :done, p6, 2026-05, 1M
     PWA installable               :done, p7, 2026-05, 1M
+    Committee-urgency feature     :done, p8, 2026-05, 1M
+    Intel-briefing per legislator :done, p9, 2026-05, 1M
+    LDA lobbying filings indexed  :done, p10, 2026-05, 1M
+    Industry actor registry       :done, p11, 2026-05, 1M
+    URL auto-fill flows           :done, p12, 2026-05, 1M
     section In progress
     App store listings            :active, q1, 2026-05, 2M
     Per-state BoP custom adapters :q2, after q1, 1M
     Headless-browser service      :q3, after q2, 1M
-    section v2 planned
-    Medical-pro recruitment       :v1, 2026-07, 3M
-    AI personalization full       :v2, after v1, 2M
-    Native iOS push               :v3, 2026-08, 2M
-    Coalition tooling (multi-org) :v4, 2026-10, 3M
+    section v2 planned (intel)
+    Voting roll-call sync         :v0, 2026-06, 1M
+    State lobbying disclosures    :v1, 2026-07, 4M
+    STOCK Act federal PTRs        :v2, 2026-08, 2M
+    Per-legislator news mentions  :v3, 2026-09, 2M
+    section v2 planned (product)
+    Medical-pro recruitment       :v4, 2026-07, 3M
+    AI personalization full       :v5, after v4, 2M
+    Native iOS push               :v6, 2026-08, 2M
+    Coalition tooling (multi-org) :v7, 2026-10, 3M
     section v3 vision
     Multi-substance expansion     :w1, 2027-01, 6M
     International advocacy        :w2, after w1, 6M`}</Mermaid>
@@ -268,10 +298,13 @@ export default function PitchPage() {
         <h2 className="mt-2 text-3xl font-bold">Production scale right now.</h2>
         <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
           <BigStat label="Public tables under RLS" value="62/62" />
-          <BigStat label="Migrations applied" value="100+" />
-          <BigStat label="Production deploys/month" value="30+" />
+          <BigStat label="Migrations applied" value="125+" />
+          <BigStat label="Production deploys/month" value="60+" />
           <BigStat label="BoP sources reachable" value="51 of 51" />
-          <BigStat label="Free-tier APIs integrated" value="8+" />
+          <BigStat label="Free-tier APIs integrated" value="10+" />
+          <BigStat label="Intel surfaces shipped" value="7" />
+          <BigStat label="Federal lobbying filings indexed" value="131" />
+          <BigStat label="Named industry actors" value="34" />
           <BigStat label="Share platforms supported" value="11" />
         </div>
       </Slide>

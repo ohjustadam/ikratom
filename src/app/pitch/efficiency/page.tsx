@@ -50,7 +50,7 @@ export default function EfficiencyPage() {
       {/* Top-line metrics */}
       <section className="mb-12 grid gap-3 sm:grid-cols-3">
         <Metric value="7" label="AI providers" sub="router-based fallback, $0 in steady state" />
-        <Metric value="12+" label="Free data APIs" sub="LegiScan / OpenStates / PubMed / Civic / FEC / Google News / RSS / etc." />
+        <Metric value="14+" label="Free data APIs" sub="LegiScan / OpenStates / PubMed / Civic / OpenFEC / Senate LDA / ProPublica 990 / Google News / RSS / etc." />
         <Metric value="$0" label="Monthly recurring" sub="excluding free Vercel Hobby + Supabase Free" tone="emerald" />
       </section>
 
@@ -172,6 +172,11 @@ export default function EfficiencyPage() {
               <Row cap="Hosting + cron" us="Vercel Hobby + GitHub Actions" alt="Vercel Pro + dedicated cron infra" saved="$20-100" />
               <Row cap="Database + auth" us="Supabase Free" alt="Supabase Pro / Firebase Blaze" saved="$25-200" />
               <Row cap="E2E encrypted DMs" us="libsodium (open source)" alt="Stream Chat / SendBird" saved="$300-1,000" />
+              <Row cap="Federal lobbying data" us="Senate LDA REST API (no auth, free)" alt="OpenSecrets (discontinued April 2025), LegiStorm ($500+/mo), Quorum ($2K+/mo)" saved="$500-2,000" />
+              <Row cap="Nonprofit financials (501(c)(4))" us="ProPublica Nonprofit Explorer (no auth, free)" alt="GuideStar Pro / Candid Premium" saved="$50-300" />
+              <Row cap="Federal donor profiles" us="OpenFEC direct + employer-name categorization" alt="OpenSecrets API (was free, gone) / paid CRP contract" saved="$200-1,000" />
+              <Row cap="URL metadata auto-fill (library)" us="YouTube oEmbed + Open Graph parser (free, no auth)" alt="Embedly ($9-99/mo) / Iframely ($25-300/mo)" saved="$10-300" />
+              <Row cap="Federal lobbying daily sync" us="Senate LDA cron job (no rate limit)" alt="Quorum / Bloomberg Government" saved="$2,000-10,000" />
             </tbody>
             <tfoot className="bg-zinc-950/60 text-sm">
               <tr>
@@ -179,7 +184,7 @@ export default function EfficiencyPage() {
                   Estimated total saved per month
                 </td>
                 <td className="px-3 py-2 text-right font-mono font-bold text-emerald-300">
-                  ~$2,200 – $10,000+
+                  ~$5,000 – $25,000+
                 </td>
               </tr>
             </tfoot>
