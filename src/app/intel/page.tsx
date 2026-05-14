@@ -75,6 +75,13 @@ export default async function IntelHubPage() {
           highlight
         />
         <Card
+          href="/intel/actors"
+          emoji="🎭"
+          title="Industry actor registry"
+          body="The people behind the dollars. Lobbyists (Haddow, Carlucci, Sermonti), industry orgs (AKA, GKC, BEA), kratom company executives (Derian/Botanaway), and the regulators with public positions. Every entry cites public-record evidence."
+          highlight
+        />
+        <Card
           href="/legislators"
           emoji="🪪"
           title="Legislators — start with a state or your reps"
