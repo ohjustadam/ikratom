@@ -86,6 +86,63 @@ describe("parseCommitteeFromAction", () => {
     expect(r?.name.endsWith("Committee")).toBe(true);
     expect(r?.name.startsWith(" ")).toBe(false);
   });
+
+  // Form B fixtures — `<Chamber> Committee on <Body>`. This shape is
+  // common in OpenStates last_action snapshots and matters because
+  // most of our 467 active bills come through that path, not LegiScan.
+
+  it("Form B: extracts 'Senate Committee on Healthcare' and canonicalizes to Form A", () => {
+    const r = parseCommitteeFromAction(
+      "Read for the first time and referred to the Senate Committee on Healthcare",
+    );
+    expect(r?.name).toBe("Senate Healthcare Committee");
+    expect(r?.chamber).toBe("senate");
+  });
+
+  it("Form B: extracts 'House Committee on Public Health'", () => {
+    const r = parseCommitteeFromAction(
+      "Referred to House Committee on Public Health",
+    );
+    expect(r?.name).toBe("House Public Health Committee");
+    expect(r?.chamber).toBe("house");
+  });
+
+  it("Form B: bounds the body at punctuation", () => {
+    const r = parseCommitteeFromAction(
+      "Referred to Senate Committee on Judiciary B, scheduled for 3/15",
+    );
+    expect(r?.name).toBe("Senate Judiciary B Committee");
+  });
+
+  it("Form B: lowercases unusual chamber capitalization", () => {
+    const r = parseCommitteeFromAction(
+      "referred to the assembly committee on codes",
+    );
+    expect(r?.name).toMatch(/^Assembly\s+codes\s+Committee$/i);
+    expect(r?.chamber).toBe("house");
+  });
+
+  it("Form B: rejects when body is too short", () => {
+    expect(
+      parseCommitteeFromAction("Referred to Senate Committee on AB"),
+    ).toBeNull();
+  });
+
+  it("Prefers Form A over Form B when both could match", () => {
+    // Action like "Senate Health Committee voted to refer to Senate
+    // Committee on Judiciary" — Form A "Senate Health Committee"
+    // wins because it appears first.
+    const r = parseCommitteeFromAction(
+      "Senate Health Committee voted to refer to Senate Committee on Judiciary",
+    );
+    expect(r?.name).toBe("Senate Health Committee");
+  });
+
+  it("'Died In Committee' (no committee name) returns null", () => {
+    // A real OpenStates pattern that doesn't name a committee. We
+    // don't try to guess; null is correct.
+    expect(parseCommitteeFromAction("Died In Committee")).toBeNull();
+  });
 });
 
 describe("normalizeCommitteeName", () => {

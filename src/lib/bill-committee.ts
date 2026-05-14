@@ -17,21 +17,28 @@
  * returns a name longer than 80 chars or shorter than 8.
  */
 
-// Match: chamber word, then 2-80 chars NONE of which START a new
-// chamber word, then "Committee". The negative lookahead is what
-// prevents the regex from picking the FIRST chamber and gobbling
-// across an intervening one to find the trailing "Committee" — which
-// produces a span the 80-char ceiling correctly rejects anyway, but
-// only after wasting backtracking. Real-world example fixed by this:
-//   "House Recommended for passage, refer to Senate Finance,
-//    Ways, and Means Committee"
-// Without lookahead: engine starts at "House", tries to reach
-// "Committee" but the captured span is 82 chars → rejected → returns
-// null. With lookahead: engine skips "House" (because "Senate"
-// appears in the middle), starts at "Senate Finance...", captures
-// the correct 42-char committee name.
-const COMMITTEE_RE =
+// Form A — `<Chamber> <Body> Committee`:
+//   "Senate Health Committee"
+//   "Senate Finance, Ways, and Means Committee"
+//   "Assembly Codes Committee"
+// Negative lookahead in the inner span prevents the regex from
+// gobbling across an intervening chamber word (e.g. "House
+// Recommended for passage, refer to Senate Finance, Ways, and Means
+// Committee" — engine skips "House" and locks onto "Senate Finance").
+const COMMITTEE_RE_FORM_A =
   /((?:Senate|House|Assembly|Joint)(?:(?!Senate|House|Assembly|Joint)[^.;]){2,80}?Committee)/i;
+
+// Form B — `<Chamber> Committee on <Body>`:
+//   "Senate Committee on Healthcare"
+//   "House Committee on Public Health"
+//   "Senate Committee on Judiciary B"
+// Distinct from Form A and far more common in OpenStates last_action
+// text. Body is bounded by 1-60 chars ending at the next punctuation
+// or end-of-string. The captured body is rewritten to "<Chamber>
+// <Body> Committee" by parseCommitteeFromAction so the stored
+// canonical name matches what legislator_committees rows look like.
+const COMMITTEE_RE_FORM_B =
+  /(Senate|House|Assembly|Joint)\s+Committee\s+on\s+((?:(?!Senate|House|Assembly|Joint)[^.;,]){2,60}?)(?=\s*[.;,]|$)/i;
 
 export type ParsedCommittee = {
   name: string;
@@ -42,17 +49,45 @@ export function parseCommitteeFromAction(
   description: string | null | undefined,
 ): ParsedCommittee | null {
   if (!description) return null;
-  const m = description.match(COMMITTEE_RE);
-  if (!m) return null;
-  const raw = m[1].trim();
-  if (raw.length < 8 || raw.length > 80) return null;
 
-  let chamber: ParsedCommittee["chamber"] = null;
-  if (/^senate/i.test(raw)) chamber = "senate";
-  else if (/^(house|assembly)/i.test(raw)) chamber = "house";
-  else if (/^joint/i.test(raw)) chamber = "joint";
+  // Try Form A first (most common from LegiScan + most action verbiage)
+  const a = description.match(COMMITTEE_RE_FORM_A);
+  if (a) {
+    const raw = a[1].trim();
+    if (raw.length >= 8 && raw.length <= 80) {
+      let chamber: ParsedCommittee["chamber"] = null;
+      if (/^senate/i.test(raw)) chamber = "senate";
+      else if (/^(house|assembly)/i.test(raw)) chamber = "house";
+      else if (/^joint/i.test(raw)) chamber = "joint";
+      return { name: raw, chamber };
+    }
+  }
 
-  return { name: raw, chamber };
+  // Fall back to Form B (common in OpenStates last_action snapshots:
+  // "Read for the first time and referred to the Senate Committee on Healthcare")
+  // Rewrite to canonical "Chamber Body Committee" form so the matcher
+  // can cross-reference legislator_committees rows uniformly.
+  const b = description.match(COMMITTEE_RE_FORM_B);
+  if (b) {
+    const chamberRaw = b[1].trim();
+    const body = b[2].trim().replace(/\s+/g, " ");
+    if (body.length >= 3 && body.length <= 60) {
+      const chamberCanonical =
+        /^senate/i.test(chamberRaw) ? "Senate"
+        : /^(house|assembly)/i.test(chamberRaw) ? chamberRaw[0].toUpperCase() + chamberRaw.slice(1).toLowerCase()
+        : "Joint";
+      const name = `${chamberCanonical} ${body} Committee`;
+      if (name.length >= 8 && name.length <= 80) {
+        const chamber: ParsedCommittee["chamber"] =
+          /^senate/i.test(chamberRaw) ? "senate"
+          : /^(house|assembly)/i.test(chamberRaw) ? "house"
+          : "joint";
+        return { name, chamber };
+      }
+    }
+  }
+
+  return null;
 }
 
 /**

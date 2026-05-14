@@ -198,27 +198,55 @@ async function syncOne(bill) {
   // remains useful for context. Status field tells you whether the
   // bill is still IN that committee or has moved on; YourRepDecidingThisBill
   // uses both signals.
-  // Same negative-lookahead pattern as src/lib/bill-committee.ts —
-  // prevents the regex from gobbling across an intervening chamber
-  // word (e.g. "House Recommended for passage, refer to Senate
-  // Finance, Ways, and Means Committee") and over-running the 80-char
-  // ceiling. See tests/bill-committee.test.ts for fixtures.
-  const COMMITTEE_RE = /((?:Senate|House|Assembly|Joint)(?:(?!Senate|House|Assembly|Joint)[^.;]){2,80}?Committee)/i;
+  // Mirrors parseCommitteeFromAction in src/lib/bill-committee.ts —
+  // tries Form A first ("Senate Health Committee"), falls back to
+  // Form B ("Senate Committee on Healthcare", canonicalized to
+  // "Senate Healthcare Committee"). See tests/bill-committee.test.ts
+  // for fixtures including the multi-chamber wrap-around case.
+  const COMMITTEE_RE_A = /((?:Senate|House|Assembly|Joint)(?:(?!Senate|House|Assembly|Joint)[^.;]){2,80}?Committee)/i;
+  const COMMITTEE_RE_B = /(Senate|House|Assembly|Joint)\s+Committee\s+on\s+((?:(?!Senate|House|Assembly|Joint)[^.;,]){2,60}?)(?=\s*[.;,]|$)/i;
+  const parseCommittee = (desc) => {
+    if (!desc) return null;
+    const a = String(desc).match(COMMITTEE_RE_A);
+    if (a) {
+      const raw = a[1].trim();
+      if (raw.length >= 8 && raw.length <= 80) {
+        const chamber = /^senate/i.test(raw) ? "senate"
+          : /^(house|assembly)/i.test(raw) ? "house"
+          : /^joint/i.test(raw) ? "joint"
+          : null;
+        return { name: raw, chamber };
+      }
+    }
+    const b = String(desc).match(COMMITTEE_RE_B);
+    if (b) {
+      const chamberRaw = b[1].trim();
+      const body = b[2].trim().replace(/\s+/g, " ");
+      if (body.length >= 3 && body.length <= 60) {
+        const chamberCanonical = /^senate/i.test(chamberRaw) ? "Senate"
+          : /^(house|assembly)/i.test(chamberRaw) ? chamberRaw[0].toUpperCase() + chamberRaw.slice(1).toLowerCase()
+          : "Joint";
+        const name = `${chamberCanonical} ${body} Committee`;
+        if (name.length >= 8 && name.length <= 80) {
+          const chamber = /^senate/i.test(chamberRaw) ? "senate"
+            : /^(house|assembly)/i.test(chamberRaw) ? "house"
+            : "joint";
+          return { name, chamber };
+        }
+      }
+    }
+    return null;
+  };
   let parsedCommitteeName = null;
   let parsedCommitteeChamber = null;
   let parsedCommitteeUpdatedAt = null;
   for (let i = actions.length - 1; i >= 0; i--) {
     const a = actions[i];
     if (!a?.action) continue;
-    const m = String(a.action).match(COMMITTEE_RE);
-    if (!m) continue;
-    const raw = m[1].trim();
-    if (raw.length < 8 || raw.length > 80) continue;
-    parsedCommitteeName = raw;
-    parsedCommitteeChamber = /^senate/i.test(raw) ? "senate"
-      : /^(house|assembly)/i.test(raw) ? "house"
-      : /^joint/i.test(raw) ? "joint"
-      : null;
+    const parsed = parseCommittee(a.action);
+    if (!parsed) continue;
+    parsedCommitteeName = parsed.name;
+    parsedCommitteeChamber = parsed.chamber;
     parsedCommitteeUpdatedAt = a.date ?? null;
     break;
   }
