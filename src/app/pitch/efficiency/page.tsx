@@ -274,6 +274,12 @@ export default function EfficiencyPage() {
         <p className="mt-2 text-xs text-zinc-500">
           Built for your dev friend who asks &ldquo;wait, how are you paying for all this?&rdquo;.
         </p>
+        <p className="mt-3 text-xs text-zinc-400">
+          Want proof the pipelines actually run? Live counts + per-cron freshness at{" "}
+          <Link href="/status" className="font-semibold text-emerald-400 hover:underline">
+            /status →
+          </Link>
+        </p>
       </div>
     </div>
   );
