@@ -4,6 +4,7 @@ import { PageShareWithAttribution } from "@/components/PageShareWithAttribution"
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { BillTimeline } from "./BillTimeline";
+import { YourRepDecidingThisBill } from "./YourRepDecidingThisBill";
 import { displayTitle, displaySubtitle } from "@/lib/bill-title";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
@@ -157,6 +158,25 @@ export default async function BillDetailPage({
 
   if (!billRaw) notFound();
   const bill = billRaw as unknown as BillRow;
+
+  // Separate fetch for the current_committee_* columns. Done as a
+  // discrete query so the page degrades gracefully on environments
+  // where migration 0123 hasn't been applied yet (e.g. preview
+  // branches built before db:push runs). On failure these stay null
+  // and the YourRepDecidingThisBill component silently renders nothing.
+  let currentCommitteeName: string | null = null;
+  try {
+    const { data: extra } = await supabase
+      .from("bills")
+      .select("current_committee_name")
+      .eq("id", id)
+      .single();
+    if (extra && typeof (extra as { current_committee_name?: unknown }).current_committee_name === "string") {
+      currentCommitteeName = (extra as { current_committee_name: string }).current_committee_name;
+    }
+  } catch {
+    // Column doesn't exist yet — silent no-op.
+  }
 
   // Linked campaigns (auto-generated or hand-written for this bill)
   const { data: campaignsRaw } = await supabase
@@ -391,6 +411,17 @@ export default async function BillDetailPage({
           for "get pushed when this bill changes status". */}
       <SignUpNudge context="bill" stateCode={bill.state} className="mb-6" />
       <EnablePushNudge context="bill" stateCode={bill.state} className="mb-6" />
+
+      {/* "YOUR REP IS DECIDING THIS BILL" — district-level urgency.
+          When the bill is in a committee that one of the user's reps
+          sits on, this is the highest-leverage moment for that user.
+          Renders silently when not applicable (no committee data,
+          not signed in, wrong state, no rep match). */}
+      <YourRepDecidingThisBill
+        billId={bill.id}
+        billState={bill.state}
+        currentCommitteeName={currentCommitteeName}
+      />
 
       {/* Per-bill timeline — surfaces the legislative-journey stage tracker
           + full action history. Lobbyists know the planned next-step
