@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { LibraryItemForm } from "@/modules/library/components/LibraryItemForm";
+import { RefreshFromUrlButton } from "./RefreshFromUrlButton";
 
 export const metadata = { title: "Edit library item" };
 
@@ -18,6 +19,8 @@ export default async function EditLibraryItemPage({
   const { data: item } = await supabase.from("library_items").select("*").eq("id", id).single();
   if (!item) notFound();
 
+  const currentUrl = (item as { url?: string | null })?.url ?? null;
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <a href={`/library/${id}`} className="text-xs text-zinc-500 hover:text-emerald-400">
@@ -26,6 +29,7 @@ export default async function EditLibraryItemPage({
       <header className="mt-2 mb-6">
         <h1 className="text-3xl font-bold">Edit library item</h1>
       </header>
+      <RefreshFromUrlButton currentUrl={currentUrl} />
       <LibraryItemForm initial={item} />
     </div>
   );
