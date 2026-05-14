@@ -67,13 +67,22 @@ export function PushSubscribe({ vapidPublicKey }: { vapidPublicKey: string | nul
       return;
     }
     if (Notification.permission === "denied") {
-      setError("Notifications are blocked for this site. Update browser site settings to allow.");
+      setError(
+        "Notifications are blocked for this site. Click the 🔒 (or notification) icon in your browser's address bar, " +
+        "find 'Notifications', change to 'Allow', then reload the page."
+      );
       return;
     }
     if (Notification.permission !== "granted") {
       const r = await Notification.requestPermission();
+      if (r === "denied") {
+        setError(
+          "You blocked the notification prompt. To re-enable: click the 🔒 icon in your browser's address bar, find 'Notifications', set to 'Allow', then reload."
+        );
+        return;
+      }
       if (r !== "granted") {
-        setError("Permission denied.");
+        setError("Permission prompt dismissed. Click 'Enable' again and choose 'Allow' on the popup.");
         return;
       }
     }

@@ -98,13 +98,27 @@ export function PushOptInBanner({
     }
     if (typeof Notification === "undefined") return;
     if (Notification.permission === "denied") {
-      setError("Notifications are blocked for this site. Update browser site settings to allow.");
+      // Permission was previously denied at the browser level. We can't
+      // re-prompt — user has to manually fix in browser settings. Give
+      // specific instructions per browser since the URL bar icon varies.
+      setError(
+        "Notifications are blocked for this site. Click the 🔒 (or notification) icon in your browser's address bar, " +
+        "find 'Notifications', change it to 'Allow', then reload this page. " +
+        "On Chrome: chrome://settings/content/notifications. On Firefox: about:preferences#privacy."
+      );
       return;
     }
     if (Notification.permission !== "granted") {
       const r = await Notification.requestPermission();
+      if (r === "denied") {
+        setError(
+          "You blocked the notification prompt. To re-enable: click the 🔒 icon in your browser's address bar, " +
+          "find 'Notifications', change it to 'Allow', then reload."
+        );
+        return;
+      }
       if (r !== "granted") {
-        setError("Permission denied.");
+        setError("Permission prompt dismissed. Click 'Enable alerts' again and choose 'Allow' on the popup.");
         return;
       }
     }
