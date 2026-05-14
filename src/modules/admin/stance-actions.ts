@@ -64,3 +64,63 @@ export async function setStance(input: {
   revalidatePath("/admin/stance");
   return { ok: true };
 }
+
+/**
+ * Bulk-approve drafted stances: takes an array of legislator IDs and
+ * an explicit stance to apply to all of them. Used by the /admin/stance
+ * bulk-review UI to clear large batches of AI drafts that need the
+ * same admin decision (e.g. "approve all 50 NY 'neutral committee
+ * membership only' drafts as neutral").
+ *
+ * Preserves each draft's rationale_md / last_evidence_url — only
+ * updates the stance + last_updated_at. So admin essentially
+ * 'co-signs' the AI's rationale by flipping the stance off 'unknown'.
+ *
+ * Caps at 100 ids per call to keep audit log entries readable.
+ */
+export async function bulkSetStance(input: {
+  legislatorIds: string[];
+  stance: string;
+}) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  if (!VALID_STANCES.includes(input.stance as Stance)) return { error: "Invalid stance." };
+  const ids = (input.legislatorIds ?? []).slice(0, 100).filter(Boolean);
+  if (ids.length === 0) return { error: "No legislators selected." };
+
+  const sb = await createClient();
+  const now = new Date().toISOString();
+
+  // Pull existing rows so the upsert preserves rationale + evidence
+  const { data: existing } = await sb
+    .from("legislator_kratom_stance")
+    .select("legislator_id, rationale_md, last_evidence_url")
+    .in("legislator_id", ids);
+  const existingMap = new Map<string, { rationale_md: string | null; last_evidence_url: string | null }>();
+  for (const e of existing ?? []) {
+    existingMap.set(e.legislator_id as string, {
+      rationale_md: e.rationale_md as string | null,
+      last_evidence_url: e.last_evidence_url as string | null,
+    });
+  }
+
+  const rows = ids.map((legislatorId) => ({
+    legislator_id: legislatorId,
+    stance: input.stance,
+    rationale_md: existingMap.get(legislatorId)?.rationale_md ?? null,
+    last_evidence_url: existingMap.get(legislatorId)?.last_evidence_url ?? null,
+    last_updated_at: now,
+  }));
+
+  const { error } = await sb.from("legislator_kratom_stance").upsert(rows);
+  if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "legislator_stance_bulk_set",
+    targetType: "legislator",
+    targetId: ids[0],
+    details: { stance: input.stance, count: ids.length, all_ids: ids },
+  });
+  revalidatePath("/admin/stance");
+  return { ok: true, applied: ids.length };
+}

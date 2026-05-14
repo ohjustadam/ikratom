@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
 import { listStateStances } from "@/modules/admin/stance-actions";
-import { StanceRow } from "./StanceRow";
+import { StanceList } from "./StanceList";
 
 export const metadata = { title: "Legislator kratom stance review" };
 export const dynamic = "force-dynamic";
@@ -92,24 +92,16 @@ export default async function StanceReviewPage({
         </a>
       </nav>
 
-      {/* Rows */}
-      <ul className="space-y-2">
-        {visible.map((l) => (
-          <StanceRow
-            key={l.id}
-            legId={l.id}
-            legName={l.full_name}
-            role={l.role}
-            district={l.district}
-            initial={stances.get(l.id) ?? null}
-          />
-        ))}
-      </ul>
-
-      {visible.length === 0 && (
+      {/* Rows with checkbox + bulk-approve panel (client component) */}
+      {visible.length === 0 ? (
         <p className="rounded-md border border-zinc-800 bg-zinc-950/40 p-6 text-sm text-zinc-500">
           No legislators match this filter.
         </p>
+      ) : (
+        <StanceList
+          legs={visible.map((l) => ({ id: l.id, full_name: l.full_name, role: l.role, district: l.district }))}
+          stanceEntries={[...stances.entries()].filter(([id]) => visible.some((l) => l.id === id))}
+        />
       )}
     </div>
   );
