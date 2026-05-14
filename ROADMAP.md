@@ -1,6 +1,6 @@
 # iKratom — Audit + Roadmap
 
-_Living doc. Updated 2026-05-14 — committee-urgency feature set fully shipped + extended (PRs #223–#234). Migration 0123 + 0124 applied; backfill ran; 30 bills now have structured committee assignments across NJ/TN/WA/AL/CO. PostHog + Vercel MCPs connected._
+_Living doc. Updated 2026-05-14 — committee-urgency feature set saturated across 5 surfaces (PRs #223–#238). Migration 0123 + 0124 applied; backfill ran; 30 bills with structured committee assignments across NJ/TN/WA/AL/CO. PostHog + Vercel MCPs connected. Production health: 0 errors / warnings / 5xx / 4xx in last 24h (Vercel runtime logs)._
 _See `SECURITY.md` for the security side, `APP_STORE_READINESS.md` for store path._
 
 ## Committee-urgency feature (shipped 2026-05-13 → 14)
@@ -19,6 +19,21 @@ The mission lever the platform's whole shape exists for: when a bill sits in com
 | #232 | OpenStates daily sync writes `current_committee_name` on every bill refresh. Daily cron `backfill-bill-committees` job as safety net. | sync + cron |
 | #233 | `/bills?filter=in-my-committees` pre-filtered browse view with banner + escape link | `/bills` |
 | #234 | `/status` surfaces committee-leverage windows count (public proof-of-life metric) | `/status` |
+| #236 | `⚡ Your rep decides` chip in `AlertCard` meta row on `/pulse` | `/pulse` |
+| #237 | "Currently deciding" section on legislator detail — shows every active bill in committees they sit on | `/legislators/[id]` |
+| #238 | Mounts `YourRepDecidingThisBill` callout on `/alerts/[id]` — surfaces leverage on the first-touchpoint surface (push-notification destination) | `/alerts/[id]` |
+
+**5 user-facing surfaces now carry the committee-urgency signal:**
+1. `/bills/[id]` — full callout when viewing a bill page
+2. `/dashboard` — `MyCommitteeBillsWidget` listing all your leverage bills
+3. `/pulse` — chip on alert cards in the feed
+4. `/alerts/[id]` — full callout on alert detail
+5. `/legislators/[id]` — "Currently deciding" section showing bills the legislator has direct power over
+
+Plus 2 supporting surfaces:
+- `/bills?filter=in-my-committees` — pre-filtered browse for signed-in users
+- `/legislators/committee?name=X` — chair-first member roster lookup
+- `/status` — public stat counting all open leverage windows
 
 **Coverage as of merge:** 30 of 467 active bills have `current_committee_name` populated. Breakdown: NJ:20, TN:3, WA:3, AL:3, CO:1. The remaining 437 either don't mention a committee in their `last_action` text or use ambiguous phrasing ("Died In Committee" / "Re-referred to Rules Committee"). OpenStates daily sync now writes the column on every refresh, so coverage grows organically as bills move.
 
