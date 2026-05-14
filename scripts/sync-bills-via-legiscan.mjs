@@ -187,6 +187,42 @@ async function syncOne(bill) {
   const lsStatus = STATUS_MAP[Number(detail.status)] ?? null;
   const lsLastAction = detail.history?.[detail.history.length - 1];
   const patch = {};
+
+  // Extract current committee from the most-recent committee-mentioning
+  // action. Mirrors src/lib/bill-committee.ts → parseCommitteeFromAction.
+  // Stays inline (not imported) to keep this .mjs self-contained.
+  //
+  // Walks history newest-first; first match wins. If the most recent
+  // status-changing action LEFT a committee (e.g. "Reported out of
+  // Senate Health"), we still get the LAST mentioned committee — which
+  // remains useful for context. Status field tells you whether the
+  // bill is still IN that committee or has moved on; YourRepDecidingThisBill
+  // uses both signals.
+  const COMMITTEE_RE = /((?:Senate|House|Assembly|Joint)[^.;]{2,80}?Committee)/i;
+  let parsedCommitteeName = null;
+  let parsedCommitteeChamber = null;
+  let parsedCommitteeUpdatedAt = null;
+  for (let i = actions.length - 1; i >= 0; i--) {
+    const a = actions[i];
+    if (!a?.action) continue;
+    const m = String(a.action).match(COMMITTEE_RE);
+    if (!m) continue;
+    const raw = m[1].trim();
+    if (raw.length < 8 || raw.length > 80) continue;
+    parsedCommitteeName = raw;
+    parsedCommitteeChamber = /^senate/i.test(raw) ? "senate"
+      : /^(house|assembly)/i.test(raw) ? "house"
+      : /^joint/i.test(raw) ? "joint"
+      : null;
+    parsedCommitteeUpdatedAt = a.date ?? null;
+    break;
+  }
+  if (parsedCommitteeName && parsedCommitteeName !== bill.current_committee_name) {
+    patch.current_committee_name = parsedCommitteeName;
+    patch.current_committee_chamber = parsedCommitteeChamber;
+    patch.current_committee_updated_at = parsedCommitteeUpdatedAt;
+    console.log(`  ↳ committee: ${bill.current_committee_name ?? '(null)'} → ${parsedCommitteeName}`);
+  }
   if (lsStatus && lsStatus !== bill.status) {
     console.log(`  ↳ status: ${bill.status ?? '(null)'} → ${lsStatus}`);
     patch.status = lsStatus;
@@ -214,7 +250,7 @@ async function syncOne(bill) {
 let bills;
 if (SPECIFIC) {
   const { data } = await sb.from("bills")
-    .select("id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id")
+    .select("id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id, current_committee_name")
     .eq("id", SPECIFIC).single();
   bills = data ? [data] : [];
 } else if (PRIORITY) {
@@ -222,7 +258,7 @@ if (SPECIFIC) {
   // (so we don't burn quota on the same bills every tick if cron runs fast)
   const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
   const { data } = await sb.from("bills")
-    .select("id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id")
+    .select("id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id, current_committee_name")
     .eq("active", true)
     .eq("scope", "state")
     .eq("kratom_relevance", "anti")
@@ -233,7 +269,7 @@ if (SPECIFIC) {
 } else if (ALL_ANTI) {
   // Daily mode: all active anti + pro bills
   const { data } = await sb.from("bills")
-    .select("id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id")
+    .select("id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id, current_committee_name")
     .eq("active", true)
     .eq("scope", "state")
     .in("kratom_relevance", ["anti", "pro"])
