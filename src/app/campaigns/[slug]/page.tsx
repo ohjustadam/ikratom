@@ -7,6 +7,7 @@ import { getMyWaveStatus } from "@/modules/waves/actions";
 import { CampaignAction } from "@/modules/campaigns/components/CampaignAction";
 import { LocalActionPlaybook, type LocalMeta } from "@/modules/campaigns/components/LocalActionPlaybook";
 import { ShareButtons } from "@/components/ShareButtons";
+import { RemindMeButton } from "@/components/RemindMeButton";
 import { ShareButtons as SocialBombButtons } from "@/modules/social/ShareButtons";
 import { defaultCampaignShareText } from "@/modules/social/share";
 
@@ -209,6 +210,17 @@ export default async function CampaignPage({
         {campaign.blurb && (
           <p className="mt-3 text-lg text-zinc-300">{campaign.blurb}</p>
         )}
+        {/* Custom reminder — let users set a follow-up for THIS campaign.
+            Use case: "remind me to send the email Thursday morning" or
+            "ping me a week before the committee hearing." */}
+        <div className="mt-3">
+          <RemindMeButton
+            targetKind="campaign"
+            targetId={campaign.id}
+            defaultTitle={`Take action: ${campaign.title.slice(0, 70)}`}
+            defaultMessage="Send the email, call the rep, or share — open the campaign to start."
+          />
+        </div>
       </header>
 
       {/* Social bombing — multi-network share with optional "Bomb run"

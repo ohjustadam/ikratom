@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
+import { RemindMeButton } from "@/components/RemindMeButton";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -153,9 +154,20 @@ export default async function MeetingDetailPage({ params }: Props) {
           {m.locality ?? m.state}
           {m.body_name && <span className="block text-xl text-zinc-400 mt-1">{m.body_name}</span>}
         </h1>
-        <p className="mt-2 text-sm text-zinc-400">
-          {when.toLocaleString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
-        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-zinc-400">
+            {when.toLocaleString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+          </p>
+          {/* Custom reminder — let users set their OWN reminder on top of
+              the system 7d/3d/1d windows. Especially useful for "remind me
+              30 min before so I can join Zoom" type personal reminders. */}
+          <RemindMeButton
+            targetKind="meeting"
+            targetId={id}
+            defaultTitle={`${m.locality ?? m.state} ${m.body_name ?? "meeting"} — kratom on agenda`}
+            defaultMessage={m.zoom_url ? `Join Zoom: ${m.zoom_url}` : (m.livestream_url ? `Watch live: ${m.livestream_url}` : "Public hearing — show up or sign up to speak")}
+          />
+        </div>
       </header>
 
       {/* Primary CTAs — large + thumby */}

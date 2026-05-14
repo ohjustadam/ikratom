@@ -11,6 +11,7 @@ import {
   type LeverageSignal,
 } from "@/lib/legislator-action-plan";
 import { actorsForLegislator, FACTION_META, ROLE_LABEL } from "@/lib/kratom-industry-actors";
+import { RemindMeButton } from "@/components/RemindMeButton";
 
 export const dynamic = "force-dynamic";
 
@@ -417,6 +418,17 @@ export default async function BriefingPage({ params }: { params: Params }) {
         <p className="mt-3 text-sm text-zinc-400">
           One-page memo on this person&apos;s kratom posture, the leverage windows that exist right now, and what to do about them.
         </p>
+        {/* Custom reminder — set a follow-up about THIS legislator.
+            Use case: "remind me to follow up Sen. Smith next Tuesday
+            after committee" or "ping me when their session resumes." */}
+        <div className="mt-4">
+          <RemindMeButton
+            targetKind="legislator"
+            targetId={leg.id}
+            defaultTitle={`Follow up: ${leg.full_name} (${leg.state})`}
+            defaultMessage="Check stance, contact info, or recent bill votes."
+          />
+        </div>
       </header>
 
       {/* ── Leverage flags ─────────────────────────────────────── */}
