@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
+import { EnablePushNudge } from "@/components/EnablePushNudge";
 
 export const dynamic = "force-dynamic";
 
@@ -267,6 +268,7 @@ export default async function StatePage({ params }: Props) {
           /states/TX), so the value prop is concrete: be the first TX
           advocate notified when something happens. */}
       <SignUpNudge context="state" stateCode={codeUpper} className="mb-8" />
+      <EnablePushNudge context="state" stateCode={codeUpper} className="mb-8" />
 
       {/* Active campaigns first — primary CTA */}
       {(campaigns.data ?? []).length > 0 && (

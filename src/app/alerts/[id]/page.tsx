@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
+import { EnablePushNudge } from "@/components/EnablePushNudge";
 
 export const dynamic = "force-dynamic";
 
@@ -288,6 +289,7 @@ export default async function AlertDetailPage({ params }: Props) {
           specific alert means they care about kratom policy and would
           benefit from push notifications on the next one. */}
       <SignUpNudge context="alert" stateCode={stateCode ?? undefined} className="mt-8" />
+      <EnablePushNudge context="alert" stateCode={stateCode ?? undefined} className="mt-4" />
 
       {/* Cross-links */}
       <section className="mt-8 flex flex-wrap gap-2 text-xs">

@@ -37,7 +37,11 @@ type InitialProfile = {
   is_medical_professional: boolean;
 };
 
-const STEPS = ["welcome", "class", "where", "stake", "alerts", "push", "done"] as const;
+// Push moved from step 5/5 → 3/5 (right after location is known). Earlier
+// in the funnel = higher activation rate. Browser requires user gesture
+// to fire Notification.requestPermission(), so we ask the moment the
+// state is in scope so the value prop is concrete.
+const STEPS = ["welcome", "class", "where", "push", "stake", "alerts", "done"] as const;
 type Step = (typeof STEPS)[number];
 
 export function OnboardingWizard({

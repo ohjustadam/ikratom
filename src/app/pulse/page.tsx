@@ -6,6 +6,7 @@ import { TourTooltip } from "@/modules/tour/TourTooltip";
 import { getTourSeen } from "@/modules/tour/actions";
 import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 import { SignUpNudge } from "@/components/SignUpNudge";
+import { EnablePushNudge } from "@/components/EnablePushNudge";
 
 export const metadata = { title: "Pulse — live policy feed" };
 // Force dynamic so newly-inserted alerts and breaking events appear on
@@ -360,6 +361,11 @@ export default async function PulsePage({
       {/* Signup nudge for anonymous /pulse viewers — pulse is the
           highest-intent surface (live policy feed); push converts well. */}
       <SignUpNudge
+        context="pulse"
+        stateCode={requestedState ?? undefined}
+        className="mb-6"
+      />
+      <EnablePushNudge
         context="pulse"
         stateCode={requestedState ?? undefined}
         className="mb-6"
