@@ -186,10 +186,21 @@ async function syncScope(scope) {
   // RSS title. The publisher name lives in source_name; the suffix
   // is pure noise. Matches " - <source>", " · <source>", etc.
   const stripPublisherSuffix = (title, source) => {
-    if (!title || !source) return title;
-    const escaped = String(source).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const rx = new RegExp(`\\s+[-–—·|]\\s+${escaped}\\s*$`, "i");
-    return title.replace(rx, "");
+    if (!title) return title;
+    let out = String(title);
+    // Pass 1: strip exact source_name suffix when we have it.
+    if (source) {
+      const escaped = String(source).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      out = out.replace(new RegExp(`\\s+[-–—·|]\\s+${escaped}\\s*$`, "i"), "");
+    }
+    // Pass 2: strip US TV-station-callsign suffixes that Google News
+    // appends even when source_name is the aggregator. Pattern matches
+    // 3-4 letter callsigns starting with K or W (the US convention),
+    // optionally trailed by " TV" or "-TV". Mirrors migration 0124.
+    out = out
+      .replace(/\s*[-–—·|]\s*[WK][A-Z]{2,3}(?:[\s-]+TV)?\s*$/, "")
+      .trim();
+    return out;
   };
   const rows = resolved.map((i) => {
     const cleanTitle = stripPublisherSuffix(i.title, i.source_name);
