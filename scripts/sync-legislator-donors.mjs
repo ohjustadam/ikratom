@@ -46,6 +46,16 @@ const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
 const SPECIFIC = arg("--legislator");
 const LIMIT = parseInt(arg("--limit") ?? "50", 10);
+// --all-federal processes every active us_senate + us_house legislator
+// in one run. ~700 calls @ 4/leg = ~2800 API calls; well under the
+// 1000/hr free tier limit with the 800ms sleep between legs (= ~3.5/sec).
+// Use this for first-time backfill; daily cron stays on --limit 50 to
+// refresh stale entries.
+const ALL_FEDERAL = args.includes("--all-federal");
+// --skip-cached avoids re-syncing legislators who already have a
+// resolved (matched|not_found) row — useful when re-running after a
+// partial-success crash.
+const SKIP_CACHED = args.includes("--skip-cached");
 
 const CYCLE = new Date().getFullYear() % 2 === 0
   ? new Date().getFullYear()
@@ -115,8 +125,20 @@ async function syncOne(leg) {
         }, { onConflict: "legislator_id" });
         return "skip";
       }
-      candidateId = results[0].candidate_id;
-      console.log(`  ↳ resolved to ${candidateId}`);
+      // Prefer incumbents (incumbent_challenge='I') when multiple
+      // candidates match — challengers, withdrawn candidates, and
+      // open-seat candidates all show up in /candidates/search/ for
+      // the same name. Fall back to first result if no incumbent
+      // flag is present.
+      const incumbent = results.find((r) => r.incumbent_challenge === "I");
+      const exactNameMatch = results.find((r) =>
+        (r.name ?? "").toLowerCase().includes(leg.full_name.toLowerCase()) ||
+        leg.full_name.toLowerCase().includes((r.name ?? "").toLowerCase())
+      );
+      const chosen = incumbent ?? exactNameMatch ?? results[0];
+      candidateId = chosen.candidate_id;
+      const matchReason = incumbent ? "incumbent" : exactNameMatch ? "exact-name" : "first-result";
+      console.log(`  ↳ resolved to ${candidateId} (${matchReason}, ${results.length} total candidate${results.length === 1 ? "" : "s"})`);
     } catch (e) {
       console.log(`  ✗ search failed: ${e.message?.slice(0, 100)}`);
       return "fail";
@@ -226,12 +248,31 @@ if (SPECIFIC) {
   const { data } = await sb.from("legislators").select("id, full_name, state, role, openfec_candidate_id").eq("id", SPECIFIC).single();
   legislators = data ? [data] : [];
 } else {
-  const { data } = await sb.from("legislators")
+  // Determine the candidate set
+  let query = sb.from("legislators")
     .select("id, full_name, state, role, openfec_candidate_id")
     .in("role", ["us_senate", "us_house"])
-    .eq("active", true)
-    .limit(LIMIT);
-  legislators = data ?? [];
+    .eq("active", true);
+
+  if (!ALL_FEDERAL) {
+    query = query.limit(LIMIT);
+  }
+
+  const { data } = await query;
+  let candidates = data ?? [];
+
+  if (SKIP_CACHED) {
+    // Drop legislators that already have a row in legislator_donors
+    // (regardless of status). On --all-federal first run this stays
+    // false so we get a single comprehensive sweep.
+    const { data: existing } = await sb.from("legislator_donors")
+      .select("legislator_id")
+      .in("legislator_id", candidates.map((l) => l.id));
+    const haveDonor = new Set((existing ?? []).map((r) => r.legislator_id));
+    candidates = candidates.filter((l) => !haveDonor.has(l.id));
+  }
+
+  legislators = candidates;
 }
 
 if (legislators.length === 0) { console.log("Nothing to sync."); process.exit(0); }
