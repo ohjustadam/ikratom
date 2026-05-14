@@ -85,8 +85,44 @@ export default async function MeetingDetailPage({ params }: Props) {
   const minsAgo = Math.floor(sinceStartMs / 60_000);
   const daysFromNow = Math.ceil((when.getTime() - now) / 86_400_000);
 
+  // Schema.org Event JSON-LD — tells Google + AI summarizers + Apple
+  // Spotlight that this URL describes a real-world event. Improves
+  // search-citation quality + enables rich snippets on result pages.
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Event",
+    name: `${m.locality ?? m.state} ${m.body_name ?? "public meeting"} — kratom on agenda`,
+    startDate: when.toISOString(),
+    endDate: new Date(when.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    eventStatus: "https://schema.org/EventScheduled",
+    eventAttendanceMode: m.zoom_url
+      ? "https://schema.org/MixedEventAttendanceMode"
+      : m.in_person_address
+      ? "https://schema.org/OfflineEventAttendanceMode"
+      : "https://schema.org/OnlineEventAttendanceMode",
+    location: m.in_person_address
+      ? {
+          "@type": "Place",
+          name: m.body_name ?? "Public meeting venue",
+          address: { "@type": "PostalAddress", streetAddress: m.in_person_address },
+        }
+      : {
+          "@type": "VirtualLocation",
+          url: m.zoom_url ?? m.livestream_url ?? `${SITE}/meetings/${m.id}`,
+        },
+    description: m.agenda_text
+      ? m.agenda_text.slice(0, 300)
+      : `${m.locality ?? m.state} ${m.body_name ?? "officials"} are considering kratom policy.`,
+    organizer: { "@type": "GovernmentOrganization", name: m.body_name ?? `${m.locality ?? m.state} local government` },
+    url: `${SITE}/meetings/${m.id}`,
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Link href="/calendar" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Calendar
       </Link>
