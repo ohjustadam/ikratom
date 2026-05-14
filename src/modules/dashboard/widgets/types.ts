@@ -17,6 +17,7 @@ export type WidgetId =
   | "rep_coverage"
   | "scoreboard"
   | "my_battles"
+  | "my_committee_bills"
   | "saved_searches"
   | "activity_radar"
   | "policy_pulse"
@@ -68,6 +69,7 @@ export const DEFAULT_WIDGETS: WidgetSlot[] = [
   { id: "whats_new", visible: true },
   { id: "briefing", visible: true },
   { id: "active_campaigns", visible: true },
+  { id: "my_committee_bills", visible: true },
   { id: "my_battles", visible: true },
   // P1 — personal radar
   { id: "my_reps", visible: true },
@@ -120,6 +122,10 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
   my_battles: {
     title: "My battles",
     description: "Bills you've taken action on, with current status (committee → vote → enacted/dead).",
+  },
+  my_committee_bills: {
+    title: "Bills your reps are deciding",
+    description: "Active bills currently in committees where one of YOUR reps sits — the moments your call has structural leverage.",
   },
   saved_searches: {
     title: "Saved searches",

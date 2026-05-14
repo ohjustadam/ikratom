@@ -14,6 +14,7 @@ import { ActiveCampaignsWidget } from "@/modules/dashboard/widgets/ActiveCampaig
 import { RepCoverageWidget } from "@/modules/dashboard/widgets/RepCoverageWidget";
 import { ScoreboardWidget } from "@/modules/dashboard/widgets/ScoreboardWidget";
 import { MyBattlesWidget } from "@/modules/dashboard/widgets/MyBattlesWidget";
+import { MyCommitteeBillsWidget } from "@/modules/dashboard/widgets/MyCommitteeBillsWidget";
 import { SavedSearchesWidget } from "@/modules/dashboard/widgets/SavedSearchesWidget";
 import { ActivityRadarWidget } from "@/modules/dashboard/widgets/ActivityRadarWidget";
 import { BadgesWidget } from "@/modules/dashboard/widgets/BadgesWidget";
@@ -129,6 +130,9 @@ export default async function DashboardPage({
     ) : null,
     my_battles: userId ? (
       <MyBattlesWidget userId={userId} />
+    ) : null,
+    my_committee_bills: userId ? (
+      <MyCommitteeBillsWidget userId={userId} />
     ) : null,
     saved_searches: userId ? <SavedSearchesWidget /> : null,
     activity_radar: <ActivityRadarWidget />,
