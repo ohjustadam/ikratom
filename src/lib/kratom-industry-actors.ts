@@ -440,8 +440,8 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     role: "company_executive",
     faction: "cross_coalition",
     summary:
-      "Founder and CEO of Urban Ice Botanicals (Las Vegas, NV) — one of the oldest U.S. kratom suppliers (20+ years). CO-FOUNDED the American Kratom Association in 2014 alongside Susan Ash. Urban Ice Botanicals is now ALSO listed as a Global Kratom Coalition industry supporter — meaning Dunn has active stakes in BOTH dominant industry coalitions. Producer of the documentary 'A Leaf of Faith.' Appeared on the Joe Rogan Experience and other major podcasts — represents the media-influence arm of the industry. Per platform owner's first-hand observation, Dunn and David Reynolds Derian (Botanaway) operate a coordinated 'control system' that reaches across formal coalition lines into international kratom-supply networks. Real global coordination beyond what appears in U.S. federal filings.",
-    affiliations: ["Urban Ice Botanicals", "American Kratom Association (co-founder)", "Global Kratom Coalition (Urban Ice as supporter)", "A Leaf of Faith documentary"],
+      "Founder and CEO of Urban Ice Botanicals (Las Vegas, NV) — one of the oldest U.S. kratom suppliers (20+ years). CO-FOUNDED the American Kratom Association in 2014 alongside Susan Ash. Urban Ice Botanicals is now ALSO listed as a Global Kratom Coalition industry supporter — meaning Dunn has active stakes in BOTH dominant industry coalitions. **Executive Producer of 'A Leaf of Faith' (Netflix 2018) AND funded the initial round of kratom research the documentary cites — textbook influence-laundering chain: industry $ → 'independent research' → 'independent documentary' → Netflix mass-distribution → policy advocacy.** Appeared on the Chronically Human Podcast Ep. 25 and other major podcasts. Per platform owner's first-hand observation, Dunn and David Reynolds Derian (Botanaway) operate a coordinated 'control system' reaching across formal coalition lines into international kratom-supply networks — the global coordination beyond what appears in U.S. federal filings.",
+    affiliations: ["Urban Ice Botanicals", "American Kratom Association (co-founder, 2014)", "Global Kratom Coalition (Urban Ice as supporter)", "A Leaf of Faith documentary (Executive Producer + research funder)", "Maitie Productions"],
     evidence_urls: [
       "https://urbanicebotanicals.com/our-story/",
       "https://urbanicebotanicals.com/about-us/",
@@ -488,15 +488,15 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
   {
     id: "vernon-jones",
     name: "Vernon Jones",
-    role: "former_industry_leader",
-    faction: "company_independent",
+    role: "regulator_or_official",
+    faction: "aka_coalition",
     summary:
-      "Former Georgia state representative (Democrat, then Republican-turned-Republican). Ran for Georgia governor in 2022 (R primary). Per platform owner's first-hand observation, attended the Salt Lake City kratom summit alongside Sen. Curt Bramble. Connection to kratom industry not yet documented in published investigations — appears to be in the cross-state-advocate-recruitment orbit similar to how Bramble travels to testify in other states. Worth tracking: which kratom-industry entity paid for / hosted Jones's SLC attendance and what advocacy he subsequently performed in GA or other states.",
-    affiliations: ["Georgia (former state rep)", "Salt Lake City kratom summit attendee (platform owner observation)"],
+      "Former Georgia state representative (District 91). CO-SPONSORED Georgia HB 551 — the Kratom Consumer Protection Act — in 2019 alongside Hill, Caldwell, Mathiak, and Newton. GA HB 551 was one of FOUR state-level KCPAs passed in 2019 (UT/AZ/GA/NV) as a coordinated multi-state wave from AKA's model legislation. Bipartisan profile: Jones served as a Democrat then switched Republican. Ran for GA governor in 2022 (R primary). Per platform owner's first-hand observation, attended the Salt Lake City kratom summit alongside Sen. Curt Bramble — meaning the GA KCPA co-sponsor traveled to UT for an industry coordination event years after the bill passed. Connection pattern: Jones (GA) + Bramble (UT) + Rivero (AZ) + Wheeler/Yeager (NV) are the 4-state KCPA sponsor cluster.",
+    affiliations: ["Georgia House of Representatives (former, District 91)", "GA HB 551 co-sponsor", "Salt Lake City kratom summit attendee", "Bramble-Jones-Rivero-Wheeler multi-state KCPA sponsor cluster"],
     former_government_role: "Georgia State Representative; 2022 GA gubernatorial candidate (R)",
     evidence_urls: [
-      // Owner testimony — no published source for the SLC kratom summit attendance yet.
-      // Add Courthouse News + relevant kratom-summit coverage as it surfaces.
+      "https://gov.georgia.gov/document/signed-legislation/hb-551pdf/download",
+      "https://legiscan.com/GA/text/HB551/id/1987389",
     ],
     state: "GA",
     last_verified: "2026-05-14",
@@ -528,6 +528,163 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     affiliations: ["Robert F. Kennedy Jr.", "HHS (RFK's agency)", "Botanic Tonics ($500k donor)"],
     evidence_urls: [
       "https://www.yahoo.com/news/articles/behind-kratom-giant-botanic-tonics-100244740.html",
+    ],
+    last_verified: "2026-05-14",
+  },
+
+  // ── MULTI-STATE KCPA WAVE (2019) ───────────────────────────────
+  // Bramble-Jones-Rivero-Wheeler/Yeager 4-state pattern — AKA's model
+  // legislation propagated UT (March 2019) → GA (April) → AZ (May) →
+  // NV (June). Vernon Jones (GA) and Curt Bramble (UT) already above;
+  // adding the AZ + NV principal sponsors here.
+
+  {
+    id: "tony-rivero",
+    name: "Rep. Tony Rivero",
+    role: "regulator_or_official",
+    faction: "aka_coalition",
+    summary:
+      "Arizona state representative (R). Introduced Arizona HB 2550 — the AZ Kratom Consumer Protection Act — in 2019. Unanimous passage both chambers. Signed into law April 2019. Part of the Bramble-Jones-Rivero-Wheeler 4-state KCPA wave that propagated AKA's model legislation across UT/GA/AZ/NV in a coordinated 90-day window. Per the same AKA-paid traveling-advocate pattern that Bramble exemplifies, Rivero likely received similar industry consideration but disclosure-loophole rules vary by state.",
+    affiliations: ["Arizona House of Representatives", "AZ HB 2550 sponsor", "Bramble-Jones-Rivero-Wheeler multi-state KCPA cluster"],
+    former_government_role: "Arizona State Representative",
+    evidence_urls: [
+      "https://www.supplysidesj.com/supplement-regulations/state-legislators-seek-kratom-meeting-with-fda-commissioner",
+      "https://professorwhytes.com/blogs/kratom/is-kratom-legal-in-arizona",
+    ],
+    state: "AZ",
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "steve-yeager",
+    name: "Rep. Steve Yeager",
+    role: "regulator_or_official",
+    faction: "aka_coalition",
+    summary:
+      "Nevada state representative (D). Co-introduced Nevada AB 303 — the NV Kratom Consumer Protection Act — in March 2019 alongside Rep. Jim Wheeler (R). Signed into law by Gov. Sisolak in June 2019, fourth state in the 2019 KCPA wave. Yeager's bipartisan co-sponsorship with Wheeler shows AKA's cross-aisle propagation strategy — same model bill, both parties as carriers.",
+    affiliations: ["Nevada Assembly", "NV AB 303 co-sponsor", "Bramble-Jones-Rivero-Wheeler multi-state KCPA cluster"],
+    former_government_role: "Nevada State Representative",
+    evidence_urls: [
+      "https://www.kratomscience.com/2024/12/03/kratom-legal-status-in-nevada-what-you-need-to-know/",
+      "https://archive.leg.state.nv.us/Session/80th2019/Exhibits/Assembly/HHS/AHHS812G.pdf",
+    ],
+    state: "NV",
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "jim-wheeler",
+    name: "Rep. Jim Wheeler",
+    role: "regulator_or_official",
+    faction: "aka_coalition",
+    summary:
+      "Nevada state representative (R). Co-introduced Nevada AB 303 (KCPA) with Rep. Steve Yeager (D) in March 2019. R-side anchor of the bipartisan NV KCPA pair. Part of the 4-state Bramble-Jones-Rivero-Wheeler/Yeager 2019 KCPA wave from AKA.",
+    affiliations: ["Nevada Assembly", "NV AB 303 co-sponsor", "Bramble-Jones-Rivero-Wheeler multi-state KCPA cluster"],
+    former_government_role: "Nevada State Representative",
+    evidence_urls: [
+      "https://www.kratomscience.com/2024/12/03/kratom-legal-status-in-nevada-what-you-need-to-know/",
+    ],
+    state: "NV",
+    last_verified: "2026-05-14",
+  },
+
+  // ── UTAH 2026 KRATOM LEGISLATION FIGHT ─────────────────────────
+  // Six years after Bramble carried Utah's first KCPA, a new wave of
+  // restriction bills is being driven by different sponsors — and
+  // sparking the LDS Word-of-Wisdom doctrinal sidebar.
+
+  {
+    id: "mike-mckell",
+    name: "Sen. Mike McKell",
+    role: "regulator_or_official",
+    faction: "regulator",
+    summary:
+      "Utah State Senator (R-Spanish Fork). Senate Majority Assistant Whip. Sponsored Utah SB 45 (2026) — a restriction bill that stepped back from a full kratom ban after committee negotiations and now would allow pure-leaf kratom sales in smoke shops to adults 21+. The pull-back trajectory likely reflects AKA / GKC pressure: bill started as a ban, was watered down through legislative cycles, ended as a regulatory framework that preserves industry sales while adding age-gate. Position not yet clear on whether McKell is an AKA-paid consultant like Bramble or an independent regulator.",
+    affiliations: ["Utah State Senate", "Utah SB 45 (2026) sponsor"],
+    former_government_role: "Utah State Senator",
+    evidence_urls: [
+      "https://www.deseret.com/utah/2026/03/04/kratom-manufacturing-changes-made/",
+      "https://le.utah.gov/Session/2026/bills/introduced/SB0045S01.pdf",
+    ],
+    state: "UT",
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "matt-macpherson",
+    name: "Rep. Matt MacPherson",
+    role: "regulator_or_official",
+    faction: "regulator",
+    summary:
+      "Utah State Representative (R-Salt Lake County / West Valley City). In March 2026 proposed a substitute amendment to Utah SB 45 that would have written the LDS Church's 'Word of Wisdom' (the Mormon health code prohibiting tobacco, alcohol, coffee, tea) into Utah state law. MacPherson framed it as exposing the legislature's pattern of imposing 'moral health codes.' Substitute rejected 63-10. Even as a failed stunt, the proposal is a notable artifact: it forced into public debate the question of whether Utah's legislature is structurally biased toward LDS doctrinal positions on kratom — which structurally favors prohibition postures.",
+    affiliations: ["Utah House of Representatives", "Word of Wisdom substitute (rejected) on UT SB 45"],
+    former_government_role: "Utah State Representative",
+    evidence_urls: [
+      "https://www.fox13now.com/news/politics/mormon-word-of-wisdom-introduced-in-bill-debate-over-utahs-kratom-ban",
+      "https://www.eastidahonews.com/2026/03/utah-lawmaker-attempts-to-put-word-of-wisdom-in-state-code/",
+    ],
+    state: "UT",
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "katy-hall",
+    name: "Rep. Katy Hall",
+    role: "regulator_or_official",
+    faction: "regulator",
+    summary:
+      "Utah State Representative (R-Ogden). House sponsor of the 2026 Utah kratom-restriction package — described as the year's most sweeping legislation seeking to take kratom out of convenience stores. Pushed back on MacPherson's Word-of-Wisdom stunt as not taking the issue seriously. House-side counterpart to Sen. McKell's SB 45.",
+    affiliations: ["Utah House of Representatives", "2026 UT kratom-restriction lead House sponsor"],
+    former_government_role: "Utah State Representative",
+    evidence_urls: [
+      "https://www.fox13now.com/news/politics/mormon-word-of-wisdom-introduced-in-bill-debate-over-utahs-kratom-ban",
+      "https://www.deseret.com/utah/2026/03/04/kratom-manufacturing-changes-made/",
+    ],
+    state: "UT",
+    last_verified: "2026-05-14",
+  },
+
+  // ── MEDIA / DOCUMENTARY INFLUENCE CHANNEL ──────────────────────
+  // The Joe-Rogan-podcast → A Leaf of Faith documentary → Netflix
+  // pipeline. Kelly Dunn funded the research the doc cited AND was
+  // exec producer — textbook influence-laundering: industry money →
+  // "independent research" → "independent documentary" → mass media.
+
+  {
+    id: "chris-bell",
+    name: "Christopher Bell",
+    role: "company_executive",
+    faction: "cross_coalition",
+    summary:
+      "Director of the 2018 Netflix documentary 'A Leaf of Faith' which positioned kratom as an opioid-crisis alternative. Brought kratom to Joe Rogan on his podcast in 2016 — the seed mass-media moment that preceded the documentary. Receives Kelly Dunn / Urban Ice money via Maitie Productions co-production. Not directly a coalition figure but the media-influence-channel architect: the Bell → Rogan → Netflix → public-perception pipeline shifted kratom from obscure supplement to broadly-known cause within 2-3 years.",
+    affiliations: ["A Leaf of Faith (2018, director)", "Maitie Productions", "Joe Rogan Experience (2016 guest)"],
+    evidence_urls: [
+      "https://www.imdb.com/title/tt8412232/",
+      "https://merryjane.com/health/could-the-opioid-crisis-be-solved-with-kratom-a-leaf-of-faith-says-yes/",
+      "https://reason.com/2018/12/01/a-leaf-of-faith/",
+    ],
+    last_verified: "2026-05-14",
+  },
+
+  // ── INDONESIAN SUPPLY CHAIN ────────────────────────────────────
+  // Tampa Bay Times "Deadly Dose" investigation Part 3 traced the
+  // path from West Kalimantan growers → Pontianak port → Oakland
+  // (50% of US kratom imports) + Tampa (14%). Indonesian government
+  // DENIED the Times's journalist visa to Pontianak — actively
+  // blocking US press coverage.
+
+  {
+    id: "opms-supply-chain",
+    name: "O.P.M.S. supply chain (Indonesia → US)",
+    role: "industry_company",
+    faction: "gkc_coalition",
+    summary:
+      "Per Tampa Bay Times 'Deadly Dose' investigation Part 3: O.P.M.S. leaves harvested in West Kalimantan (Indonesia's Borneo region), processed in factories at the port city of Pontianak (heavy-metals + potency testing, milling), then shipped primarily to Oakland CA (50% of US kratom imports) and Tampa FL (14%). The brand has been linked to fatal overdose cases (per Tampa Bay Times Part 1). Distributors take 'elaborate measures to evade regulators and avoid detection' per the investigation. Indonesian government DENIED the Tampa Bay Times reporter's journalist visa to Pontianak / Kapuas Hulu — actively blocking US journalism on the supply chain.",
+    affiliations: ["O.P.M.S. brand", "West Kalimantan growers", "Pontianak processing factories", "Oakland CA port (primary US import)", "Tampa FL port (secondary)"],
+    evidence_urls: [
+      "https://project.tampabay.com/investigations/deadly-dose/kratom-industry-opms-supply-chain-indonesia-florida/",
+      "https://centerforhealthjournalism.org/our-work/reporting/part-3-kratoms-path-across-us-marked-deception-and-secrets",
+      "https://www.tampabay.com/kratom/",
     ],
     last_verified: "2026-05-14",
   },
