@@ -232,6 +232,18 @@ export default async function LegislatorDetailPage({
         </div>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{leg.full_name}</h1>
         {leg.title && <p className="mt-1 text-sm text-zinc-400">{leg.title}</p>}
+        <div className="mt-3">
+          <a
+            href={`/legislators/${leg.id}/briefing`}
+            className="inline-flex items-center gap-2 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
+            data-event="open_legislator_briefing"
+          >
+            ◉ Open intel briefing →
+          </a>
+          <span className="ml-2 text-[10px] text-zinc-500">
+            Stance + leverage signals + action plan for contacting this person
+          </span>
+        </div>
       </header>
 
       {/* Contact */}
