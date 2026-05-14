@@ -132,8 +132,36 @@ export default async function AlertDetailPage({ params }: Props) {
     if (m) stateCode = m[1].toUpperCase();
   }
 
+  // Schema.org NewsArticle JSON-LD — most AI summarizers + Google
+  // News surface a higher-quality citation when an article advertises
+  // itself with structured data. We're presenting policy news that
+  // the platform aggregated/classified, so NewsArticle fits.
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    headline: a.title,
+    description: a.body
+      ? a.body.split("\n")[0].slice(0, 300)
+      : `${KIND_LABEL[a.kind] ?? "Policy"} alert in ${a.locality ?? "the US"}.`,
+    datePublished: a.created_at,
+    dateModified: a.updated_at ?? a.created_at,
+    author: { "@type": "Organization", name: "iKratom", url: SITE },
+    publisher: { "@type": "Organization", name: "iKratom", url: SITE },
+    articleSection: KIND_LABEL[a.kind] ?? "Policy",
+    keywords: ["kratom", "policy", a.kind, a.locality].filter(Boolean).join(", "),
+    isAccessibleForFree: true,
+    url: `${SITE}/alerts/${id}`,
+    mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE}/alerts/${id}` },
+    ...(a.source_url ? { isBasedOn: a.source_url } : {}),
+    ...(stateCode ? { contentLocation: { "@type": "AdministrativeArea", name: stateCode } } : {}),
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Link href="/pulse" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Pulse feed
       </Link>

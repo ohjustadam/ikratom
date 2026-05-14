@@ -160,8 +160,52 @@ export default async function StatePage({ params }: Props) {
     + freshAlerts.length
     + (campaigns.data?.length ?? 0);
 
+  // Schema.org WebPage with CollectionPage mainEntity — describes this
+  // as a state-policy hub for AI summarizers and search engines. The
+  // mainEntity carries the actual content classification so AI agents
+  // can answer 'what's happening with kratom in TX?' by citing us.
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: `Kratom policy in ${stateName}`,
+    description: `Every active kratom-policy signal we're tracking for ${stateName}: bills, hearings, municipal meetings, alerts, campaigns.`,
+    url: `${SITE}/states/${codeUpper}`,
+    inLanguage: "en-US",
+    isAccessibleForFree: true,
+    isPartOf: { "@type": "WebSite", name: "iKratom", url: SITE },
+    about: {
+      "@type": "AdministrativeArea",
+      name: stateName,
+      identifier: codeUpper,
+      addressCountry: "US",
+    },
+    mainEntity: {
+      "@type": "CollectionPage",
+      numberOfItems: totalSignals,
+      itemListElement: [
+        ...((bills.data ?? []).slice(0, 5).map((b: { id: string; bill_number: string; title: string | null }) => ({
+          "@type": "Legislation",
+          name: `${codeUpper} ${b.bill_number}`,
+          description: b.title?.slice(0, 200),
+          url: `${SITE}/bills/${b.id}`,
+          legislationJurisdiction: { "@type": "AdministrativeArea", name: stateName },
+        }))),
+        ...((meetings.data ?? []).slice(0, 5).map((m: { id: string; locality: string | null; body_name: string | null; meeting_at: string }) => ({
+          "@type": "Event",
+          name: `${m.locality ?? codeUpper} ${m.body_name ?? "meeting"}`,
+          startDate: m.meeting_at,
+          url: `${SITE}/meetings/${m.id}`,
+        }))),
+      ],
+    },
+  };
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Link href="/states" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← All states
       </Link>
