@@ -85,17 +85,25 @@ Two viable sources:
 
 ---
 
-## D4. Per-legislator news mentions (~1 day)
+## D4. Per-legislator news mentions
 
-**Path**: We already have `news_items` table with 4,243 rows of kratom-related news. Add a per-legislator name-match indexer. Two-phase approach:
+### Phase 1 ✅ SHIPPED 2026-05-14
 
-Phase 1 (this PR): Simple exact-full-name match against title + summary. Store hits in new `legislator_news_mentions` table (legislator_id, news_item_id, match_confidence, mention_context).
+**Status**: Live in `scripts/index-legislator-news-mentions.mjs` + migration 0127. Briefing renders a "📰 News mentions" section between voting record and committee positions.
 
-Phase 2 (next, AI-assisted): AI-extract quotes ("Senator X said Y about kratom") from article body. Append to legislator stance rationale.
+**Method**: Regex match each legislator's name (exact-full-name OR title+lastname like "Sen. Smith") against `news_items.title` / `summary` / `body_extract_excerpt`, state-scoped to reduce false positives. Lastnames under 4 chars use full-name pattern only (avoids "Lee" matching every actor named Lee). Patterns escape regex metas to handle names like "O'Brien".
 
-**Honest limit**: Current news scrape is kratom-policy-focused, not per-legislator-focused. Most articles say "Tennessee lawmakers" not specific names. Phase 1 will populate sparsely. Phase 2 needs a different news source (per-legislator state press release scraper) to be useful.
+**First-run results** (4,260 news_items × 8,273 active legislators, state-scoped):
+- 85 matches across 12+ states. Top: **Sean Brennan (OH state house, 12 mentions)** — Ohio kratom-bill activity. **Ty Masterson (KS senate, 9)** — Senate President. **Anita Somani (OH state house, 7)**. **Pete Ricketts (NE US senate, 3)** — federal-side mention.
+- Match rate 0.01% (85 of 727k pairs) — matches the prediction. Every match is high-signal because the news scrape is kratom-policy-tagged, so a name hit means that legislator is named in a kratom-policy article.
 
-**Effort**: Phase 1 = ~3 hours. Phase 2 = ~1-2 days + a new ingestion source.
+**Schema**: `legislator_news_mentions(id, legislator_id, news_item_id, match_confidence, matched_field, mention_context, created_at)` with `UNIQUE(legislator_id, news_item_id, matched_field)` for idempotency. Indexer is rerunnable; existing rows preserved via `ignoreDuplicates: true`.
+
+**Render**: Briefing shows up to 10 articles newest-first, deduped by article (a name in both title + summary collapses to one card, preferring the title context). Each card shows outlet, date, the matched-field tag, and the ~120-char snippet.
+
+### Phase 2 (deferred — needs new ingestion source)
+
+AI-extract quotes ("Senator X said Y about kratom") from article body and append to legislator stance rationale. Real lift here requires a per-legislator press-release scraper — current news scrape is kratom-policy-focused not legislator-focused. Defer until a per-legislator news source lands.
 
 ---
 
