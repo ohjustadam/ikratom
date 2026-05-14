@@ -72,14 +72,25 @@ export async function YourRepDecidingThisBill({
     rep: typeof reps[number];
     role: string;
     committeeName: string;
+    isKratomRelevant: boolean;
   };
   const matches: RepMatch[] = [];
   for (const a of assignments ?? []) {
     if (!committeesMatch(currentCommitteeName, a.committee_name)) continue;
     const rep = reps.find((r) => r.id === a.legislator_id);
     if (!rep) continue;
-    matches.push({ rep, role: a.role, committeeName: a.committee_name });
+    matches.push({
+      rep,
+      role: a.role,
+      committeeName: a.committee_name,
+      isKratomRelevant: !!a.is_kratom_relevant,
+    });
   }
+  // Any match flagged kratom-relevant boosts the whole section's
+  // urgency framing. is_kratom_relevant is admin-curated: 1,600+ rows
+  // marked across Health / Judiciary / Codes / Consumer / Drug Policy
+  // committees that historically handle kratom bills.
+  const isBattleground = matches.some((m) => m.isKratomRelevant);
 
   // Chair / leadership lookup for the "no match" fallback so we can
   // tell the user WHO is deciding their bill, not just that they
@@ -114,18 +125,32 @@ export async function YourRepDecidingThisBill({
 
   // Render: matches case (highest urgency)
   if (matches.length > 0) {
+    const sectionShell = isBattleground
+      ? "mb-6 rounded-lg border-2 border-amber-400 bg-amber-950/20 p-5 shadow-[0_0_32px_-8px_rgba(251,191,36,0.55)]"
+      : "mb-6 rounded-lg border-2 border-emerald-500 bg-emerald-950/20 p-5 shadow-[0_0_24px_-8px_rgba(16,185,129,0.5)]";
+    const chipShell = isBattleground
+      ? "rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-950"
+      : "rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-950";
+    const headingShell = isBattleground
+      ? "text-sm font-bold uppercase tracking-wider text-amber-300"
+      : "text-sm font-bold uppercase tracking-wider text-emerald-300";
     return (
-      <section className="mb-6 rounded-lg border-2 border-emerald-500 bg-emerald-950/20 p-5 shadow-[0_0_24px_-8px_rgba(16,185,129,0.5)]">
+      <section className={sectionShell}>
         <div className="mb-3 flex items-center gap-2">
-          <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-950">
-            ⚡ Your call counts
+          <span className={chipShell}>
+            {isBattleground ? "🔥 Battleground" : "⚡ Your call counts"}
           </span>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-300">
+          <h2 className={headingShell}>
             Your rep is deciding this bill
           </h2>
         </div>
         <p className="text-sm text-zinc-200">
-          This bill sits in the <span className="font-semibold">{currentCommitteeName}</span>.
+          This bill sits in the <span className="font-semibold">{currentCommitteeName}</span>
+          {isBattleground ? (
+            <> — historically one of the committees where kratom bills are won or lost.</>
+          ) : (
+            <>.</>
+          )}
           {" "}{matches.length === 1 ? "Your representative is" : `${matches.length} of your representatives are`}{" "}
           on it. Lobbyists are calling them right now. They need to hear from constituents too.
         </p>
