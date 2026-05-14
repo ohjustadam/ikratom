@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
+import { RemindMeButton } from "@/components/RemindMeButton";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { BillTimeline } from "./BillTimeline";
@@ -357,15 +358,23 @@ export default async function BillDetailPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <a href={`/bills?state=${bill.state}`} className="text-xs text-zinc-500 hover:text-emerald-400">
           ← All {bill.state} bills
         </a>
-        <PageShareWithAttribution
-          path={`/bills/${bill.id}`}
-          title={`${bill.state} ${bill.bill_number}: ${bill.title?.slice(0, 80) ?? "(no title)"}`}
-          summary={(bill.summary_ai ?? bill.summary ?? "").slice(0, 180) || `Tracked on iKratom — ${bill.state} bill ${bill.bill_number}.`}
-        />
+        <div className="flex items-center gap-2">
+          <RemindMeButton
+            targetKind="bill"
+            targetId={bill.id}
+            defaultTitle={`${bill.state} ${bill.bill_number}: ${(bill.title ?? "follow up").slice(0, 60)}`}
+            defaultMessage="Check status / contact rep"
+          />
+          <PageShareWithAttribution
+            path={`/bills/${bill.id}`}
+            title={`${bill.state} ${bill.bill_number}: ${bill.title?.slice(0, 80) ?? "(no title)"}`}
+            summary={(bill.summary_ai ?? bill.summary ?? "").slice(0, 180) || `Tracked on iKratom — ${bill.state} bill ${bill.bill_number}.`}
+          />
+        </div>
       </div>
 
       {/* Header */}
