@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { SignUpNudge } from "@/components/SignUpNudge";
 
 export const dynamic = "force-dynamic";
 
@@ -282,6 +283,11 @@ export default async function AlertDetailPage({ params }: Props) {
           </a>
         </section>
       )}
+
+      {/* Signup nudge — high intent: someone clicked through to a
+          specific alert means they care about kratom policy and would
+          benefit from push notifications on the next one. */}
+      <SignUpNudge context="alert" stateCode={stateCode ?? undefined} className="mt-8" />
 
       {/* Cross-links */}
       <section className="mt-8 flex flex-wrap gap-2 text-xs">

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
+import { SignUpNudge } from "@/components/SignUpNudge";
 import { displayTitle, displaySubtitle } from "@/lib/bill-title";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
@@ -382,6 +383,11 @@ export default async function BillDetailPage({
           </p>
         )}
       </header>
+
+      {/* Signup nudge for anonymous visitors. Bills are high-intent
+          — someone reading a specific bill detail is the ideal target
+          for "get pushed when this bill changes status". */}
+      <SignUpNudge context="bill" stateCode={bill.state} className="mb-6" />
 
       {/* Stale warning — most important for SB-1639-style problems */}
       {isStale && (

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { SignUpNudge } from "@/components/SignUpNudge";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -244,6 +245,11 @@ export default async function MeetingDetailPage({ params }: Props) {
           <li>📨 <strong>Share this page</strong> on social so more advocates show up to the next one</li>
         </ul>
       </section>
+
+      {/* Signup nudge — meeting pages convert well: visitor already
+          intends to attend or follow this specific meeting. Reminder
+          push is a concrete value-add. */}
+      <SignUpNudge context="meeting" stateCode={m.state} className="mb-6" />
 
       {/* Cross-links */}
       <div className="flex flex-wrap gap-2 text-xs">

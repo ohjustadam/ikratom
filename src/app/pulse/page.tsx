@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { TourTooltip } from "@/modules/tour/TourTooltip";
 import { getTourSeen } from "@/modules/tour/actions";
 import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
+import { SignUpNudge } from "@/components/SignUpNudge";
 
 export const metadata = { title: "Pulse — live policy feed" };
 // Force dynamic so newly-inserted alerts and breaking events appear on
@@ -355,6 +356,14 @@ export default async function PulsePage({
       <div className="mb-6">
         <BopWatchSummary />
       </div>
+
+      {/* Signup nudge for anonymous /pulse viewers — pulse is the
+          highest-intent surface (live policy feed); push converts well. */}
+      <SignUpNudge
+        context="pulse"
+        stateCode={requestedState ?? undefined}
+        className="mb-6"
+      />
 
       {((nationalNews?.length ?? 0) > 0 || (localNews?.length ?? 0) > 0 || (topStateNews?.length ?? 0) > 0) && (
         <section id="pulse-news-section" className="mb-8 grid gap-4 lg:grid-cols-2">
