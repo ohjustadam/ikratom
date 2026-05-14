@@ -53,6 +53,7 @@ type StateStat = {
     unresolved_reason: string | null;
   } | null;
   news_mentions: number;
+  state_lobbyists_active: number;
   audit_flags: string[];
 };
 
@@ -72,7 +73,7 @@ export default async function PerStateIntelHealthPage() {
   // stacks old briefings via is_active=false), and include the
   // critique audit trail from D5 + the body length for the D7
   // health check.
-  const [users, bills, meetings, alerts, briefings, newsMentions] = await Promise.all([
+  const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists] = await Promise.all([
     supabase.from("profiles").select("state").not("state", "is", null),
     supabase.from("bills").select("state").eq("active", true),
     supabase.from("municipal_meetings")
@@ -92,6 +93,12 @@ export default async function PerStateIntelHealthPage() {
     // since the mentions table has legislator_id, not state directly.
     supabase.from("legislator_news_mentions")
       .select("legislator_id, legislators!inner(state)"),
+    // D2 pilot: currently-active kratom-industry lobbyist registrations
+    // per state (Utah seeded; other states queued).
+    supabase.from("state_lobbyist_registrations")
+      .select("state")
+      .eq("is_kratom_relevant", true)
+      .is("end_date", null),
   ]);
 
   // Aggregate
@@ -100,7 +107,7 @@ export default async function PerStateIntelHealthPage() {
     stats[code] = {
       state: code, users: 0, active_bills: 0, upcoming_meetings: 0, alerts_30d: 0,
       briefing_generated_at: null, briefing_body_len: 0, briefing_critique: null,
-      news_mentions: 0, audit_flags: [],
+      news_mentions: 0, state_lobbyists_active: 0, audit_flags: [],
     };
   }
 
@@ -174,6 +181,11 @@ export default async function PerStateIntelHealthPage() {
     const s = legState?.toUpperCase();
     if (s && stats[s]) stats[s].news_mentions++;
   }
+  // D2 active kratom-industry state lobbyists
+  for (const r of (stateLobbyists.data ?? []) as Array<{ state: string | null }>) {
+    const s = r.state?.toUpperCase();
+    if (s && stats[s]) stats[s].state_lobbyists_active++;
+  }
 
   // Sort by activity total descending
   const sorted = Object.values(stats).sort((a, b) =>
@@ -196,9 +208,10 @@ export default async function PerStateIntelHealthPage() {
       meetings: acc.meetings + s.upcoming_meetings,
       alerts: acc.alerts + s.alerts_30d,
       news_mentions: acc.news_mentions + s.news_mentions,
+      state_lobbyists: acc.state_lobbyists + s.state_lobbyists_active,
       flagged: acc.flagged + (s.audit_flags.length > 0 ? 1 : 0),
     }),
-    { users: 0, bills: 0, meetings: 0, alerts: 0, news_mentions: 0, flagged: 0 },
+    { users: 0, bills: 0, meetings: 0, alerts: 0, news_mentions: 0, state_lobbyists: 0, flagged: 0 },
   );
 
   return (
@@ -217,12 +230,13 @@ export default async function PerStateIntelHealthPage() {
       </header>
 
       {/* Top-line totals */}
-      <section className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-6">
+      <section className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         <Stat label="Total advocates" value={totals.users} />
         <Stat label="Active bills" value={totals.bills} />
         <Stat label="Upcoming meetings" value={totals.meetings} />
         <Stat label="Alerts (30d)" value={totals.alerts} />
         <Stat label="News mentions" value={totals.news_mentions} />
+        <Stat label="State lobbyists" value={totals.state_lobbyists} />
         <Stat label="Briefings flagged" value={totals.flagged} tone={totals.flagged > 0 ? "warn" : undefined} />
       </section>
 
@@ -256,6 +270,7 @@ export default async function PerStateIntelHealthPage() {
                   <li className="flex justify-between"><span>📅 Meetings</span><span className="font-mono">{s.upcoming_meetings}</span></li>
                   <li className="flex justify-between"><span>🚨 Alerts (30d)</span><span className="font-mono">{s.alerts_30d}</span></li>
                   <li className="flex justify-between"><span>📰 News mentions</span><span className="font-mono">{s.news_mentions}</span></li>
+                  <li className="flex justify-between"><span>🏛 State lobbyists</span><span className="font-mono">{s.state_lobbyists_active}</span></li>
                 </ul>
                 {flagged && (
                   <ul className="mt-2 space-y-0.5 rounded border border-red-800/40 bg-red-950/20 p-1.5 text-[10px] text-red-200">
