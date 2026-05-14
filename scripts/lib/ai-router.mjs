@@ -69,14 +69,28 @@ function startCooldown(p, ms = 60_000) {
 }
 
 /**
+ * Strip chain-of-thought reasoning blocks from LLM output.
+ * Some reasoning models (originally DeepSeek R1; now GPT-OSS / Qwen)
+ * occasionally leak <think>...</think> reasoning even under
+ * response_format=json_object. Safe no-op for non-reasoning output.
+ */
+export function stripReasoningBlocks(text) {
+  if (!text) return text;
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/^[\s\S]*?<\/think>\s*/i, "") // unmatched opening, only closing
+    .trim();
+}
+
+/**
  * Try to parse JSON output from an LLM, with progressive recovery
  * for the most common truncation pattern (Gemini's "responseMimeType:
  * application/json" sometimes cuts off mid-string).
  */
 function parseLooseJson(text) {
   if (!text) throw new Error("empty response");
-  // Strip code fences if any
-  let t = text.trim()
+  // Strip code fences + R1 reasoning blocks if present
+  let t = stripReasoningBlocks(text)
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
@@ -109,12 +123,15 @@ function parseLooseJson(text) {
   throw new Error(`JSON parse failed; head: ${t.slice(0, 120)}…`);
 }
 
-async function callGroq(sys, user, maxTokens) {
+async function callGroq(sys, user, maxTokens, modelOverride) {
   const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
+      // modelOverride lets callers route specific tasks (e.g. self-critique)
+      // to a reasoning-capable model like openai/gpt-oss-120b while keeping
+      // the default for everything else on Llama-3.3-70B. Groq hosts both at $0.
+      model: modelOverride || "llama-3.3-70b-versatile",
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       temperature: 0.1,
       max_tokens: maxTokens,
@@ -123,8 +140,11 @@ async function callGroq(sys, user, maxTokens) {
     signal: AbortSignal.timeout(60_000),
   });
   if (r.status === 429) {
+    const body = await r.text();
     startCooldown("groq", 60_000);
-    throw new Error("Groq 429 (cooling down 60s)");
+    // Include body excerpt so we can distinguish per-minute throttling
+    // from per-day quota exhaustion — the message differs.
+    throw new Error(`Groq 429: ${body.slice(0, 200)}`);
   }
   if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const data = await r.json();
@@ -268,9 +288,9 @@ async function callOllama(sys, user) {
   return parseLooseJson(data.message?.content ?? "{}");
 }
 
-async function callOne(p, sys, user, maxTokens) {
+async function callOne(p, sys, user, maxTokens, modelOverride) {
   switch (p) {
-    case "groq": return callGroq(sys, user, maxTokens);
+    case "groq": return callGroq(sys, user, maxTokens, modelOverride);
     case "gemini": return callGemini(sys, user, maxTokens);
     case "cerebras": return callCerebras(sys, user, maxTokens);
     case "mistral": return callMistral(sys, user, maxTokens);
@@ -290,6 +310,10 @@ export async function aiRouter({
   userPrompt,
   maxTokens = 2048,
   providerOverride = null,
+  // Per-call model override. Today only honored by Groq — used so the
+  // self-critique loop can target DeepSeek R1 Distill 70B while normal
+  // generation stays on Llama-3.3-70B. Other providers ignore the value.
+  modelOverride = null,
   verbose = true,
 }) {
   const list = availableProviders();
@@ -304,7 +328,7 @@ export async function aiRouter({
   let lastErr = null;
   for (const p of order) {
     try {
-      const parsed = await callOne(p, systemPrompt, userPrompt, maxTokens);
+      const parsed = await callOne(p, systemPrompt, userPrompt, maxTokens, modelOverride);
       return { provider: p, parsed, elapsedMs: Date.now() - t0 };
     } catch (e) {
       lastErr = e;

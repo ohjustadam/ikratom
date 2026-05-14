@@ -99,13 +99,21 @@ Phase 2 (next, AI-assisted): AI-extract quotes ("Senator X said Y about kratom")
 
 ---
 
-## D5. Self-critique loop on AI outputs (per NY_INTEL_DEPTH item C, ~half day)
+## D5. Self-critique loop on AI outputs ✅ SHIPPED 2026-05-14
 
-**Path**: Wrap `generate-state-briefing.mjs` in a critique loop. AI generates draft → second AI critiques ("did this miss any bills? Is leaf-vs-7-OH framing correct? Are claims unsourced?") → regenerate if flagged → ship best-of-N.
+**Status**: Live in `scripts/generate-state-briefing.mjs`. Default on (1 critique pass). CLI flags: `--no-critique` to disable, `--max-revisions N` (capped at 3) to allow more rounds.
 
-**Cost**: 2-3x more tokens per briefing. Well within free tier.
+**How it works**:
+1. AI generates a state briefing draft (existing flow).
+2. **Critic** — `openai/gpt-oss-120b` via Groq (a reasoning-capable open-weights model; emits `reasoning_tokens` internally) — reads the draft against the source data and returns `{needs_revision, issues[], suggestions[]}`. Critic checks for missing bills, kratom-vs-7-OH conflation, sponsor accuracy, unsourced claims, generic field-work boilerplate, and unacknowledged data gaps.
+3. If `needs_revision`, regenerate once with the critique appended to the prompt; if the revision is shorter than half the original or under 1500 chars (a stub), keep the prior draft.
+4. Provenance (issues caught, revisions applied) lands in `state_briefings.data_snapshot.critique` for audit.
 
-**Effort**: ~3 hours.
+**Model history note**: Originally targeted `deepseek-r1-distill-llama-70b` via Groq. Groq decommissioned that model 2026-04 (see https://console.groq.com/docs/deprecations). Swapped to GPT-OSS-120B — equivalent reasoning depth, also free on Groq, also MIT-licensed open weights. Privacy posture unchanged: DeepSeek's hosted API stays banned (`tests/ai-router-routing.test.ts` enforces this at the type level).
+
+**Real-world validation**: On the NY briefing the critic caught five concrete issues on the first run, including the omission of an enacted anti-kratom bill (S 8814, Patricia Fahy), the conflation of 7-OH-only bills with natural-leaf kratom bans, and an unsourced warning-label claim attributing a bill to no sponsor.
+
+**Cost**: ~one extra Groq call per briefing (free tier; 400ms-2s latency). When all cloud providers are saturated, the loop fails open — ships the original draft as-is rather than block.
 
 ---
 
