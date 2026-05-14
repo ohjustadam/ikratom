@@ -186,11 +186,14 @@ export async function MyCommitteeBillsWidget({ userId }: { userId: string }) {
           );
         })}
       </ul>
-      {overflow > 0 && (
-        <p className="mt-3 text-[11px] text-zinc-500">
-          + {overflow} more — see <Link href="/bills" className="text-emerald-400 hover:underline">all bills</Link>
-        </p>
-      )}
+      <p className="mt-3 text-[11px] text-zinc-500">
+        {overflow > 0 ? (
+          <>+ {overflow} more · </>
+        ) : null}
+        <Link href="/bills?filter=in-my-committees" className="text-emerald-400 hover:underline">
+          See all your leverage bills →
+        </Link>
+      </p>
     </section>
   );
 }
