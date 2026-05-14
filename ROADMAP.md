@@ -1,6 +1,6 @@
 # iKratom — Audit + Roadmap
 
-_Living doc. Updated 2026-05-14 — P0 + P1 + most P2 done. Committee-urgency feature set complete + extended overnight (PRs #223–#230)._
+_Living doc. Updated 2026-05-14 — committee-urgency feature set fully shipped + extended (PRs #223–#234). Migration 0123 + 0124 applied; backfill ran; 30 bills now have structured committee assignments across NJ/TN/WA/AL/CO. PostHog + Vercel MCPs connected._
 _See `SECURITY.md` for the security side, `APP_STORE_READINESS.md` for store path._
 
 ## Committee-urgency feature (shipped 2026-05-13 → 14)
@@ -15,13 +15,18 @@ The mission lever the platform's whole shape exists for: when a bill sits in com
 | #227 | 20 vitest cases for the parser + matcher. Caught a real regex bug on multi-chamber strings and hardened with a negative lookahead. | `tests/bill-committee.test.ts` |
 | #228 | `MyCommitteeBillsWidget` dashboard widget — shows every active bill in committees where the user has a rep | `/dashboard` |
 | #230 | `is_kratom_relevant` accent: matches in admin-flagged battleground committees render in 🔥 amber instead of ⚡ emerald | `/bills/[id]` |
+| #231 | Form B regex (`Chamber Committee on Body` → rewrites to canonical form). Without this the OpenStates-sourced majority of bills couldn't be parsed. 7 new tests. Backfill script `scripts/backfill-bill-committees.mjs`. | parser + backfill |
+| #232 | OpenStates daily sync writes `current_committee_name` on every bill refresh. Daily cron `backfill-bill-committees` job as safety net. | sync + cron |
+| #233 | `/bills?filter=in-my-committees` pre-filtered browse view with banner + escape link | `/bills` |
+| #234 | `/status` surfaces committee-leverage windows count (public proof-of-life metric) | `/status` |
 
-**Pending:** `npm run db:push` to apply migration 0123 in production. UI degrades gracefully (renders nothing) until then.
+**Coverage as of merge:** 30 of 467 active bills have `current_committee_name` populated. Breakdown: NJ:20, TN:3, WA:3, AL:3, CO:1. The remaining 437 either don't mention a committee in their `last_action` text or use ambiguous phrasing ("Died In Committee" / "Re-referred to Rules Committee"). OpenStates daily sync now writes the column on every refresh, so coverage grows organically as bills move.
 
-**Next compounds to consider:**
+**Next compounds to consider (still open):**
 - State-legislature hearing alerts (no data source yet; LegiScan/OpenStates have calendar APIs — separate effort)
-- `/bills?filter=committees-with-my-rep` pre-filtered view
 - Push notification when a battleground-committee bill changes state
+- Server-side PostHog capture for funnel analytics (currently `posthog-js` only captures client-side; bots don't fire events). Needs explicit go from owner before shipping.
+- `/leverage` cross-cutting hub page that combines committee bills + upcoming deadlines + active campaigns into a single "what should I do RIGHT NOW" view.
 
 ## Audit highlights
 
