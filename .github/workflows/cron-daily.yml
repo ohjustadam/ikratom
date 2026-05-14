@@ -434,3 +434,29 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
         run: node scripts/sync-bills-via-legiscan.mjs --all-anti
+
+  backfill-bill-committees:
+    # Safety net: scans every active bill with a committee mention in
+    # last_action but no current_committee_name and populates the
+    # column. Idempotent. Catches anything that:
+    #   - was synced via OpenStates (sync-bills.mjs) before that script
+    #     started writing current_committee_name itself
+    #   - has last_action text that the parser CAN match but didn't
+    #     hit through the normal write path
+    # Runs after legiscan-wide-pass so the most-recent LegiScan data
+    # is in place first; only fills in residual gaps.
+    needs: legiscan-wide-pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Backfill current_committee_name from bills.last_action
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backfill-bill-committees.mjs

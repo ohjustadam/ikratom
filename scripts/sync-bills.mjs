@@ -117,6 +117,44 @@ async function syncState(state) {
   }
 
   const cap = (s, n) => (s ? String(s).slice(0, n).trim() || null : null);
+  // Two-form committee-name parser. Mirrors src/lib/bill-committee.ts
+  // → parseCommitteeFromAction. Inline (not imported) to keep this
+  // .mjs self-contained — same pattern as sync-bills-via-legiscan.mjs
+  // and scripts/backfill-bill-committees.mjs. See
+  // tests/bill-committee.test.ts for fixtures.
+  const COMMITTEE_RE_A = /((?:Senate|House|Assembly|Joint)(?:(?!Senate|House|Assembly|Joint)[^.;]){2,80}?Committee)/i;
+  const COMMITTEE_RE_B = /(Senate|House|Assembly|Joint)\s+Committee\s+on\s+((?:(?!Senate|House|Assembly|Joint)[^.;,]){2,60}?)(?=\s*[.;,]|$)/i;
+  const parseCommittee = (desc) => {
+    if (!desc) return null;
+    const a = String(desc).match(COMMITTEE_RE_A);
+    if (a) {
+      const raw = a[1].trim();
+      if (raw.length >= 8 && raw.length <= 80) {
+        const chamber = /^senate/i.test(raw) ? "senate"
+          : /^(house|assembly)/i.test(raw) ? "house"
+          : /^joint/i.test(raw) ? "joint" : null;
+        return { name: raw, chamber };
+      }
+    }
+    const b = String(desc).match(COMMITTEE_RE_B);
+    if (b) {
+      const chamberRaw = b[1].trim();
+      const body = b[2].trim().replace(/\s+/g, " ");
+      if (body.length >= 3 && body.length <= 60) {
+        const chamberCanonical = /^senate/i.test(chamberRaw) ? "Senate"
+          : /^(house|assembly)/i.test(chamberRaw) ? chamberRaw[0].toUpperCase() + chamberRaw.slice(1).toLowerCase()
+          : "Joint";
+        const name = `${chamberCanonical} ${body} Committee`;
+        if (name.length >= 8 && name.length <= 80) {
+          const chamber = /^senate/i.test(chamberRaw) ? "senate"
+            : /^(house|assembly)/i.test(chamberRaw) ? "house" : "joint";
+          return { name, chamber };
+        }
+      }
+    }
+    return null;
+  };
+
   const rows = [];
   for (const b of all.values()) {
     const abstract = b.abstracts?.[0]?.abstract ?? null;
@@ -126,7 +164,15 @@ async function syncState(state) {
       b.sources?.find((s) => s.url && !/openstates\.org/i.test(s.url))?.url ??
       b.sources?.[0]?.url ??
       null;
-    rows.push({
+
+    // Try to extract current committee from the latest action
+    // description. Null when the action doesn't mention a committee
+    // (post-committee actions, simple referrals, "Died in Committee"
+    // etc.) — UPSERT below preserves whatever value already exists
+    // on the bill row in that case (no overwrite to null).
+    const parsed = parseCommittee(b.latest_action_description);
+
+    const row = {
       state,
       bill_number: cap(b.identifier, 60) ?? "—",
       title: cap(b.title, 500),
@@ -141,7 +187,13 @@ async function syncState(state) {
       scope: "state",
       active: true,
       last_synced_at: new Date().toISOString(),
-    });
+    };
+    if (parsed) {
+      row.current_committee_name = parsed.name;
+      row.current_committee_chamber = parsed.chamber;
+      row.current_committee_updated_at = b.latest_action_date ?? null;
+    }
+    rows.push(row);
   }
 
   // Dedupe by (state, bill_number) — same bill can match multiple keywords,
