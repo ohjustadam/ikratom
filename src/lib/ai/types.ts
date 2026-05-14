@@ -23,7 +23,11 @@ export type TaskKind =
   | "moderate_chat"
   | "news_enrich"
   | "story_moderate"
-  | "general";
+  | "general"
+  /** Complex multi-step reasoning. Prefers DeepSeek R1 Distill 70B via Groq for chain-of-thought quality at $0 cost. */
+  | "reasoning"
+  /** "Did this AI output miss anything?" Phase 3 D5 self-critique target. R1's CoT is well-suited. */
+  | "self_critique";
 
 /**
  * Caller-supplied constraints. Empty defaults are fine for most tasks;
