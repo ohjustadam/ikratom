@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitIntelTip } from "@/modules/alerts/actions";
+import { enrichLibraryUrl } from "@/modules/library/enrich-url-action";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
@@ -36,6 +37,37 @@ export function SubmitIntelForm({ defaultState }: { defaultState: string }) {
   const [anon, setAnon] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Auto-fill state — paste a URL, click 📎, server enriches → prefills
+  // title and body. Only overwrites when those fields are empty (won't
+  // clobber what the user already typed).
+  const [autofilling, startAutofill] = useTransition();
+  const [autofillNote, setAutofillNote] = useState<string | null>(null);
+
+  function onAutofill() {
+    setError(null);
+    setAutofillNote(null);
+    if (!sourceUrl.trim()) {
+      setError("Paste a source URL first.");
+      return;
+    }
+    startAutofill(async () => {
+      const r = await enrichLibraryUrl(sourceUrl.trim());
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      const s = r.suggestion;
+      const filled: string[] = [];
+      if (!title && s.title) { setTitle(s.title.slice(0, 200)); filled.push("title"); }
+      if (!body && s.description) { setBody(s.description.slice(0, 2000)); filled.push("body"); }
+      setAutofillNote(
+        filled.length > 0
+          ? `Filled: ${filled.join(", ")}. Review below before submitting.`
+          : "Source had no usable metadata — leaving your existing fields alone."
+      );
+    });
+  }
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -182,17 +214,33 @@ export function SubmitIntelForm({ defaultState }: { defaultState: string }) {
       {/* Source URL */}
       <div>
         <label className="block text-xs font-medium text-zinc-400">Source link *</label>
-        <input
-          type="url"
-          value={sourceUrl}
-          onChange={(e) => setSourceUrl(e.target.value)}
-          placeholder="https://newspaper.com/article  or  https://city.gov/agenda.pdf"
-          maxLength={1_000}
-          className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-        />
+        <div className="mt-1 flex gap-2">
+          <input
+            type="url"
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            placeholder="https://newspaper.com/article  or  https://city.gov/agenda.pdf"
+            maxLength={1_000}
+            className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={onAutofill}
+            disabled={autofilling || pending || !sourceUrl.trim()}
+            title="Fetch title + summary from the URL"
+            className="shrink-0 rounded-md border border-emerald-700 px-3 py-2 text-xs font-semibold text-emerald-300 hover:border-emerald-500 disabled:opacity-50"
+          >
+            {autofilling ? "Fetching…" : "📎 Auto-fill"}
+          </button>
+        </div>
         <p className="mt-1 text-[11px] text-zinc-500">
-          Tips without a verifiable source get rejected. Agendas, news articles, agency websites all work.
+          Tips without a verifiable source get rejected. Click <strong>📎 Auto-fill</strong> after pasting to grab the title + description from the URL.
         </p>
+        {autofillNote && (
+          <p className="mt-1 rounded border border-emerald-700/40 bg-emerald-950/15 px-2 py-1 text-[11px] text-emerald-300">
+            {autofillNote}
+          </p>
+        )}
       </div>
 
       {/* Action required + anonymous */}
