@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { DraftResponsePanel } from "./DraftResponsePanel";
+import { YourRepDecidingThisBill } from "@/app/bills/[id]/YourRepDecidingThisBill";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,27 @@ export default async function AlertDetailPage({ params }: Props) {
         .eq("id", a.bill_id)
         .maybeSingle()).data
     : null;
+
+  // Separate fetch for current_committee_name on the linked bill —
+  // wrapped in try/catch so pre-migration deploys don't crash the
+  // page when the column is missing. Used to mount the same
+  // YourRepDecidingThisBill callout the bill-detail page shows,
+  // surfacing the leverage signal at the alert level (often the
+  // user's first touchpoint with the bill).
+  let linkedBillCommittee: string | null = null;
+  if (linkedBill?.id) {
+    try {
+      const { data: cc } = await sb
+        .from("bills")
+        .select("current_committee_name")
+        .eq("id", linkedBill.id)
+        .maybeSingle();
+      const v = (cc as { current_committee_name?: string | null } | null)?.current_committee_name;
+      if (typeof v === "string" && v.length > 0) linkedBillCommittee = v;
+    } catch {
+      // Column doesn't exist — silently skip.
+    }
+  }
 
   const sevEmoji = a.severity === "critical" ? "🚨" : a.severity === "alert" ? "⚠️" : "👁️";
   const sevLabel = a.severity?.toUpperCase() ?? "WATCH";
@@ -248,6 +270,19 @@ export default async function AlertDetailPage({ params }: Props) {
             {a.body}
           </div>
         </section>
+      )}
+
+      {/* "YOUR rep is deciding this bill" — committee-leverage callout
+          surfaced at the alert level so the urgency signal hits users
+          on the first touchpoint with the bill (not just when they
+          click through to /bills/[id]). Component handles its own auth
+          + state checks and returns null when not applicable. */}
+      {linkedBill && (
+        <YourRepDecidingThisBill
+          billId={linkedBill.id}
+          billState={linkedBill.state}
+          currentCommitteeName={linkedBillCommittee}
+        />
       )}
 
       {/* Linked bill */}
