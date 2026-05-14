@@ -5,6 +5,12 @@
  * Free quota: 30 RPM, 14,400/day. Generous backup for when Gemini hits
  * 1,500/day or when Ollama is unavailable.
  *
+ * **Also supports DeepSeek R1 Distill Llama-70B** when callers (or the
+ * router's per-task model override) pass `model: "deepseek-r1-distill-llama-70b"`.
+ * Used for reasoning / self_critique TaskKinds. Routes through Groq's
+ * US infrastructure — we never hit DeepSeek's own (Chinese-server) API
+ * because their ToS allows training on submitted data.
+ *
  * Auth: GROQ_API_KEY env var. No SDK; raw HTTP — keeps the dep tree
  * minimal and there's nothing tricky about Groq's API surface.
  */

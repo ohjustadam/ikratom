@@ -55,6 +55,37 @@ const TASK_DEFAULTS: Record<TaskKind, ProviderName[]> = {
   news_enrich: ["ollama", "groq", "gemini"],
   story_moderate: ["ollama"], // privacy: user submitted
   general: ["ollama", "groq", "gemini"],
+  // DeepSeek R1 Distill Llama-70B routes through Groq (US-hosted, free
+  // tier, no Chinese-server data risk). The model name in TASK_MODEL_OVERRIDES
+  // below forces the right model when Groq is picked. Gemini stays as
+  // grounded-fact-check fallback.
+  reasoning: ["groq", "gemini", "ollama"],
+  self_critique: ["groq", "gemini"],
+};
+
+/**
+ * Per-task model override. When the router picks a provider listed
+ * here, it passes this model name in opts.model (overriding the
+ * provider's default).
+ *
+ * Why this layer exists: some tasks want a SPECIFIC model on a given
+ * provider — e.g. DeepSeek R1 Distill via Groq for reasoning tasks
+ * (R1's chain-of-thought is meaningfully better than Llama 3.3 for
+ * multi-step reasoning, and Groq hosts it free).
+ *
+ * Privacy note: we deliberately do NOT route to DeepSeek's own API.
+ * DeepSeek-hosted endpoints run on Chinese infrastructure and their
+ * ToS allows training on submitted data. Groq + Cerebras host the
+ * open-weights DeepSeek-Distill variants on US infrastructure with
+ * conventional privacy posture.
+ */
+const TASK_MODEL_OVERRIDES: Partial<Record<TaskKind, Partial<Record<ProviderName, string>>>> = {
+  reasoning: {
+    groq: "deepseek-r1-distill-llama-70b",
+  },
+  self_critique: {
+    groq: "deepseek-r1-distill-llama-70b",
+  },
 };
 
 /**
@@ -103,8 +134,13 @@ export async function complete(
       errors.push(`${name}: unavailable`);
       continue;
     }
+    // Apply per-task model override (e.g. DeepSeek R1 for reasoning
+    // tasks via Groq). Caller's opts.model wins if explicitly set.
+    const taskOverride = TASK_MODEL_OVERRIDES[taskKind]?.[name];
+    const effectiveOpts: CompletionOptions =
+      opts.model || !taskOverride ? opts : { ...opts, model: taskOverride };
     try {
-      return await p.complete(prompt, opts);
+      return await p.complete(prompt, effectiveOpts);
     } catch (e) {
       errors.push(`${name}: ${(e as Error).message}`);
       continue;
@@ -132,8 +168,11 @@ export async function completeStructured<T>(
       errors.push(`${name}: unavailable`);
       continue;
     }
+    const taskOverride = TASK_MODEL_OVERRIDES[taskKind]?.[name];
+    const effectiveOpts: CompletionOptions =
+      opts.model || !taskOverride ? opts : { ...opts, model: taskOverride };
     try {
-      return await p.completeStructured<T>(prompt, schema, opts);
+      return await p.completeStructured<T>(prompt, schema, effectiveOpts);
     } catch (e) {
       errors.push(`${name}: ${(e as Error).message}`);
       continue;
