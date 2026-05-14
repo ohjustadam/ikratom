@@ -11,6 +11,7 @@
     "sync:congress": "node --env-file=.env.local scripts/sync-congress.mjs",
     "sync:donors": "node --env-file=.env.local scripts/sync-legislator-donors.mjs --limit 50",
     "sync:donors:all-federal": "node --env-file=.env.local scripts/sync-legislator-donors.mjs --all-federal --skip-cached",
+    "sync:lda": "node --env-file=.env.local scripts/sync-lda-kratom.mjs",
     "sync:cities:ollama": "node --env-file=.env.local scripts/sync-major-cities-ollama.mjs",
     "sync:news": "node --env-file=.env.local scripts/sync-news.mjs",
     "sync:news:rss": "node --env-file=.env.local scripts/sync-news-rss.mjs",
