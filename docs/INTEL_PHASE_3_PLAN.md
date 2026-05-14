@@ -36,15 +36,40 @@
 
 ---
 
-## D1. Voting roll-call sync (smallest viable Phase 3 unit, ~2 hours)
+## OPS BLOCKERS — needs owner action to unblock shipped features
 
-**Path**: Extend `scripts/sync-bills.mjs` to include `include=votes` field on OpenStates bill detail calls. Write to new `bill_votes` table (legislator_id, bill_id, vote, vote_date, chamber). Cross-reference on briefing.
+### 🔴 LegiScan API key not set in GitHub Actions secrets (blocks D1)
 
-**Unblocks**: "Sen. X voted YES on 2024 KCPA so she'll likely vote YES on 2026 bill" predictive intel. Updates the action plan to surface VOTE-history alongside stance.
+The voting roll-call sync (`scripts/sync-bills-via-legiscan.mjs`) bails out immediately every run with `LEGISCAN_API_KEY not set — skipping`. Result: the `bill_votes` table is empty across all 51 states despite D1 being merged (PR #257).
 
-**Migration needed**: `0126_bill_votes.sql` — schema for vote records.
+**Fix**: Add `LEGISCAN_API_KEY` to:
+1. GitHub repository secrets (Settings → Secrets and variables → Actions)
+2. Vercel project env vars (for any preview/cron paths that need it)
+3. Local `.env.local` if you want to run the sync manually
 
-**Status**: Ready to ship. No external API limits beyond OpenStates' existing free tier we're already inside.
+Free LegiScan key: register at https://legiscan.com/legiscan. Daily quota is generous; the daily wide-pass uses ~500 requests per full run.
+
+After setting: the next daily cron will backfill voting records across all 51 states (~10 min) AND the new `intel-coverage-audit.mjs --check` step will go from 🔴 0% to 🟢 on the bill_votes layer.
+
+### 🟡 State-lobbying scrapers blocked by per-state SPA / bot-detection (D2 expansion)
+
+Utah's lobbyist.utah.gov serves a static HTML page with no auth — perfect for scraping (16 kratom-industry registrations captured). Expansion to other states is harder than expected:
+- **California** (CAL-ACCESS): bot-detected, requires ~200MB ZIP bulk-download workflow
+- **Florida** (floridalobbyist.gov): SPA / JS-driven, HTTP scrapers return 500
+- **New Jersey** (NJ ELEC): public reports interface but no documented CSV export
+- **Texas** (TX Ethics Commission): similar SPA pattern
+
+Each state will need its own adapter. Order per priority: NJ (most committee bills) → FL (DeSantis + OPMS) → CA (GKC home state) → TX (4-state KCPA wave). Not a blocker for D2-as-shipped; just a known per-state cost.
+
+---
+
+## D1. Voting roll-call sync ✅ SHIPPED 2026-05-14 (blocked on secret — see above)
+
+**Path**: Extends `scripts/sync-bills-via-legiscan.mjs` to write `bill_votes` + `bill_vote_members` (migration 0126). Briefing page renders a "🗳 Voting record on kratom bills" section between sponsorship history and committee positions.
+
+**Unblocks**: "Sen. X voted YES on 2024 KCPA so she'll likely vote YES on 2026 bill" — actual votes are far more predictive than AI-drafted stances.
+
+**Current state**: code shipped; `bill_votes` table empty until `LEGISCAN_API_KEY` is set in CI secrets (see Ops Blockers above).
 
 ---
 
