@@ -9,7 +9,6 @@
     "lint": "eslint",
     "sync:legislators": "node --env-file=.env.local scripts/sync-legislators.mjs",
     "sync:congress": "node --env-file=.env.local scripts/sync-congress.mjs",
-    "sync:capitals": "node --env-file=.env.local scripts/sync-state-capitals.mjs",
     "sync:cities:ollama": "node --env-file=.env.local scripts/sync-major-cities-ollama.mjs",
     "sync:news": "node --env-file=.env.local scripts/sync-news.mjs",
     "sync:news:rss": "node --env-file=.env.local scripts/sync-news-rss.mjs",

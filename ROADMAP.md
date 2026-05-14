@@ -46,13 +46,13 @@ _See `SECURITY.md` for the security side, `APP_STORE_READINESS.md` for store pat
 8. ~~**Campaign title normalization**~~ — shipped PR #221: `🤖 auto` / `👤 manual` badges on `/admin/campaigns` list
 9. ~~**Cockpit tour move**~~ — shipped PR #221: `ReplayTourButton` now sits next to `CockpitCustomizer` in the dashboard header
 
-### P2 — Polish (next up)
-10. **Municipal bill locality prefix** — when `bill.source_url` matches `city/` or `county/`, prepend "Marshall, IL — " to display title
-11. **`/dashboard/templates` re-host** — move to `/account/templates` so links stay inside `/account/*` tree
+### P2 — Polish
+10. ~~**Municipal bill locality prefix**~~ — already handled the better way: `BillsBrowser` + `/bills/[id]` both render structured `scope` (purple chip) + `locality` (📍 chip) above the title via `bill.scope` + `bill.locality` columns. Title prepending unnecessary.
+11. ~~**`/dashboard/templates` re-host**~~ — moved to `/account/templates` (PR #222); legacy URL permanent-redirects.
 12. **News title cleanup migration** — verify no `" - WSMV"`-style suffixes still in DB; one-shot strip if found
 
 ### P3 — Cleanup
-13. **`sync:capitals`** — remove from `package.json` or move to `scripts/.archive/`
+13. ~~**`sync:capitals`**~~ — removed from `package.json`; script moved to `scripts/.archive/` (PR #222)
 14. **Dead-CSS / unused tailwind classes** — sweep after the UI moves above settle
 
 ### Out of scope / intentional
