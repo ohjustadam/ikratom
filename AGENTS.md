@@ -107,6 +107,26 @@ scripts/           # Maintenance scripts (sync, enrich, translate, etc.)
 
 ---
 
+## Pre-commit verification — use `verify`, not `build`
+
+For most code changes, use:
+
+```bash
+npm run verify          # typecheck + tests, ~9s   ← use this
+npm run verify:full     # +eslint, ~25s
+npm run build           # full Next.js build, ~33s  ← only when checking deploy-readiness
+```
+
+`verify` excludes `tests/rls.test.ts` because that test creates real Supabase users via service role — works in CI with a dedicated test project, fails locally because dev `.env.local` points at prod which rate-limits user creation. Run it explicitly when needed: `npx vitest run tests/rls.test.ts`.
+
+Repo-level merge settings (post-PR #254):
+- ✅ `delete_branch_on_merge` — merged branches auto-delete on GitHub
+- ✅ `squash_merge_commit_title: PR_TITLE` — clean main history
+- ✅ `squash_merge_commit_message: PR_BODY` — full context in commit log
+- ✗ `allow_auto_merge` — gated by GitHub Pro for private repos; skipped on cost grounds. Continue using `gh pr merge --squash --delete-branch` after CI passes.
+
+---
+
 ## Where to grep first
 
 | Looking for... | Grep target |
