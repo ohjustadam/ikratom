@@ -299,6 +299,18 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/intel-coverage-audit.mjs --check
+      # Data-quality cleanup. Deactivates news_items where the body-
+      # verifier said "no kratom keyword" AND the title also has no
+      # kratom keyword — RSS title-match false positives (NBA player
+      # stories, generic drug-overdose coverage, etc.). Without this
+      # they keep polluting state news feeds forever. Idempotent.
+      # First live run on 2026-05-14 deactivated 667 items.
+      - name: Daily data-quality cleanup
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/cleanup-data-quality.mjs
 
   sync-committees-openstates:
     # Pull legislator committee assignments across ALL 51 states from
