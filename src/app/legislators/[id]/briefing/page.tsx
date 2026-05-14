@@ -49,6 +49,7 @@ export async function generateMetadata({ params }: { params: Params }) {
  *   5. Currently deciding — bills in their committees right now
  *   6. Sponsorship history — bills they've authored or cosponsored
  *   6b. Voting record — Phase 3 D1; roll-call history on kratom bills
+ *   6c. News mentions — Phase 3 D4; per-legislator hits in news_items
  *   7. Committee positions — full assignment list, kratom-relevant flagged
  *   8. Donor profile — federal only (matched_status='matched')
  *   9. Intel gaps — honest "we don't have X yet" with admin-request links
@@ -82,6 +83,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
     donorRow,
     viewerData,
     votingRaw,
+    newsMentionsRaw,
   ] = await Promise.all([
     sb.from("legislator_kratom_stance")
       .select("stance, rationale_md, last_evidence_url, last_updated_at")
@@ -109,6 +111,14 @@ export default async function BriefingPage({ params }: { params: Params }) {
       .eq("legislator_id", id)
       .order("bill_votes(vote_date)", { ascending: false })
       .limit(50),
+    // Phase 3 D4 Phase 1: per-legislator news mentions. Joined to
+    // news_items for outlet + title + date. Defensive: pre-migration
+    // (before 0127) renders the rest of the page without erroring.
+    sb.from("legislator_news_mentions")
+      .select("matched_field, mention_context, match_confidence, news_items!inner(id, title, source_name, url, published_at, state)")
+      .eq("legislator_id", id)
+      .order("news_items(published_at)", { ascending: false })
+      .limit(30),
   ]);
 
   const stance: Stance =
@@ -268,6 +278,65 @@ export default async function BriefingPage({ params }: { params: Params }) {
   } catch {
     // Pre-migration deploy — silently empty.
   }
+
+  // ── News mentions (Phase 3 D4 Phase 1). Dedupe by news_item_id —
+  // a legislator named in both title AND summary yields two rows in
+  // the table but we want one card per article. Keep the row with
+  // the richest context (title > summary > body in priority).
+  type NewsMentionItem = {
+    news_id: string;
+    news_title: string;
+    source_name: string | null;
+    url: string | null;
+    published_at: string | null;
+    matched_field: string;
+    mention_context: string | null;
+    match_confidence: string;
+  };
+  type NewsItemJoined = {
+    id: string;
+    title: string;
+    source_name: string | null;
+    url: string | null;
+    published_at: string | null;
+    state: string;
+  };
+  type NewsMentionJoined = {
+    matched_field: string;
+    mention_context: string | null;
+    match_confidence: string;
+    news_items: NewsItemJoined | NewsItemJoined[] | null;
+  };
+  const FIELD_PRIORITY: Record<string, number> = { title: 3, summary: 2, body: 1 };
+  const newsMentionsByArticle = new Map<string, NewsMentionItem>();
+  try {
+    for (const row of ((newsMentionsRaw?.data ?? []) as NewsMentionJoined[])) {
+      const n = Array.isArray(row.news_items) ? row.news_items[0] : row.news_items;
+      if (!n) continue;
+      const existing = newsMentionsByArticle.get(n.id);
+      const newPriority = FIELD_PRIORITY[row.matched_field] ?? 0;
+      const oldPriority = existing ? FIELD_PRIORITY[existing.matched_field] ?? 0 : -1;
+      if (newPriority > oldPriority) {
+        newsMentionsByArticle.set(n.id, {
+          news_id: n.id,
+          news_title: n.title,
+          source_name: n.source_name,
+          url: n.url,
+          published_at: n.published_at,
+          matched_field: row.matched_field,
+          mention_context: row.mention_context,
+          match_confidence: row.match_confidence,
+        });
+      }
+    }
+  } catch {
+    // Pre-migration deploy — silently empty.
+  }
+  const newsMentions = [...newsMentionsByArticle.values()].sort((a, b) => {
+    const ad = a.published_at ? new Date(a.published_at).getTime() : 0;
+    const bd = b.published_at ? new Date(b.published_at).getTime() : 0;
+    return bd - ad;
+  });
 
   // ── Donor signals (federal only)
   type DonorJsonKratomRelevant = { pharma?: number; alcohol?: number; tobacco?: number; retail?: number; hospital_health?: number; total?: number };
@@ -650,6 +719,58 @@ export default async function BriefingPage({ params }: { params: Params }) {
           </section>
         );
       })()}
+
+      {/* ── News mentions (Phase 3 D4 Phase 1) ─────────────────── */}
+      {newsMentions.length > 0 && (
+        <section className="mb-6 rounded-lg border border-sky-500/30 bg-sky-950/10 p-5">
+          <h2 className="mb-2 flex flex-wrap items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-sky-300">
+            📰 News mentions
+            <span className="text-[10px] font-normal text-zinc-500">
+              ({newsMentions.length} article{newsMentions.length === 1 ? "" : "s"})
+            </span>
+          </h2>
+          <p className="text-[11px] text-zinc-400">
+            Articles in our kratom-policy news index that named this legislator. Match is exact-name or title+lastname, state-scoped to reduce false positives.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {newsMentions.slice(0, 10).map((m) => (
+              <li key={m.news_id}>
+                <a
+                  href={m.url ?? `#`}
+                  target={m.url ? "_blank" : undefined}
+                  rel={m.url ? "noopener noreferrer" : undefined}
+                  className="block rounded-md border border-sky-700/20 bg-zinc-950/40 p-2.5 transition hover:border-sky-500"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                    <span className="font-semibold text-zinc-100">
+                      {m.news_title.slice(0, 140)}{m.news_title.length > 140 ? "…" : ""}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-2 text-[10px] text-zinc-500">
+                    {m.source_name && <span>{m.source_name}</span>}
+                    {m.published_at && (
+                      <span>· {new Date(m.published_at).toLocaleDateString()}</span>
+                    )}
+                    <span className="ml-auto text-zinc-600">
+                      matched in {m.matched_field}
+                    </span>
+                  </div>
+                  {m.mention_context && (
+                    <p className="mt-2 text-[11px] italic leading-snug text-zinc-400">
+                      {m.mention_context}
+                    </p>
+                  )}
+                </a>
+              </li>
+            ))}
+          </ul>
+          {newsMentions.length > 10 && (
+            <p className="mt-2 text-[11px] text-zinc-500">
+              + {newsMentions.length - 10} older mentions not shown.
+            </p>
+          )}
+        </section>
+      )}
 
       {/* ── Committee positions ────────────────────────────────── */}
       {committees.length > 0 && (
