@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { SignUpNudge } from "@/components/SignUpNudge";
 
 export const metadata = {
   title: "Kratom policy calendar — every public event we know about",
@@ -202,6 +203,9 @@ export default async function CalendarPage({ searchParams }: {
             new event auto-syncs to their phone + computer. */}
         <SubscribeCalendarPanel stateFilter={stateFilter} kindFilter={kindFilter} />
       </header>
+
+      {/* Signup nudge — calendar viewers want push reminders, not just .ics */}
+      <SignUpNudge context="calendar" stateCode={stateFilter ?? undefined} className="mb-6" />
 
       {/* Filter pills */}
       <div className="mb-4 space-y-2">

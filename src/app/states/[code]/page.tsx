@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { SignUpNudge } from "@/components/SignUpNudge";
 
 export const dynamic = "force-dynamic";
 
@@ -260,6 +261,12 @@ export default async function StatePage({ params }: Props) {
           </Link>
         </div>
       </header>
+
+      {/* Signup nudge — only renders for anonymous visitors. The state
+          hub is a high-intent surface (someone deliberately landed on
+          /states/TX), so the value prop is concrete: be the first TX
+          advocate notified when something happens. */}
+      <SignUpNudge context="state" stateCode={codeUpper} className="mb-8" />
 
       {/* Active campaigns first — primary CTA */}
       {(campaigns.data ?? []).length > 0 && (

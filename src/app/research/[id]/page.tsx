@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { marked } from "marked";
 import { createClient } from "@/lib/supabase/server";
+import { SignUpNudge } from "@/components/SignUpNudge";
 
 export const metadata = { title: "Research paper" };
 export const dynamic = "force-dynamic";
@@ -103,6 +104,9 @@ export default async function ResearchPaperPage({ params }: { params: Promise<{ 
           )}
         </div>
       </header>
+
+      {/* Signup nudge — research-paper readers are high-affinity advocates */}
+      <SignUpNudge context="research" className="mb-6" />
 
       {/* AI evaluation — surfaces first because users want the conservatism check */}
       {p.ai_evaluated_at && (
