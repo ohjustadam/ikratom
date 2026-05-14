@@ -106,6 +106,56 @@ export default async function StatusPage() {
     supabase.from("scraper_runs_latest").select("source, started_at, status, rows_added"),
   ]);
 
+  // Speed-to-action metric: median minutes between alert publish-time
+  // (occurs_at OR underlying news published_at OR created_at) and
+  // first user campaign_action timestamp on that alert. The lobbyist-
+  // equalizer measurement. Lower = better.
+  // Sample: last 30 days of alerts that had at least one downstream action.
+  let speedMedianMin: number | null = null;
+  let speedSample = 0;
+  try {
+    // Step 1: pull recently-created alerts with their campaign_id
+    const { data: recentAlerts } = await supabase
+      .from("policy_alerts")
+      .select("id, campaign_id, created_at, occurs_at")
+      .not("campaign_id", "is", null)
+      .gte("created_at", since30d)
+      .limit(200);
+    const campaignIds = (recentAlerts ?? [])
+      .map((a) => a.campaign_id)
+      .filter(Boolean) as string[];
+    if (campaignIds.length > 0) {
+      // Step 2: pull first action per campaign
+      const { data: actions } = await supabase
+        .from("campaign_actions")
+        .select("campaign_id, sent_at")
+        .in("campaign_id", campaignIds)
+        .order("sent_at", { ascending: true });
+      const firstActionByCampaign = new Map<string, string>();
+      for (const a of (actions ?? []) as Array<{ campaign_id: string; sent_at: string }>) {
+        if (!firstActionByCampaign.has(a.campaign_id)) {
+          firstActionByCampaign.set(a.campaign_id, a.sent_at);
+        }
+      }
+      // Step 3: per alert, compute minutes from event-time to first action
+      const minutes: number[] = [];
+      for (const a of recentAlerts ?? []) {
+        if (!a.campaign_id) continue;
+        const firstAction = firstActionByCampaign.get(a.campaign_id);
+        if (!firstAction) continue;
+        const eventTime = a.occurs_at ? new Date(a.occurs_at).getTime() : new Date(a.created_at).getTime();
+        const actionTime = new Date(firstAction).getTime();
+        if (actionTime <= eventTime) continue;
+        minutes.push((actionTime - eventTime) / 60_000);
+      }
+      if (minutes.length > 0) {
+        minutes.sort((a, b) => a - b);
+        speedMedianMin = minutes[Math.floor(minutes.length / 2)];
+        speedSample = minutes.length;
+      }
+    }
+  } catch { /* metric is best-effort */ }
+
   // State coverage breakdown
   const stateActivityRaw = new Set<string>();
   for (const row of statesWithBills.data ?? []) {
@@ -200,6 +250,38 @@ export default async function StatusPage() {
           sub="across all states"
         />
       </section>
+
+      {/* Speed-to-action — the lobbyist-equalizer metric */}
+      {speedMedianMin !== null && (
+        <section className="mb-10 rounded-lg border border-amber-700/40 bg-amber-950/15 p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+            ⚡ Speed-to-action — the lobbyist-equalizer
+          </h2>
+          <p className="mt-2 text-sm text-zinc-300">
+            Median time from event detection to first advocate action sent.
+            Lobbyists hit comment windows in minutes via paid subscriptions.
+            This is our equivalent.
+          </p>
+          <div className="mt-4 flex flex-wrap items-baseline gap-4">
+            <span className="text-5xl font-bold tabular-nums text-amber-200">
+              {speedMedianMin < 60
+                ? `${Math.round(speedMedianMin)}m`
+                : speedMedianMin < 1440
+                ? `${(speedMedianMin / 60).toFixed(1)}h`
+                : `${(speedMedianMin / 1440).toFixed(1)}d`}
+            </span>
+            <div>
+              <p className="text-xs text-zinc-400">
+                median over {speedSample} alert{speedSample === 1 ? "" : "s"} (last 30 days)
+              </p>
+              <p className="mt-1 text-[10px] text-zinc-500">
+                Lobbyist comparable: typically 5-15 minutes via paid subscriptions
+                ($5K-50K/year).
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Three-pillar coverage */}
       <section className="mb-10 rounded-lg border border-emerald-700/30 bg-emerald-950/10 p-5">

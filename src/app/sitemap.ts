@@ -27,6 +27,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/bop-watch`, lastModified: now, changeFrequency: "daily", priority: 0.8 },
     { url: `${base}/legislators`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${base}/states`, lastModified: now, changeFrequency: "daily", priority: 0.7 },
+    { url: `${base}/deadlines`, lastModified: now, changeFrequency: "hourly", priority: 0.85 },
     // 50 + DC per-state landing pages (high SEO value — search for "kratom Texas" etc.)
     ...["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN",
         "IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH",
