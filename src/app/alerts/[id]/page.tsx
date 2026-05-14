@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
+import { DraftResponsePanel } from "./DraftResponsePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +71,10 @@ export default async function AlertDetailPage({ params }: Props) {
     .maybeSingle();
 
   if (!a || a.moderation_status !== "approved") notFound();
+
+  // Is the viewer signed in? Drives whether to show the AI rebuttal
+  // generator (signed-in only).
+  const { data: { user: viewer } } = await sb.auth.getUser();
 
   // Linked campaign (if auto-created)
   const linkedCampaign = a.campaign_id
@@ -283,6 +288,19 @@ export default async function AlertDetailPage({ params }: Props) {
             📎 Open source ↗
           </a>
         </section>
+      )}
+
+      {/* AI rebuttal generator — signed-in only. Mission-critical lever:
+          equalizes against astroturf form-letter campaigns by generating
+          individually-personalized comment letters. See PR #218. */}
+      {viewer && (
+        <div className="mt-6">
+          <DraftResponsePanel
+            alertId={a.id}
+            alertTitle={a.title}
+            sourceUrl={a.source_url ?? null}
+          />
+        </div>
       )}
 
       {/* Signup nudge — high intent: someone clicked through to a
