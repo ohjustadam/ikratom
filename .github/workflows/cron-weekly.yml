@@ -1,0 +1,69 @@
+name: Weekly cron
+
+# Long-running multi-state syncs that don't need daily refresh.
+# Priority states (NY/FL/TX/CA/OH/MI/TN/MO/PA/GA) get daily coverage
+# via cron-daily.yml. The remaining 41 states + DC are best-effort
+# weekly here.
+#
+# Why weekly: each state takes 1-2 min in the OpenStates committee
+# sync + maybe 5 min in the AI stance drafter. Hitting all 51 daily
+# would burn ~5 hours of CI per day. Weekly keeps the cost reasonable
+# while ensuring no state stays at zero coverage forever.
+#
+# Schedule: Sunday at 09:00 UTC (~4am ET) — quiet time, fresh week.
+
+on:
+  schedule:
+    - cron: "0 9 * * 0"
+  workflow_dispatch: {}
+
+concurrency:
+  group: weekly-cron
+  cancel-in-progress: false
+
+jobs:
+  sync-committees-all-states:
+    # Pull legislator committee data for every state + DC via the
+    # OpenStates v3 API. Idempotent — upsert on
+    # (legislator_id, committee_name, session_id) so non-priority
+    # state runs upsert existing rows in place.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Sync committees across all 50 + DC
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+        run: node scripts/sync-committees-openstates.mjs
+
+  draft-legislator-stance-all:
+    # Run the AI stance drafter for every state — skips already-stanced
+    # legislators so cost stays low after the first full pass. Provides
+    # weekly catch-up for states whose kratom activity is low enough
+    # to skip the daily priority cron.
+    needs: sync-committees-all-states
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Draft legislator stances across all states
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: node scripts/draft-legislator-stance.mjs --all-states
