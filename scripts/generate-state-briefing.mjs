@@ -176,6 +176,43 @@ STATE CAPITAL: (no row in state_capital_info — admin has not curated yet)
     : `\nKRATOM-RELEVANT COMMITTEE CHAIRS (${chairRows.length}; these are the decision-makers — bills die in their committees):
 ${chairRows.map(c => `  ${c.chamber.toUpperCase()} · ${c.committee_name}: chair = ${c.legislators?.full_name ?? "?"} (${c.legislators?.district ? "district " + c.legislators.district : "?"})`).join("\n")}`;
 
+  // State-level lobbyist registrations (Phase 3 D2). Active rows are the
+  // present-day signal; historical rows give context on industry attention.
+  // Currently only Utah is scraped — other states show "(no state lobbying
+  // disclosures scraped yet — pilot started with UT)".
+  const lobbyists = data.stateLobbyists ?? [];
+  const activeLob = lobbyists.filter(r => !r.end_date);
+  const formerLob = lobbyists.filter(r => r.end_date);
+  let stateLobbyingSection;
+  if (lobbyists.length === 0) {
+    // Distinguish "no data scraped" from "we scraped and found nothing" —
+    // currently we only run a scraper for UT.
+    stateLobbyingSection = data.state === "UT"
+      ? `\nSTATE LOBBYING REGISTRATIONS (lobbyist.utah.gov): no kratom-industry lobbyists found on most recent scrape.`
+      : `\nSTATE LOBBYING REGISTRATIONS: (no state-lobbying disclosures scraped yet — Phase 3 D2 pilot started with UT; this state is queued.)`;
+  } else {
+    // Group active rows by principal so the advocate sees "AKA has 7
+    // people working you" not "Mac Haddow + Matt Holton + Spencer Stokes
+    // + ...".
+    const byPrincipal = new Map();
+    for (const r of activeLob) {
+      if (!byPrincipal.has(r.principal_name)) byPrincipal.set(r.principal_name, []);
+      byPrincipal.get(r.principal_name).push(r);
+    }
+    const activeLines = [...byPrincipal.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([principal, rows]) => {
+        const lobNames = rows.slice(0, 8).map(r => `${r.lobbyist_name} (since ${(r.start_date ?? "?").slice(0, 7)})`).join("; ");
+        return `  ${principal}: ${rows.length} active lobbyist${rows.length === 1 ? "" : "s"} — ${lobNames}`;
+      }).join("\n");
+    const formerCount = formerLob.length;
+    stateLobbyingSection = `\nSTATE LOBBYING REGISTRATIONS (kratom industry, public disclosures):
+  ACTIVE (${activeLob.length} registrations across ${byPrincipal.size} principal${byPrincipal.size === 1 ? "" : "s"}):
+${activeLines || "  (no currently active kratom-industry lobbyists)"}${formerCount > 0 ? `
+  FORMER: ${formerCount} registration${formerCount === 1 ? "" : "s"} ended on record (industry has invested over time, not just ramping up).` : ""}
+  Use these names in the field-work tactical section. Mac Haddow specifically is the AKA's senior strategist with a decades-long Utah footprint (former Utah legislator + retained AKA lobbyist since 2017). When advocates testify, they should know which industry lobbyists are likely in the room.`;
+  }
+
   return `STATE: ${data.state} (${data.stateName || data.state})
 
 LEGISLATOR COVERAGE:
@@ -200,6 +237,7 @@ RECENT NEWS (last 30 days, body-verified, deduplicated):
 ${data.news.length === 0 ? "  (none in last 30 days)" : data.news.map(n => `  - ${(n.published_at ?? "").slice(0, 10)} · ${n.source_name ?? "?"} · ${n.title}`).join("\n")}
 ${committeeSection}
 ${stanceSection}
+${stateLobbyingSection}
 
 STATE STATUS (from states table):
   kratom_status: ${data.stateStatus ?? "(unset)"}
@@ -215,7 +253,7 @@ async function loadStateData(state) {
   // Parallel data fetch — includes capital info, sponsors, stances, committees
   const [
     stateRow, capitalRow, legsAll, bills, bopSrc, bopFindings, news, camps,
-    stanceRows, committeeRows,
+    stanceRows, committeeRows, stateLobbyistRows,
   ] = await Promise.all([
     sb.from("states").select("abbr, name, kratom_status, notes").eq("abbr", state).maybeSingle(),
     sb.from("state_capital_info")
@@ -251,6 +289,16 @@ async function loadStateData(state) {
       .eq("legislators.state", state)
       .eq("is_kratom_relevant", true)
       .eq("session_id", "2025-2026"),
+    // Phase 3 D2: state lobbyist registrations (currently Utah-only,
+    // empty for other states — that's fine, this just appears as "no
+    // state-lobbying intel for STATE_CODE yet" in the prompt).
+    // Active rows surface in the briefing; ended rows feed a historical
+    // count for context ("AKA has cycled 9 lobbyists through this state").
+    sb.from("state_lobbyist_registrations")
+      .select("lobbyist_name, principal_name, registration_type, start_date, end_date, principal_state")
+      .eq("state", state)
+      .eq("is_kratom_relevant", true)
+      .order("start_date", { ascending: false }),
   ]);
 
   // Sponsors: pull all rows for these specific bills + their resolved legislator names.
@@ -304,6 +352,7 @@ async function loadStateData(state) {
     campPending: (camps.data ?? []).filter(c => c.review_state === "pending_review").length,
     stances: stanceRows.data ?? [],
     committees: committeeRows.data ?? [],
+    stateLobbyists: stateLobbyistRows.data ?? [],
   };
 }
 

@@ -229,14 +229,36 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/verify-news-body.mjs --limit 200
 
+  scrape-utah-lobbying:
+    # Phase 3 D2 pilot — scrape Utah's lobbyist registry. Single HTML
+    # page, ~8MB, parses to ~6,800 registrations. Kratom-industry rows
+    # (~16 today) upsert idempotently. Quick — runs in under 10s.
+    # State briefing generator depends on this for fresh Utah intel,
+    # but doesn't block: this job needs no upstream data.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Scrape Utah lobbyist registry
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/scrape-utah-lobbying.mjs
+
   generate-state-briefings:
     # Per-state field-work briefings — AI synthesizes live platform data
     # into a tactical briefing for each state's advocates. Page lives at
     # /briefings/state/[code]. See scripts/generate-state-briefing.mjs.
     #
     # Runs AFTER all the data-collection jobs so the briefing reflects
-    # today's bill/news/BoP state. ~5s per state × 51 states ≈ 5 min.
-    needs: classify-bop-ai
+    # today's bill/news/BoP/state-lobbying state. ~5s per state × 51
+    # states ≈ 5 min.
+    needs: [classify-bop-ai, scrape-utah-lobbying]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

@@ -48,23 +48,23 @@
 
 ---
 
-## D2. State lobbying disclosure pilot — Utah first (~2 days)
+## D2. State lobbying disclosure pilot — Utah ✅ SHIPPED 2026-05-14 (registrations layer)
 
-**Path**: Build a single-state lobbying scraper for Utah, prove the pattern, then templatize.
+**Status**: Utah lobbyist registry now scraped daily. 16 kratom-industry registrations captured today, 7 currently active. AKA hired three new lobbyists in January 2026 (Salmon, White, Clyde) — visible in the data, surfaced in the Utah briefing's Field-work section by name.
 
-**Why Utah first**:
-1. LDS-network influence already documented (Bramble + Haddow + the 2026 Word of Wisdom stunt)
-2. Per Courthouse News, Bramble received $137,500 from AKA + $968,845 from "The Center For Plant Science and Health" — but the Center is an AKA shell. Utah state lobbying registry should have direct AKA/CPSH disclosures filed by registered lobbyists. We can verify the payment chain and find OTHER paid state legislators.
-3. Utah's state lobbyist registry is at https://lobbyist.utah.gov — public, free, structured.
+**What landed**:
+- New table `state_lobbyist_registrations` — state-agnostic schema designed to absorb the FL/NJ/CA/TX adapters later. Captures lobbyist↔principal pairings + addresses + start/end dates.
+- New scraper `scripts/scrape-utah-lobbying.mjs` parses the LobbyistByPrincipal HTML page (6,858 rows total, regex-filtered to 16 kratom-industry hits). Identifies itself with a custom UA; no auth required.
+- Daily cron job runs the scraper before the state-briefing generator, so today's UT briefing reflects today's lobbyist roster. `generate-state-briefings` job now declares this dependency explicitly.
+- Briefing generator pulls the registrations and renders them in a new "STATE LOBBYING REGISTRATIONS" section of the prompt. AI integrates them into the Field-work tactical paragraph by name.
+- Admin page (`/admin/intel-health/states`) shows the "State lobbyists" count per state + a totals counter.
 
-**Output schema**: `state_lobbying_filings` table mirroring `lobbying_filings` (federal) shape:
-- registrant_name, client_name, year, lobbyist names, issue, disclosed_amount, state
-- Idempotent upserts on (state, registrant, year, lobbyist)
-- Public-read RLS
+**Currently active kratom-industry lobbyists in Utah** (as of first scrape):
+- American Kratom Association — 7 active: Mac Haddow (since 2017), Spencer Stokes (2021), Matt Holton (2022), Matthew Salmon (×2, Jan 2026), Eliana White (Jan 2026), Chase Clyde (Jan 2026). The three Jan 2026 hires constitute a hiring burst worth tracking.
 
-**Effort**: ~2 days. After Utah, the script becomes a per-state adapter pattern (same way we did `scrape-bop.mjs`).
+**Honest limit**: Phase 1 captures the registration LAYER (who's hired by whom). It does NOT yet capture dollar amounts — those live behind Utah's Summary of Lobbyist Reports POST search and would need a separate scraper. Per Courthouse News, Bramble received $137,500 from AKA + $968,845 from "The Center For Plant Science and Health" — those numbers are visible on the financial-reports page, not the registry page. Phase 2 work.
 
-**Next states** after Utah pilot: FL (DeSantis + OPMS supply chain), NJ (most committee bills currently in our DB), CA (GKC's home state), TX (4-state KCPA wave).
+**Next states** after Utah: FL (DeSantis + OPMS supply chain), NJ (committee-bill volume), CA (GKC's home state), TX (4-state KCPA wave). Schema is already state-agnostic — each new state just needs its own scraper adapter writing to the same table.
 
 ---
 
