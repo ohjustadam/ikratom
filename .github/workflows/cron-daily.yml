@@ -74,6 +74,27 @@ jobs:
           OPENFEC_API_KEY: ${{ secrets.OPENFEC_API_KEY }}
         run: node scripts/sync-legislator-donors.mjs --limit 50
 
+  lda-kratom-sync:
+    # Pulls every Senate LDA filing mentioning kratom, refreshes our
+    # lobbying_filings table. New filings drop quarterly so daily
+    # is overkill but cheap (~25s wall time, no auth required) and
+    # ensures we catch the day a new disclosure hits the public
+    # record. ~131 filings as of May 2026.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Senate LDA kratom-filings sync
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/sync-lda-kratom.mjs
+
   bop-browser-scrape:
     # BoP sources whose state .gov WAFs do TLS fingerprinting
     # (KS, NH, MA, AR currently) can't be scraped via Node fetch —
