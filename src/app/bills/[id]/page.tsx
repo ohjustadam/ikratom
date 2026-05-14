@@ -11,6 +11,7 @@ import { getTranslation } from "@/lib/translations";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { BillFullText } from "./BillFullText";
 import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillLocalActionCard";
+import { findSimilarBills } from "@/lib/bill-similarity";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -176,6 +177,21 @@ export default async function BillDetailPage({
     }
   } catch {
     // Column doesn't exist yet — silent no-op.
+  }
+
+  // Phase 3 D6: cross-state bill similarity. Pulls every embedded
+  // active bill, computes cosine similarity in-process, returns top
+  // N from OTHER states. Wrapped defensively so a pre-migration
+  // deploy (before 0131) or a row without an embedding falls back
+  // to empty without breaking the page.
+  let similarBills: Awaited<ReturnType<typeof findSimilarBills>> = [];
+  try {
+    // 0.6 floor is empirically tuned: a KCPA-named bill in SC matches
+    // its peers in MO/IL/KS/NE at 62-69%. Going to 0.7 misses real
+    // matches; going below 0.55 starts surfacing unrelated kratom bills.
+    similarBills = await findSimilarBills(supabase, id, { limit: 5, minSimilarity: 0.6 });
+  } catch {
+    // Pre-migration deploy or query error — silent fallback.
   }
 
   // Linked campaigns (auto-generated or hand-written for this bill)
@@ -640,6 +656,60 @@ export default async function BillDetailPage({
           instead of bouncing to the state portal. */}
       {bill.bill_text_versions && bill.bill_text_versions.length > 0 && (
         <BillFullText versions={bill.bill_text_versions} />
+      )}
+
+      {/* Phase 3 D6: cross-state bill similarity. Surfaces semantic
+          matches of this bill in OTHER states — when this is a KCPA
+          variant or a 7-OH ban, the top match is usually the bill it
+          was templated from. Cosine similarity ≥ 0.7 filter, top 5. */}
+      {similarBills.length > 0 && (
+        <section className="mb-6 rounded-lg border border-violet-500/30 bg-violet-950/10 p-5">
+          <h2 className="mb-2 flex flex-wrap items-baseline gap-2 text-sm font-semibold uppercase tracking-wider text-violet-300">
+            🔗 Similar bills in other states
+            <span className="text-[10px] font-normal text-zinc-500">
+              (top {similarBills.length} text-similarity matches above 60%)
+            </span>
+          </h2>
+          <p className="text-[11px] text-zinc-400">
+            Bills sharing language or scope with this one. High match scores often indicate a coalition shopping the same template across states.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {similarBills.map((s) => (
+              <li key={s.bill.id}>
+                <a
+                  href={`/bills/${s.bill.id}`}
+                  className="block rounded-md border border-violet-700/20 bg-zinc-950/40 p-2.5 transition hover:border-violet-500"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                    <span className="font-mono font-semibold text-zinc-200">
+                      {s.bill.state} · {s.bill.bill_number}
+                    </span>
+                    {s.bill.kratom_relevance === "anti" && (
+                      <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-300">Anti</span>
+                    )}
+                    {s.bill.kratom_relevance === "pro" && (
+                      <span className="rounded bg-emerald-950/40 px-1.5 py-0.5 text-emerald-300">Pro</span>
+                    )}
+                    <span className="ml-auto font-mono text-violet-300">
+                      {(s.similarity * 100).toFixed(0)}% match
+                    </span>
+                  </div>
+                  {s.bill.title && (
+                    <p className="mt-1 text-xs leading-snug text-zinc-100">
+                      {s.bill.title.slice(0, 140)}{s.bill.title.length > 140 ? "…" : ""}
+                    </p>
+                  )}
+                  <p className="mt-1 text-[10px] text-zinc-600">
+                    status: {s.bill.status ?? "?"}
+                    {s.bill.last_action_at && (
+                      <span> · last action {new Date(s.bill.last_action_at).toLocaleDateString()}</span>
+                    )}
+                  </p>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {/* Linked campaigns */}
