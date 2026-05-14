@@ -138,9 +138,25 @@ AI-extract quotes ("Senator X said Y about kratom") from article body and append
 
 ---
 
-## D7. Self-improvement feedback loop (~6 hours)
+## D7. Self-improvement feedback loop
 
-**Path**: `ai_decisions` table logging every AI output + admin reaction (approved? edited? rejected?). Weekly script builds "common failure modes" report. Periodic prompt re-tuning.
+### D7 first slice ✅ SHIPPED 2026-05-14
+
+**Status**: Live in `scripts/audit-state-briefings.mjs`. Detects active briefings where D5's self-critique flagged issues that the revision pass couldn't resolve, plus data drift on uncapped counters, plus staleness, plus low-quality length. Optional `--auto-regen` flag invokes `generate-state-briefing.mjs --state X` per flagged state for self-correction.
+
+**Why it's needed**: the daily cron blindly regenerates all 51 briefings on a 24h schedule. That catches staleness but misses critique-blocked revisions — when the critic flagged real issues but the revision attempt failed (rate-limit, schema-fragment stub, provider saturation), the briefing went live with known-bad content. `data_snapshot.critique.history` from D5 captured this; nothing acted on it. Now the audit does.
+
+**Flagging rules**:
+- `critique flagged N issue(s), revision blocked (REASON)` — the highest-signal failure mode
+- `stale (Xd old)` — older than `--max-age-days` (default 7)
+- `low quality (X chars < 2000)` — body shorter than `--min-body-chars`
+- `data drift X% (legCount:A→B)` — uncapped counter changed by >= `--drift-pct` (default 30%). Restricted to `legCount`, `bopSrcCount`, `campActiveCount`. The generator caps bill/news loads at 30/10 rows for prompt-budget reasons, so `billCount` / `newsCount` saturate and aren't reliable drift signals.
+
+**First-run results**: 1/51 briefings flagged — NY had a critique-blocked revision (the one I manually restored earlier in the D5 ship) and a real BoP-source drop (3→0) worth investigating editorially.
+
+### D7 Phase 2 (deferred)
+
+Broader `ai_decisions` table logging every AI output + admin reaction (approved? edited? rejected?). Weekly script builds "common failure modes" report. Periodic prompt re-tuning. Defer until we have admin-visible regen / approve / reject UI in /admin/intel-health.
 
 ---
 
