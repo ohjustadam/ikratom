@@ -450,3 +450,68 @@ export function actorsForState(state: string): IndustryActor[] {
     (a) => a.state === code || a.summary.toUpperCase().includes(` ${code}`),
   );
 }
+
+/**
+ * Find actors connected to a specific legislator. Two match modes:
+ *   1. Last-name appears anywhere in the actor's name or summary —
+ *      catches direct mentions like "advised Sen. Hatch on DSHEA"
+ *   2. Legislator's full name appears as substring in the summary —
+ *      catches "received donations from..." or "co-sponsored with..."
+ *
+ * Returns empty array when no matches — most legislators won't have
+ * any direct connection to a named industry actor.
+ *
+ * Conservative match: requires a substantive last-name token (>= 5
+ * chars) to avoid false positives on common surnames like Smith.
+ */
+export function actorsForLegislator(legislator: {
+  full_name: string;
+  state?: string | null;
+}): IndustryActor[] {
+  const fullName = legislator.full_name.trim();
+  if (!fullName) return [];
+
+  // Extract last name — assumes typical "First Last" or "First Middle Last" order.
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  const lastName = parts[parts.length - 1] ?? "";
+  const fullNameLower = fullName.toLowerCase();
+  const lastNameLower = lastName.toLowerCase();
+  const isSubstantiveLast = lastName.length >= 5;
+
+  const matches: IndustryActor[] = [];
+  const seen = new Set<string>();
+
+  for (const a of KRATOM_INDUSTRY_ACTORS) {
+    if (seen.has(a.id)) continue;
+    const summaryLower = a.summary.toLowerCase();
+    const nameLower = a.name.toLowerCase();
+
+    // Match 1: full name in summary (strongest signal)
+    if (summaryLower.includes(fullNameLower)) {
+      matches.push(a);
+      seen.add(a.id);
+      continue;
+    }
+
+    // Match 2: last name in summary AND last name is substantive (>= 5 chars)
+    if (isSubstantiveLast && summaryLower.includes(lastNameLower)) {
+      // Extra-check: don't false-match on a common word that happens to be a surname.
+      // Require the last-name token to appear with a leading non-letter boundary.
+      const boundaryRe = new RegExp(`(^|[^a-z])${lastNameLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z]|$)`);
+      if (boundaryRe.test(summaryLower)) {
+        matches.push(a);
+        seen.add(a.id);
+        continue;
+      }
+    }
+
+    // Match 3: actor's name IS the legislator's name (e.g. Hatch entry)
+    if (nameLower.includes(fullNameLower) || (isSubstantiveLast && nameLower.includes(lastNameLower))) {
+      matches.push(a);
+      seen.add(a.id);
+      continue;
+    }
+  }
+
+  return matches;
+}
