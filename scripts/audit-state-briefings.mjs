@@ -63,7 +63,12 @@ async function liveCountsFor(state) {
     sb.from("legislators").select("id", { count: "exact", head: true }).eq("state", state).eq("active", true),
     sb.from("bills").select("id", { count: "exact", head: true }).eq("state", state).eq("active", true),
     sb.from("news_items").select("id", { count: "exact", head: true }).eq("state", state).eq("active", true),
-    sb.from("bop_source_documents").select("id", { count: "exact", head: true }).eq("state", state),
+    // Note: table is `bop_sources` (per migration), not bop_source_documents.
+    // Pre-2026-05-14 the audit queried the wrong table here, which made
+    // every state look like its BoP source count had collapsed to 0
+    // since the briefing snapshot uses the correct table. Drift signal
+    // was firing on a phantom delta. Fixed by matching the generator.
+    sb.from("bop_sources").select("id", { count: "exact", head: true }).eq("state", state),
     sb.from("campaigns").select("id", { count: "exact", head: true }).eq("state", state).eq("active", true),
   ]);
   return {
@@ -106,6 +111,11 @@ function critiqueState(snapshot) {
 // live counts would surface false drift on every state.
 // =============================================================
 const DRIFT_FIELDS = ["legCount", "bopSrcCount", "campActiveCount"];
+// Absolute-change floor — drift on counters smaller than this is just
+// noise (e.g. 0→1 on bopSrcCount is a 100% pct change but means a
+// single source row was added; not actionable). Real drift signal is
+// in larger absolute moves on already-non-trivial counters.
+const DRIFT_MIN_ABS_CHANGE = 2;
 function maxDriftPct(snapshot, live) {
   if (!snapshot) return null;
   let max = 0;
@@ -114,8 +124,10 @@ function maxDriftPct(snapshot, live) {
     const a = Number(snapshot[k] ?? 0);
     const b = Number(live[k] ?? 0);
     if (a === 0 && b === 0) continue;
+    const absChange = Math.abs(b - a);
+    if (absChange < DRIFT_MIN_ABS_CHANGE) continue;
     const denom = Math.max(a, 1);
-    const pct = Math.abs(b - a) / denom * 100;
+    const pct = absChange / denom * 100;
     if (pct > max) { max = pct; driftKey = `${k}:${a}→${b}`; }
   }
   return { maxPct: max, key: driftKey };

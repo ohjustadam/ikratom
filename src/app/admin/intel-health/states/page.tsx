@@ -54,6 +54,7 @@ type StateStat = {
   } | null;
   news_mentions: number;
   state_lobbyists_active: number;
+  bill_votes: number;
   audit_flags: string[];
 };
 
@@ -73,7 +74,7 @@ export default async function PerStateIntelHealthPage() {
   // stacks old briefings via is_active=false), and include the
   // critique audit trail from D5 + the body length for the D7
   // health check.
-  const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists] = await Promise.all([
+  const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists, billVotes] = await Promise.all([
     supabase.from("profiles").select("state").not("state", "is", null),
     supabase.from("bills").select("state").eq("active", true),
     supabase.from("municipal_meetings")
@@ -99,6 +100,11 @@ export default async function PerStateIntelHealthPage() {
       .select("state")
       .eq("is_kratom_relevant", true)
       .is("end_date", null),
+    // D1 voting record coverage — joined to bills for state.
+    // Surfaces the LEGISCAN_API_KEY blocker plainly: when this comes
+    // back empty across all 51 states, the secret isn't set.
+    supabase.from("bill_votes")
+      .select("bill_id, bills!inner(state)"),
   ]);
 
   // Aggregate
@@ -107,7 +113,7 @@ export default async function PerStateIntelHealthPage() {
     stats[code] = {
       state: code, users: 0, active_bills: 0, upcoming_meetings: 0, alerts_30d: 0,
       briefing_generated_at: null, briefing_body_len: 0, briefing_critique: null,
-      news_mentions: 0, state_lobbyists_active: 0, audit_flags: [],
+      news_mentions: 0, state_lobbyists_active: 0, bill_votes: 0, audit_flags: [],
     };
   }
 
@@ -186,6 +192,13 @@ export default async function PerStateIntelHealthPage() {
     const s = r.state?.toUpperCase();
     if (s && stats[s]) stats[s].state_lobbyists_active++;
   }
+  // D1 voting records — joined through bills
+  type VoteJoined = { bill_id: string; bills: { state: string | null } | { state: string | null }[] | null };
+  for (const r of (billVotes.data ?? []) as VoteJoined[]) {
+    const billState = Array.isArray(r.bills) ? r.bills[0]?.state : r.bills?.state;
+    const s = billState?.toUpperCase();
+    if (s && stats[s]) stats[s].bill_votes++;
+  }
 
   // Sort by activity total descending
   const sorted = Object.values(stats).sort((a, b) =>
@@ -209,10 +222,24 @@ export default async function PerStateIntelHealthPage() {
       alerts: acc.alerts + s.alerts_30d,
       news_mentions: acc.news_mentions + s.news_mentions,
       state_lobbyists: acc.state_lobbyists + s.state_lobbyists_active,
+      bill_votes: acc.bill_votes + s.bill_votes,
       flagged: acc.flagged + (s.audit_flags.length > 0 ? 1 : 0),
     }),
-    { users: 0, bills: 0, meetings: 0, alerts: 0, news_mentions: 0, state_lobbyists: 0, flagged: 0 },
+    { users: 0, bills: 0, meetings: 0, alerts: 0, news_mentions: 0, state_lobbyists: 0, bill_votes: 0, flagged: 0 },
   );
+
+  // Surface ops blockers: when an entire intel layer is at 0 across
+  // all 51 states, something is broken at the secrets/cron level —
+  // not a per-state coverage gap. Surface plainly so the owner knows
+  // exactly what to fix.
+  const opsBlockers: Array<{ layer: string; why: string; action: string }> = [];
+  if (totals.bill_votes === 0) {
+    opsBlockers.push({
+      layer: "Voting roll-call records (D1)",
+      why: "0 rows across all 51 states — the LegiScan sync is silently no-op'ing.",
+      action: "Set LEGISCAN_API_KEY in GitHub Actions secrets (Settings → Secrets → Actions). Free key at legiscan.com/legiscan. Next daily cron will backfill.",
+    });
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
@@ -229,14 +256,36 @@ export default async function PerStateIntelHealthPage() {
         </p>
       </header>
 
+      {/* Ops blockers — entire-pipeline outages that need owner action
+          rather than per-state work. Surfaced loudly because silent
+          failure was exactly how D1's missing-secret bug hid for days. */}
+      {opsBlockers.length > 0 && (
+        <section className="mb-6 rounded-lg border-2 border-red-600/60 bg-red-950/25 p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-red-300">⚠ Ops blockers</h2>
+          <p className="mt-1 text-[11px] text-red-200/80">
+            Entire intel layers stuck at 0 across all 51 states — not per-state coverage gaps, pipeline outages. Owner action required.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {opsBlockers.map((b, i) => (
+              <li key={i} className="rounded border border-red-700/50 bg-red-950/30 p-2.5 text-[11px]">
+                <p className="font-semibold text-red-200">{b.layer}</p>
+                <p className="mt-0.5 text-zinc-400">{b.why}</p>
+                <p className="mt-1 text-emerald-300">→ {b.action}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* Top-line totals */}
-      <section className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <section className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <Stat label="Total advocates" value={totals.users} />
         <Stat label="Active bills" value={totals.bills} />
         <Stat label="Upcoming meetings" value={totals.meetings} />
         <Stat label="Alerts (30d)" value={totals.alerts} />
         <Stat label="News mentions" value={totals.news_mentions} />
         <Stat label="State lobbyists" value={totals.state_lobbyists} />
+        <Stat label="Voting records" value={totals.bill_votes} tone={totals.bill_votes === 0 ? "warn" : undefined} />
         <Stat label="Briefings flagged" value={totals.flagged} tone={totals.flagged > 0 ? "warn" : undefined} />
       </section>
 
@@ -271,6 +320,7 @@ export default async function PerStateIntelHealthPage() {
                   <li className="flex justify-between"><span>🚨 Alerts (30d)</span><span className="font-mono">{s.alerts_30d}</span></li>
                   <li className="flex justify-between"><span>📰 News mentions</span><span className="font-mono">{s.news_mentions}</span></li>
                   <li className="flex justify-between"><span>🏛 State lobbyists</span><span className="font-mono">{s.state_lobbyists_active}</span></li>
+                  <li className="flex justify-between"><span>🗳 Voting records</span><span className={`font-mono ${s.bill_votes === 0 ? "text-red-400" : ""}`}>{s.bill_votes}</span></li>
                 </ul>
                 {flagged && (
                   <ul className="mt-2 space-y-0.5 rounded border border-red-800/40 bg-red-950/20 p-1.5 text-[10px] text-red-200">

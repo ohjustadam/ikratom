@@ -290,6 +290,15 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
         run: node scripts/audit-state-briefings.mjs --auto-regen
+      # Intel coverage matrix — daily snapshot of which states have
+      # which intel layers populated. `--check` fails the step if
+      # briefings or legislators drop below floor coverage, surfacing
+      # silent breakage (e.g. cron-step failure, missing secret).
+      - name: Intel coverage matrix check
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/intel-coverage-audit.mjs --check
 
   sync-committees-openstates:
     # Pull legislator committee assignments for all priority states
