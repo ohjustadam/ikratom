@@ -57,6 +57,15 @@ export function StanceRow({
         <span className="font-semibold text-zinc-100">{legName}</span>
         {role && <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-500">{role}</span>}
         {district && <span className="text-[11px] text-zinc-500">district {district}</span>}
+        <a
+          href={`/legislators/${legId}/briefing`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:border-emerald-500 hover:text-emerald-300"
+          title="Open public briefing in new tab — what the user sees"
+        >
+          ◉ Preview brief ↗
+        </a>
         <span className="ml-auto flex flex-wrap gap-1">
           {STANCES.map((s) => (
             <button
