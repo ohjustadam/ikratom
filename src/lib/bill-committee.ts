@@ -17,8 +17,21 @@
  * returns a name longer than 80 chars or shorter than 8.
  */
 
+// Match: chamber word, then 2-80 chars NONE of which START a new
+// chamber word, then "Committee". The negative lookahead is what
+// prevents the regex from picking the FIRST chamber and gobbling
+// across an intervening one to find the trailing "Committee" — which
+// produces a span the 80-char ceiling correctly rejects anyway, but
+// only after wasting backtracking. Real-world example fixed by this:
+//   "House Recommended for passage, refer to Senate Finance,
+//    Ways, and Means Committee"
+// Without lookahead: engine starts at "House", tries to reach
+// "Committee" but the captured span is 82 chars → rejected → returns
+// null. With lookahead: engine skips "House" (because "Senate"
+// appears in the middle), starts at "Senate Finance...", captures
+// the correct 42-char committee name.
 const COMMITTEE_RE =
-  /((?:Senate|House|Assembly|Joint)[^.;]{2,80}?Committee)/i;
+  /((?:Senate|House|Assembly|Joint)(?:(?!Senate|House|Assembly|Joint)[^.;]){2,80}?Committee)/i;
 
 export type ParsedCommittee = {
   name: string;

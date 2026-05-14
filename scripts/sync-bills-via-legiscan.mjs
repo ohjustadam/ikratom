@@ -198,7 +198,12 @@ async function syncOne(bill) {
   // remains useful for context. Status field tells you whether the
   // bill is still IN that committee or has moved on; YourRepDecidingThisBill
   // uses both signals.
-  const COMMITTEE_RE = /((?:Senate|House|Assembly|Joint)[^.;]{2,80}?Committee)/i;
+  // Same negative-lookahead pattern as src/lib/bill-committee.ts —
+  // prevents the regex from gobbling across an intervening chamber
+  // word (e.g. "House Recommended for passage, refer to Senate
+  // Finance, Ways, and Means Committee") and over-running the 80-char
+  // ceiling. See tests/bill-committee.test.ts for fixtures.
+  const COMMITTEE_RE = /((?:Senate|House|Assembly|Joint)(?:(?!Senate|House|Assembly|Joint)[^.;]){2,80}?Committee)/i;
   let parsedCommitteeName = null;
   let parsedCommitteeChamber = null;
   let parsedCommitteeUpdatedAt = null;
