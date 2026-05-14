@@ -160,13 +160,21 @@ Broader `ai_decisions` table logging every AI output + admin reaction (approved?
 
 ---
 
-## D8. Admin dashboards (~6 hours)
+## D8. Admin dashboards ✅ SHIPPED 2026-05-14 (first slice)
 
-**Path**: `/admin/intel-health/states` already exists (per ROADMAP-NEWSROOM). Extend with:
-- Briefing freshness per state (oldest = needs regen)
+**Status**: `/admin/intel-health/states` extended with the new D5/D4/D7 telemetry. Briefing freshness, news mentions, and audit flags surface inline per state.
+
+**What landed**:
+- Two pre-existing bugs fixed on the page: `published_at` (column doesn't exist; renamed to `generated_at`) and missing `.eq("is_active", true)` on `state_briefings` (the table stacks old rows, so the page was previously picking arbitrary briefings).
+- Per-state card now shows: news mentions count (D4), critique status from `data_snapshot.critique` (D5), and inline audit flags from the same logic the D7 script uses (stale / low-quality / critique-blocked / no-briefing).
+- Flagged states get red border + "needs regen" label so they jump out of the grid.
+- Top-line stats add "News mentions" and "Briefings flagged" counters.
+- Audit reasons computed inline rather than shelling out to the script — same logic, no extra IO.
+
+**Remaining for D8 expansion** (deferred until needed):
 - Stance coverage per state
 - Committee coverage per state
-- Lobbying-filing volume per state
+- Lobbying-filing volume per state (depends on D2 Utah pilot to seed the table)
 - Per-actor coverage gaps
 
 ---
