@@ -174,7 +174,7 @@ export default async function AccountPage({
           {/* 5. Advocacy tools */}
           <Section id="advocacy" title="Advocacy tools" intro="Streamline how you take action.">
             <LinkCard
-              href="/dashboard/templates"
+              href="/account/templates"
               title="My templates"
               body="See every active campaign rendered with your info filled in — so you know what gets sent before you click."
               cta="Preview templates"
