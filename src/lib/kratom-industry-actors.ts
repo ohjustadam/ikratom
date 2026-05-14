@@ -31,11 +31,13 @@ export type ActorRole =
   | "former_industry_leader";
 
 export type ActorFaction =
-  | "aka_aligned"           // AKA + GKC + Botanical Education Alliance (anti-7-OH, protects leaf + extracts)
-  | "pro_7oh"               // 7-HOPE Alliance, HART, Botanic Tonics — pushes 7-OH-enriched products
-  | "company_independent"   // operating outside the org politics
-  | "regulator"             // government side
-  | "academic";             // university researchers
+  | "aka_coalition"         // AKA + Bramble + AKA-shell "Center For Plant Science and Health" + Botanical Education Alliance
+  | "gkc_coalition"         // GKC (founded 2024 by Botanic Tonics' J.W. Ross) + Botanic Tonics/Feel Free + Urban Ice + MIT45 + Top Tree + New Brew + OG Kratom + Kava Garden + Pure Leaf
+  | "pro_7oh"               // 7-HOPE Alliance + HART — defends 7-OH-enriched/synthetic-analog products
+  | "company_independent"   // operating company outside declared coalition alignment
+  | "regulator"             // government side — FDA, DEA, HHS, congressional offices
+  | "academic"              // university researchers
+  | "cross_coalition";      // figures with feet in multiple camps (e.g. Kelly Dunn — AKA co-founder, Urban Ice in GKC)
 
 export type IndustryActor = {
   /** Stable identifier used for cross-reference (lowercase, hyphenated) */
@@ -69,15 +71,16 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "mac-haddow",
     name: "C. McClain (Mac) Haddow",
     role: "lobbyist",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
-      "Lead lobbyist for the American Kratom Association. Former Reagan administration official. Advised Senator Orrin Hatch on the 1994 Dietary Supplement Health and Education Act (DSHEA) — the legal framework that supplements, including kratom, sit under. Textbook revolving-door figure: from drafting the law to lobbying for its application to kratom.",
-    affiliations: ["American Kratom Association (AKA)", "Upstream Consulting"],
+      "Lead lobbyist for the American Kratom Association via Upstream Consulting. Former Reagan administration official. MANAGED Sen. Orrin Hatch's 1976 Senate campaign — the upset victory that launched both Hatch's career and Haddow's. Later advised Hatch on the 1994 Dietary Supplement Health and Education Act (DSHEA). Now writes the actual bill text that gets handed to state legislators — per Courthouse News investigation, Haddow gave the KCPA bill language to Sen. Curt Bramble (Utah) who then sponsored it. LDS-network operator (per platform owner's first-hand observation at Salt Lake City kratom summit).",
+    affiliations: ["American Kratom Association (AKA)", "Upstream Consulting", "LDS political network"],
     lobbying_firm: "Upstream Consulting, Inc.",
-    former_government_role: "Reagan administration; advisor to Sen. Orrin Hatch (R-UT)",
+    former_government_role: "Reagan administration; campaign manager for Sen. Orrin Hatch's 1976 race; advisor on DSHEA 1994",
     evidence_urls: [
       "https://project.tampabay.com/investigations/deadly-dose/american-kratom-association-lobbyists-fda-florida/",
-      "https://lda.senate.gov/", // multiple Upstream→AKA filings
+      "https://www.courthousenews.com/the-law-and-the-profits-inside-kratoms-political-underbelly/",
+      "https://lda.senate.gov/",
     ],
     last_verified: "2026-05-14",
   },
@@ -85,7 +88,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "david-carlucci",
     name: "David Carlucci",
     role: "lobbyist",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "Former New York State Senator. Runs DAVID CARLUCCI CONSULTING — registered AKA lobbyist (LDA filings, 2025-2026). Separately operates CARLUCCI FOR CONGRESS PAC which received traceable individual donations from kratom-business employees. Direct revolving-door pattern: elected official → lobbyist for the industry, with overlapping campaign finance flows.",
     affiliations: ["David Carlucci Consulting", "American Kratom Association"],
@@ -101,7 +104,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "tony-sermonti",
     name: "Tony Sermonti",
     role: "lobbyist",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "AKA-aligned lobbyist actively involved in state-level kratom legislation. Named in Washington State legislative coverage as the AKA's spokesperson on tax-and-regulate bills. Supports banning synthetic-7-OH but pushes back on recordkeeping, criminal penalties, and distributor requirements that would burden traditional kratom retailers.",
     affiliations: ["American Kratom Association"],
@@ -114,7 +117,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "scott-bass",
     name: "Scott Bass",
     role: "lobbyist",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "Industry attorney who helped craft the 1994 DSHEA legislation. Long-running supplement-industry advocate. Connects the kratom industry to the broader dietary supplement lobby's institutional positions.",
     affiliations: ["American Kratom Association (aligned)"],
@@ -127,7 +130,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "mark-valente-iii",
     name: "Mark Valente III",
     role: "lobbying_firm",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "Principal of Valente & Associates, a DC government affairs firm. Filed LDA disclosures on behalf of The Raben Group acting for the Botanical Education Alliance (an AKA-adjacent sub-coalition). Active in the 2016 DEA-scheduling-fight era.",
     affiliations: ["Valente & Associates", "The Raben Group", "Botanical Education Alliance"],
@@ -139,7 +142,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "mark-rodgers",
     name: "Mark William Rodgers",
     role: "lobbyist",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "Lobbyist at Valente & Associates filing on behalf of the Botanical Education Alliance / The Raben Group. Covered-position history includes Deputy Director of Congressional Relations and Policy Director at OPM — clear federal-policy revolving-door.",
     affiliations: ["Valente & Associates", "Botanical Education Alliance"],
@@ -154,13 +157,14 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "aka",
     name: "American Kratom Association (AKA)",
     role: "industry_org",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
-      "Primary kratom-industry advocacy 501(c)(4) since 2014. EIN 47-2208981. Based in Gainesville, VA (DC-adjacent — deliberate). $4.5M revenue in 2023 (22,000% growth from 2016). Has championed model legislation (Kratom Consumer Protection Act, KCPA) in 34 states. Anti-7-OH posture. Per Tampa Bay Times investigation, AKA lobbyists draft the actual legislation that gets introduced.",
-    affiliations: ["Upstream Consulting", "Multiple retained DC firms (2026: Michael Best, Kountoupes, Corcoran, Carlucci)"],
+      "Primary kratom-industry advocacy 501(c)(4). Co-founded 2014 by Susan Ash + Kelly Dunn (Urban Ice Botanicals). EIN 47-2208981. Based in Gainesville, VA (DC-adjacent — deliberate). $4.5M revenue in 2023 (22,000% growth from 2016). Has championed model legislation (Kratom Consumer Protection Act / KCPA) in 34 states — per Courthouse News investigation, Mac Haddow (AKA lead lobbyist) hands the bill text directly to friendly state legislators like Sen. Curt Bramble (UT). Paid Bramble $137,500 in consulting fees in 2019 alone. AKA-shell entity 'The Center For Plant Science and Health' (same executives) paid Bramble & Company an additional $968,845 over 4 years without legislative disclosure.",
+    affiliations: ["Upstream Consulting (Haddow)", "Center For Plant Science and Health (shell with same executives)", "Multiple retained DC firms (2026: Michael Best, Kountoupes, Corcoran, Carlucci)"],
     evidence_urls: [
       "https://projects.propublica.org/nonprofits/organizations/472208981",
       "https://project.tampabay.com/investigations/deadly-dose/american-kratom-association-lobbyists-fda-florida/",
+      "https://www.courthousenews.com/the-law-and-the-profits-inside-kratoms-political-underbelly/",
     ],
     state: "VA",
     last_verified: "2026-05-14",
@@ -169,14 +173,15 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "gkc",
     name: "Global Kratom Coalition (GKC)",
     role: "industry_org",
-    faction: "aka_aligned",
+    faction: "gkc_coalition",
     summary:
-      "Newer kratom-industry advocacy entity (EIN 93-3734910, based in LA). Classified as Alliance/Advocacy nonprofit. Latest IRS filing shows $2.99M in expenses on $0 revenue — classic single-funder-shell pattern; widely reported as backed by Botanic Tonics/Feel Free money. Listed in LegiStorm's DC lobbying tracker. Retains Troutman Strategies for federal lobbying. Position-wise: anti-7-OH like AKA but the funding flow suggests Botanic Tonics influence.",
-    affiliations: ["Botanic Tonics / Feel Free (alleged funding source)", "Troutman Strategies"],
+      "Founded May 2024 by J.W. Ross (aka Jerry Cash — Botanic Tonics/Feel Free founder, ex-federal-felon). Executive Director: Matthew Lowe. Primary funder: Botanic Tonics. EIN 93-3734910, LA-based. Eight publicly-listed industry supporters: Botanic Tonics, Top Tree Herbs, New Brew, Urban Ice Botanicals, OG Kratom, Kava Garden, MIT45, Pure Leaf. Pledged $250K to University of Florida Foundation for kratom research. Anti-7-OH position (despite earlier press confusion). Retains Troutman Strategies for federal lobbying. Distinct from AKA — direct competitor coalition organized after AKA was already entrenched.",
+    affiliations: ["Botanic Tonics / Feel Free (founder + primary funder)", "Troutman Strategies", "University of Florida Foundation"],
     evidence_urls: [
       "https://projects.propublica.org/nonprofits/organizations/933734910",
       "https://globalkratomcoalition.org/",
-      "https://www.legistorm.com/organization/summary/199886/Global_Kratom_Coalition.html",
+      "https://www.bevnet.com/pr/2024/05/06/botanic-tonics-announces-support-for-the-global-kratom-coalition-and-advocates-for-safe-regulated-kratom-industry",
+      "https://toptreeherbs.com/global-kratom-coalition-kratom-organization/",
     ],
     state: "CA",
     last_verified: "2026-05-14",
@@ -185,7 +190,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "bea",
     name: "Botanical Education Alliance (BEA)",
     role: "industry_org",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "Sub-coalition active in 2016-era DEA-scheduling fight. Retained Valente & Associates via The Raben Group. Less visible in recent filings but historically lobbied against kratom restrictions on consumer-product grounds.",
     affiliations: ["The Raben Group", "Valente & Associates"],
@@ -196,7 +201,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "stop-gas-station-heroin-llc",
     name: "STOP GAS STATION HEROIN LLC",
     role: "industry_org",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "Single-purpose LLC bankrolling the 'gas station heroin' anti-7-OH branding campaign. Retains Checkmate Government Relations for federal lobbying — $150,000 disclosed in Q1 2026 alone. The LLC structure deliberately obscures who funds it; the branding aligns with AKA's anti-7-OH talking points.",
     affiliations: ["Checkmate Government Relations"],
@@ -220,12 +225,14 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "botanic-tonics-feel-free",
     name: "Botanic Tonics (Feel Free)",
     role: "industry_company",
-    faction: "pro_7oh",
+    faction: "gkc_coalition",
     summary:
-      "Maker of 'Feel Free' kratom drink products. Settled an $8.75M class-action suit in 2025 over deceptive marketing. Widely alleged to be the funding source behind Global Kratom Coalition's expenses-without-revenue pattern. Represents the pro-7-OH, beverage-format faction of the industry.",
-    affiliations: ["Global Kratom Coalition (alleged funder)"],
+      "Maker of 'Feel Free' kratom-and-kava drink. Founder J.W. Ross (real name Jerry Cash, served federal prison time for diverting ~$10M from an oil and gas company). Settled $8.75M class-action suit in 2025 over deceptive marketing. Founded the Global Kratom Coalition in May 2024 and is its primary funder. Donated $500,000 to MAHA PAC (RFK Jr's 'Make America Healthy Again') in early 2026 — ten weeks after the DOJ inexplicably dropped its case against the company in December 2025, citing 'expired products and resource concerns.' DHS Secretary Markwayne Mullin reportedly holds a financial stake in Botanic Tonics worth part of his $60M net worth. Position is anti-7-OH (NOT pro-7-OH as some early press coverage suggested).",
+    affiliations: ["Global Kratom Coalition (founder + primary funder)", "MAHA PAC ($500k donor)", "DHS Sec. Mullin (financial stake)"],
     evidence_urls: [
-      "https://followtestmykratom.substack.com/p/info-the-fight-over-7-oh-inside-kratoms-b64",
+      "https://www.yahoo.com/news/articles/behind-kratom-giant-botanic-tonics-100244740.html",
+      "https://www.bevnet.com/pr/2024/05/06/botanic-tonics-announces-support-for-the-global-kratom-coalition-and-advocates-for-safe-regulated-kratom-industry",
+      "https://allaboutlawyer.com/botanic-tonics-feel-free-kratom-lawsuit-settlement-rights/",
     ],
     last_verified: "2026-05-14",
   },
@@ -250,11 +257,14 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "mit45",
     name: "MIT45, Inc.",
     role: "industry_company",
-    faction: "aka_aligned",
+    faction: "gkc_coalition",
     summary:
-      "Major kratom-extract product brand. Direct retained federal lobbying via MCGUIREWOODS CONSULTING (earlier filings) and RAGNAR GROUP LLC (current — $40,000 Q1 2026). Anti-7-OH posture aligned with AKA; protects its high-mitragynine extract product lines.",
-    affiliations: ["McGuireWoods Consulting", "Ragnar Group LLC", "American Kratom Association"],
-    evidence_urls: ["https://lda.senate.gov/"],
+      "Major kratom-extract product brand. Listed as one of the 8 industry supporters of the Global Kratom Coalition. Direct retained federal lobbying via MCGUIREWOODS CONSULTING (earlier filings) and RAGNAR GROUP LLC (current — $40,000 Q1 2026). High-mitragynine extract focus.",
+    affiliations: ["Global Kratom Coalition", "McGuireWoods Consulting", "Ragnar Group LLC"],
+    evidence_urls: [
+      "https://lda.senate.gov/",
+      "https://toptreeherbs.com/global-kratom-coalition-kratom-organization/",
+    ],
     last_verified: "2026-05-14",
   },
   {
@@ -275,7 +285,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "opms",
     name: "O.P.M.S.",
     role: "industry_company",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "High-extract kratom product brand. Linked by Tampa Bay Times investigation to fatal overdose cases. AKA-aligned (anti-7-OH) to protect its extract products.",
     affiliations: ["American Kratom Association"],
@@ -290,7 +300,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "ryan-burroughs",
     name: "Ryan Burroughs",
     role: "company_executive",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "Executive Director of the American Kratom Association. Public-facing operational lead of the industry's primary federal advocacy 501(c)(4).",
     affiliations: ["American Kratom Association"],
@@ -303,7 +313,7 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     id: "susan-ash",
     name: "Susan Ash",
     role: "former_industry_leader",
-    faction: "aka_aligned",
+    faction: "aka_coalition",
     summary:
       "Founder of the American Kratom Association in 2014. Resigned in 2017 amid allegations of financial improprieties (per Tampa Bay Times). Important historical figure — her departure preceded AKA's pivot to professional DC lobbying.",
     affiliations: ["American Kratom Association (founder, departed 2017)"],
@@ -387,20 +397,166 @@ export const KRATOM_INDUSTRY_ACTORS: IndustryActor[] = [
     state: "MD",
     last_verified: "2026-05-14",
   },
+
+  // ── DEEP-INVESTIGATION ADDITIONS (2026-05-14) ──────────────────
+  // From Courthouse News investigation "Inside kratom's political
+  // underbelly", Yahoo News reporting on the Botanic Tonics MAHA PAC
+  // donation, and platform owner's first-hand observations at the
+  // Salt Lake City kratom summit.
+
+  {
+    id: "jw-ross-jerry-cash",
+    name: "J.W. Ross (a/k/a Jerry Cash)",
+    role: "company_executive",
+    faction: "gkc_coalition",
+    summary:
+      "Founder of Botanic Tonics (Feel Free kratom drink) and founder of the Global Kratom Coalition (May 2024). Previously known as Jerry Cash — served federal prison time for diverting approximately $10 million from an oil and gas company to fund a lavish lifestyle. After release, founded Botanic Tonics and grew it into one of the largest kratom-beverage companies. Personally directed the company's $500K donation to MAHA PAC ten weeks after DOJ dropped its case against the company in December 2025.",
+    affiliations: ["Botanic Tonics / Feel Free", "Global Kratom Coalition"],
+    evidence_urls: [
+      "https://www.yahoo.com/news/articles/behind-kratom-giant-botanic-tonics-100244740.html",
+      "https://floridapolitics.com/archives/721249-conflicts-abound-in-new-florida-push-against-kratom-compound/",
+    ],
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "matthew-lowe",
+    name: "Matthew Lowe",
+    role: "company_executive",
+    faction: "gkc_coalition",
+    summary:
+      "Executive Director of the Global Kratom Coalition. Public-facing operational lead of the GKC's federal advocacy. Less visible historically than AKA's leadership; the GKC's organizational structure is opaque (single-funder pattern with $0 reported revenue against $3M expenses).",
+    affiliations: ["Global Kratom Coalition"],
+    evidence_urls: [
+      "https://toptreeherbs.com/global-kratom-coalition-kratom-organization/",
+      "https://globalkratomcoalition.org/",
+    ],
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "kelly-dunn",
+    name: "Kelly Dunn",
+    role: "company_executive",
+    faction: "cross_coalition",
+    summary:
+      "Founder and CEO of Urban Ice Botanicals (Las Vegas, NV) — one of the oldest U.S. kratom suppliers (20+ years). CO-FOUNDED the American Kratom Association in 2014 alongside Susan Ash. Urban Ice Botanicals is now ALSO listed as a Global Kratom Coalition industry supporter — meaning Dunn has active stakes in BOTH dominant industry coalitions. Producer of the documentary 'A Leaf of Faith.' Appeared on the Joe Rogan Experience and other major podcasts — represents the media-influence arm of the industry. Per platform owner's first-hand observation, Dunn and David Reynolds Derian (Botanaway) operate a coordinated 'control system' that reaches across formal coalition lines into international kratom-supply networks. Real global coordination beyond what appears in U.S. federal filings.",
+    affiliations: ["Urban Ice Botanicals", "American Kratom Association (co-founder)", "Global Kratom Coalition (Urban Ice as supporter)", "A Leaf of Faith documentary"],
+    evidence_urls: [
+      "https://urbanicebotanicals.com/our-story/",
+      "https://urbanicebotanicals.com/about-us/",
+      "https://www.facebook.com/ALeafOfFaith/posts/kelly-dunn-founder-of-urban-ice-organics-and-executive-producer-of-a-leaf-of-fai/548126008963396/",
+      "https://podcasts.apple.com/us/podcast/talking-all-things-kratom-with-kelly-dunn-owner-of/id1453792861?i=1000433531674",
+    ],
+    state: "NV",
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "curt-bramble",
+    name: "Sen. Curt Bramble",
+    role: "regulator_or_official",
+    faction: "aka_coalition",
+    summary:
+      "Republican state senator from Provo, Utah. LDS (joined the Church while attending Notre Dame). SPONSORED the original Kratom Consumer Protection Act in 2019 — the first state-level kratom regulation law, now the template propagated across 34 states. Per Courthouse News investigation: Mac Haddow handed Bramble the bill language. AKA paid Bramble $137,500 in 2019 consulting fees. AKA-shell entity 'The Center For Plant Science and Health' (same executives as AKA) paid Bramble & Company an additional $968,845 over 4 years. NONE of this disclosed in legislative records — Utah law has a loophole that doesn't require disclosure of consulting payments to a legislator's business. Bramble has TESTIFIED for kratom bills in Missouri, Louisiana, Ohio, Texas, Wisconsin, and Colorado — paid traveling advocate for the AKA model. Met by platform owner in person at Salt Lake City kratom summit alongside Vernon Jones. LDS political network operator alongside Mac Haddow.",
+    affiliations: ["Utah State Senate", "American Kratom Association ($137k consulting 2019)", "Center For Plant Science and Health ($968k consulting over 4 years)", "LDS political network"],
+    former_government_role: "Utah State Senator (current)",
+    evidence_urls: [
+      "https://www.courthousenews.com/the-law-and-the-profits-inside-kratoms-political-underbelly/",
+      "https://en.wikipedia.org/wiki/Curt_Bramble",
+      "https://www.sltrib.com/news/politics/2025/01/23/loophole-lets-former-utah/",
+      "https://senate.utah.gov/sen/BRAMBCS/",
+    ],
+    state: "UT",
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "center-plant-science-health",
+    name: "The Center For Plant Science and Health",
+    role: "industry_org",
+    faction: "aka_coalition",
+    summary:
+      "AKA-shell entity per Courthouse News investigation — 'has most of the same executives as AKA.' Began reporting consulting payments to Bramble & Company in 2020, totaling $968,845 over four years. The shell structure separates the payments from AKA's directly-disclosed lobbying spend while keeping the AKA leadership group in control of the payment flow. Worth investigating: what other state legislators receive payments from this entity? Public filings should be discoverable but require focused FOIA / state-records work.",
+    affiliations: ["American Kratom Association (same executive leadership)"],
+    evidence_urls: [
+      "https://www.courthousenews.com/the-law-and-the-profits-inside-kratoms-political-underbelly/",
+    ],
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "vernon-jones",
+    name: "Vernon Jones",
+    role: "former_industry_leader",
+    faction: "company_independent",
+    summary:
+      "Former Georgia state representative (Democrat, then Republican-turned-Republican). Ran for Georgia governor in 2022 (R primary). Per platform owner's first-hand observation, attended the Salt Lake City kratom summit alongside Sen. Curt Bramble. Connection to kratom industry not yet documented in published investigations — appears to be in the cross-state-advocate-recruitment orbit similar to how Bramble travels to testify in other states. Worth tracking: which kratom-industry entity paid for / hosted Jones's SLC attendance and what advocacy he subsequently performed in GA or other states.",
+    affiliations: ["Georgia (former state rep)", "Salt Lake City kratom summit attendee (platform owner observation)"],
+    former_government_role: "Georgia State Representative; 2022 GA gubernatorial candidate (R)",
+    evidence_urls: [
+      // Owner testimony — no published source for the SLC kratom summit attendance yet.
+      // Add Courthouse News + relevant kratom-summit coverage as it surfaces.
+    ],
+    state: "GA",
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "markwayne-mullin",
+    name: "Sec. Markwayne Mullin",
+    role: "regulator_or_official",
+    faction: "regulator",
+    summary:
+      "Newly appointed U.S. Secretary of Homeland Security (2026). $60M+ net worth. Per Yahoo News reporting, holds a financial stake in Botanic Tonics worth part of his net worth — directly invested in a kratom industry company. Publicly condemned kratom-industry practices in July 2025 alongside RFK Jr. The financial interest + public condemnation combination represents either (a) intentional double-play to drive competitors out while protecting his investment, or (b) reformer trajectory despite the holdings. Either way, conflict-of-interest signal worth flagging on his briefing.",
+    affiliations: ["U.S. Department of Homeland Security", "Botanic Tonics (financial stake)"],
+    former_government_role: "U.S. Senator, Oklahoma (R); now Sec. of Homeland Security",
+    evidence_urls: [
+      "https://www.yahoo.com/news/articles/behind-kratom-giant-botanic-tonics-100244740.html",
+    ],
+    state: "OK",
+    last_verified: "2026-05-14",
+  },
+
+  {
+    id: "rfk-jr-maha-pac",
+    name: "MAHA PAC (RFK Jr-aligned)",
+    role: "regulator_or_official",
+    faction: "regulator",
+    summary:
+      "'Make America Healthy Again' PAC aligned with Robert F. Kennedy Jr's HHS agenda. Received $500,000 donation from Botanic Tonics in early 2026 — ten weeks after DOJ dropped its case against the company in December 2025. Citizenship of the funding flow: kratom industry company → RFK-aligned political vehicle → potential influence over HHS / FDA appointments + kratom-policy positioning. This is the highest-dollar federal political contribution from a kratom company to date and represents a strategic post-DOJ-dismissal capture move.",
+    affiliations: ["Robert F. Kennedy Jr.", "HHS (RFK's agency)", "Botanic Tonics ($500k donor)"],
+    evidence_urls: [
+      "https://www.yahoo.com/news/articles/behind-kratom-giant-botanic-tonics-100244740.html",
+    ],
+    last_verified: "2026-05-14",
+  },
 ];
 
 export const FACTION_META: Record<ActorFaction, { label: string; tone: string; emoji: string; summary: string }> = {
-  aka_aligned: {
-    label: "AKA-aligned",
+  aka_coalition: {
+    label: "AKA Coalition",
     tone: "bg-emerald-700 text-zinc-100",
     emoji: "🌿",
-    summary: "Anti-7-OH. Protects traditional kratom + extracts. AKA + GKC + Botanical Education Alliance + AKA's retained DC firms + AKA-protected product brands (MIT45, OPMS).",
+    summary: "American Kratom Association + its retained DC firms (Upstream, Michael Best, Kountoupes, Carlucci, Corcoran) + AKA-shell entity Center For Plant Science and Health + Botanical Education Alliance. Founded 2014. Anti-7-OH. Authors model state legislation (KCPA) and propagates via paid consultants (e.g. Curt Bramble).",
+  },
+  gkc_coalition: {
+    label: "GKC Coalition",
+    tone: "bg-blue-700 text-zinc-100",
+    emoji: "🪙",
+    summary: "Global Kratom Coalition founded 2024 by Botanic Tonics' J.W. Ross (aka Jerry Cash, ex-felon). Funded primarily by Botanic Tonics. 8 industry supporters: Botanic Tonics, Top Tree Herbs, New Brew, Urban Ice Botanicals, OG Kratom, Kava Garden, MIT45, Pure Leaf. Also anti-7-OH (despite earlier press coverage confusion) but distinct from AKA — operates via Troutman Strategies + $500k to RFK-aligned MAHA PAC.",
   },
   pro_7oh: {
     label: "Pro-7-OH",
     tone: "bg-amber-700 text-zinc-100",
     emoji: "💊",
-    summary: "Defends 7-OH-enriched / synthetic-analog kratom products. 7-HOPE Alliance, HART, Botanic Tonics/Feel Free. Opposed by AKA + GKC.",
+    summary: "Defends 7-OH-enriched / synthetic-analog kratom products. 7-HOPE Alliance, HART. Opposed by BOTH the AKA Coalition AND the GKC Coalition — the only point where AKA and GKC align.",
+  },
+  cross_coalition: {
+    label: "Cross-coalition",
+    tone: "bg-purple-700 text-zinc-100",
+    emoji: "🔀",
+    summary: "Figures with active feet in multiple camps. Industry power players whose companies and personal advocacy spans AKA + GKC simultaneously — useful for understanding the underlying social/business network beyond formal coalition lines.",
   },
   company_independent: {
     label: "Company (independent)",
@@ -412,7 +568,7 @@ export const FACTION_META: Record<ActorFaction, { label: string; tone: string; e
     label: "Regulator / Official",
     tone: "bg-red-700 text-zinc-100",
     emoji: "🏛",
-    summary: "Government side — FDA, DEA, HHS, congressional offices with public kratom-policy positions.",
+    summary: "Government side — FDA, DEA, HHS, congressional offices with public kratom-policy positions OR (in revolving-door cases) financial stakes in the industry they regulate.",
   },
   academic: {
     label: "Academic",
