@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Legislator } from "@/lib/legislators";
 import { ROLE_SHORT } from "@/lib/legislators";
+import { STANCE_META, type Stance } from "@/lib/legislator-action-plan";
 
 /**
  * Single rep card on /dashboard. Now shows a scope badge
@@ -35,15 +36,22 @@ const CARD_BORDER: Record<Scope, string> = {
   local: "border-emerald-700/50 bg-emerald-950/10",
 };
 
-export function MyRepCard({ legislator: l }: { legislator: Legislator }) {
+export function MyRepCard({
+  legislator: l,
+  stance,
+}: {
+  legislator: Legislator;
+  stance?: Stance | null;
+}) {
   const emailIsForm = l.email?.startsWith("http") ?? false;
   const scope = scopeOf(l);
   const isLocal = scope === "local";
   const badge = SCOPE_BADGE[scope];
+  const stanceMeta = stance && stance !== "unknown" ? STANCE_META[stance] : null;
 
   return (
     <li className={`rounded-lg border p-4 ${CARD_BORDER[scope]}`}>
-      <div className="mb-1 flex items-center gap-2">
+      <div className="mb-1 flex flex-wrap items-center gap-2">
         <span
           className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${badge.cls}`}
         >
@@ -52,6 +60,14 @@ export function MyRepCard({ legislator: l }: { legislator: Legislator }) {
         {l.locality && isLocal && (
           <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
             {l.locality}
+          </span>
+        )}
+        {stanceMeta && (
+          <span
+            className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${stanceMeta.tone}`}
+            title="Kratom-policy stance — based on sponsorship + committee + AI rationale review"
+          >
+            {stanceMeta.emoji} {stanceMeta.label}
           </span>
         )}
       </div>
@@ -73,6 +89,19 @@ export function MyRepCard({ legislator: l }: { legislator: Legislator }) {
         )}
         {l.phone && <ContactLine value={l.phone} href={`tel:${l.phone}`} />}
       </div>
+
+      {/* Intel-briefing CTA — only show for state/federal where we
+          actually have stance + leverage data. Local officials (city
+          council etc.) don't go through the briefing pipeline. */}
+      {!isLocal && (
+        <a
+          href={`/legislators/${l.id}/briefing`}
+          className="mt-3 inline-flex items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+          data-event="open_legislator_briefing_from_dashboard"
+        >
+          ◉ Intel briefing →
+        </a>
+      )}
     </li>
   );
 }
