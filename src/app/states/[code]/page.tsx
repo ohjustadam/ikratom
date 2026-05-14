@@ -237,6 +237,13 @@ export default async function StatePage({ params }: Props) {
             </Link>
           )}
           <Link
+            href={`/states/${codeUpper}/briefing`}
+            className="rounded border border-emerald-500 bg-emerald-950/20 px-3 py-1 font-semibold text-emerald-300 hover:bg-emerald-950/40"
+            data-event="open_state_briefing"
+          >
+            ◉ Intel briefing
+          </Link>
+          <Link
             href={`/calendar?state=${codeUpper}`}
             className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1 hover:border-emerald-500"
           >
