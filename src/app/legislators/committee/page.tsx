@@ -195,10 +195,11 @@ export default async function CommitteeMembersPage({
                   </a>
                 )}
                 <Link
-                  href={`/legislators/${m.id}`}
-                  className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-emerald-500"
+                  href={`/legislators/${m.id}/briefing`}
+                  className="rounded-md border border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
+                  title="Full intel briefing — stance, leverage, action plan"
                 >
-                  Profile →
+                  ◉ Brief →
                 </Link>
               </div>
             </li>
