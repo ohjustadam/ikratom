@@ -523,6 +523,21 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
         run: node scripts/sync-bills-via-legiscan.mjs --all-anti
+      # OpenStates fallback for vote data. Runs AFTER the LegiScan
+      # step so any bill LegiScan already covered shows up in
+      # bill_votes and this script skips it. When LEGISCAN_API_KEY
+      # isn't set (the current state), this becomes the primary path
+      # — it'll chip away at the backlog at ~50 bills/day inside the
+      # OpenStates 250/day free-tier limit. continue-on-error so an
+      # OS quota exhaustion from earlier in the day doesn't break
+      # the rest of the daily run.
+      - name: OpenStates vote-sync fallback (~50 bills/day budget)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+        run: node scripts/sync-bill-votes-via-openstates.mjs --limit 50
 
   backfill-bill-committees:
     # Safety net: scans every active bill with a committee mention in
