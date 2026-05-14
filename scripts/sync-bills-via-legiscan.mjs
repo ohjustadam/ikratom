@@ -183,6 +183,97 @@ async function syncOne(bill) {
     }
   }
 
+  // ── Roll-call votes → bill_votes + bill_vote_members (Phase 3 D1) ──
+  // LegiScan's getBill includes a `votes` array with per-roll-call
+  // SUMMARIES (totals + passed flag). Per-member breakdowns require
+  // a separate getRollCall call per roll_call_id. We do both:
+  //   - always upsert the summary row (cheap, single parse)
+  //   - call getRollCall only when we don't already have member
+  //     data for that roll_call_id (avoids redundant API calls)
+  const votes = detail.votes ?? [];
+  if (votes.length > 0 && !DRY) {
+    const voteRows = votes.map((v) => ({
+      bill_id: bill.id,
+      legiscan_roll_call_id: v.roll_call_id,
+      vote_date: v.date ?? null,
+      chamber: v.chamber === "S" ? "Senate" : v.chamber === "H" ? "House" : v.chamber ?? null,
+      motion: String(v.desc ?? "").slice(0, 500),
+      motion_id: v.motion_id ?? null,
+      yea_count: Number(v.yea ?? 0),
+      nay_count: Number(v.nay ?? 0),
+      nv_count: Number(v.nv ?? 0),
+      absent_count: Number(v.absent ?? 0),
+      total_count: Number(v.total ?? 0),
+      passed: v.passed === 1 || v.passed === true,
+      source: "legiscan",
+      raw_json: v,
+      synced_at: new Date().toISOString(),
+    }));
+    const { data: insertedVotes, error: voteErr } = await sb
+      .from("bill_votes")
+      .upsert(voteRows, { onConflict: "bill_id,legiscan_roll_call_id" })
+      .select("id, legiscan_roll_call_id");
+    if (voteErr) {
+      console.log(`  ⚠ bill_votes write failed: ${voteErr.message?.slice(0, 200)}`);
+    } else if (insertedVotes && insertedVotes.length > 0) {
+      console.log(`  ↳ ${insertedVotes.length} roll-call vote(s) upserted`);
+
+      // Fetch per-member breakdowns for any vote we don't already
+      // have members for. One extra API call per new roll_call_id.
+      for (const v of insertedVotes) {
+        // Skip if we already have member rows for this vote
+        const { count: existingMembers } = await sb
+          .from("bill_vote_members")
+          .select("id", { count: "exact", head: true })
+          .eq("bill_vote_id", v.id);
+        if ((existingMembers ?? 0) > 0) continue;
+
+        try {
+          const rcData = await legiscanFetch("getRollCall", { id: v.legiscan_roll_call_id });
+          const members = rcData?.roll_call?.votes ?? [];
+          if (members.length === 0) continue;
+
+          // Resolve legislator_id by LegiScan people_id where possible.
+          // (Schema has people_id on the legislators table from
+          // sync-bill-sponsors.mjs work.) Falls back to null when no
+          // match — we still record the vote with legislator_name.
+          const peopleIds = members.map((m) => m.people_id).filter(Boolean);
+          const { data: legMatches } = peopleIds.length > 0
+            ? await sb
+                .from("legislators")
+                .select("id, legiscan_people_id")
+                .in("legiscan_people_id", peopleIds)
+            : { data: [] };
+          const idByPeopleId = new Map();
+          for (const lm of legMatches ?? []) {
+            if (lm.legiscan_people_id != null) idByPeopleId.set(lm.legiscan_people_id, lm.id);
+          }
+
+          const memberRows = members.map((m) => ({
+            bill_vote_id: v.id,
+            legislator_id: idByPeopleId.get(m.people_id) ?? null,
+            legiscan_people_id: m.people_id ?? null,
+            legislator_name: String(m.name ?? "").slice(0, 200),
+            vote_text: String(m.vote_text ?? "").slice(0, 30),
+            vote_value: Number(m.vote_id ?? 0),
+          }));
+          const { error: memErr } = await sb
+            .from("bill_vote_members")
+            .upsert(memberRows, { onConflict: "bill_vote_id,legiscan_people_id" });
+          if (memErr) {
+            console.log(`    ⚠ vote_members write failed (roll_call_id=${v.legiscan_roll_call_id}): ${memErr.message?.slice(0, 200)}`);
+          } else {
+            const matched = memberRows.filter((m) => m.legislator_id).length;
+            console.log(`    ↳ ${memberRows.length} member votes (${matched} matched to legislators)`);
+          }
+        } catch (e) {
+          console.log(`    ⚠ getRollCall failed (id=${v.legiscan_roll_call_id}): ${(e).message?.slice(0, 150)}`);
+        }
+        await sleep(400); // polite — extra API call per vote
+      }
+    }
+  }
+
   // Reconcile status: LegiScan ground-truth
   const lsStatus = STATUS_MAP[Number(detail.status)] ?? null;
   const lsLastAction = detail.history?.[detail.history.length - 1];
