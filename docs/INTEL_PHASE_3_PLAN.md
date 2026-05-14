@@ -125,16 +125,29 @@ AI-extract quotes ("Senator X said Y about kratom") from article body and append
 
 ---
 
-## D6. Vector memory + cross-state similarity (per NY_INTEL_DEPTH item B, ~1 day)
+## D6. Vector memory + cross-state similarity ✅ SHIPPED 2026-05-14
 
-**Path**: Enable pgvector. Add embeddings column on `bills`, `news_items`, `state_briefings`. Use `mxbai-embed-large` via Ollama (free, local).
+**Status**: Embeddings live for 467 active bills + 51 state briefings. `/bills/[id]` renders a "🔗 Similar bills in other states" section showing the top 5 cross-state matches above a 60% threshold. Empirically tuned: KCPA matches land at 62-69%, going below 55% surfaces noise.
 
-**Unblocks**:
-- Cross-state bill similarity (MI introduces a bill → instantly see "87% match to TX HB 5 2024")
-- Better dedup on news_items
-- Briefing retrieval ("show me last month's briefing for the 3 states most similar to NY by bill landscape")
+**What landed**:
+- Migration 0131 adds `embedding jsonb` + `embedded_at timestamptz` to `bills` and `state_briefings`. Matches the pattern from migration 0019 (news_items) — jsonb not pgvector. At <500 active bills, cosine similarity in application JS is fine (<50ms per query).
+- `scripts/compute-bill-embeddings.mjs` runs locally against Ollama `nomic-embed-text` (768-dim float). Idempotent (skips already-embedded rows unless `--refresh`). 518 rows embedded in 88 seconds.
+- `src/lib/bill-similarity.ts` — pure-JS cosine + `findSimilarBills()` helper. Excludes same-state by default (the killer query is cross-state coalition detection).
+- `/bills/[id]` page renders the similarity section after Full bill text, defensively wrapped so pre-migration deploys fall back to empty silently.
 
-**Effort**: ~8 hours.
+**Real-world validation (SC S 221 = "South Carolina Kratom Consumer Protection Act")**:
+- 69% MO SB 504 (KCPA)
+- 68% MO SB 774 (KCPA)
+- 64% IL SB 3948 (KRATOM CONSUMER PROTECTION)
+- 63% IL HB 2868 + KS HB 2230 (KCPA)
+- 62% NE LB 230 (KCPA)
+
+This is the AKA's **KCPA template wave** rolling across 6+ states with near-identical text — exactly the coalition pattern we wanted to make visible. Pattern detection that previously required editorial intuition is now a one-page-click.
+
+**Honest limits**:
+- Embeddings have to be recomputed when bill text changes. Currently maintainer-run (Ollama is local-only) — no cron because Ollama isn't available in CI. Run after major bill sync jobs.
+- News-item embeddings already existed (migration 0019) and are kept on a separate dedup path; we did NOT touch them.
+- A future Phase 4 expansion could use the briefing embeddings ("show me states most similar to NY by overall policy landscape") — schema is in place, query helper not yet written.
 
 ---
 
