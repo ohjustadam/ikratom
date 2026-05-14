@@ -254,6 +254,20 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
         run: node scripts/generate-state-briefing.mjs --all-states
+      # Phase 3 D7: audit briefings that came out of the blanket regen
+      # and self-correct any with critique-blocked revisions or low
+      # quality. Runs in-process so a single workflow run covers both
+      # the generate + heal cycle. continue-on-error so a partial heal
+      # doesn't fail the whole job.
+      - name: Audit + heal briefings flagged by self-critique
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        run: node scripts/audit-state-briefings.mjs --auto-regen
 
   sync-committees-openstates:
     # Pull legislator committee assignments for all priority states
