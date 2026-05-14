@@ -82,6 +82,8 @@ export default async function StatusPage() {
     statesWithMeetings,
     statesWithStance,
     cronRuns,
+    billsInCommittee,
+    antiBillsInCommittee,
   ] = await Promise.all([
     supabase.from("bills").select("state", { count: "exact" })
       .eq("active", true).in("kratom_relevance", ["anti", "pro"]),
@@ -104,6 +106,18 @@ export default async function StatusPage() {
       .gte("meeting_at", new Date(now).toISOString()).lte("meeting_at", horizon90d),
     supabase.from("legislator_kratom_stance").select("legislators!inner(state)").limit(20000),
     supabase.from("scraper_runs_latest").select("source, started_at, status, rows_added"),
+    // Committee-leverage counts. Public visibility into how many bills
+    // are currently sitting in a parseable committee — the moments
+    // where a constituent's call to a specific committee member moves
+    // the bill. Wrapped server-side with a head:true count so we don't
+    // pay row-transfer cost.
+    supabase.from("bills").select("current_committee_name", { count: "exact", head: true })
+      .eq("active", true)
+      .not("current_committee_name", "is", null),
+    supabase.from("bills").select("current_committee_name", { count: "exact", head: true })
+      .eq("active", true)
+      .eq("kratom_relevance", "anti")
+      .not("current_committee_name", "is", null),
   ]);
 
   // Speed-to-action metric: median minutes between alert publish-time
@@ -280,6 +294,51 @@ export default async function StatusPage() {
               </p>
             </div>
           </div>
+        </section>
+      )}
+
+      {/* Committee-leverage moments — counts the open structural-leverage
+          windows. A bill in committee = a small group of legislators
+          deciding it. Constituents of THOSE legislators carry weight.
+          Only renders when we have at least one bill with a parseable
+          current_committee_name (i.e. post-migration 0123 + at least
+          one populated row). */}
+      {(billsInCommittee.count ?? 0) > 0 && (
+        <section className="mb-10 rounded-lg border border-emerald-500/40 bg-emerald-950/15 p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+            ⚡ Committee leverage windows — open right now
+          </h2>
+          <p className="mt-2 text-sm text-zinc-300">
+            Bills currently sitting in a parseable committee. Each one is a
+            window where a small group of legislators decides the bill, and
+            their constituents&apos; calls move it. Signed-in users see a
+            personalized version on <a href="/bills?filter=in-my-committees" className="text-emerald-400 hover:underline">/bills?filter=in-my-committees</a>.
+          </p>
+          <div className="mt-4 flex flex-wrap items-baseline gap-6">
+            <div>
+              <span className="text-5xl font-bold tabular-nums text-emerald-200">
+                {billsInCommittee.count ?? 0}
+              </span>
+              <p className="mt-1 text-[11px] text-zinc-400">
+                bills in committee with structured assignment
+              </p>
+            </div>
+            {(antiBillsInCommittee.count ?? 0) > 0 && (
+              <div>
+                <span className="text-3xl font-bold tabular-nums text-red-300">
+                  {antiBillsInCommittee.count ?? 0}
+                </span>
+                <p className="mt-1 text-[11px] text-zinc-400">
+                  of those are anti-kratom — defense windows
+                </p>
+              </div>
+            )}
+          </div>
+          <p className="mt-3 text-[10px] text-zinc-500">
+            Lobbyists target committee members precisely. The platform now
+            does the same cross-reference automatically for every signed-in
+            user, on every bill page.
+          </p>
         </section>
       )}
 
