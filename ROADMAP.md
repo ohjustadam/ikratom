@@ -1,7 +1,26 @@
 # iKratom — Audit + Roadmap
 
-_Living doc. Updated 2026-05-13 — P0 + most P1 items have shipped (PRs #137, #217–#220, #221)._
+_Living doc. Updated 2026-05-13 — P0 + most P1 items have shipped (PRs #137, #217–#220, #221) + committee-urgency trilogy (#223–#225)._
 _See `SECURITY.md` for the security side, `APP_STORE_READINESS.md` for store path._
+
+## Committee-urgency feature (shipped 2026-05-13)
+
+The mission lever the platform's whole shape exists for: when a bill sits in committee, only the ~10-20 legislators on that committee can vote it out. Of those, only their constituents have leverage. Lobbyists target precisely; advocates almost never do.
+
+Three PRs shipped this set:
+
+| PR | What | Where |
+|---|---|---|
+| #223 | "YOUR rep is deciding this bill" callout when signed-in user's rep is on the bill's current committee. Migration `0123_bill_current_committee.sql` adds `bills.current_committee_name` + chamber + updated_at + inline backfill from `bill_actions`. New `src/lib/bill-committee.ts` parser. | `/bills/[id]` |
+| #224 | Wires the same regex into the hourly LegiScan sync so `current_committee_name` stays fresh as bills move through committees | `scripts/sync-bills-via-legiscan.mjs` |
+| #225 | `/legislators/committee?name=X` chair-first member roster — backs the no-match fallback link from #223 | New route |
+
+**Pending:** `npm run db:push` to apply migration 0123 in production. UI degrades gracefully (renders nothing) until then.
+
+**Next compounds to consider:**
+- State-legislature hearing alerts (no data source yet; LegiScan/OpenStates have calendar APIs — separate effort)
+- `/bills?filter=committees-with-my-rep` pre-filtered view
+- Wire `is_kratom_relevant` flag from `legislator_committees` to boost certain committees in the urgency callout's color/copy
 
 ## Audit highlights
 
