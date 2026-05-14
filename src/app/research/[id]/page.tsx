@@ -29,8 +29,39 @@ export default async function ResearchPaperPage({ params }: { params: Promise<{ 
     ? await marked.parse(p.ai_key_findings_md as string, { gfm: true, breaks: false })
     : null;
 
+  // schema.org ScholarlyArticle — the canonical schema for research
+  // papers. When AI summarizers / Google Scholar / Semantic Scholar
+  // crawl this page, they get structured data they can cite verbatim
+  // (authors, journal, DOI, year) instead of paraphrasing from
+  // rendered text.
+  const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ScholarlyArticle",
+    "@id": `${SITE}/research/${p.id}`,
+    headline: p.title,
+    name: p.title,
+    ...(Array.isArray(p.authors) && p.authors.length > 0
+      ? { author: (p.authors as string[]).map((a) => ({ "@type": "Person", name: a })) }
+      : {}),
+    ...(p.journal ? { isPartOf: { "@type": "Periodical", name: p.journal } } : {}),
+    ...(p.publication_date ? { datePublished: p.publication_date } : (p.publication_year ? { datePublished: String(p.publication_year) } : {})),
+    ...(p.doi ? { identifier: { "@type": "PropertyValue", propertyID: "DOI", value: p.doi } } : {}),
+    ...(p.pubmed_id ? { sameAs: [`https://pubmed.ncbi.nlm.nih.gov/${p.pubmed_id}/`] } : {}),
+    ...(p.abstract ? { abstract: (p.abstract as string).slice(0, 5000) } : {}),
+    ...(typeof p.citation_count === "number" ? { citationCount: p.citation_count } : {}),
+    ...(p.study_type ? { learningResourceType: p.study_type } : {}),
+    isAccessibleForFree: true,
+    publisher: { "@type": "Organization", name: "iKratom", url: SITE },
+    url: `${SITE}/research/${p.id}`,
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Link href="/research" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Research library
       </Link>

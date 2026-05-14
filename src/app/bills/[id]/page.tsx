@@ -280,8 +280,44 @@ export default async function BillDetailPage({
     status: string | null; last_action_at: string | null; scope: string | null;
   }>;
 
+  // schema.org Legislation — when AI agents answer 'what's NY S 1234?',
+  // this gives them a structured record (jurisdiction, status, last
+  // action, dates) to cite rather than paraphrasing the page text.
+  const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
+  const stanceLabel = bill.kratom_relevance === "anti"
+    ? "Restrictive"
+    : bill.kratom_relevance === "pro"
+    ? "Supportive"
+    : "Neutral";
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Legislation",
+    "@id": `${SITE}/bills/${bill.id}`,
+    name: `${bill.state} ${bill.bill_number}`,
+    legislationIdentifier: `${bill.state} ${bill.bill_number}`,
+    legislationJurisdiction: {
+      "@type": "AdministrativeArea",
+      name: bill.state,
+      addressCountry: "US",
+    },
+    ...(bill.title ? { headline: bill.title } : {}),
+    ...(bill.title ? { description: bill.title.slice(0, 500) } : {}),
+    ...(bill.last_action_at ? { datePublished: bill.last_action_at } : {}),
+    ...(bill.last_action_at ? { dateModified: bill.last_action_at } : {}),
+    ...(bill.status ? { legislationType: bill.status } : {}),
+    isAccessibleForFree: true,
+    keywords: ["kratom", "policy", bill.state, bill.kratom_relevance, stanceLabel.toLowerCase()].filter(Boolean).join(", "),
+    publisher: { "@type": "Organization", name: "iKratom", url: SITE },
+    url: `${SITE}/bills/${bill.id}`,
+    mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE}/bills/${bill.id}` },
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <div className="flex items-center justify-between">
         <a href={`/bills?state=${bill.state}`} className="text-xs text-zinc-500 hover:text-emerald-400">
           ← All {bill.state} bills
