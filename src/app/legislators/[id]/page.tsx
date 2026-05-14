@@ -129,6 +129,70 @@ export default async function LegislatorDetailPage({
     donorProfile = (dp as DonorProfile | null) ?? null;
   }
 
+  // "Currently deciding" — bills in committees THIS legislator sits on
+  // RIGHT NOW. This is the structural-leverage signal flipped from
+  // YourRepDecidingThisBill (which is per-user); here we display it
+  // per-legislator so constituents reading the profile can see exactly
+  // which bills the legislator has direct power over today.
+  type CurrentlyDeciding = {
+    bill_id: string;
+    state: string;
+    bill_number: string;
+    title: string | null;
+    kratom_relevance: string | null;
+    committee_name: string;
+    role: string;
+  };
+  let currentlyDeciding: CurrentlyDeciding[] = [];
+  try {
+    const { data: myCommittees } = await supabase
+      .from("legislator_committees")
+      .select("committee_name, role")
+      .eq("legislator_id", id);
+    const assignments = (myCommittees ?? []) as Array<{ committee_name: string; role: string }>;
+    if (assignments.length > 0) {
+      const { committeesMatch } = await import("@/lib/bill-committee");
+      // Pull all active bills in this legislator's state that have a
+      // current_committee_name set. Limit to 200 to keep memory in
+      // check; in practice the union of "any of this legislator's
+      // committees" is tiny.
+      const { data: stateBills } = await supabase
+        .from("bills")
+        .select("id, state, bill_number, title, kratom_relevance, current_committee_name, last_action_at")
+        .eq("state", leg.state)
+        .eq("active", true)
+        .not("current_committee_name", "is", null)
+        .order("last_action_at", { ascending: false, nullsFirst: false })
+        .limit(200);
+      for (const b of (stateBills ?? []) as Array<{ id: string; state: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null }>) {
+        if (!b.current_committee_name) continue;
+        const matched = assignments.find((a) => committeesMatch(b.current_committee_name!, a.committee_name));
+        if (!matched) continue;
+        currentlyDeciding.push({
+          bill_id: b.id,
+          state: b.state,
+          bill_number: b.bill_number,
+          title: b.title,
+          kratom_relevance: b.kratom_relevance,
+          committee_name: matched.committee_name,
+          role: matched.role,
+        });
+      }
+      // anti bills first (defensive urgency), then unique by bill_id
+      const seen = new Set<string>();
+      currentlyDeciding = currentlyDeciding
+        .filter((x) => seen.has(x.bill_id) ? false : (seen.add(x.bill_id), true))
+        .sort((a, b) => {
+          if (a.kratom_relevance === "anti" && b.kratom_relevance !== "anti") return -1;
+          if (b.kratom_relevance === "anti" && a.kratom_relevance !== "anti") return 1;
+          return 0;
+        })
+        .slice(0, 10);
+    }
+  } catch {
+    // Pre-migration deploy or schema mismatch — section silently absent.
+  }
+
   // Quick stance summary for sponsored bills
   const summary = {
     pro: 0, anti: 0, neutral: 0, total: sponsored.length,
@@ -229,6 +293,67 @@ export default async function LegislatorDetailPage({
               ✓ This legislator has sponsored pro-kratom legislation. Thank-you emails matter — they keep allies engaged.
             </p>
           )}
+        </section>
+      )}
+
+      {/* Currently deciding — bills in committees this legislator sits on
+          right now. Renders silently when there are no matches (most
+          common case for non-committee-seat legislators). */}
+      {currentlyDeciding.length > 0 && (
+        <section className="mb-6 rounded-lg border-2 border-emerald-500 bg-emerald-950/15 p-5 shadow-[0_0_24px_-8px_rgba(16,185,129,0.5)]">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-950">
+              ⚡ Currently deciding
+            </span>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-300">
+              Bills in committees {leg.full_name} sits on
+            </h2>
+          </div>
+          <p className="text-xs text-zinc-400">
+            {currentlyDeciding.length} active bill{currentlyDeciding.length === 1 ? "" : "s"} in committees where this legislator currently serves. These are the bills where their vote directly determines the outcome.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {currentlyDeciding.map((d) => {
+              const isAnti = d.kratom_relevance === "anti";
+              const isPro = d.kratom_relevance === "pro";
+              const roleLabel =
+                d.role === "chair" ? "Chair" :
+                d.role === "vice_chair" ? "Vice chair" :
+                d.role === "ranking_member" ? "Ranking member" :
+                "Member";
+              return (
+                <li key={d.bill_id}>
+                  <a
+                    href={`/bills/${d.bill_id}`}
+                    className="block rounded-md border border-emerald-700/40 bg-emerald-950/10 p-3 transition hover:border-emerald-500 hover:bg-emerald-950/25"
+                  >
+                    <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                      <span className="font-mono font-semibold text-zinc-200">
+                        {d.state} · {d.bill_number}
+                      </span>
+                      {isAnti && (
+                        <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-300">
+                          Anti
+                        </span>
+                      )}
+                      {isPro && (
+                        <span className="rounded bg-emerald-950/40 px-1.5 py-0.5 text-emerald-300">
+                          Pro
+                        </span>
+                      )}
+                      <span className="text-zinc-500">·</span>
+                      <span className="text-zinc-400">
+                        {d.committee_name} <span className="text-zinc-600">({roleLabel})</span>
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-snug text-zinc-100">
+                      {d.title?.slice(0, 110) ?? "(untitled)"}{d.title && d.title.length > 110 ? "…" : ""}
+                    </p>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
         </section>
       )}
 
