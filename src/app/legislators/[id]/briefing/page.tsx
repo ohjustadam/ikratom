@@ -10,6 +10,7 @@ import {
   type Stance,
   type LeverageSignal,
 } from "@/lib/legislator-action-plan";
+import { actorsForLegislator, FACTION_META, ROLE_LABEL } from "@/lib/kratom-industry-actors";
 
 export const dynamic = "force-dynamic";
 
@@ -517,6 +518,48 @@ export default async function BriefingPage({ params }: { params: Params }) {
           </ul>
         </section>
       )}
+
+      {/* ── Connected industry actors ──────────────────────────── */}
+      {(() => {
+        const connected = actorsForLegislator({ full_name: leg.full_name, state: leg.state });
+        if (connected.length === 0) return null;
+        return (
+          <section className="mb-6 rounded-lg border-2 border-amber-500/60 bg-amber-950/15 p-5 shadow-[0_0_20px_-8px_rgba(245,158,11,0.4)]">
+            <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-300">
+              🎭 Connected industry actors ({connected.length})
+            </h2>
+            <p className="text-xs text-zinc-300">
+              People + organizations in our <Link href="/intel/actors" className="text-emerald-400 hover:underline">industry actor registry</Link> with public-record connections to this legislator. Verify each via the cited sources before treating as actionable.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {connected.map((a) => {
+                const factionMeta = FACTION_META[a.faction];
+                return (
+                  <li key={a.id} className="rounded-md border border-amber-700/30 bg-amber-950/10 p-3">
+                    <div className="flex flex-wrap items-baseline gap-2 text-xs">
+                      <Link href={`/intel/actors#${a.id}`} className="text-sm font-semibold text-zinc-100 hover:text-emerald-400">
+                        {a.name}
+                      </Link>
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${factionMeta.tone}`}>
+                        {factionMeta.emoji} {factionMeta.label}
+                      </span>
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
+                        {ROLE_LABEL[a.role]}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-zinc-300">{a.summary}</p>
+                    {a.former_government_role && (
+                      <p className="mt-1 text-[11px] text-amber-200">
+                        🔄 {a.former_government_role}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })()}
 
       {/* ── Donor profile (federal only) ───────────────────────── */}
       {donor && donorMatched && donor.total_receipts && donor.total_receipts > 0 && (
