@@ -10,7 +10,6 @@ import { getNotificationPrefs } from "@/modules/notifications/actions";
 import { NotificationPrefsForm } from "@/modules/notifications/components/NotificationPrefsForm";
 import { getPushVapidPublicKey } from "@/modules/auth/actions-push";
 import { PushSubscribe } from "@/modules/auth/components/PushSubscribe";
-import { ReplayTourButton } from "./ReplayTourButton";
 import { getDiscordLink } from "@/modules/auth/actions-discord";
 import { DiscordConnect } from "@/modules/auth/components/DiscordConnect";
 
@@ -216,14 +215,6 @@ export default async function AccountPage({
               body="Earned badges from your platform activity."
               cta="View badges"
             />
-
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-              <h3 className="mb-1 text-sm font-semibold">Cockpit tour</h3>
-              <p className="mb-3 text-xs text-zinc-500">
-                Replay the first-time walkthrough on your dashboard.
-              </p>
-              <ReplayTourButton />
-            </div>
           </Section>
 
           {/* 7. Your data — Danger Zone last on purpose */}

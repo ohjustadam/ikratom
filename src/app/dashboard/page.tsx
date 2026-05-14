@@ -5,6 +5,7 @@ import { MyRepCard } from "./MyRepCard";
 import { StreakBadge } from "@/components/StreakBadge";
 import { getCockpitLayout } from "@/modules/dashboard/actions";
 import { CockpitCustomizer } from "@/modules/dashboard/CockpitCustomizer";
+import { ReplayTourButton } from "@/modules/dashboard/ReplayTourButton";
 import { OnboardingTour } from "@/modules/dashboard/OnboardingTour";
 import { TutorialReplay, WelcomeReplayTour } from "@/modules/dashboard/TutorialReplay";
 import { WelcomeExploreWidget } from "@/modules/dashboard/widgets/WelcomeExploreWidget";
@@ -201,7 +202,8 @@ export default async function DashboardPage({
           </p>
         </div>
         {layout && (
-          <div className="shrink-0">
+          <div className="shrink-0 flex items-center gap-2">
+            <ReplayTourButton />
             <CockpitCustomizer
               initialLayout={layout.widgets}
               initialAccent={layout.accent_color}

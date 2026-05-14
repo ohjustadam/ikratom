@@ -1,6 +1,6 @@
 # iKratom — Audit + Roadmap
 
-_Living doc. Updated 2026-05-12 after the cross-cutting IA audit._
+_Living doc. Updated 2026-05-13 — P0 + most P1 items have shipped (PRs #137, #217–#220, #221)._
 _See `SECURITY.md` for the security side, `APP_STORE_READINESS.md` for store path._
 
 ## Audit highlights
@@ -33,20 +33,20 @@ _See `SECURITY.md` for the security side, `APP_STORE_READINESS.md` for store pat
 
 ## Prioritized work plan
 
-### P0 — Ship now (highest user-visible impact)
-1. **Admin dashboard reorg** — priority bands: P0=needs-me-now (queue cards float to top, emergency-mode pinned right) / P1=daily ops / P2=observability collapsible / P3=static catalogs collapsible
-2. **User dashboard reorder** — update `DEFAULT_WIDGETS` order in `src/modules/dashboard/widgets/types.ts`: blockers+actions first, personal radar mid, identity+growth bottom
-3. **/account sidebar nav** — convert from one-scroll to layout-with-sidebar. 6 groups: Identity / Security & privacy / Notifications / Integrations / Advocacy tools / Recognition & growth
-4. **`/submit` hub page** — central directory of every "create new X" route + each routes has discoverable "Add new" CTA on its list page
+### P0 — ✅ Shipped (PR #137)
+1. ~~**Admin dashboard reorg**~~ — priority bands live (queue inbox auto-floats, emergency-mode pinned right, P1/P2/P3 sections)
+2. ~~**User dashboard reorder**~~ — `DEFAULT_WIDGETS` reorganized into P0 blockers / P1 radar / P2 identity
+3. ~~**/account sidebar nav**~~ — 7-section sticky-sidebar layout (Identity / Security / Notifications / Integrations / Advocacy / Growth / Data)
+4. ~~**`/submit` hub page**~~ — `/submit` lists every intake form, filtered by role
 
-### P1 — High value next
-5. **Leader dashboard collapse** — bury 7 stubs under one "Coming soon for leaders" accordion. Hero the 1 live tool (Field signup) + the 2 cross-links (`/admin/campaigns`, `/admin/locals`).
-6. **Missing "Add" CTAs** — `/admin/announcements`, `/admin/discord-integrations` (verify)
-7. **/alerts/submit success CTA** — after submit, show "Thanks. Track other alerts on /pulse →" + "Submit another →"
-8. **Campaign title normalization** — list-page badge `🤖 auto` vs `👤 manual`; for manual create form, suggest `"Take action: [state] [title]"` format
-9. **Cockpit tour move** — `ReplayTourButton` out of `/account`, into the dashboard header next to `CockpitCustomizer`
+### P1 — High value
+5. ~~**Leader dashboard collapse**~~ — shipped in PR #137
+6. ~~**Missing "Add" CTAs**~~ — `/admin/announcements` has explicit "+ New announcement" toggle; `/admin/discord-integrations` verified
+7. ~~**/alerts/submit success CTA**~~ — submit redirects to `/pulse?tip_submitted=1` (good enough; a banner there could come later)
+8. ~~**Campaign title normalization**~~ — shipped PR #221: `🤖 auto` / `👤 manual` badges on `/admin/campaigns` list
+9. ~~**Cockpit tour move**~~ — shipped PR #221: `ReplayTourButton` now sits next to `CockpitCustomizer` in the dashboard header
 
-### P2 — Polish
+### P2 — Polish (next up)
 10. **Municipal bill locality prefix** — when `bill.source_url` matches `city/` or `county/`, prepend "Marshall, IL — " to display title
 11. **`/dashboard/templates` re-host** — move to `/account/templates` so links stay inside `/account/*` tree
 12. **News title cleanup migration** — verify no `" - WSMV"`-style suffixes still in DB; one-shot strip if found
@@ -71,19 +71,24 @@ _See `SECURITY.md` for the security side, `APP_STORE_READINESS.md` for store pat
 
 ## MCP / tool recommendations
 
-Auto mode + Claude Desktop currently uses: Supabase, Gmail, Notion, Chrome, scheduled-tasks, ccd-session/directory, mcp-registry, Claude_Preview.
+Auto mode currently uses: Supabase, Gmail, Notion, Chrome, scheduled-tasks, ccd-session/directory, mcp-registry, Claude_Preview.
 
-Adding these would unlock concrete leverage:
+**Just added (2026-05-13):**
+- **Vercel MCP** — `https://mcp.vercel.com` (HTTP, OAuth). Awaiting first-use OAuth handshake.
+- **PostHog MCP** — `https://mcp.posthog.com/mcp` (HTTP, OAuth). Awaiting first-use OAuth handshake.
 
-| Tool | Why | Effort to add |
+**Investigated, skipped:**
+- **GitHub MCP** — both the Copilot-hosted endpoint and the open-source stdio variant failed (paid Copilot dep + sandbox blocked PAT-in-env install). `gh` CLI already handles 95% of what we'd use the MCP for; skip.
+- **MCP Market** (https://app.mcpmarket.com) — registry/marketplace of MCP servers. Adds zero capability over `claude mcp add` direct-attach and creates a credentials surface area we'd have to trust. Keep the account for browsing only.
+
+**Still worth considering:**
+| Tool | Why | Effort |
 |---|---|---|
-| **GitHub MCP** | Batch-create issues, manage PRs, view CI logs without `gh` round-trips. PR auto-merge programmatic toggle. | 1 conf line |
-| **Sentry MCP** | Browse real production errors. `@sentry/nextjs` is already wired into the app — currently I have no visibility into what users actually hit. | 1 conf line + Sentry API key |
-| **Linear MCP** (or **Notion** more deeply) | Persist this todo list across sessions. The in-session todo evaporates between chats. | 1 conf line |
-| **PostHog MCP** | We already ship PostHog client + server SDKs. Seeing real feature-usage metrics would inform priorities (e.g. is `/forum` actually used? is the cockpit tour completed?) | 1 conf line + PostHog token |
-| **Browserbase / Browser-use** | Managed headless-browser as a service. Could replace Playwright in GH Actions for the 4 TLS-blocked BoP states. Free tier exists. | Service signup + 1 config |
+| **Sentry MCP** | Browse production errors. `@sentry/nextjs` wired in. Defer until error volume signals it. | 1 line + API key |
+| **Linear MCP** | Persist todo list across sessions (would replace in-session-only todos). Single-owner, lower priority. | 1 line |
+| **Browserbase / Browser-use** | Managed headless-browser. Could replace Playwright in GH Actions for the 4 TLS-blocked BoP states. | Signup + 1 line |
 
-For "Hermes or another free working agent": the closest fits for ikratom's existing infrastructure shape are workflow orchestrators rather than additional LLMs. **n8n** (self-hosted, fully free) or **Inngest** (cloud, generous free tier) would let us declare durable workflows (retry, fan-out, scheduling) without building it custom. Not urgent — current cron + GH Actions stack does this fine — but worth knowing when the orchestration grows.
+For "Hermes or another free working agent": closest fits for our shape are workflow orchestrators, not additional LLMs. **n8n** (self-hosted) or **Inngest** (cloud free tier) would let us declare durable workflows (retry, fan-out, scheduling) without building it custom. Not urgent — current cron + GH Actions stack does this fine.
 
 ## Memory enrichment — what next sessions should know
 
