@@ -1,26 +1,27 @@
 # iKratom — Audit + Roadmap
 
-_Living doc. Updated 2026-05-13 — P0 + most P1 items have shipped (PRs #137, #217–#220, #221) + committee-urgency trilogy (#223–#225)._
+_Living doc. Updated 2026-05-14 — P0 + P1 + most P2 done. Committee-urgency feature set complete + extended overnight (PRs #223–#230)._
 _See `SECURITY.md` for the security side, `APP_STORE_READINESS.md` for store path._
 
-## Committee-urgency feature (shipped 2026-05-13)
+## Committee-urgency feature (shipped 2026-05-13 → 14)
 
 The mission lever the platform's whole shape exists for: when a bill sits in committee, only the ~10-20 legislators on that committee can vote it out. Of those, only their constituents have leverage. Lobbyists target precisely; advocates almost never do.
-
-Three PRs shipped this set:
 
 | PR | What | Where |
 |---|---|---|
 | #223 | "YOUR rep is deciding this bill" callout when signed-in user's rep is on the bill's current committee. Migration `0123_bill_current_committee.sql` adds `bills.current_committee_name` + chamber + updated_at + inline backfill from `bill_actions`. New `src/lib/bill-committee.ts` parser. | `/bills/[id]` |
 | #224 | Wires the same regex into the hourly LegiScan sync so `current_committee_name` stays fresh as bills move through committees | `scripts/sync-bills-via-legiscan.mjs` |
 | #225 | `/legislators/committee?name=X` chair-first member roster — backs the no-match fallback link from #223 | New route |
+| #227 | 20 vitest cases for the parser + matcher. Caught a real regex bug on multi-chamber strings and hardened with a negative lookahead. | `tests/bill-committee.test.ts` |
+| #228 | `MyCommitteeBillsWidget` dashboard widget — shows every active bill in committees where the user has a rep | `/dashboard` |
+| #230 | `is_kratom_relevant` accent: matches in admin-flagged battleground committees render in 🔥 amber instead of ⚡ emerald | `/bills/[id]` |
 
 **Pending:** `npm run db:push` to apply migration 0123 in production. UI degrades gracefully (renders nothing) until then.
 
 **Next compounds to consider:**
 - State-legislature hearing alerts (no data source yet; LegiScan/OpenStates have calendar APIs — separate effort)
 - `/bills?filter=committees-with-my-rep` pre-filtered view
-- Wire `is_kratom_relevant` flag from `legislator_committees` to boost certain committees in the urgency callout's color/copy
+- Push notification when a battleground-committee bill changes state
 
 ## Audit highlights
 
@@ -66,13 +67,13 @@ Three PRs shipped this set:
 9. ~~**Cockpit tour move**~~ — shipped PR #221: `ReplayTourButton` now sits next to `CockpitCustomizer` in the dashboard header
 
 ### P2 — Polish
-10. ~~**Municipal bill locality prefix**~~ — already handled the better way: `BillsBrowser` + `/bills/[id]` both render structured `scope` (purple chip) + `locality` (📍 chip) above the title via `bill.scope` + `bill.locality` columns. Title prepending unnecessary.
+10. ~~**Municipal bill locality prefix**~~ — already handled via `scope`/`locality` chips.
 11. ~~**`/dashboard/templates` re-host**~~ — moved to `/account/templates` (PR #222); legacy URL permanent-redirects.
-12. **News title cleanup migration** — verify no `" - WSMV"`-style suffixes still in DB; one-shot strip if found
+12. ~~**News title cleanup migration**~~ — PR #229: migration 0124 strips TV-callsign suffixes (`KTVB`, `WCYB`, etc.) that 0105 missed; sync-news-rss script updated to prevent recurrence.
 
 ### P3 — Cleanup
 13. ~~**`sync:capitals`**~~ — removed from `package.json`; script moved to `scripts/.archive/` (PR #222)
-14. **Dead-CSS / unused tailwind classes** — sweep after the UI moves above settle
+14. **Dead-CSS / unused tailwind classes** — sweep after the UI moves above settle (still pending; speculative without observed metrics)
 
 ### Out of scope / intentional
 - Medical recruitment feature (`siteConfig.features.medicalRecruitment: false` — v2)
