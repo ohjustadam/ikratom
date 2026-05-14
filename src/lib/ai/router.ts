@@ -55,10 +55,9 @@ const TASK_DEFAULTS: Record<TaskKind, ProviderName[]> = {
   news_enrich: ["ollama", "groq", "gemini"],
   story_moderate: ["ollama"], // privacy: user submitted
   general: ["ollama", "groq", "gemini"],
-  // DeepSeek R1 Distill Llama-70B routes through Groq (US-hosted, free
-  // tier, no Chinese-server data risk). The model name in TASK_MODEL_OVERRIDES
-  // below forces the right model when Groq is picked. Gemini stays as
-  // grounded-fact-check fallback.
+  // Reasoning / self-critique route through Groq (US-hosted, free tier)
+  // with a reasoning-capable model override (see TASK_MODEL_OVERRIDES).
+  // Gemini stays as grounded-fact-check fallback.
   reasoning: ["groq", "gemini", "ollama"],
   self_critique: ["groq", "gemini"],
 };
@@ -69,22 +68,31 @@ const TASK_DEFAULTS: Record<TaskKind, ProviderName[]> = {
  * provider's default).
  *
  * Why this layer exists: some tasks want a SPECIFIC model on a given
- * provider — e.g. DeepSeek R1 Distill via Groq for reasoning tasks
- * (R1's chain-of-thought is meaningfully better than Llama 3.3 for
- * multi-step reasoning, and Groq hosts it free).
+ * provider — e.g. OpenAI's open-weights GPT-OSS-120B via Groq for
+ * reasoning tasks (better chain-of-thought than vanilla Llama 3.3 at
+ * the same $0 cost).
  *
- * Privacy note: we deliberately do NOT route to DeepSeek's own API.
- * DeepSeek-hosted endpoints run on Chinese infrastructure and their
- * ToS allows training on submitted data. Groq + Cerebras host the
- * open-weights DeepSeek-Distill variants on US infrastructure with
- * conventional privacy posture.
+ * History (don't repeat): we originally routed these tasks to
+ * `deepseek-r1-distill-llama-70b` via Groq. Groq decommissioned that
+ * model on 2026-04 ("deepseek-r1-distill-llama-70b has been
+ * decommissioned" — see https://console.groq.com/docs/deprecations).
+ * We switched to GPT-OSS-120B which Groq now offers in its place:
+ * also open-weights (MIT), also reasoning-capable (returns explicit
+ * `reasoning_tokens` in usage), still US-hosted, still $0.
+ *
+ * Privacy guarantee we keep regardless of model choice: we NEVER hit
+ * DeepSeek's own API (Chinese infrastructure, ToS allows training on
+ * submitted data). All "open-weights" reasoning models we use are
+ * routed via Groq/Cerebras/HuggingFace serving on US infrastructure.
+ * The `deepseek` ProviderName is intentionally banned at the type
+ * level — see tests/ai-router-routing.test.ts.
  */
 const TASK_MODEL_OVERRIDES: Partial<Record<TaskKind, Partial<Record<ProviderName, string>>>> = {
   reasoning: {
-    groq: "deepseek-r1-distill-llama-70b",
+    groq: "openai/gpt-oss-120b",
   },
   self_critique: {
-    groq: "deepseek-r1-distill-llama-70b",
+    groq: "openai/gpt-oss-120b",
   },
 };
 
@@ -134,7 +142,7 @@ export async function complete(
       errors.push(`${name}: unavailable`);
       continue;
     }
-    // Apply per-task model override (e.g. DeepSeek R1 for reasoning
+    // Apply per-task model override (e.g. GPT-OSS-120B for reasoning
     // tasks via Groq). Caller's opts.model wins if explicitly set.
     const taskOverride = TASK_MODEL_OVERRIDES[taskKind]?.[name];
     const effectiveOpts: CompletionOptions =

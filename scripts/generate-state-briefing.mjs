@@ -39,9 +39,14 @@ const STATE = arg("--state");
 const ALL_STATES = args.includes("--all-states");
 const DRY_RUN = args.includes("--dry-run");
 const PROVIDER_OVERRIDE = arg("--provider");
+// Self-critique loop (Phase 3 D5): generate draft → DeepSeek R1 critique →
+// revise if flagged. Default on (1 revision pass). Use --no-critique for
+// the old single-pass behavior, --max-revisions N to allow more rounds.
+const NO_CRITIQUE = args.includes("--no-critique");
+const MAX_REVISIONS = Math.max(0, Math.min(3, parseInt(arg("--max-revisions") ?? "1", 10) || 0));
 
 if (!STATE && !ALL_STATES) {
-  console.error("Usage: --state <2-letter>  OR  --all-states  (optionally --dry-run, --provider)");
+  console.error("Usage: --state <2-letter>  OR  --all-states  (optionally --dry-run, --provider, --no-critique, --max-revisions N)");
   process.exit(1);
 }
 
@@ -302,6 +307,125 @@ async function loadStateData(state) {
   };
 }
 
+// =============================================================
+// Self-critique loop (Phase 3 D5)
+//
+// Why this exists: a single AI generation pass can quietly drop bills,
+// invent sponsor names, conflate natural-leaf kratom with 7-OH
+// synthetics, or paper over data gaps. A second AI — OpenAI's open-weights
+// GPT-OSS-120B routed via Groq for its chain-of-thought quality (it
+// emits explicit reasoning_tokens internally) — reads the draft against
+// the raw data and flags issues. If anything's flagged we regenerate
+// once with the critique attached. Cost: one extra Groq call per
+// briefing (free tier), ~400ms-2s latency. Quality lift comes from
+// catching the long tail of "good-looking but wrong" briefings.
+//
+// Originally targeted DeepSeek R1 Distill 70B; Groq decommissioned that
+// model on 2026-04. GPT-OSS-120B has equivalent reasoning capability
+// (MIT-licensed open weights, US-hosted, also $0 on Groq's free tier).
+// Privacy posture unchanged: DeepSeek's hosted API stays banned (Chinese
+// servers, ToS allows training on submitted data).
+// =============================================================
+const CRITIQUE_MODEL = "openai/gpt-oss-120b";
+const CRITIQUE_SYSTEM = `You are a senior advocacy strategist reviewing a kratom-policy state briefing for the iKratom platform. The briefing was AI-generated from raw platform data. Your job: catch errors and gaps an advocate printing this to bring to the capital can't afford.
+
+Check the draft against the raw data provided. Flag concrete issues — not style notes — across these categories:
+
+1. MISSING BILLS — did the draft skip any bill listed as anti or pro in the raw data, especially anti-kratom ones?
+2. KRATOM-VS-7-OH CONFLATION — does the draft treat natural-leaf kratom and 7-OH/synthetic products as interchangeable when bills target only one? (Bills with targets_synthetic_only=true should be called out as 7-OH-specific.)
+3. WRONG SPONSORS — does the draft name a primary sponsor not in the data, or attribute a bill to the wrong sponsor?
+4. UNSOURCED CLAIMS — does the draft state specific facts (vote counts, deal-making, quotes) not grounded in the data provided?
+5. GENERIC FIELD-WORK — is the "Field-work tactical" section state-specific advice grounded in the bills, news, and capital info, or generic boilerplate?
+6. UNACKNOWLEDGED GAPS — when data is absent (zero bills, no BoP source, no stances, no committee chairs), does the draft acknowledge that or paper over it as "all clear"?
+
+Return ONLY a JSON object:
+  {"needs_revision": boolean, "issues": ["short specific issue", ...], "suggestions": ["concrete fix to apply", ...]}
+
+Rules:
+- needs_revision = true only when there is at least one substantive issue. Style/wording nits do not count.
+- Cap issues + suggestions at 5 each. Keep each under 200 chars.
+- Each suggestion should map to a fix the regeneration AI can apply (e.g. "Add HB 1234 by Rep Smith to Active legislation section; it's anti and missing").
+- If the draft is solid, return {"needs_revision": false, "issues": [], "suggestions": []}. Don't manufacture issues.
+- No prose around the JSON. No markdown fences.`;
+
+/**
+ * Ask the reasoning critic (GPT-OSS-120B via Groq) to review a briefing
+ * draft against the raw state data. Returns
+ *   { needs_revision, issues[], suggestions[] }
+ * or { error } on failure (caller should ship the draft as-is).
+ */
+async function critiqueDraft(state, userPrompt, body) {
+  // Critique input: original data + the draft. We trim the data block
+  // to its first ~4000 chars so we stay inside Groq's prompt budget
+  // for the reasoning model.
+  const dataExcerpt = userPrompt.length > 4000 ? userPrompt.slice(0, 4000) + "\n…(truncated for critique budget)" : userPrompt;
+  const critiqueUser = `STATE: ${state}
+
+DRAFT BRIEFING TO REVIEW:
+---
+${body}
+---
+
+RAW SOURCE DATA THE DRAFT WAS GENERATED FROM:
+---
+${dataExcerpt}
+---
+
+Review the draft against the source data. Return the JSON.`;
+
+  try {
+    const result = await aiRouter({
+      systemPrompt: CRITIQUE_SYSTEM,
+      userPrompt: critiqueUser,
+      maxTokens: 1200,
+      providerOverride: "groq",
+      modelOverride: CRITIQUE_MODEL,
+      verbose: false,
+    });
+    const parsed = result.parsed ?? {};
+    return {
+      needs_revision: !!parsed.needs_revision,
+      issues: Array.isArray(parsed.issues) ? parsed.issues.slice(0, 5).map(String) : [],
+      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.slice(0, 5).map(String) : [],
+      provider: result.provider,
+    };
+  } catch (e) {
+    // Critique is best-effort. If R1 is down (Groq cooldown, quota, etc.)
+    // we ship the original draft rather than block on it.
+    return { error: String(e.message ?? e).slice(0, 120) };
+  }
+}
+
+/**
+ * Regenerate the briefing with critique feedback appended to the user
+ * prompt. Same SYSTEM prompt + provider routing as the initial generation,
+ * so the format contract is identical.
+ */
+async function reviseDraft(userPrompt, previousBody, critique) {
+  const reviseUser = `${userPrompt}
+
+PREVIOUS DRAFT (already generated — fix the issues below, keep what's good):
+---
+${previousBody}
+---
+
+CRITIQUE — issues a senior reviewer found:
+${critique.issues.map((i, n) => `${n + 1}. ${i}`).join("\n")}
+
+SUGGESTED FIXES:
+${critique.suggestions.map((s, n) => `${n + 1}. ${s}`).join("\n")}
+
+Regenerate the briefing addressing each issue. Same JSON shape: {"body_md": "..."}. Keep the section headers identical.`;
+
+  return aiRouter({
+    systemPrompt: SYSTEM,
+    userPrompt: reviseUser,
+    maxTokens: 2400,
+    providerOverride: PROVIDER_OVERRIDE,
+    verbose: true,
+  });
+}
+
 async function generateOne(state) {
   const tag = `[${state}]`;
   process.stdout.write(`${tag} loading data… `);
@@ -328,29 +452,89 @@ async function generateOne(state) {
     console.log(`✗ AI: ${e.message?.slice(0, 80)}`);
     return { state, status: "ai-error", error: e.message };
   }
-  const body = (result.parsed?.body_md ?? "").trim();
-  if (!body || body.length < 200) {
-    // Some providers return JSON schema fragments ({"type":"object"}) instead
-    // of valid responses under JSON-mode + large prompts. The router will
-    // already have tried multiple providers; surface what we got for debug.
+  let body = (result.parsed?.body_md ?? "").trim();
+  // A real briefing has 5 sections × roughly 400-800 chars each ≈ 2000-4000
+  // chars at minimum. Anything under 1500 chars is either a schema fragment
+  // ({"type":"object"}), a provider-collapsed stub (gemini sometimes returns
+  // a one-paragraph summary under JSON-mode with large prompts), or
+  // structurally broken output. Reject so we don't swap a regression into
+  // prod; the operator can rerun once provider budgets refresh.
+  if (!body || body.length < 1500) {
     console.log(`✗ empty/short response (${body.length} chars) from ${result.provider}`);
     console.log(`  parsed=${JSON.stringify(result.parsed).slice(0, 200)}`);
     return { state, status: "empty" };
   }
   console.log(`✓ ${body.length} chars via ${result.provider}`);
 
+  // Self-critique loop. Off when --no-critique is passed or
+  // --max-revisions 0. Each pass = 1 critique + 1 regenerate.
+  const critiqueHistory = [];
+  let revisions = 0;
+  let finalProvider = result.provider;
+  if (!NO_CRITIQUE && MAX_REVISIONS > 0) {
+    for (let i = 0; i < MAX_REVISIONS; i++) {
+      process.stdout.write(`${tag} critique pass ${i + 1}… `);
+      const critique = await critiqueDraft(state, userPrompt, body);
+      if (critique.error) {
+        console.log(`skipped (${critique.error})`);
+        break;
+      }
+      if (!critique.needs_revision || critique.issues.length === 0) {
+        console.log(`✓ clean`);
+        critiqueHistory.push({ pass: i + 1, needs_revision: false, issues: [], provider: critique.provider });
+        break;
+      }
+      console.log(`${critique.issues.length} issue(s) → revising:`);
+      critique.issues.forEach((iss, n) => console.log(`    ${n + 1}. ${iss.slice(0, 140)}`));
+      // Brief pause before revision so the provider we just used for
+      // generation has a chance to clear any near-quota state. Without
+      // this, gen → critique → revise lands three calls in <5s and one
+      // of them eats a 429.
+      await new Promise(r => setTimeout(r, 1500));
+      let reviseResult;
+      try {
+        reviseResult = await reviseDraft(userPrompt, body, critique);
+      } catch (e) {
+        console.log(`    ✗ revision failed: ${e.message?.slice(0, 80)} (keeping prior draft)`);
+        critiqueHistory.push({ pass: i + 1, needs_revision: true, issues: critique.issues, suggestions: critique.suggestions, revised: false, provider: critique.provider });
+        break;
+      }
+      const reviseBody = (reviseResult.parsed?.body_md ?? "").trim();
+      // Defensive: if the regeneration collapsed (returned a stub, schema
+      // fragment, or much shorter content), keep the original draft.
+      if (reviseBody.length < Math.max(200, body.length * 0.5)) {
+        console.log(`    ⚠ revision rejected (${reviseBody.length} chars vs prior ${body.length}); keeping prior draft`);
+        critiqueHistory.push({ pass: i + 1, needs_revision: true, issues: critique.issues, suggestions: critique.suggestions, revised: false, rejection_reason: "too_short", provider: critique.provider });
+        break;
+      }
+      body = reviseBody;
+      finalProvider = reviseResult.provider;
+      revisions++;
+      critiqueHistory.push({ pass: i + 1, needs_revision: true, issues: critique.issues, suggestions: critique.suggestions, revised: true, provider: critique.provider });
+      console.log(`    ✓ revised to ${body.length} chars via ${reviseResult.provider}`);
+    }
+  }
+
   // Atomic swap: deactivate old + insert new
   await sb.from("state_briefings").update({ is_active: false }).eq("state", state).eq("is_active", true);
   const { error: insertErr, data: row } = await sb.from("state_briefings").insert({
     state,
     body_md: body,
-    generated_by_provider: result.provider ?? "unknown",
+    generated_by_provider: finalProvider ?? "unknown",
     data_snapshot: {
       legCount: data.legCount,
       billCount: data.bills.length,
       newsCount: data.news.length,
       bopSrcCount: data.bopSrcCount,
       campActiveCount: data.campAct.length,
+      // Self-critique provenance — admin can audit which briefings
+      // went through revision and which issues R1 caught.
+      critique: {
+        enabled: !NO_CRITIQUE && MAX_REVISIONS > 0,
+        max_revisions: MAX_REVISIONS,
+        revisions_applied: revisions,
+        history: critiqueHistory,
+      },
     },
     is_active: true,
   }).select("id").single();
@@ -358,7 +542,7 @@ async function generateOne(state) {
     console.log(`${tag} ✗ DB: ${insertErr.message}`);
     return { state, status: "db-error", error: insertErr.message };
   }
-  return { state, status: "ok", id: row.id, provider: result.provider, chars: body.length };
+  return { state, status: "ok", id: row.id, provider: finalProvider, chars: body.length, revisions };
 }
 
 const STATE_LIST = [
@@ -400,8 +584,13 @@ for (const s of targets) {
 
 const ok = results.filter(r => r.status === "ok").length;
 const errored = results.filter(r => r.status?.includes("error")).length;
+const revisedRuns = results.filter(r => (r.revisions ?? 0) > 0).length;
+const totalRevisions = results.reduce((acc, r) => acc + (r.revisions ?? 0), 0);
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
 console.log(`\nDone in ${elapsed} min — ok=${ok} errored=${errored}/${results.length}`);
+if (!NO_CRITIQUE && MAX_REVISIONS > 0) {
+  console.log(`Critique: ${revisedRuns}/${ok} briefing(s) revised by reasoning critic (${totalRevisions} total revisions)`);
+}
 
 try {
   await sb.from("scraper_runs").insert({
