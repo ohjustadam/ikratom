@@ -69,15 +69,25 @@ export default async function DashboardPage({
   // My reps — only fetched if state set (otherwise we'd return 50 random rows)
   let myReps: Awaited<ReturnType<typeof getUserLegislators>> = [];
   let userId: string | null = null;
-  if (profile?.state) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    userId = user?.id ?? null;
-    if (userId) myReps = await getUserLegislators(supabase, profile);
-  } else {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    userId = user?.id ?? null;
+  const supabaseForReps = await createClient();
+  const { data: { user: userForReps } } = await supabaseForReps.auth.getUser();
+  userId = userForReps?.id ?? null;
+  if (userId && profile?.state) {
+    myReps = await getUserLegislators(supabaseForReps, profile);
+  }
+
+  // Pre-fetch stance per rep so MyRepCard can render a stance chip
+  // at the dashboard level without a per-card client fetch. Single
+  // batch query; map by legislator_id.
+  const stanceByRepId = new Map<string, string>();
+  if (myReps.length > 0) {
+    const { data: stances } = await supabaseForReps
+      .from("legislator_kratom_stance")
+      .select("legislator_id, stance")
+      .in("legislator_id", myReps.map((r) => r.id));
+    for (const s of (stances ?? []) as Array<{ legislator_id: string; stance: string }>) {
+      stanceByRepId.set(s.legislator_id, s.stance);
+    }
   }
 
   // Layout-driven widget render. Each visible widget is rendered as a
@@ -175,7 +185,11 @@ export default async function DashboardPage({
                     </p>
                     <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                       {g.reps.map((l) => (
-                        <MyRepCard key={l.id} legislator={l} />
+                        <MyRepCard
+                          key={l.id}
+                          legislator={l}
+                          stance={(stanceByRepId.get(l.id) as Parameters<typeof MyRepCard>[0]["stance"]) ?? null}
+                        />
                       ))}
                     </ul>
                   </div>
