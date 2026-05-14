@@ -205,7 +205,7 @@ export async function YourRepDecidingThisBill({
           {chair.party && <span className="ml-1 text-zinc-500">({chair.party})</span>}
           {chair.district && <span className="ml-1 text-zinc-500">· District {chair.district}</span>}
           {". "}
-          <Link href={`/legislators?committee=${encodeURIComponent(currentCommitteeName)}`} className="text-emerald-400 hover:underline">
+          <Link href={`/legislators/committee?name=${encodeURIComponent(currentCommitteeName)}`} className="text-emerald-400 hover:underline">
             See all committee members →
           </Link>
         </p>
