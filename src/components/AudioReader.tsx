@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * AudioReader — zero-cost browser TTS via window.speechSynthesis.
@@ -19,12 +19,15 @@ import { useEffect, useRef, useState } from "react";
  *   - Windows: decent (the David / Zira voices)
  *   - Linux: rough (espeak fallback)
  *
- * Mute / play / pause controls. Persists last-played position to
- * localStorage keyed by `id` so users can resume.
- *
- * Phoneme hints: for the kratom-specific alkaloid names we wrap them
- * in <phoneme alphabet="ipa" ph="..."> when SSML is supported (most
- * browsers don't, but we try). Falls back to letting the engine guess.
+ * Voice picker (added 2026-05-15 per owner ask):
+ *   - Lists every installed system voice. macOS users typically have
+ *     30+. Choice persists per-browser via localStorage so the next
+ *     page that mounts AudioReader picks up the user's preference.
+ *   - Defaults to a "Premium / Natural / Neural" English voice if
+ *     available; otherwise the first en-US voice; otherwise the first
+ *     English voice; otherwise the system default.
+ *   - In compact mode, the picker is hidden — the parent surface can
+ *     show its own voice picker once and have it apply globally.
  */
 
 type Props = {
@@ -35,6 +38,9 @@ type Props = {
   label?: string;
   /** Compact mode: just the button, no extra text. */
   compact?: boolean;
+  /** Hide the voice picker even in non-compact mode. Useful if the
+   *  parent surface owns a single global voice picker. */
+  hideVoicePicker?: boolean;
 };
 
 const ALKALOID_HINTS: Record<string, string> = {
@@ -56,16 +62,49 @@ function phoneticize(s: string): string {
   return out;
 }
 
-export function AudioReader({ text, id, label = "Listen", compact = false }: Props) {
+const VOICE_STORAGE = "audio-reader:voice";
+
+/** Heuristic ranking: higher = better. Used for the default pick. */
+function voiceQualityScore(v: SpeechSynthesisVoice): number {
+  let s = 0;
+  if (/premium|enhanced|neural|natural/i.test(v.name)) s += 10;
+  if (v.lang.startsWith("en-US")) s += 3;
+  else if (v.lang.startsWith("en")) s += 2;
+  if (v.localService) s += 1; // local voices are usually higher quality + private
+  if (v.default) s += 1;
+  return s;
+}
+
+export function AudioReader({ text, id, label = "Listen", compact = false, hideVoicePicker = false }: Props) {
   const [supported, setSupported] = useState<boolean | null>(null);
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   const [rate, setRate] = useState(1.0);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceName, setSelectedVoiceName] = useState<string | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     setSupported("speechSynthesis" in window);
+    try {
+      const stored = localStorage.getItem(VOICE_STORAGE);
+      if (stored) setSelectedVoiceName(stored);
+    } catch { /* ignore */ }
+  }, []);
+
+  // Voices load asynchronously in most browsers — listen for the
+  // voiceschanged event AND call getVoices() once on mount in case
+  // the event fired before we attached.
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const load = () => {
+      const list = window.speechSynthesis.getVoices();
+      if (list && list.length > 0) setVoices(list);
+    };
+    load();
+    window.speechSynthesis.addEventListener("voiceschanged", load);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", load);
   }, []);
 
   // Cleanup on unmount — don't leave audio playing when user navigates away
@@ -77,6 +116,43 @@ export function AudioReader({ text, id, label = "Listen", compact = false }: Pro
     };
   }, []);
 
+  /** Best voice given current state. Selected → quality-ranked. */
+  const activeVoice = useMemo<SpeechSynthesisVoice | undefined>(() => {
+    if (voices.length === 0) return undefined;
+    if (selectedVoiceName) {
+      const match = voices.find((v) => v.name === selectedVoiceName);
+      if (match) return match;
+    }
+    // Fall back to quality ranking
+    return [...voices].sort((a, b) => voiceQualityScore(b) - voiceQualityScore(a))[0];
+  }, [voices, selectedVoiceName]);
+
+  /** Group voices by language label for the picker. */
+  const voiceGroups = useMemo(() => {
+    const groups = new Map<string, SpeechSynthesisVoice[]>();
+    for (const v of voices) {
+      const lang = v.lang || "?";
+      if (!groups.has(lang)) groups.set(lang, []);
+      groups.get(lang)!.push(v);
+    }
+    // English first, then alphabetical
+    return [...groups.entries()].sort(([a], [b]) => {
+      const aEn = a.startsWith("en");
+      const bEn = b.startsWith("en");
+      if (aEn && !bEn) return -1;
+      if (!aEn && bEn) return 1;
+      return a.localeCompare(b);
+    });
+  }, [voices]);
+
+  function onVoiceChange(name: string) {
+    setSelectedVoiceName(name || null);
+    try {
+      if (name) localStorage.setItem(VOICE_STORAGE, name);
+      else localStorage.removeItem(VOICE_STORAGE);
+    } catch { /* ignore */ }
+  }
+
   function play() {
     if (!supported) return;
     window.speechSynthesis.cancel(); // stop any existing
@@ -84,14 +160,7 @@ export function AudioReader({ text, id, label = "Listen", compact = false }: Pro
     u.rate = rate;
     u.pitch = 1.0;
     u.volume = 1.0;
-
-    // Prefer an English voice. Mac users get the system voices automatically.
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find((v) => v.lang.startsWith("en") && /natural|neural|premium/i.test(v.name))
-      ?? voices.find((v) => v.lang.startsWith("en-US"))
-      ?? voices.find((v) => v.lang.startsWith("en"));
-    if (preferred) u.voice = preferred;
-
+    if (activeVoice) u.voice = activeVoice;
     u.onend = () => { setPlaying(false); setPaused(false); };
     u.onerror = () => { setPlaying(false); setPaused(false); };
     utteranceRef.current = u;
@@ -126,6 +195,15 @@ export function AudioReader({ text, id, label = "Listen", compact = false }: Pro
       // Brief delay so the cancel completes before restart
       setTimeout(() => play(), 50);
     }
+  }
+
+  function previewVoice() {
+    if (!supported) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance("Kratom advocacy, peer-reviewed research, read aloud.");
+    u.rate = rate;
+    if (activeVoice) u.voice = activeVoice;
+    window.speechSynthesis.speak(u);
   }
 
   if (supported === false) {
@@ -187,9 +265,39 @@ export function AudioReader({ text, id, label = "Listen", compact = false }: Pro
           <option value="2">2x</option>
         </select>
       )}
+      {!compact && !hideVoicePicker && voices.length > 0 && (
+        <>
+          <select
+            value={selectedVoiceName ?? ""}
+            onChange={(e) => onVoiceChange(e.target.value)}
+            aria-label="Voice"
+            title={activeVoice ? `Current: ${activeVoice.name} (${activeVoice.lang})` : "Voice"}
+            className="max-w-[180px] rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300"
+          >
+            <option value="">Auto · best available</option>
+            {voiceGroups.map(([lang, vs]) => (
+              <optgroup key={lang} label={lang}>
+                {vs.map((v) => (
+                  <option key={v.name} value={v.name}>
+                    {v.name}{v.default ? " · default" : ""}{v.localService ? " · local" : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <button
+            onClick={previewVoice}
+            aria-label="Preview voice"
+            className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] text-zinc-300 hover:border-emerald-500"
+            type="button"
+          >
+            ▶ test
+          </button>
+        </>
+      )}
       {!compact && (
         <span className="text-[10px] text-zinc-600" data-resume-id={id}>
-          Browser TTS (free). Higher-quality voice coming when budget allows.
+          Browser TTS (free). {voices.length} voice{voices.length === 1 ? "" : "s"} available.
         </span>
       )}
     </div>
