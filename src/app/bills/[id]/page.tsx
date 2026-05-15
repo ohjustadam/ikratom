@@ -14,6 +14,7 @@ import { BillFullText } from "./BillFullText";
 import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillLocalActionCard";
 import { findSimilarBills } from "@/lib/bill-similarity";
 import { IntelTipForm } from "./IntelTipForm";
+import { Markdown } from "@/components/Markdown";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -48,6 +49,8 @@ type BillRow = {
   text_synced_at: string | null;
   local_meta: LocalMeta | null;
   local_meta_extracted_at: string | null;
+  opposition_summary_md: string | null;
+  repeal_plan_md: string | null;
 };
 
 type Stance = "bans" | "restricts" | "schedules" | "preserves" | "neutral" | "unaddressed";
@@ -154,7 +157,8 @@ export default async function BillDetailPage({
       "journey_narrative, amendments_count, journey_analyzed_at, " +
       "substance_targeting, substance_targeting_analyzed_at, " +
       "summary_long, bill_text_versions, text_synced_at, " +
-      "local_meta, local_meta_extracted_at",
+      "local_meta, local_meta_extracted_at, " +
+      "opposition_summary_md, repeal_plan_md",
     )
     .eq("id", id)
     .single();
@@ -505,6 +509,50 @@ export default async function BillDetailPage({
           for "get pushed when this bill changes status". */}
       <SignUpNudge context="bill" stateCode={bill.state} className="mb-6" />
       <EnablePushNudge context="bill" stateCode={bill.state} className="mb-6" />
+
+      {/* Takeback playbook — editorial content for enacted-ban + imminent-ban
+          bills. Two sections: who pushed the ban (opposition_summary_md) and
+          the concrete plan to repeal (repeal_plan_md). Rendered as a single
+          composite section so the analytical context and the action plan stay
+          adjacent. Only fires when at least one column is populated, which is
+          by-design only for the 7 banning states + imminent TN. */}
+      {(bill.opposition_summary_md || bill.repeal_plan_md) && (
+        <section className="mb-6 rounded-lg border-2 border-amber-700/40 bg-gradient-to-br from-zinc-950/60 to-amber-950/15 p-5">
+          <div className="mb-3 flex flex-wrap items-baseline gap-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-300">
+              🎯 Takeback intel
+            </p>
+            <span className="text-[10px] text-zinc-500">
+              who pushed this · what the political trail looks like · how to repeal
+            </span>
+          </div>
+          <p className="text-[11px] leading-relaxed text-zinc-400">
+            Editorial-curated political-action intel for this {bill.status === "enacted" ? "enacted ban" : "imminent ban"}. Sources, named legislators, and a phased repeal plan. Most of the work of repealing a state ban is naming the right allies and constraints — that&apos;s what this section is for.
+          </p>
+
+          {bill.opposition_summary_md && (
+            <div className="mt-4 rounded-md border border-red-800/40 bg-red-950/15 p-4">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-red-300">
+                ⚠ Who pushed this ban
+              </p>
+              <Markdown>{bill.opposition_summary_md}</Markdown>
+            </div>
+          )}
+
+          {bill.repeal_plan_md && (
+            <div className="mt-4 rounded-md border border-emerald-800/40 bg-emerald-950/15 p-4">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
+                🛠 Repeal action plan
+              </p>
+              <Markdown>{bill.repeal_plan_md}</Markdown>
+            </div>
+          )}
+
+          <p className="mt-4 text-[10px] uppercase tracking-wider text-zinc-600">
+            Editorial — submit corrections + additional intel via the &quot;Add local intel&quot; button on the people-of-interest section below.
+          </p>
+        </section>
+      )}
 
       {/* "YOUR REP IS DECIDING THIS BILL" — district-level urgency.
           When the bill is in a committee that one of the user's reps

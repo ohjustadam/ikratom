@@ -38,6 +38,7 @@ type BanRow = {
   effective_date: string | null;
   last_action_at: string | null;
   source_url: string | null;
+  opposition_summary_md: string | null;
 };
 
 const STATE_NAMES: Record<string, string> = {
@@ -58,7 +59,7 @@ export default async function BannedPage() {
   const sb = await createClient();
   const { data } = await sb
     .from("bills")
-    .select("id, state, bill_number, title, status, scope, locality, effective_date, last_action_at, source_url")
+    .select("id, state, bill_number, title, status, scope, locality, effective_date, last_action_at, source_url, opposition_summary_md")
     .eq("kratom_relevance", "anti")
     .eq("active", true)
     .in("status", ["enacted", "passed_chamber"])
@@ -66,8 +67,15 @@ export default async function BannedPage() {
   const rows = (data ?? []) as BanRow[];
 
   // Bucket
-  const enactedStates = rows.filter(r => r.scope === "state" && r.status === "enacted");
-  const imminentStates = rows.filter(r => r.scope === "state" && r.status === "passed_chamber");
+  // For state-level rows, we ONLY count entries with editorial takeback intel
+  // (opposition_summary_md is not null). This is our source of truth for "is
+  // this an actual full kratom ban" vs "did this state pass any anti-kratom
+  // legislation." Without this filter, 7-OH-only bans, age regs, KCPA bills,
+  // and misclassified non-kratom rows all show up as "banning states" — which
+  // is misleading. The 6 historical banning states + TN imminent are all
+  // editorially curated with opposition_summary_md populated.
+  const enactedStates = rows.filter(r => r.scope === "state" && r.status === "enacted" && r.opposition_summary_md);
+  const imminentStates = rows.filter(r => r.scope === "state" && r.status === "passed_chamber" && r.opposition_summary_md);
   const enactedCounties = rows.filter(r => r.scope === "county" && r.status === "enacted");
   const enactedCities = rows.filter(r => r.scope === "municipal" && r.status === "enacted");
 
