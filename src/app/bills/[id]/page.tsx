@@ -13,6 +13,7 @@ import { readLocale } from "@/modules/auth/actions-locale";
 import { BillFullText } from "./BillFullText";
 import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillLocalActionCard";
 import { findSimilarBills } from "@/lib/bill-similarity";
+import { IntelTipForm } from "./IntelTipForm";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -178,6 +179,35 @@ export default async function BillDetailPage({
     }
   } catch {
     // Column doesn't exist yet — silent no-op.
+  }
+
+  // Bill stakeholders — people of interest beyond gov officials.
+  // Editorial-curated allies, experts, journalists, opponents,
+  // affected business owners. Defensive so pre-migration falls
+  // through to empty.
+  type StakeholderRow = {
+    id: string;
+    name: string;
+    title: string | null;
+    organization: string | null;
+    role_type: string;
+    reasoning: string;
+    email: string | null;
+    phone: string | null;
+    website: string | null;
+    twitter_handle: string | null;
+    linkedin_url: string | null;
+  };
+  let stakeholders: StakeholderRow[] = [];
+  try {
+    const { data } = await supabase
+      .from("bill_stakeholders")
+      .select("id, name, title, organization, role_type, reasoning, email, phone, website, twitter_handle, linkedin_url")
+      .eq("bill_id", id)
+      .order("role_type", { ascending: true });
+    stakeholders = (data ?? []) as StakeholderRow[];
+  } catch {
+    // Pre-migration deploy — silent.
   }
 
   // Phase 3 D6: cross-state bill similarity. Pulls every embedded
@@ -430,6 +460,45 @@ export default async function BillDetailPage({
           </p>
         )}
       </header>
+
+      {/* Active battle hero — shows prominently when this is an
+          ongoing anti-kratom fight at the local level. Suffolk's
+          tabled-resolution case is the prototype. */}
+      {bill.kratom_relevance === "anti"
+        && (bill.scope === "county" || bill.scope === "municipal")
+        && (bill.status === "committee" || bill.status === "introduced") && (
+        <section className="mb-6 rounded-lg border-2 border-red-600/60 bg-red-950/25 p-5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-300">⚠ Active battle</p>
+          <h2 className="mt-1 text-lg font-bold text-zinc-100">
+            {bill.locality ?? bill.state} kratom ban — fight is ongoing
+          </h2>
+          {bill.last_action && (
+            <p className="mt-2 text-sm text-zinc-300">
+              <span className="text-zinc-500">Most recent:</span> {bill.last_action}
+            </p>
+          )}
+          <p className="mt-2 text-[12px] text-zinc-400">
+            This is an active local-level kratom-restriction fight. The sponsors are listed below;
+            the &quot;Take action&quot; section has emails and call scripts; and the &quot;People of interest&quot; section
+            below names experts, journalists, and allies who can amplify a counter-narrative.
+            {bill.locality?.includes("Suffolk") && " — Vote was tabled; we are watching the next General Meeting agenda automatically."}
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <RemindMeButton
+              targetKind="bill"
+              targetId={bill.id}
+              defaultTitle={`Check ${bill.state} ${bill.bill_number} status`}
+              defaultMessage={`Tabled / pending. Re-check site for next-meeting date.`}
+            />
+            <IntelTipForm
+              billId={bill.id}
+              billTitle={bill.title ?? bill.bill_number}
+              billState={bill.state}
+              billLocality={bill.locality}
+            />
+          </div>
+        </section>
+      )}
 
       {/* Signup nudge for anonymous visitors. Bills are high-intent
           — someone reading a specific bill detail is the ideal target
@@ -937,6 +1006,80 @@ export default async function BillDetailPage({
           </ul>
         </section>
       )}
+
+      {/* People of interest (bill_stakeholders) — allies, experts,
+          journalists, opponents, affected business owners. Editorial
+          curation. Surfaces grouped by role_type. */}
+      {stakeholders.length > 0 && (() => {
+        const ROLE_META: Record<string, { emoji: string; label: string; tone: string }> = {
+          ally: { emoji: "🤝", label: "Allies", tone: "border-emerald-700/40 bg-emerald-950/15" },
+          expert: { emoji: "🎓", label: "Subject-matter experts", tone: "border-sky-700/40 bg-sky-950/15" },
+          journalist: { emoji: "📰", label: "Journalists / outlets", tone: "border-amber-700/40 bg-amber-950/15" },
+          opponent: { emoji: "⚠", label: "Opponents to track", tone: "border-red-700/40 bg-red-950/15" },
+          affected: { emoji: "🏪", label: "Affected business / community", tone: "border-violet-700/40 bg-violet-950/15" },
+          community: { emoji: "🌐", label: "Community + harm-reduction", tone: "border-teal-700/40 bg-teal-950/15" },
+        };
+        const grouped = new Map<string, StakeholderRow[]>();
+        for (const s of stakeholders) {
+          if (!grouped.has(s.role_type)) grouped.set(s.role_type, []);
+          grouped.get(s.role_type)!.push(s);
+        }
+        const order = ["ally", "expert", "affected", "community", "journalist", "opponent"];
+        return (
+          <section className="mb-6 rounded-lg border border-violet-700/30 bg-zinc-950/40 p-5">
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-violet-300">
+                People of interest ({stakeholders.length})
+              </h2>
+              <IntelTipForm
+                billId={bill.id}
+                billTitle={bill.title ?? bill.bill_number}
+                billState={bill.state}
+                billLocality={bill.locality}
+              />
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Allies, experts, journalists, affected business owners, and opponents to track — beyond the sponsors above. Editorial-curated; submit local intel with the button above to grow this list.
+            </p>
+            <div className="mt-4 space-y-3">
+              {order.flatMap(role => {
+                const rows = grouped.get(role) ?? [];
+                if (rows.length === 0) return [];
+                const meta = ROLE_META[role] ?? { emoji: "·", label: role, tone: "border-zinc-700 bg-zinc-950/40" };
+                return [(
+                  <div key={role} className={`rounded-md border p-3 ${meta.tone}`}>
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-200">
+                      {meta.emoji} {meta.label} ({rows.length})
+                    </p>
+                    <ul className="space-y-2">
+                      {rows.map(s => (
+                        <li key={s.id} className="text-[12px]">
+                          <p className="font-semibold text-zinc-100">{s.name}</p>
+                          {(s.title || s.organization) && (
+                            <p className="text-[11px] text-zinc-400">
+                              {s.title}{s.title && s.organization ? " · " : ""}{s.organization}
+                            </p>
+                          )}
+                          <p className="mt-1 text-[11px] leading-snug text-zinc-300">{s.reasoning}</p>
+                          {(s.email || s.phone || s.website || s.twitter_handle || s.linkedin_url) && (
+                            <p className="mt-1 flex flex-wrap gap-2 text-[10px]">
+                              {s.email && <a href={`mailto:${s.email}`} className="text-emerald-400 hover:underline">{s.email}</a>}
+                              {s.phone && <a href={`tel:${s.phone}`} className="text-emerald-400 hover:underline">{s.phone}</a>}
+                              {s.website && <a href={s.website} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">website</a>}
+                              {s.twitter_handle && <a href={`https://twitter.com/${s.twitter_handle.replace(/^@/, "")}`} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">@{s.twitter_handle.replace(/^@/, "")}</a>}
+                              {s.linkedin_url && <a href={s.linkedin_url} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">LinkedIn</a>}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )];
+              })}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Action history */}
       {detail?.actions && detail.actions.length > 0 && (
