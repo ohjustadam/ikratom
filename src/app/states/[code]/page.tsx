@@ -84,7 +84,7 @@ export default async function StatePage({ params }: Props) {
   // a few months stale and still valuable for organizing.
   const newsSince = new Date(now.getTime() - 60 * 86_400_000).toISOString();
 
-  const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw] = await Promise.all([
+  const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw, takebackBill] = await Promise.all([
     supabase
       .from("bills")
       .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at, scope, locality")
@@ -145,6 +145,22 @@ export default async function StatePage({ params }: Props) {
       .gte("published_at", newsSince)
       .order("published_at", { ascending: false })
       .limit(40),
+    // Takeback-status check: does this state have curated banned-state
+    // intel? If opposition_summary_md is populated for an active enacted
+    // (or imminent) state-scope bill, surface the link to its takeback
+    // plan from the page header.
+    supabase
+      .from("bills")
+      .select("id, status, bill_number")
+      .eq("state", codeUpper)
+      .eq("active", true)
+      .eq("scope", "state")
+      .eq("kratom_relevance", "anti")
+      .in("status", ["enacted", "passed_chamber"])
+      .not("opposition_summary_md", "is", null)
+      .order("status", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   // Real-event-date filter for alerts — match the freshness logic
@@ -361,6 +377,31 @@ export default async function StatePage({ params }: Props) {
           </Link>
         </div>
       </header>
+
+      {/* Takeback intel banner — fires only for the 7 banning states
+          (where opposition_summary_md is editorially populated). Surfaces
+          the curated repeal plan directly from the state landing so an
+          organizer in AL/AR/IN/RI/VT/WI/TN sees it without clicking
+          through to /banned first. */}
+      {takebackBill?.data && (
+        <Link
+          href={`/bills/${takebackBill.data.id}`}
+          className="mb-6 block rounded-lg border-2 border-amber-700/50 bg-amber-950/15 p-4 hover:border-amber-400"
+        >
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
+              🎯 Takeback plan
+            </span>
+            <span className="text-[10px] text-zinc-500">
+              {takebackBill.data.status === "passed_chamber" ? "imminent ban" : "enacted ban"} · {takebackBill.data.bill_number}
+            </span>
+          </div>
+          <p className="mt-1 text-sm font-semibold text-zinc-100">
+            {stateName} has curated repeal intel — who pushed the ban + named legislators + phased action plan
+          </p>
+          <p className="mt-1 text-[11px] text-amber-300">Open the full plan →</p>
+        </Link>
+      )}
 
       {/* Signup nudge — only renders for anonymous visitors. The state
           hub is a high-intent surface (someone deliberately landed on
