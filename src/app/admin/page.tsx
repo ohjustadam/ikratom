@@ -266,6 +266,11 @@ export default async function AdminPage() {
             body="Pipeline observability — per-source freshness, recent failures."
           />
           <AdminCard
+            href="/admin/data-quality"
+            title="Data quality audit"
+            body="Known data integrity issues across bills + alerts + news. Trends toward zero as editorial + script refinements run."
+          />
+          <AdminCard
             href="/admin/ai-control"
             title="AI Command Center"
             body="Live status of Ollama / Gemini / Groq + provider quotas + cost tracking."
