@@ -27,6 +27,8 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/pulse", label: "Pulse", description: "Live alerts: hostile bills, BoP rules, breaking news." },
       { href: "/campaigns", label: "Campaigns", description: "One-click letters to your reps." },
+      { href: "/takeback", label: "🎯 Takeback", description: "Every banned state's repeal plan + named legislators." },
+      { href: "/banned", label: "🚫 Banned tracker", description: "Every US state, county, and city where kratom is illegal." },
       { href: "/submit", label: "Submit", description: "Intel tips, stories, forum threads — central submit hub." },
     ],
   },
@@ -37,6 +39,7 @@ const GROUPS: NavGroup[] = [
       { href: "/bop-watch", label: "BoP Watch", description: "Daily monitoring of state pharmacy boards." },
       { href: "/legislators", label: "Legislators", description: "Find + contact your federal + state reps." },
       { href: "/states", label: "By state", description: "Single-state landing pages aggregating bills, meetings, alerts, campaigns." },
+      { href: "/people", label: "🧠 People of interest", description: "Allies, experts, journalists, opponents tracked across all kratom bills." },
     ],
   },
   {
