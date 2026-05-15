@@ -469,6 +469,21 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/discover-municipal-meetings.mjs --all-states
+      - name: Re-check watchlist bodies for upcoming kratom agenda items
+        # Targeted re-check of legislative bodies that have previously
+        # hosted a kratom item. Derived from municipal_meetings rows
+        # where kratom_relevance='confirmed'. Closes the "tabled
+        # resolution" loop — when Suffolk County Legislature recesses
+        # I.R. 1279-2026 to the next General Meeting, we'll catch the
+        # next agenda by name rather than relying on generic state-
+        # wide news search. continue-on-error so a Gemini quota event
+        # doesn't kill the daily run.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/recheck-watchlist-meetings.mjs --limit 25
 
   fire-meeting-reminders:
     # Push reminders for upcoming approved meetings — 7d / 3d / 1d

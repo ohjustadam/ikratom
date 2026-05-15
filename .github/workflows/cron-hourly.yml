@@ -201,6 +201,19 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/fanout-bill-reminders.mjs
+      - name: Extract bill numbers from alerts + news (auto-promote to bills)
+        # Detects resolution / ordinance / bill numbers in approved
+        # policy_alerts and active body-verified news_items, then
+        # promotes to bills table when no matching (state, bill_number)
+        # row exists. Closes the gap exposed 2026-05-14 by Suffolk
+        # County Resolution 1279-2026: we caught news + meeting + 11
+        # alerts but had no tracked bill row for the resolution itself.
+        # Conservative regex; declines federal-pattern matches to
+        # avoid "U.S. 7-O" → "S. 7" false positives. Idempotent.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/extract-bills-from-alerts.mjs --limit 2000
       - name: Fire user-set custom reminders
         # User-controlled reminders set via 🔔 Remind me button on
         # bills/meetings/etc. (migration 0132). Hourly because
