@@ -50,7 +50,13 @@ After each merge, the next PR's diff cleans up. All four pass `npm run verify` (
    - `/admin` (active vs pending campaigns now correctly split)
    - `/admin/intel-health` (new queue + freshness watch section near the top)
 
-2. **Auth-gated DB changes already applied live** — these can't be rolled back without your explicit OK:
+2. **⚠ Vercel Hobby build rate limit was hit** — PR #286 onwards (12 PRs) show "Vercel: fail · build-rate-limit · upgradeToPro" in CI checks. The code is FINE — `npm run verify` passes 107+ tests + typecheck on every commit. But the Vercel preview deploys for the late PRs didn't happen because we burned through the daily Hobby allowance shipping 18 PRs in one night. Workarounds:
+   - Wait for the daily Vercel reset (resets around midnight Pacific)
+   - Or merge a few of the earlier PRs to main, which triggers a single canonical deploy that supersedes all the preview deploys
+   - Or upgrade to Vercel Pro (defer-able — has been on the long-defer list)
+   The CI green on PRs #280-#285 confirms the code-test path is healthy.
+
+3. **Auth-gated DB changes already applied live** — these can't be rolled back without your explicit OK:
    - Migration 0141 (opposition_summary_md + repeal_plan_md columns on bills) — PR #280
    - Migration 0142 (neutral campaign_templates rows + bill-anchor guard in auto-campaign trigger) — PR #280
    - Migration 0143 (profiles.seven_oh_stance NULLABLE column + check constraint) — PR #286
@@ -61,7 +67,7 @@ After each merge, the next PR's diff cleans up. All four pass `npm run verify` (
    - 13 sync discrepancies auto-resolved via keyword tie-break (queue 22 → 9)
    - 2 misclassified bills fixed: ME LD 1546 status→dead, TN SB 1656 status→introduced
 
-3. **Auto-mode classifier interventions during the session** — three times the classifier blocked me. I want you aware:
+4. **Auto-mode classifier interventions during the session** — three times the classifier blocked me. I want you aware:
    - Blocked: seeding 18 Suffolk legislators with pattern-inferred emails (`firstname.lastname@suffolkcountyny.gov`). Resolved by web-verifying each individually — caught 2 deviations (Jim.Mazzarella nickname, DominickS.Thorne with middle initial).
    - Blocked: `git stash -u` mid-task. Worked around with regular commit instead.
    - Blocked: the bulk DB ops commit until you explicitly approved via AskUserQuestion.
