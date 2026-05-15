@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { recordAuthEvent } from "@/lib/auth-events";
 
 /**
  * OAuth callback. Validates state token, exchanges code for tokens, stores
@@ -17,11 +18,22 @@ export async function GET(req: NextRequest) {
   const state = url.searchParams.get("state");
   const error = url.searchParams.get("error");
   const APP_URL = process.env.APP_URL!;
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+  const userAgent = req.headers.get("user-agent") ?? null;
 
   if (error) {
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "gmail", status: "fail",
+      errorCode: error, errorMessage: url.searchParams.get("error_description"),
+      ip, userAgent,
+    });
     return NextResponse.redirect(new URL(`/account?gmail_error=${error}`, APP_URL));
   }
   if (!code || !state) {
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "gmail", status: "fail",
+      errorCode: "missing_code", ip, userAgent,
+    });
     return NextResponse.redirect(new URL("/account?gmail_error=missing_code", APP_URL));
   }
 
@@ -30,6 +42,10 @@ export async function GET(req: NextRequest) {
   const expected = cookieStore.get("g_oauth_state")?.value;
   cookieStore.delete("g_oauth_state");
   if (!expected || expected !== state) {
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "gmail", status: "fail",
+      errorCode: "bad_state", ip, userAgent,
+    });
     return NextResponse.redirect(new URL("/account?gmail_error=bad_state", APP_URL));
   }
 
@@ -61,9 +77,19 @@ export async function GET(req: NextRequest) {
       }),
     });
   } catch {
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "gmail", status: "fail",
+      errorCode: "token_fetch", userId: user.id, email: user.email, ip, userAgent,
+    });
     return NextResponse.redirect(new URL("/account?gmail_error=token_fetch", APP_URL));
   }
   if (!tokenRes.ok) {
+    const errBody = await tokenRes.text().catch(() => "");
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "gmail", status: "fail",
+      errorCode: "token_exchange", errorMessage: errBody.slice(0, 400),
+      userId: user.id, email: user.email, ip, userAgent,
+    });
     return NextResponse.redirect(new URL("/account?gmail_error=token_exchange", APP_URL));
   }
   const tokenData = await tokenRes.json();
@@ -71,6 +97,10 @@ export async function GET(req: NextRequest) {
   const accessToken: string | undefined = tokenData.access_token;
   const scope: string = tokenData.scope ?? "";
   if (!refreshToken) {
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "gmail", status: "fail",
+      errorCode: "no_refresh", userId: user.id, email: user.email, ip, userAgent,
+    });
     return NextResponse.redirect(new URL("/account?gmail_error=no_refresh", APP_URL));
   }
 
@@ -112,8 +142,17 @@ export async function GET(req: NextRequest) {
     );
 
   if (writeErr) {
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "gmail", status: "fail",
+      errorCode: "db_write", errorMessage: writeErr.message,
+      userId: user.id, email: user.email, ip, userAgent,
+    });
     return NextResponse.redirect(new URL("/account?gmail_error=db_write", APP_URL));
   }
 
+  await recordAuthEvent({
+    kind: "gmail_connect", provider: "gmail", status: "ok",
+    userId: user.id, email: accountEmail || user.email, ip, userAgent,
+  });
   return NextResponse.redirect(new URL("/account?gmail_connected=1", APP_URL));
 }

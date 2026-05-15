@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
+import { recentAuthFailureSummary, suggestedFixForErrorCode } from "@/lib/auth-events";
 
 export const metadata = { title: "OAuth Config — admin" };
 export const dynamic = "force-dynamic";
@@ -58,6 +59,10 @@ export default async function OAuthConfigPage() {
   const appUrl = (process.env.APP_URL ?? "").replace(/\/+$/, "");
   const publicAppUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/+$/, "");
 
+  // Pull recent auth failure aggregates (last 7d) so the admin can see
+  // patterns at a glance — e.g. "5 redirect_uri_mismatch in last 24h".
+  const failures = await recentAuthFailureSummary({ sinceHours: 24 * 7, limit: 20 });
+
   // Build environments the app is likely deployed to. Each one needs its
   // own redirect URI registered. localhost is dev-only; the prod URL
   // (APP_URL) is what most users will hit; www.ikratom.org is the
@@ -86,6 +91,46 @@ export default async function OAuthConfigPage() {
           )}
         </p>
       </header>
+
+      {/* Recent failure summary — added 2026-05-15 for self-healing.
+          Surfaces clusters of auth failures so the admin can spot a new
+          config drift quickly (e.g. 5x redirect_uri_mismatch in 24h). */}
+      {failures.length > 0 && (
+        <section className="mb-6 rounded-lg border-2 border-amber-700/50 bg-amber-950/15 p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-amber-300">
+            🚨 Recent auth failures · last 7 days
+          </h2>
+          <p className="mt-1 text-[11px] text-amber-200/80">
+            Aggregated by (kind, provider, error code). If a cluster appears here, the auto-resolver couldn&apos;t recover — check the suggested fix.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {failures.map((f, i) => {
+              const fix = f.error_code ? suggestedFixForErrorCode(f.error_code) : null;
+              return (
+                <li key={i} className="rounded-md border border-amber-700/30 bg-zinc-950/40 p-3">
+                  <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                    <span className="font-mono text-2xl font-bold tabular-nums text-amber-200">{f.count}</span>
+                    <span className="font-mono text-zinc-200">{f.kind}</span>
+                    {f.provider && <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-300">{f.provider}</span>}
+                    {f.error_code && <span className="rounded bg-amber-950/60 px-1.5 py-0.5 text-amber-200">{f.error_code}</span>}
+                    <span className="ml-auto text-zinc-500">latest {new Date(f.latest_at).toLocaleString()}</span>
+                  </div>
+                  {fix && (
+                    <p className="mt-2 text-[12px] text-zinc-300">
+                      <span className="font-semibold text-emerald-400">Suggested fix:</span> {fix}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+      {failures.length === 0 && (
+        <p className="mb-6 rounded-md border border-emerald-700/40 bg-emerald-950/15 p-3 text-[12px] text-emerald-300">
+          ✓ No auth failures in last 7 days. Self-healing diagnostics armed and reporting clean.
+        </p>
+      )}
 
       {PROVIDERS.map((p) => {
         const clientId = process.env[`${p.envVarPrefix}_CLIENT_ID`];
