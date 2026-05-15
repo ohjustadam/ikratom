@@ -15,6 +15,7 @@ import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillL
 import { findSimilarBills } from "@/lib/bill-similarity";
 import { IntelTipForm } from "./IntelTipForm";
 import { Markdown } from "@/components/Markdown";
+import { dedupNews, type NewsItem } from "@/lib/news-dedup";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -304,19 +305,9 @@ export default async function BillDetailPage({
   }
 
   // News coverage — pull every news_items article linked through the
-  // policy_alerts → bill_id chain. Owner directive 2026-05-14: 'bills
-  // should also have all relative news articles attached, putting them
-  // together and telling their stories.' Dedupe heavily by title because
-  // News12 affiliates (Bronx/Westchester/Long Island/NJ/Hudson Valley)
-  // syndicate the same piece across 5+ regional URLs.
-  type NewsItem = {
-    id: string;
-    title: string;
-    source_name: string | null;
-    url: string;
-    published_at: string | null;
-    summary: string | null;
-  };
+  // policy_alerts → bill_id chain. Dedupe via shared lib (strips outlet
+  // suffixes, keeps earliest-published as canonical). See
+  // src/lib/news-dedup.ts.
   let newsCoverage: NewsItem[] = [];
   {
     const { data: linkedAlerts } = await supabase
@@ -332,32 +323,7 @@ export default async function BillDetailPage({
         .eq("active", true)
         .order("published_at", { ascending: false })
         .limit(50);
-      const all = (news ?? []) as NewsItem[];
-      // Dedupe by normalized title — strip outlet suffix patterns like
-      // " - News12 | Long Island" so syndicated copies collapse to one
-      // row. Keep the earliest-published copy as the canonical (usually
-      // the originating outlet).
-      const normalize = (t: string) => t
-        .toLowerCase()
-        .replace(/\s*[-—|]\s*[a-z0-9 .'’&]+$/i, "") // strip " — Newsday" / " | News12 ..."
-        .replace(/\s+/g, " ")
-        .trim();
-      const seen = new Map<string, NewsItem>();
-      for (const n of all) {
-        const key = normalize(n.title);
-        const existing = seen.get(key);
-        if (!existing) {
-          seen.set(key, n);
-          continue;
-        }
-        // Prefer earliest-published (originating outlet over syndication)
-        const existingTime = existing.published_at ? new Date(existing.published_at).getTime() : Infinity;
-        const newTime = n.published_at ? new Date(n.published_at).getTime() : Infinity;
-        if (newTime < existingTime) seen.set(key, n);
-      }
-      newsCoverage = [...seen.values()]
-        .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
-        .slice(0, 12);
+      newsCoverage = dedupNews((news ?? []) as NewsItem[], 12);
     }
   }
 
