@@ -3,29 +3,61 @@ import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
   title: "Intel hub — kratom policy",
-  description: "Federal lobbying disclosures, legislator donor profiles, and the structural map of kratom-industry political influence.",
+  description: "Federal lobbying, court litigation, rulemaking, money flow, and the structural map of kratom-industry political influence.",
 };
 export const dynamic = "force-dynamic";
 
 /**
- * /intel — the Art-of-War hub.
+ * /intel — the command center.
  *
- * Lays out the platform's intel sources in one place: federal
- * lobbying (Senate LDA), legislator donors (OpenFEC), per-legislator
- * briefings, per-state legislator triages. Anchors the "this isn't
- * surface-level reporting; this is intel-agency-grade research"
- * positioning the user articulated.
+ * Indexes the full federal intel stack we now pull together: Senate
+ * LDA lobbying filings, CourtListener court records, Regulations.gov
+ * rulemaking, USAspending.gov federal money flow, OpenFEC donors,
+ * the hand-curated industry actor registry, and the per-state intel
+ * triages.
+ *
+ * Anchor: "this isn't surface-level reporting; this is intel-agency-
+ * grade research across every free public-data source we could plug
+ * into." That positioning is the user's articulated framing.
  */
 export default async function IntelHubPage() {
   const sb = await createClient();
 
-  // Quick aggregates for the hub
-  const [lobbyingCount, donorCount, briefingCount, stanceCount] = await Promise.all([
+  // Quick aggregates for the hub. All counts; no row data so each
+  // query is cheap.
+  const [
+    lobbyingCount,
+    donorCount,
+    briefingCount,
+    stanceCount,
+    courtCasesCount,
+    federalRulemakingCount,
+    openCommentCount,
+    federalAwardsAgg,
+    industryPartyCasesCount,
+  ] = await Promise.all([
     sb.from("lobbying_filings").select("id", { count: "exact", head: true }),
     sb.from("legislator_donors").select("legislator_id", { count: "exact", head: true }).eq("resolved_status", "matched"),
     sb.from("legislators").select("id", { count: "exact", head: true }).eq("active", true),
     sb.from("legislator_kratom_stance").select("legislator_id", { count: "exact", head: true }).neq("stance", "unknown"),
+    sb.from("court_cases").select("id", { count: "exact", head: true }),
+    sb.from("federal_rulemaking").select("id", { count: "exact", head: true }),
+    sb.from("federal_rulemaking").select("id", { count: "exact", head: true }).eq("open_for_comment", true),
+    sb.from("federal_awards").select("amount"),
+    sb.from("court_cases").select("id", { count: "exact", head: true }).eq("parties_industry", true),
   ]);
+
+  // Sum federal-award dollar amounts
+  const awardTotal = (federalAwardsAgg.data ?? []).reduce(
+    (sum: number, r: { amount?: number | null }) => sum + (Number(r.amount) || 0),
+    0,
+  );
+  const awardCount = (federalAwardsAgg.data ?? []).length;
+  const awardTotalFmt = awardTotal >= 1_000_000
+    ? `$${(awardTotal / 1_000_000).toFixed(1)}M`
+    : awardTotal >= 1_000
+    ? `$${(awardTotal / 1_000).toFixed(0)}k`
+    : `$${awardTotal}`;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
@@ -38,25 +70,57 @@ export default async function IntelHubPage() {
         </h1>
         <p className="mt-3 max-w-3xl text-sm text-zinc-400">
           The kratom industry&apos;s political influence does NOT show in FEC campaign contributions — the dedicated PAC (Kratom Growth) is dormant and individual contributions from kratom-business employees total ~$14k. The real flow is through{" "}
-          <strong className="text-zinc-200">501(c)(4) lobbying</strong>, dark-money advocacy spend, and DC-firm retainers that disclose only the topline dollars (not who funds them). This hub indexes every public record we can pull together.
+          <strong className="text-zinc-200">501(c)(4) lobbying</strong>, retained DC firms, court litigation against state bans, federal rulemaking, and federally-funded academic research. This hub indexes every public record we can pull together.
         </p>
       </header>
 
-      <section className="mb-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Action-required banner — federal comment periods open NOW */}
+      {(openCommentCount.count ?? 0) > 0 && (
+        <section className="mb-6 rounded-lg border-2 border-amber-600/60 bg-amber-950/25 p-4">
+          <p className="text-sm font-semibold uppercase tracking-wider text-amber-300">
+            🚨 {openCommentCount.count} federal public comment period{openCommentCount.count === 1 ? "" : "s"} open NOW
+          </p>
+          <p className="mt-1 text-xs text-amber-200/80">
+            FDA / DEA / HHS rulemaking currently accepting public comments. Submitted comments become part of the official rule record. Open the rulemaking tracker to submit.
+          </p>
+          <Link href="/intel/rulemaking" className="mt-2 inline-block text-xs font-semibold text-emerald-400 hover:underline">
+            Open rulemaking tracker →
+          </Link>
+        </section>
+      )}
+
+      {/* Top-line stats — the full intel surface area */}
+      <section className="mb-10 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
         <StatCard
           label="LDA lobbying filings"
           value={lobbyingCount.count?.toLocaleString() ?? "0"}
-          sub="kratom-mentioning federal disclosures"
+          sub="kratom-mentioning Senate disclosures"
         />
         <StatCard
           label="Federal donor profiles"
           value={donorCount.count?.toLocaleString() ?? "0"}
-          sub="of ~531 federal legislators"
+          sub="OpenFEC, of ~531 federal legs"
+        />
+        <StatCard
+          label="Court cases"
+          value={courtCasesCount.count?.toLocaleString() ?? "0"}
+          sub={`${industryPartyCasesCount.count ?? 0} industry-party`}
+        />
+        <StatCard
+          label="Federal rulemaking docs"
+          value={federalRulemakingCount.count?.toLocaleString() ?? "0"}
+          sub={`${openCommentCount.count ?? 0} open for comment`}
+          tone={(openCommentCount.count ?? 0) > 0 ? "amber" : undefined}
+        />
+        <StatCard
+          label="Federal awards"
+          value={awardCount.toLocaleString()}
+          sub={`${awardTotalFmt} flowing federally`}
         />
         <StatCard
           label="Active legislators"
           value={briefingCount.count?.toLocaleString() ?? "0"}
-          sub="all have an /briefing page"
+          sub="all have a /briefing page"
         />
         <StatCard
           label="Real-signal stances"
@@ -75,11 +139,30 @@ export default async function IntelHubPage() {
           highlight
         />
         <Card
+          href="/intel/cases"
+          emoji="⚖"
+          title="Court litigation tracker"
+          body="Kratom-related court cases — published opinions interpreting state schedules and active RECAP dockets (where AKA / Botanic Tonics / GKC sue states or each other). The second battlefield after legislatures. Sourced from CourtListener / Free Law Project."
+          highlight
+        />
+        <Card
+          href="/intel/rulemaking"
+          emoji="🏛"
+          title="Federal rulemaking + open comment periods"
+          body="FDA / DEA / HHS / FTC kratom-related rulemaking from Regulations.gov. Active public-comment periods surface at the top with submit-now CTAs. When a federal agency opens a kratom rule, advocates can directly influence the final language."
+          highlight={(openCommentCount.count ?? 0) > 0}
+        />
+        <Card
+          href="/intel/awards"
+          emoji="💰"
+          title="Federal money flow"
+          body="Federal grants + contracts mentioning kratom from USAspending.gov. Who's getting paid by FDA / NIH / DEA to research, evaluate, or study kratom. The papers and findings funded by these awards become the evidence cited in future scheduling decisions."
+        />
+        <Card
           href="/intel/actors"
           emoji="🎭"
           title="Industry actor registry"
-          body="The people behind the dollars. Lobbyists (Haddow, Carlucci, Sermonti), industry orgs (AKA, GKC, BEA), kratom company executives (Derian/Botanaway), and the regulators with public positions. Every entry cites public-record evidence."
-          highlight
+          body="The people behind the dollars. Lobbyists (Haddow, Carlucci, Sermonti), industry orgs (AKA, GKC, BEA), kratom company executives, the regulators with public positions. Every entry cites public-record evidence."
         />
         <Card
           href="/legislators"
@@ -96,8 +179,8 @@ export default async function IntelHubPage() {
         <Card
           href="/bills"
           emoji="📋"
-          title="Bills — committee leverage map"
-          body="Every active kratom bill. When you&apos;re signed in, see which ones sit in committees where YOUR reps serve — the actual leverage windows."
+          title="Bills — committee leverage map + cross-state similarity"
+          body="Every active kratom bill. Click any → see committee leverage AND the bills it most resembles in other states (the KCPA wave is visible)."
         />
       </section>
 
@@ -107,26 +190,37 @@ export default async function IntelHubPage() {
           What we don&apos;t yet have:
         </p>
         <ul className="mt-2 space-y-1 text-xs text-zinc-400">
-          <li>· <strong className="text-zinc-300">State-level lobbying disclosures</strong> — 50 different state portals. AKA reports $4.4M state lobbying over 5 years but it&apos;s not centralized. State-by-state scraping effort (Phase 3).</li>
-          <li>· <strong className="text-zinc-300">501(c)(4) donor identity</strong> — AKA and GKC don&apos;t have to disclose who funds them. Form 990s show topline but not donor list. This is the &quot;dark money&quot; structural gap; only investigative journalism breaks it.</li>
-          <li>· <strong className="text-zinc-300">Voting records</strong> — roll-call data via LegiScan is on the roadmap.</li>
-          <li>· <strong className="text-zinc-300">Personal financial disclosures</strong> — federal STOCK Act PTRs are public but PDF-only and require parsing.</li>
-          <li>· <strong className="text-zinc-300">Press releases / public statements per legislator</strong> — would need a different news ingestion source.</li>
+          <li>· <strong className="text-zinc-300">Roll-call voting records</strong> — table + sync code shipped (LegiScan + OpenStates fallback). LegiScan path needs an API key in CI secrets to fully populate; OpenStates path is chipping at ~50 bills/day.</li>
+          <li>· <strong className="text-zinc-300">State-level lobbying disclosures</strong> — UT pilot live (16 active AKA / Botanic Tonics registrations captured). FL / NJ / CA / TX queued — each state needs its own adapter due to different bot-detection.</li>
+          <li>· <strong className="text-zinc-300">501(c)(4) donor identity</strong> — AKA and GKC don&apos;t have to disclose who funds them. Form 990s show topline but not donor list. The structural &quot;dark money&quot; gap; only investigative journalism breaks it.</li>
+          <li>· <strong className="text-zinc-300">Personal financial disclosures (STOCK Act)</strong> — federal legislators&apos; personal stock trades. Public but PDF-only and require parsing. On the roadmap as D3.</li>
+          <li>· <strong className="text-zinc-300">Per-legislator press releases</strong> — current news scrape is kratom-policy-focused not legislator-focused. A per-legislator press-release scraper would lift the news_mentions signal density meaningfully.</li>
         </ul>
       </section>
 
       <footer className="mt-8 text-[10px] text-zinc-500">
-        Data sources: Senate LDA (<a href="https://lda.senate.gov/" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">lda.senate.gov</a>), OpenFEC (<a href="https://api.open.fec.gov/developers/" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">api.open.fec.gov</a>), ProPublica Nonprofit Explorer, OpenStates. All public record.
+        Data sources: Senate LDA (<a href="https://lda.senate.gov/" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">lda.senate.gov</a>),
+        {" "}OpenFEC,
+        {" "}OpenStates,
+        {" "}LegiScan,
+        {" "}<a href="https://www.courtlistener.com" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">CourtListener / Free Law Project</a>,
+        {" "}<a href="https://www.regulations.gov" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">Regulations.gov</a>,
+        {" "}<a href="https://www.usaspending.gov" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">USAspending.gov</a>,
+        {" "}ProPublica Nonprofit Explorer, lobbyist.utah.gov. All public record.
       </footer>
     </div>
   );
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub: string }) {
+function StatCard({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: "amber" }) {
+  const cls = tone === "amber"
+    ? "border-amber-700/50 bg-amber-950/20"
+    : "border-zinc-800 bg-zinc-950/40";
+  const valCls = tone === "amber" ? "text-amber-200" : "text-zinc-100";
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-950/40 p-4">
+    <div className={`rounded-md border p-4 ${cls}`}>
       <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="mt-1 text-3xl font-bold tabular-nums text-zinc-100">{value}</p>
+      <p className={`mt-1 text-3xl font-bold tabular-nums ${valCls}`}>{value}</p>
       <p className="mt-1 text-[10px] text-zinc-500">{sub}</p>
     </div>
   );
