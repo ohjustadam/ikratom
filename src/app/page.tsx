@@ -164,6 +164,12 @@ export default async function HomePage() {
             🚫 See where it&apos;s banned
           </Link>
           <Link
+            href="/takeback"
+            className="rounded-md border border-amber-700/50 bg-amber-950/15 px-5 py-2.5 font-semibold text-amber-200 hover:border-amber-400"
+          >
+            🎯 Takeback plan
+          </Link>
+          <Link
             href="/pulse"
             className="rounded-md border border-zinc-700 px-5 py-2.5 font-semibold hover:border-emerald-500 hover:text-emerald-400"
           >
