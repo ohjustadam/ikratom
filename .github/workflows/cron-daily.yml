@@ -229,6 +229,31 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/verify-news-body.mjs --limit 200
 
+  sync-regulations-gov:
+    # Federal rulemaking tracker via Regulations.gov. Pulls every
+    # kratom-mentioning federal document (FDA/DEA/HHS/EPA/FTC notices,
+    # NDI submissions, proposed/final rules, public comments). Works
+    # with DEMO_KEY (~30/hr) out of the box; bump to a registered
+    # key (REGULATIONS_GOV_API_KEY) for ~1000/hr quota. Small corpus
+    # (62 docs as of 2026-05-14) so daily sync is more than enough.
+    # The high-leverage rows are open_for_comment=true — surfaced
+    # in every state briefing as a "submit comment NOW" CTA.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Sync federal kratom rulemaking
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REGULATIONS_GOV_API_KEY: ${{ secrets.REGULATIONS_GOV_API_KEY }}
+        run: node scripts/sync-regulations-gov-kratom.mjs --max-pages 5
+
   sync-courtlistener-kratom:
     # Court litigation tracking via CourtListener (Free Law Project).
     # Pulls federal + state court opinions AND active RECAP dockets
@@ -283,7 +308,7 @@ jobs:
     # Runs AFTER all the data-collection jobs so the briefing reflects
     # today's bill/news/BoP/state-lobbying state. ~5s per state × 51
     # states ≈ 5 min.
-    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom]
+    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
