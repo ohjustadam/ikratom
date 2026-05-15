@@ -271,6 +271,11 @@ export default async function AdminPage() {
             body="Known data integrity issues across bills + alerts + news. Trends toward zero as editorial + script refinements run."
           />
           <AdminCard
+            href="/admin/oauth-config"
+            title="OAuth config check"
+            body="Every redirect URI the app sends to Google / Discord. Use to fix 'Error 400: redirect_uri_mismatch' when users can't connect Gmail."
+          />
+          <AdminCard
             href="/admin/ai-control"
             title="AI Command Center"
             body="Live status of Ollama / Gemini / Groq + provider quotas + cost tracking."
