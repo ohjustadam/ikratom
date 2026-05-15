@@ -30,6 +30,13 @@
 
 Merge order: **#280 → ... → #298**.
 
+**Suggested merge cadence:** since Vercel Hobby rate-limited us mid-session (see issue #2 below), each merge triggers a fresh deploy + can re-trigger the rate limit. Recommended:
+- Merge #280 first (it's the meaty 8-part-directive PR — verify visually in browser before merging)
+- Wait for Vercel to settle, then merge #281-#283 together (or wait 24h for full reset)
+- Continue in batches of 2-3 with rest periods, OR upgrade to Vercel Pro (one-time decision)
+
+Alternative: merge all 19 in one batch and accept the rate-limit warnings — they don't block merges, they only block preview deploys. Once everything's on `main`, the canonical production deploy supersedes all preview deploys.
+
 Test suite: 107 → 230 tests (+123 overnight), all green. **THREE production bugs caught by the new tests overnight** — each would have required you to spot them visually after restart. The test investment paid off three times.
 
 ### The three production bugs:
