@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { ResearchSubmitCta } from "./ResearchSubmitCta";
 
 export const metadata = {
   title: "Kratom + 7-OH research library — peer-reviewed evidence",
@@ -78,6 +79,7 @@ export default async function ResearchIndex({ searchParams }: { searchParams?: P
         <p className="mt-2 text-xs text-zinc-500">
           {all?.length ?? 0} papers ingested · {totalEvaluated} AI-evaluated.
         </p>
+        <ResearchSubmitCta />
       </header>
 
       {/* Topic filter */}
