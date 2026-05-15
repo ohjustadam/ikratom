@@ -266,16 +266,19 @@ async function resolveOne(alert) {
     return { status: "no-legiscan-data" };
   }
 
-  const legiscanStatus = LEGISCAN_STATUS_MAP[legiscanBill.status];
-  console.log(`  LegiScan: ${legiscanStatus ?? "(unknown code " + legiscanBill.status + ")"}`);
+  const legiscanStatusRaw = LEGISCAN_STATUS_MAP[legiscanBill.status];
+  const legiscanStatus = normalizeStatus(legiscanStatusRaw);
+  console.log(`  LegiScan: ${legiscanStatusRaw ?? "(unknown code " + legiscanBill.status + ")"}`);
 
   // CASE 3: LegiScan matches DB → AI was wrong
-  if (legiscanStatus === dbStatus) {
+  // Pre-fix: this compared `legiscanStatus === dbStatus` where dbStatus was
+  // undefined, so the branch was never taken. Now uses dbStatusNorm.
+  if (legiscanStatus === dbStatusNorm) {
     console.log("  ✓ LegiScan confirms DB — AI was wrong, auto-resolving");
     if (!DRY_RUN) {
       await sb.from("policy_alerts").update({
         moderation_status: "rejected",
-        moderation_note: `Auto-resolved: LegiScan confirms DB status (${dbStatus}). AI claim of "${aiStatus}" was wrong.`,
+        moderation_note: `Auto-resolved: LegiScan confirms DB status (${bill.status}). AI claim of "${aiStatus}" was wrong.`,
         moderated_at: new Date().toISOString(),
       }).eq("id", alert.id);
     }
@@ -283,7 +286,7 @@ async function resolveOne(alert) {
   }
 
   // CASE 4: LegiScan matches AI → DB was stale, update DB + resolve
-  if (legiscanStatus === aiStatus) {
+  if (legiscanStatus === aiStatusNorm) {
     console.log("  ✓ LegiScan confirms AI — updating bill from LegiScan + auto-resolving");
     if (!DRY_RUN) {
       // Find the most recent action from LegiScan
