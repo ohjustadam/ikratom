@@ -191,6 +191,29 @@ When `.env.local` and Vercel disagree on a value (and they sometimes will, e.g. 
 
 ---
 
+## OAuth setup checklist (Google / Discord)
+
+Every OAuth provider needs its **authorized redirect URI** registered in the matching developer console. If a URI isn't registered, the user sees a generic `Error 400: redirect_uri_mismatch` page on the provider's domain — they don't return to iKratom at all, so iKratom can't show a friendly error.
+
+**Required redirect URIs to register for each environment:**
+
+| Environment | URI suffix to add |
+|---|---|
+| Production (canonical) | `https://www.ikratom.org/api/oauth/<provider>/callback` |
+| Vercel preview | `https://ikratom.vercel.app/api/oauth/<provider>/callback` |
+| Local dev | `http://localhost:3001/api/oauth/<provider>/callback` |
+
+Register all three in each provider's console so the same client works everywhere.
+
+**Providers + consoles:**
+
+- **Google** (Gmail send-on-behalf): https://console.cloud.google.com/apis/credentials → OAuth 2.0 Client IDs → your client → Authorized redirect URIs
+- **Discord** (link account): https://discord.com/developers/applications → your app → OAuth2 → Redirects
+
+**Diagnostic surface:** `/admin/oauth-config` shows the live URIs the app generates per provider, plus which env vars are set. Use it to spot-check before debugging code.
+
+---
+
 ## Working partnership
 
 The owner's framing: *"You're the brain partner, hands and fingers, and memory. I'm the visionary architect."* What that means in practice:

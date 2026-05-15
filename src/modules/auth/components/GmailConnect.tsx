@@ -93,6 +93,8 @@ function prettyError(code: string): string {
       return "You denied the Gmail permission. Try again to enable one-click sending.";
     case "no_refresh":
       return "Google didn't return a refresh token. Try again — and accept the consent screen.";
+    case "redirect_uri_mismatch":
+      return "Google's OAuth config doesn't have this site's URL registered yet. Notify the admin — they can fix this in 60 seconds via /admin/oauth-config.";
     case "token_exchange":
     case "token_fetch":
       return "Couldn't exchange the auth code with Google. Try again in a moment.";
