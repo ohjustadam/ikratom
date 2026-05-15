@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { extractSponsor, extractBlurb, repealPath } from "@/lib/takeback";
 
 export const metadata = {
   title: "Takeback — the offense + defense plan for every banned state",
@@ -45,55 +46,9 @@ const STATE_NAMES: Record<string, string> = {
   VT: "Vermont", WI: "Wisconsin", TN: "Tennessee",
 };
 
-// Extract the sponsor line from opposition_summary_md (it's the first
-// '**Sponsor + push**:' bolded block we wrote in the seed). Falls back
-// to '(see plan)' if no match.
-function extractSponsor(md: string | null): string {
-  if (!md) return "—";
-  const m = md.match(/\*\*Sponsor \+ push\*\*:\s*([^.\n]{10,180})/i)
-    ?? md.match(/\*\*Mechanism\*\*:\s*([^.\n]{10,180})/i);
-  return m?.[1]?.trim() ?? "—";
-}
-
-// First-paragraph extract from the markdown for the card blurb. Strips
-// markdown bold/italics for compact display.
-function extractBlurb(md: string | null, max = 240): string {
-  if (!md) return "";
-  const firstPara = md.split(/\n\s*\n/)[0] ?? "";
-  const plain = firstPara
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\*(.+?)\*/g, "$1")
-    .replace(/\n+/g, " ")
-    .trim();
-  return plain.length > max ? plain.slice(0, max) + "…" : plain;
-}
-
-// Categorize the state's ban path. Drives the "Repeal difficulty" badge.
-function repealPath(state: string, billNumber: string): { label: string; cls: string; note: string } {
-  // Admin-rule bans (AR/RI/VT) — can be repealed administratively without
-  // a legislative override. Easier path.
-  if (/(DEA-list|DOH-rule|Reg-Drugs)/i.test(billNumber)) {
-    return {
-      label: "Admin-rule ban",
-      cls: "border-emerald-700/40 bg-emerald-950/15 text-emerald-300",
-      note: "Repeal does NOT require legislation — a future Health Director can rescind.",
-    };
-  }
-  // Imminent — TN's HB 1649 path
-  if (state === "TN") {
-    return {
-      label: "Imminent ban",
-      cls: "border-amber-700/50 bg-amber-950/15 text-amber-200",
-      note: "Phase 1 = pre-signature veto pressure. Phase 2 = post-signature repeal pathway.",
-    };
-  }
-  // Statutory bans — need full legislative repeal
-  return {
-    label: "Statutory ban",
-    cls: "border-zinc-700 bg-zinc-950/40 text-zinc-300",
-    note: "Repeal requires a state legislature vote. Harder path.",
-  };
-}
+// Helpers (extractSponsor, extractBlurb, repealPath) moved to
+// src/lib/takeback.ts so they're independently testable.
+// See tests in src/lib/__tests__/takeback.test.ts.
 
 export default async function TakebackPage() {
   const sb = await createClient();
@@ -237,7 +192,7 @@ export default async function TakebackPage() {
 function BanCard({ row, highlight }: { row: Row; highlight?: boolean }) {
   const sponsor = extractSponsor(row.opposition_summary_md);
   const blurb = extractBlurb(row.opposition_summary_md);
-  const path = repealPath(row.state, row.bill_number);
+  const path = repealPath(row);
   const cls = highlight
     ? "border-amber-600/60 bg-amber-950/15 hover:border-amber-400"
     : "border-zinc-800 bg-zinc-950/40 hover:border-emerald-500";
