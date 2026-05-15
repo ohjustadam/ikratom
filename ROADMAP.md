@@ -1,7 +1,7 @@
 # iKratom — Master Roadmap
 
-_Living doc. Last updated 2026-05-14 — major intel-network buildout complete (PRs #221–#254)._
-_See companion docs for deep dives: `docs/NY_COMPLETION_CHECKLIST.md`, `docs/MULTI_STATE_EXPANSION.md`, `docs/NY_INTEL_DEPTH_AND_AI_ROADMAP.md`, `docs/ROADMAP-NEWSROOM.md`, `docs/USER_TODOS.md`, `docs/VISION.md`, `SECURITY.md`, `APP_STORE_READINESS.md`._
+_Living doc. Last updated 2026-05-15 — overnight push shipped PRs #280–#283 layering takeback intel, neutral templates, news correlation, and admin observability on top of the May 13–14 intel-network buildout._
+_See companion docs for deep dives: `docs/OVERNIGHT_2026-05-15.md` (latest handoff), `docs/NY_COMPLETION_CHECKLIST.md`, `docs/MULTI_STATE_EXPANSION.md`, `docs/NY_INTEL_DEPTH_AND_AI_ROADMAP.md`, `docs/ROADMAP-NEWSROOM.md`, `docs/USER_TODOS.md`, `docs/VISION.md`, `SECURITY.md`, `APP_STORE_READINESS.md`._
 
 ---
 
@@ -92,6 +92,36 @@ Per-legislator action plans grounded in real research. Sourced from Senate LDA (
 
 ---
 
+## Phase F — Banned-state takeback + correlation + observability (✅ shipped May 14-15)
+
+The May 14–15 push extends three threads of the prior work: (a) making the banned-state intel real and discoverable, (b) connecting the news pipeline back to the bills it's about, (c) lowering the admin's signal-to-noise so they don't drown in fake queues.
+
+| PR | What |
+|---|---|
+| #280 | 8-part directive: /states/[code] active-vs-zombie filter + Suffolk visibility, /bills/[id] news coverage, **neutral campaign templates** (migration 0142), bill-anchor guard on auto-campaign trigger, home page mission framing + stat strip, /admin honest stats + force-dynamic, sync auto-resolver keyword tie-break |
+| #281 | /takeback hub — every banning state's offense + defense in one page, with admin-rule vs statutory grouping |
+| #282 | /states/[code] news coverage (same dedup pattern as bill detail page) |
+| #283 | /admin/intel-health queue + freshness watch (6-row drift dashboard) + experimental backfill-alert-bill-linkage script (skeleton for future news→bill correlation) |
+
+### Data work applied live alongside the PRs
+
+- Migration 0141 — `opposition_summary_md` + `repeal_plan_md` columns on bills
+- Migration 0142 — neutral templates + bill-anchor guard in trigger
+- Editorial seed: 7 banning states (AL/AR/IN/RI/VT/WI/TN) + 24 named stakeholders
+- Suffolk County: 18 sitting legislators backfilled with web-verified email/phone/party
+- 21 Suffolk policy_alerts retroactively linked to bill_id 56286cb1 + 5 mis-localities fixed
+- 238 pending news-only auto-campaigns mass-rejected (queue 239 → 1)
+- 13 sync discrepancies auto-resolved via keyword tie-break (queue 22 → 9)
+- 2 misclassified bills fixed: ME LD 1546 → status='dead', TN SB 1656 → status='introduced'
+
+### Cross-state pattern captured on /takeback
+
+- AR / RI / VT are admin-rule bans → easiest repeal targets (no legislative vote)
+- AL / IN / WI are statutory → need a KCPA bill carrier
+- TN HB 1649 is imminent → pre-signature veto pressure is highest-leverage moment
+
+---
+
 ## Phase D — Open work (next in queue)
 
 ### D1. Voting records (medium leverage, medium effort)
@@ -122,7 +152,13 @@ pgvector extension + `mxbai-embed-large` via Ollama. Cross-state bill similarity
 `ai_decisions` table + `recordAdminAction` hook + weekly failure-mode report. Six hours.
 
 ### D10. Admin dashboards over all signals (item F)
-Briefing freshness per state, stance coverage per state, committee coverage, FP rates, cron health. Six hours.
+Briefing freshness per state, stance coverage per state, committee coverage, FP rates, cron health. Six hours. **Partial credit shipped in PR #283** — `/admin/intel-health` got a 6-row queue + freshness watch at the top (campaigns pending, sync discrepancies, intel tips, local fights, stale briefings, stance coverage link). Per-state expansion still TODO.
+
+### D11. News → bill correlation (added 2026-05-15)
+The /bills/[id] news-coverage section relies on the `policy_alerts.bill_id` chain. Only ~5% of approved alerts have a bill_id linked. The PR #283 experiment confirmed bill numbers don't reliably appear in alert titles — the signal lives in `news_items.body` and `news_items.summary`. **Plan**: regex-extract bill numbers from news_items body text, match against bills in same state, populate a direct `news_items.bill_id` column (new migration). Would 10x the news shown per bill detail page. Half-day effort + needs precision testing on edge cases (NY S 5 vs NY S 5531 etc.).
+
+### D12. Stale-title bill cleanup (added 2026-05-15)
+39 bills have title mentioning kratom but `summary_long` about something else (LA SB 154 pattern — session bill-number reuse). Two fix paths in `docs/OVERNIGHT_2026-05-15.md`. Recommended: modify `scripts/sync-bills.mjs::classify()` to also consider summary_long when present + downgrade to 'neutral' when title and summary disagree. Or: title refresh from upstream during each OpenStates sync.
 
 ---
 
@@ -144,7 +180,7 @@ Listed in priority order. See `docs/USER_TODOS.md` for the full free-tonight che
 1. **PostHog key in Vercel env** — `NEXT_PUBLIC_POSTHOG_KEY` not set in deploy env yet, so prod doesn't fire client-side events. MCP is connected but seeing 0 pageviews because of this. ~30s.
 2. **Brave Search API key** — `BRAVE_API_KEY`. Backup grounded search when Gemini hits quota. Free 2k/mo. ~5min signup.
 3. **GlitchTip or Sentry DSN** — error monitoring. `SENTRY_DSN` env var works for both. Free tier on each. ~5min.
-4. **Home page A/B/C pick** — pick one of `/home-a` / `/home-b` / `/home-c` as the canonical homepage.
+4. ~~**Home page A/B/C pick**~~ — superseded 2026-05-14. Canonical home (`/`) was revamped in PR #280 with the new mission framing + stat strip + Takeback CTA. The `/home-a` / `/home-b` / `/home-c` variants remain as A/B refs but `/` is the canonical landing.
 5. **R2 bucket creds** — activates in-app video uploads. Cloudflare R2 free tier exists. ~10min.
 6. **Stance review** at `/admin/stance?state=NY` — 153 AI-drafted stances need 5-10s clicks each. Focus on champions (8) and hostiles (16). ~30min for spot-check or full review.
 7. **PWA install test** on phone — verify `/install/android` and `/install/ios` flows. ~5min.
