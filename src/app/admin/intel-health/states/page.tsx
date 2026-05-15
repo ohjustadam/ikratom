@@ -75,7 +75,7 @@ export default async function PerStateIntelHealthPage() {
   // stacks old briefings via is_active=false), and include the
   // critique audit trail from D5 + the body length for the D7
   // health check.
-  const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists, billVotes, courtCases] = await Promise.all([
+  const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists, billVotes, courtCases, federalRulemaking] = await Promise.all([
     supabase.from("profiles").select("state").not("state", "is", null),
     supabase.from("bills").select("state").eq("active", true),
     supabase.from("municipal_meetings")
@@ -110,6 +110,10 @@ export default async function PerStateIntelHealthPage() {
     supabase.from("court_cases")
       .select("state")
       .not("state", "is", null),
+    // Federal rulemaking — NATIONAL layer, not per-state. We just
+    // count totals + open-for-comment count for the top-line stats.
+    supabase.from("federal_rulemaking")
+      .select("open_for_comment, agency_id"),
   ]);
 
   // Aggregate
@@ -238,6 +242,12 @@ export default async function PerStateIntelHealthPage() {
     { users: 0, bills: 0, meetings: 0, alerts: 0, news_mentions: 0, state_lobbyists: 0, bill_votes: 0, flagged: 0 },
   );
 
+  // Federal rulemaking aggregates (NATIONAL — not per-state).
+  type FedRuleRow = { open_for_comment: boolean | null; agency_id: string | null };
+  const fedRows = (federalRulemaking.data ?? []) as FedRuleRow[];
+  const fedTotal = fedRows.length;
+  const fedOpenForComment = fedRows.filter(r => r.open_for_comment).length;
+
   // Surface ops blockers: when an entire intel layer is at 0 across
   // all 51 states, something is broken at the secrets/cron level —
   // not a per-state coverage gap. Surface plainly so the owner knows
@@ -288,7 +298,7 @@ export default async function PerStateIntelHealthPage() {
       )}
 
       {/* Top-line totals */}
-      <section className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+      <section className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-5">
         <Stat label="Total advocates" value={totals.users} />
         <Stat label="Active bills" value={totals.bills} />
         <Stat label="Upcoming meetings" value={totals.meetings} />
@@ -296,8 +306,27 @@ export default async function PerStateIntelHealthPage() {
         <Stat label="News mentions" value={totals.news_mentions} />
         <Stat label="State lobbyists" value={totals.state_lobbyists} />
         <Stat label="Voting records" value={totals.bill_votes} tone={totals.bill_votes === 0 ? "warn" : undefined} />
-        <Stat label="Briefings flagged" value={totals.flagged} tone={totals.flagged > 0 ? "warn" : undefined} />
+        <Stat label="Court cases" value={(fedTotal > 0 || totals.bill_votes > 0) ? sorted.reduce((a, s) => a + s.court_cases, 0) : 0} />
+        <Stat label="Federal docs" value={fedTotal} />
+        <Stat
+          label="🚨 Open fed comments"
+          value={fedOpenForComment}
+          tone={fedOpenForComment > 0 ? "warn" : undefined}
+        />
       </section>
+      {fedOpenForComment > 0 && (
+        <section className="mb-6 rounded-lg border-2 border-amber-600/60 bg-amber-950/25 p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-300">⚠ Federal public comment periods open NOW</h2>
+          <p className="mt-1 text-[11px] text-amber-200/80">
+            {fedOpenForComment} federal rulemaking docket{fedOpenForComment === 1 ? "" : "s"} accepting public comments right now. These are direct-influence moves for advocates — comments submitted via Regulations.gov are part of the official record.
+          </p>
+        </section>
+      )}
+      {totals.flagged > 0 && (
+        <section className="mb-6 rounded-lg border border-red-700/50 bg-red-950/15 p-3 text-[11px] text-red-200">
+          {totals.flagged} state briefing{totals.flagged === 1 ? "" : "s"} flagged for regen (see per-state cards below).
+        </section>
+      )}
 
       {/* Per-state grid */}
       <section>

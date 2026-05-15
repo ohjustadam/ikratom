@@ -242,6 +242,7 @@ ${committeeSection}
 ${stanceSection}
 ${stateLobbyingSection}
 ${buildCourtCasesSection(data)}
+${buildFederalRulemakingSection(data)}
 
 STATE STATUS (from states table):
   kratom_status: ${data.stateStatus ?? "(unset)"}
@@ -295,11 +296,49 @@ function buildCourtCasesSection(data) {
   return lines.join("\n");
 }
 
+/**
+ * Build the FEDERAL RULEMAKING section. National layer — every state
+ * briefing includes this because FDA/DEA/HHS rules apply uniformly.
+ * Two priority levels:
+ *   1. open_for_comment=true — actionable RIGHT NOW. The advocate
+ *      can submit a public comment via Regulations.gov today and
+ *      directly influence the rule.
+ *   2. Recent (last 6 months) — context for what the federal
+ *      battlefield looks like.
+ */
+function buildFederalRulemakingSection(data) {
+  const rows = data.federalRulemaking ?? [];
+  if (rows.length === 0) {
+    return `\nFEDERAL RULEMAKING ACTIVITY: (no recent kratom rulemaking on file in Regulations.gov. Sync runs daily; new items appear as agencies post them.)`;
+  }
+  const open = rows.filter(r => r.open_for_comment);
+  const closed = rows.filter(r => !r.open_for_comment);
+  const lines = [];
+  lines.push(`\nFEDERAL RULEMAKING ACTIVITY (Regulations.gov):`);
+  if (open.length > 0) {
+    lines.push(`  🚨 OPEN PUBLIC COMMENT PERIODS — advocates can submit RIGHT NOW (${open.length}):`);
+    for (const r of open.slice(0, 5)) {
+      lines.push(`    - [${r.agency_id}] ${r.document_type ?? "?"} closes ${r.comment_end_date}: ${r.title.slice(0, 110)}`);
+      if (r.rg_url) lines.push(`      submit at: ${r.rg_url}`);
+    }
+    lines.push(`    These are the highest-leverage advocate moves of the week — submitting comments on FDA/DEA rules directly influences final-rule language.`);
+  } else {
+    lines.push(`  No federal comment periods currently open for kratom rulemaking.`);
+  }
+  if (closed.length > 0) {
+    lines.push(`  RECENT FEDERAL ACTIVITY (last 6 months, context — ${closed.length}):`);
+    for (const r of closed.slice(0, 3)) {
+      lines.push(`    - [${r.agency_id}] ${(r.posted_date ?? "?").slice(0, 10)} · ${r.document_type ?? "?"}: ${r.title.slice(0, 110)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 async function loadStateData(state) {
   // Parallel data fetch — includes capital info, sponsors, stances, committees
   const [
     stateRow, capitalRow, legsAll, bills, bopSrc, bopFindings, news, camps,
-    stanceRows, committeeRows, stateLobbyistRows, courtCaseRows,
+    stanceRows, committeeRows, stateLobbyistRows, courtCaseRows, federalRulemakingRows,
   ] = await Promise.all([
     sb.from("states").select("abbr, name, kratom_status, notes").eq("abbr", state).maybeSingle(),
     sb.from("state_capital_info")
@@ -356,6 +395,16 @@ async function loadStateData(state) {
       .eq("state", state)
       .order("date_filed", { ascending: false, nullsFirst: false })
       .limit(15),
+    // Federal rulemaking from Regulations.gov. This is NATIONAL —
+    // every state briefing surfaces the federal action layer because
+    // FDA/DEA/HHS rules apply uniformly. The high-leverage rows are
+    // open_for_comment=true (advocates can submit comments TODAY).
+    // Limit to recent + open-now items.
+    sb.from("federal_rulemaking")
+      .select("title, agency_id, document_type, posted_date, comment_end_date, open_for_comment, rg_url")
+      .or("open_for_comment.eq.true,posted_date.gte." + new Date(Date.now() - 180 * 86400000).toISOString())
+      .order("posted_date", { ascending: false, nullsFirst: false })
+      .limit(10),
   ]);
 
   // Sponsors: pull all rows for these specific bills + their resolved legislator names.
@@ -411,6 +460,7 @@ async function loadStateData(state) {
     committees: committeeRows.data ?? [],
     stateLobbyists: stateLobbyistRows.data ?? [],
     courtCases: courtCaseRows.data ?? [],
+    federalRulemaking: federalRulemakingRows.data ?? [],
   };
 }
 
