@@ -4,6 +4,33 @@
 > said so nothing gets lost between now and shipping each piece. Some
 > items ship in this PR; most are durable plans that need budget + design
 > decisions before they go live.
+>
+> **Update 2026-05-15 PM**: Owner specified zero recurring budget. Plan
+> rewritten to ship the maximum-free-tier version of each phase now,
+> with the paid upgrade preserved as a drop-in replacement once budget
+> exists. See "Free tier first" section below for the implementation
+> ladder per feature.
+
+## Free tier first — what ships now vs what waits for budget
+
+Every paid item in this doc has a free alternative that gets us 60-90%
+of the value at $0. We ship the free version first; we leave clean
+swap-in points for the paid version. **Shipping the free tier is not
+"settling" — it's the actual delivery.**
+
+| Feature | Free tier (ship now) | Paid upgrade (when budget exists) |
+|---|---|---|
+| **Audio TTS** | `window.speechSynthesis` (browser) — works on Mac/iOS/Win/Android, lower quality | ElevenLabs ($5-22/mo) pre-rendered to Supabase Storage |
+| **PDF storage + viewing** | Supabase Storage (1GB free, ~200 papers) + iframe viewer | Cloudflare R2 ($0.015/GB/mo at scale) + PDF.js with annotations |
+| **Chatbot persona** | Admin-only RAG-style canned responses from `research_papers` DB (no API call) | Anthropic Claude API ($50-300/mo) with full conversational memory |
+| **AI paper analysis** | Manual admin abstracts + topic tagging via `topics: ['needs_review']` | Anthropic batch job populating `ai_*` fields automatically |
+| **File uploads** | Supabase Storage private bucket + signed URLs | Same, just larger storage budget |
+| **Translation (SEA)** | Cached translations table (one-time human/Google-Translate seed) | Anthropic translation per-page on demand |
+| **Realtime presence** | Supabase Realtime (free tier) — already in use | Same — no upgrade needed |
+| **Sound effects** | CC0 royalty-free MP3s in /public/sounds | Same — no upgrade needed |
+| **Site animations** | Plain CSS + framer-motion (free) | Same — no upgrade needed |
+
+The upshot: of everything in this vision, **only the chatbot persona and the high-quality TTS truly need recurring budget**. Everything else ships free.
 
 ## North Star (the persona, the brain, the morals)
 

@@ -77,7 +77,7 @@ export default async function SubmitResearchPage() {
           </Link>
         </div>
       ) : (
-        <SubmitResearchForm submitterName={profile?.full_name ?? user.email ?? "you"} />
+        <SubmitResearchForm submitterName={profile?.full_name ?? user.email ?? "you"} userId={user.id} />
       )}
 
       <footer className="mt-8 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-[11px] text-zinc-400">
