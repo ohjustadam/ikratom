@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
+import { dedupNews, type NewsItem } from "@/lib/news-dedup";
 
 export const dynamic = "force-dynamic";
 
@@ -196,32 +197,10 @@ export default async function StatePage({ params }: Props) {
       if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
     }
   }
-  // Dedup news items — News12 affiliates and Newsday echo-posts produce
-  // 3-5+ identical-title rows per real story. Strip outlet suffixes then
-  // collapse to one entry (keep earliest published as canonical = the
-  // originating outlet).
-  type NewsItem = {
-    id: string; title: string; source_name: string | null; url: string;
-    published_at: string | null; summary: string | null;
-  };
-  const rawNews = (newsRaw.data ?? []) as NewsItem[];
-  const normalizeNewsTitle = (t: string) =>
-    t.toLowerCase()
-     .replace(/\s*[-—|]\s*[a-z0-9 .'’&]+$/i, "")
-     .replace(/\s+/g, " ")
-     .trim();
-  const seenNews = new Map<string, NewsItem>();
-  for (const n of rawNews) {
-    const key = normalizeNewsTitle(n.title);
-    const existing = seenNews.get(key);
-    if (!existing) { seenNews.set(key, n); continue; }
-    const aT = existing.published_at ? new Date(existing.published_at).getTime() : Infinity;
-    const bT = n.published_at ? new Date(n.published_at).getTime() : Infinity;
-    if (bT < aT) seenNews.set(key, n);
-  }
-  const news = [...seenNews.values()]
-    .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
-    .slice(0, 12);
+  // Dedup news via shared lib (src/lib/news-dedup.ts) — strips outlet
+  // suffixes (News12 affiliates, Newsday, AOL/MSN echoes) and keeps the
+  // earliest-published copy of each story as canonical.
+  const news = dedupNews((newsRaw.data ?? []) as NewsItem[], 12);
 
   const STATE_FRESH_DAYS = 30;
   const STATE_FRESH_MS = STATE_FRESH_DAYS * 86_400_000;
