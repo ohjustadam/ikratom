@@ -33,10 +33,15 @@ export function normalizeLocality(input: string | null | undefined, defaultState
     })
     .join(" ");
 
-  // Uppercase state code
-  const upperState = statePart.toUpperCase().slice(0, 2);
+  // Uppercase state code — must be EXACTLY 2 letters. The previous
+  // implementation did `.toUpperCase().slice(0, 2)` which silently
+  // truncated full state names ("missouri" → "MI") and corrupted them
+  // (MI is Michigan, MO is Missouri). If the state portion isn't a
+  // clean 2-letter code we drop it and return city-only.
+  const upperState = statePart.toUpperCase().trim();
   if (!/^[A-Z]{2}$/.test(upperState)) {
-    // No valid state suffix — return city alone
+    // No valid state suffix — return city alone. Caller can re-attempt
+    // with explicit defaultState if they have one.
     return titledCity;
   }
   return `${titledCity}, ${upperState}`;
