@@ -78,6 +78,7 @@ export default async function IntelHealthPage() {
     { count: pendingCampaigns },
     { count: pendingIntelTips },
     { count: localFightsOpen },
+    { count: takebackBacklog },
   ] = await Promise.all([
     supabase.from("state_briefings").select("state", { count: "exact", head: true }),
     supabase.from("state_briefings").select("state", { count: "exact", head: true })
@@ -92,6 +93,15 @@ export default async function IntelHealthPage() {
       .eq("active", true).eq("kratom_relevance", "anti")
       .in("scope", ["county", "municipal"])
       .in("status", ["introduced", "committee"]),
+    // Editorial backlog: state-scope enacted-or-imminent anti-kratom bills
+    // that DON'T yet have takeback intel curated. These are the rows
+    // that /banned currently filters OUT (because opposition_summary_md
+    // is the trust signal for "actual full ban") — but they may need
+    // human review to confirm whether to write takeback content for them.
+    supabase.from("bills").select("id", { count: "exact", head: true })
+      .eq("active", true).eq("kratom_relevance", "anti").eq("scope", "state")
+      .in("status", ["enacted", "passed_chamber"])
+      .is("opposition_summary_md", null),
   ]);
 
   return (
@@ -186,6 +196,13 @@ export default async function IntelHealthPage() {
             label="State briefings stale (60d+)"
             count={briefingsStale ?? 0}
             note={`${briefingsTotal ?? 0} total briefings indexed`}
+            warnAt={5}
+          />
+          <QueueRow
+            href="/admin/bills?status=enacted&relevance=anti&scope=state&takeback=missing"
+            label="Takeback intel editorial backlog"
+            count={takebackBacklog ?? 0}
+            note="State-scope enacted/imminent anti-kratom bills missing opposition_summary_md (won't show on /banned until curated)"
             warnAt={5}
           />
           <QueueRow
