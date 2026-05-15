@@ -107,6 +107,14 @@ export default async function BannedPage() {
         <p className="mt-3 max-w-3xl text-sm text-zinc-400">
           Every state, county, and city where kratom is currently banned, plus state bans that are imminent. Each entry links to the underlying bill detail page where you&apos;ll find sponsors, stakeholders to contact, and a form to submit local intel. <strong className="text-zinc-200">Going forward: every new local ordinance triggers a tracked bill row automatically</strong> (via the hourly extractor + body watchlist). If something&apos;s missing, the intel-tip form on any bill page is the fastest way to surface it.
         </p>
+        <div className="mt-4">
+          <Link
+            href="/takeback"
+            className="inline-block rounded-md border border-amber-700/50 bg-amber-950/15 px-4 py-2 text-sm font-semibold text-amber-200 hover:border-amber-400"
+          >
+            🎯 See the takeback plan for every banned state →
+          </Link>
+        </div>
       </header>
 
       {/* Top-line stats */}
