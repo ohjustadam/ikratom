@@ -243,6 +243,7 @@ ${stanceSection}
 ${stateLobbyingSection}
 ${buildCourtCasesSection(data)}
 ${buildFederalRulemakingSection(data)}
+${buildFederalAwardsSection(data)}
 
 STATE STATUS (from states table):
   kratom_status: ${data.stateStatus ?? "(unset)"}
@@ -334,11 +335,40 @@ function buildFederalRulemakingSection(data) {
   return lines.join("\n");
 }
 
+/**
+ * Build the FEDERAL AWARDS section — the money-flow layer. Surfaces
+ * the top federal grants and contracts mentioning kratom. Most
+ * actionable signal: agency-paid abuse-potential studies that
+ * directly inform DEA scheduling decisions (e.g. FDA → Baylor's
+ * $3.78M Human Abuse Potential Study of Kratom).
+ *
+ * National layer (like federal rulemaking) — every state briefing
+ * surfaces this because federal awards shape national policy.
+ */
+function buildFederalAwardsSection(data) {
+  const awards = data.federalAwards ?? [];
+  if (awards.length === 0) {
+    return `\nFEDERAL AWARDS / RESEARCH FUNDING: (USAspending.gov sync hasn't run or no kratom-related federal awards on file yet.)`;
+  }
+  const total = awards.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+  const lines = [];
+  lines.push(`\nFEDERAL AWARDS / RESEARCH FUNDING (USAspending.gov — federal money flowing to kratom-related work):`);
+  lines.push(`  Top ${awards.length} awards, $${total.toLocaleString()} total. These are who the FDA/NIH are paying to study, classify, or develop kratom-related work — and the research papers that emerge will be cited in future rulemaking + scheduling decisions.`);
+  for (const r of awards.slice(0, 6)) {
+    const amt = Number(r.amount) || 0;
+    const agency = r.awarding_sub_agency || r.awarding_agency || "?";
+    lines.push(`    - $${amt.toLocaleString()} [${agency.slice(0, 30)}] → ${(r.recipient_name || "?").slice(0, 50)}`);
+    if (r.description) lines.push(`        "${r.description.slice(0, 130).replace(/\s+/g, " ")}…"`);
+  }
+  lines.push(`  When advocates engage federal agencies, knowing which research is funded by whom shapes the conversation. University of Florida, Cornell, Baylor, JHU dominate the kratom academic-research dollar flow.`);
+  return lines.join("\n");
+}
+
 async function loadStateData(state) {
   // Parallel data fetch — includes capital info, sponsors, stances, committees
   const [
     stateRow, capitalRow, legsAll, bills, bopSrc, bopFindings, news, camps,
-    stanceRows, committeeRows, stateLobbyistRows, courtCaseRows, federalRulemakingRows,
+    stanceRows, committeeRows, stateLobbyistRows, courtCaseRows, federalRulemakingRows, federalAwardRows,
   ] = await Promise.all([
     sb.from("states").select("abbr, name, kratom_status, notes").eq("abbr", state).maybeSingle(),
     sb.from("state_capital_info")
@@ -405,6 +435,16 @@ async function loadStateData(state) {
       .or("open_for_comment.eq.true,posted_date.gte." + new Date(Date.now() - 180 * 86400000).toISOString())
       .order("posted_date", { ascending: false, nullsFirst: false })
       .limit(10),
+    // Federal awards from USAspending.gov. Money-flow layer — who's
+    // getting paid by the feds for kratom-related work. Surfaces
+    // research grants (NIH → UF, Cornell, JHU) and FDA contracts
+    // (abuse-potential studies that feed DEA scheduling). Cap to
+    // top 8 by amount — these are the rows that meaningfully change
+    // the policy landscape.
+    sb.from("federal_awards")
+      .select("amount, awarding_agency, awarding_sub_agency, recipient_name, recipient_state, description, category, start_date, end_date, usa_url")
+      .order("amount", { ascending: false, nullsFirst: false })
+      .limit(8),
   ]);
 
   // Sponsors: pull all rows for these specific bills + their resolved legislator names.
@@ -461,6 +501,7 @@ async function loadStateData(state) {
     stateLobbyists: stateLobbyistRows.data ?? [],
     courtCases: courtCaseRows.data ?? [],
     federalRulemaking: federalRulemakingRows.data ?? [],
+    federalAwards: federalAwardRows.data ?? [],
   };
 }
 
