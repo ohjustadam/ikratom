@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { marked } from "marked";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SignUpNudge } from "@/components/SignUpNudge";
+import { AudioReader } from "@/components/AudioReader";
 
 export const metadata = { title: "Research paper" };
 export const dynamic = "force-dynamic";
@@ -35,6 +37,24 @@ export default async function ResearchPaperPage({
     .eq("is_active", true)
     .maybeSingle();
   if (!p) notFound();
+
+  // If this paper has an uploaded file in our storage bucket, issue a
+  // fresh 1-hour signed URL so the reader can view it without making the
+  // bucket public. Re-issued on every page load — short TTL is fine.
+  let uploadedSignedUrl: string | null = null;
+  if (p.uploaded_storage_path) {
+    try {
+      const admin = createServiceClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false } },
+      );
+      const { data: signed } = await admin.storage
+        .from("research-uploads")
+        .createSignedUrl(p.uploaded_storage_path as string, 60 * 60);
+      uploadedSignedUrl = signed?.signedUrl ?? null;
+    } catch { /* non-fatal — fall through to link-less render */ }
+  }
 
   const findingsHtml = p.ai_key_findings_md
     ? await marked.parse(p.ai_key_findings_md as string, { gfm: true, breaks: false })
@@ -133,8 +153,31 @@ export default async function ResearchPaperPage({
               Full text ↗
             </a>
           )}
+          {uploadedSignedUrl && (
+            <a href={uploadedSignedUrl} target="_blank" rel="noopener noreferrer"
+              className="rounded bg-emerald-700 px-2.5 py-1 font-semibold text-white hover:bg-emerald-600">
+              📄 View uploaded PDF
+            </a>
+          )}
         </div>
       </header>
+
+      {/* Embedded PDF viewer when we have an uploaded file — keeps users
+          in-app instead of bouncing to the bucket URL. Falls back to the
+          link above for non-PDF MIME types (txt/md). */}
+      {uploadedSignedUrl && p.uploaded_storage_path && (p.uploaded_storage_path as string).toLowerCase().endsWith(".pdf") && (
+        <section className="mb-6">
+          <p className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">Uploaded PDF</p>
+          <iframe
+            src={uploadedSignedUrl}
+            className="h-[700px] w-full rounded-lg border border-zinc-800 bg-zinc-950"
+            title={`PDF of "${p.title}"`}
+          />
+          <p className="mt-1 text-[10px] text-zinc-600">
+            Hosted privately. Signed URL refreshes hourly on this page; don&apos;t share the URL directly — link to this page instead.
+          </p>
+        </section>
+      )}
 
       {/* Signup nudge — research-paper readers are high-affinity advocates */}
       <SignUpNudge context="research" className="mb-6" />
@@ -201,9 +244,17 @@ export default async function ResearchPaperPage({
       {/* Original abstract — never edited */}
       {p.abstract && (
         <section>
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-zinc-300">
-            Original abstract (verbatim)
-          </h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
+              Original abstract (verbatim)
+            </h2>
+            <AudioReader
+              id={`paper-${p.id}-abstract`}
+              text={`${p.title}. By ${(p.authors as string[] | null)?.join(", ") ?? "unknown authors"}. ${p.publication_year ? `Published ${p.publication_year}.` : ""} Abstract: ${p.abstract as string}`}
+              label="Listen to abstract"
+              compact
+            />
+          </div>
           <article className="briefing-md text-sm whitespace-pre-wrap text-zinc-300">
             {p.abstract}
           </article>

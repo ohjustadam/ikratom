@@ -37,6 +37,105 @@ export type SubmitResult =
 
 const URL_RE = /^https?:\/\/[^\s]+$/i;
 
+/**
+ * Variant: paper submission where the user uploaded a PDF (or text/markdown)
+ * directly via Supabase Storage. The client has already pushed the file to
+ * the bucket `research-uploads/{user_id}/{rand}/{filename}` and passes us:
+ *   - storagePath: bucket-relative path used to issue signed URLs later
+ *   - filename: original filename for the title fallback
+ *   - sizeBytes: for the audit log only
+ *   - optional metadata fields the user typed in
+ */
+export async function submitResearchPaperUpload(input: {
+  storagePath: string;
+  filename: string;
+  sizeBytes?: number;
+  title?: string;
+  authorsCsv?: string;
+  journal?: string;
+  publicationYear?: number;
+  abstract?: string;
+}): Promise<SubmitResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not signed in." };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, is_owner, is_advocate_leader, full_name")
+    .eq("id", user.id)
+    .maybeSingle();
+  const isPrivileged = !!(profile?.is_admin || profile?.is_owner || profile?.is_advocate_leader);
+  if (!isPrivileged) {
+    return { ok: false, error: "Research submissions are limited to advocate leaders + admins." };
+  }
+
+  // Storage path safety: must live under the user's own folder + bucket
+  if (!input.storagePath || !input.storagePath.startsWith(`${user.id}/`)) {
+    return { ok: false, error: "Storage path must be in your own folder." };
+  }
+
+  // Sanitize the title / authors / abstract user input
+  const title = (input.title ?? input.filename ?? "Untitled upload").trim().slice(0, 500);
+  const authors = input.authorsCsv
+    ? input.authorsCsv.split(",").map((a) => a.trim()).filter(Boolean).slice(0, 50).map((a) => a.slice(0, 200))
+    : [];
+  const journal = input.journal?.trim().slice(0, 200) || null;
+  const year = input.publicationYear && input.publicationYear >= 1900 && input.publicationYear <= 2100
+    ? input.publicationYear : null;
+  const abstract = input.abstract?.trim().slice(0, 5000) || null;
+
+  const admin = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  );
+
+  // Build a signed URL valid for the canonical public link. We re-issue
+  // these per-render on /research/[id] so this is just for the initial
+  // insert breadcrumb.
+  const { data: signed } = await admin.storage
+    .from("research-uploads")
+    .createSignedUrl(input.storagePath, 60 * 60 * 24 * 365); // 1 year — long-lived, but private bucket
+
+  const { data: inserted, error: insErr } = await admin
+    .from("research_papers")
+    .insert({
+      title,
+      abstract,
+      authors,
+      journal,
+      publication_year: year,
+      pdf_url: signed?.signedUrl ?? null,
+      uploaded_storage_path: input.storagePath,
+      topics: ["needs_review", "leader_submitted", "uploaded_pdf"],
+      study_type: null,
+      ingested_via: "leader_upload",
+      admin_notes_md: `Uploaded by ${profile?.full_name ?? user.email} on ${new Date().toISOString().slice(0, 10)}. Size ${Math.round((input.sizeBytes ?? 0) / 1024)} KB. Storage path: ${input.storagePath}. Pending AI evaluation pass.`,
+      is_active: true,
+    })
+    .select("id")
+    .single();
+
+  if (insErr || !inserted) {
+    return { ok: false, error: `Couldn't save: ${insErr?.message ?? "unknown error"}` };
+  }
+
+  try {
+    await recordAdminAction({
+      action: "research.leader_upload",
+      details: {
+        paper_id: inserted.id,
+        storage_path: input.storagePath,
+        filename: input.filename.slice(0, 200),
+        size_bytes: input.sizeBytes ?? 0,
+      },
+    });
+  } catch { /* non-fatal */ }
+
+  return { ok: true, paperId: inserted.id, isDuplicate: false };
+}
+
 export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

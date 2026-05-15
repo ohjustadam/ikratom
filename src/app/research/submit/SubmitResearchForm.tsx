@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { submitResearchPaper } from "@/modules/research/submit-actions";
+import { submitResearchPaper, submitResearchPaperUpload } from "@/modules/research/submit-actions";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * Submit form with staged kratom-leaf progress.
@@ -41,9 +42,21 @@ const PHASES = [
   { label: "Saving to the sanctuary", duration: 800 },
 ];
 
-export function SubmitResearchForm({ submitterName }: { submitterName: string }) {
+type Mode = "url" | "upload";
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB — matches bucket cap from migration 0145
+const ALLOWED_MIME = new Set(["application/pdf", "text/plain", "text/markdown"]);
+
+export function SubmitResearchForm({ submitterName, userId }: { submitterName: string; userId: string }) {
   const router = useRouter();
+  const [mode, setMode] = useState<Mode>("url");
   const [url, setUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [title, setTitle] = useState("");
+  const [authorsCsv, setAuthorsCsv] = useState("");
+  const [journal, setJournal] = useState("");
+  const [year, setYear] = useState("");
+  const [abstract, setAbstract] = useState("");
   const [pending, startTransition] = useTransition();
   const [phaseIdx, setPhaseIdx] = useState(-1); // -1 = not started
   const [quipIdx, setQuipIdx] = useState(0);
@@ -73,12 +86,57 @@ export function SubmitResearchForm({ submitterName }: { submitterName: string })
     return () => { cancelled = true; };
   }, [pending]);
 
+  async function uploadFileToStorage(f: File): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+    if (f.size > MAX_UPLOAD_BYTES) {
+      return { ok: false, error: `File is ${(f.size / 1024 / 1024).toFixed(1)} MB; limit is 10 MB.` };
+    }
+    if (!ALLOWED_MIME.has(f.type)) {
+      return { ok: false, error: `File type ${f.type || "(unknown)"} not allowed. Accepted: PDF, plain text, markdown.` };
+    }
+    // Path: {user_id}/{paper_uuid_placeholder}/{safe_filename}
+    const rand = crypto.randomUUID();
+    const safeName = f.name.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 200);
+    const path = `${userId}/${rand}/${safeName}`;
+    const sb = createClient();
+    const { error: upErr } = await sb.storage.from("research-uploads").upload(path, f, {
+      contentType: f.type,
+      upsert: false,
+    });
+    if (upErr) return { ok: false, error: `Upload failed: ${upErr.message}` };
+    return { ok: true, path };
+  }
+
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setQuipIdx(Math.floor(Math.random() * KRATOM_QUIPS.length));
     startTransition(async () => {
-      const result = await submitResearchPaper(url.trim());
+      let result;
+      if (mode === "url") {
+        result = await submitResearchPaper(url.trim());
+      } else {
+        if (!file) {
+          setError("Pick a file first.");
+          setPhaseIdx(-1);
+          return;
+        }
+        const up = await uploadFileToStorage(file);
+        if (!up.ok) {
+          setError(up.error);
+          setPhaseIdx(-1);
+          return;
+        }
+        result = await submitResearchPaperUpload({
+          storagePath: up.path,
+          filename: file.name,
+          sizeBytes: file.size,
+          title: title.trim() || undefined,
+          authorsCsv: authorsCsv.trim() || undefined,
+          journal: journal.trim() || undefined,
+          publicationYear: year.trim() ? parseInt(year, 10) : undefined,
+          abstract: abstract.trim() || undefined,
+        });
+      }
       if (!result.ok) {
         setError(result.error);
         setPhaseIdx(-1);
@@ -90,34 +148,143 @@ export function SubmitResearchForm({ submitterName }: { submitterName: string })
     });
   }
 
+  const canSubmit = mode === "url" ? !!url.trim() : !!file;
+
   return (
     <div>
+      {/* Mode toggle — paste URL OR upload file */}
+      <div className="mb-4 flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-sm">
+        <button
+          type="button"
+          onClick={() => setMode("url")}
+          disabled={pending}
+          className={`flex-1 rounded px-3 py-1.5 transition ${
+            mode === "url" ? "bg-emerald-950/40 text-emerald-300 font-semibold" : "text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          🔗 URL
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("upload")}
+          disabled={pending}
+          className={`flex-1 rounded px-3 py-1.5 transition ${
+            mode === "upload" ? "bg-emerald-950/40 text-emerald-300 font-semibold" : "text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          📄 Upload file
+        </button>
+      </div>
+
       <form onSubmit={onSubmit} className="space-y-4">
-        <div>
-          <label className="block text-xs font-medium text-zinc-400" htmlFor="url">
-            Research paper URL
-          </label>
-          <input
-            id="url"
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://pubs.acs.org/doi/10.1021/acs.jmedchem.6c00991"
-            required
-            disabled={pending}
-            className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none disabled:opacity-60"
-          />
-          <p className="mt-1 text-[10px] text-zinc-500">
-            DOI URLs work too (doi.org/...). Submitting as <span className="text-zinc-300">{submitterName}</span>.
-          </p>
-        </div>
+        {mode === "url" ? (
+          <div>
+            <label className="block text-xs font-medium text-zinc-400" htmlFor="url">
+              Research paper URL
+            </label>
+            <input
+              id="url"
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://pubs.acs.org/doi/10.1021/acs.jmedchem.6c00991"
+              required={mode === "url"}
+              disabled={pending}
+              className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none disabled:opacity-60"
+            />
+            <p className="mt-1 text-[10px] text-zinc-500">
+              DOI URLs work too (doi.org/...). Submitting as <span className="text-zinc-300">{submitterName}</span>.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400" htmlFor="file">
+                Research paper file
+              </label>
+              <input
+                id="file"
+                type="file"
+                accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                disabled={pending}
+                className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-950/30 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-emerald-300 disabled:opacity-60"
+              />
+              <p className="mt-1 text-[10px] text-zinc-500">
+                PDF, plain text, or markdown. Up to 10 MB. Files stored privately; readers get signed URLs at render time.
+                {file && (
+                  <span className="ml-2 text-zinc-300">
+                    Selected: <span className="font-mono">{file.name}</span> ({(file.size / 1024).toFixed(0)} KB)
+                  </span>
+                )}
+              </p>
+            </div>
+            <details className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
+              <summary className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">
+                Optional metadata (title, authors, journal…) — click to expand
+              </summary>
+              <div className="mt-3 space-y-3">
+                <input
+                  type="text"
+                  placeholder="Title (defaults to filename if blank)"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  disabled={pending}
+                  maxLength={500}
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none disabled:opacity-60"
+                />
+                <input
+                  type="text"
+                  placeholder="Authors (comma-separated)"
+                  value={authorsCsv}
+                  onChange={(e) => setAuthorsCsv(e.target.value)}
+                  disabled={pending}
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none disabled:opacity-60"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    placeholder="Journal"
+                    value={journal}
+                    onChange={(e) => setJournal(e.target.value)}
+                    disabled={pending}
+                    maxLength={200}
+                    className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none disabled:opacity-60"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Year (e.g. 2026)"
+                    value={year}
+                    onChange={(e) => setYear(e.target.value)}
+                    disabled={pending}
+                    min={1900}
+                    max={2100}
+                    className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none disabled:opacity-60"
+                  />
+                </div>
+                <textarea
+                  placeholder="Abstract or summary"
+                  value={abstract}
+                  onChange={(e) => setAbstract(e.target.value)}
+                  disabled={pending}
+                  rows={4}
+                  maxLength={5000}
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none disabled:opacity-60"
+                />
+                <p className="text-[10px] text-zinc-500">
+                  Skip any field — admins will fill gaps during the editorial review pass. Submitting as <span className="text-zinc-300">{submitterName}</span>.
+                </p>
+              </div>
+            </details>
+          </>
+        )}
 
         <button
           type="submit"
-          disabled={pending || !url.trim()}
+          disabled={pending || !canSubmit}
           className="inline-flex items-center gap-2 rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
         >
-          {pending ? "Processing…" : "Add to library →"}
+          {pending ? "Processing…" : mode === "url" ? "Add to library →" : "Upload + add →"}
         </button>
 
         {error && (
