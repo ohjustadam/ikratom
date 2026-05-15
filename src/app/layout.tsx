@@ -161,6 +161,14 @@ export default async function RootLayout({
                 auth state without round-tripping to the client. */}
             <nav className="hidden items-center gap-3 text-sm md:flex">
               <HeaderNav />
+              <a
+                href="/search"
+                aria-label="Site search"
+                title="Search bills, research, legislators, campaigns, discussions"
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-zinc-200 hover:text-emerald-400"
+              >
+                🔎<span className="sr-only">Search</span>
+              </a>
               <span className="mx-1 h-5 w-px bg-zinc-800" aria-hidden />
               <HeaderShare />
               <HeaderAuth />
