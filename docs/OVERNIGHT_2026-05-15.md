@@ -18,10 +18,20 @@
 | #287 | feat-nav-takeback-people | surface /takeback, /banned, /people in main + mobile nav | Discoverability for the new pages |
 | #288 | feat-takeback-helpers-tests | refactor + 20 tests + **fixes a real bug** in extractSponsor | Caught: every /takeback card was showing "—" for sponsor in production |
 | #289 | feat-news-dedup-lib | extract news-dedup to lib + 16 tests + **fixes another real bug** | Caught: news-dedup wasn't collapsing multi-segment syndicate suffixes (News12 + Newsday were showing as 2 rows for the same story) |
+| #290 | feat-takeback-editorial-backlog | takeback editorial backlog row on /admin/intel-health | Warns admin when new banned states sync in but lack takeback intel |
+| #291 | feat-sitemap-new-pages | surface /banned, /takeback, /people in sitemap.xml | Search-engine discoverability for the new SEO surfaces |
+| #292 | feat-bill-title-tests | 17 tests for displayTitle + displaySubtitle | Pure coverage investment; no bugs caught here |
+| #293 | feat-locality-tests | tests for normalizeLocality + **fixes a critical correctness bug** | Caught: "Marshall, missouri" was being normalized to "Marshall, MI" (Michigan, not Missouri!) — would silently misclassify any user typing a full state name |
 
-Merge order: **#280 → #281 → #282 → #283 → #284 → #285 → #286 → #287 → #288 → #289**.
+Merge order: **#280 → ... → #293**.
 
-Test suite: 107 → 143 tests, all green. Two production bugs caught by the new tests that I shipped tonight — both would have required you to spot them visually after restart. The test investment paid off twice.
+Test suite: 107 → 176 tests, all green. **THREE production bugs caught by the new tests overnight** — each would have required you to spot them visually after restart. The test investment paid off three times.
+
+### The three production bugs:
+
+1. **PR #288** — `/takeback` was showing "—" for every sponsor card because the regex disallowed periods, but every seeded entry begins with "Sen." or "Rep."
+2. **PR #289** — News from News12 + Newsday for the same story showed as 2 rows because the dedup regex didn't iterate through multi-segment outlet suffixes
+3. **PR #293** — `normalizeLocality` silently truncated full state names, so "Marshall, missouri" became "Marshall, MI" (Michigan!). Any user typing a full state name would be misclassified.
 
 After each merge, the next PR's diff cleans up. All four pass `npm run verify` (107 tests + typecheck) at every commit on every branch.
 
