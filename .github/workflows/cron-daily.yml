@@ -74,6 +74,36 @@ jobs:
           OPENFEC_API_KEY: ${{ secrets.OPENFEC_API_KEY }}
         run: node scripts/sync-legislator-donors.mjs --limit 50
 
+  sync-stock-act-trades:
+    # STOCK Act personal-trade disclosures for federal legislators
+    # (Periodic Transaction Reports). Pulls Senate + House data from
+    # community-maintained mirrors (Senate Stock Watcher GitHub +
+    # House Stock Watcher S3). Free, no auth. Surfaces the
+    # Mullin-Botanic-Tonics pattern: federal lawmakers with personal
+    # financial exposure to kratom-adjacent industries (pharma opioid
+    # makers, addiction treatment firms, substance-policy overlapping
+    # tickers).
+    #
+    # As of first live run (2026-05-14): 8,350 Senate trades captured;
+    # 213 flagged kratom-adjacent (Perdue / Carper / Moran trading
+    # AbbVie / Pfizer / Merck / etc.). House data path was 403 at
+    # probe time but the script attempts and skips gracefully when
+    # the source is down.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Sync federal legislator STOCK Act trades
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/sync-stock-act-trades.mjs
+
   lda-kratom-sync:
     # Pulls every Senate LDA filing mentioning kratom, refreshes our
     # lobbying_filings table. New filings drop quarterly so daily
