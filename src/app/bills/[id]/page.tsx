@@ -51,6 +51,7 @@ type BillRow = {
   local_meta_extracted_at: string | null;
   opposition_summary_md: string | null;
   repeal_plan_md: string | null;
+  forum_thread_id: string | null;
 };
 
 type Stance = "bans" | "restricts" | "schedules" | "preserves" | "neutral" | "unaddressed";
@@ -158,7 +159,8 @@ export default async function BillDetailPage({
       "substance_targeting, substance_targeting_analyzed_at, " +
       "summary_long, bill_text_versions, text_synced_at, " +
       "local_meta, local_meta_extracted_at, " +
-      "opposition_summary_md, repeal_plan_md",
+      "opposition_summary_md, repeal_plan_md, " +
+      "forum_thread_id",
     )
     .eq("id", id)
     .single();
@@ -227,6 +229,29 @@ export default async function BillDetailPage({
     similarBills = await findSimilarBills(supabase, id, { limit: 5, minSimilarity: 0.6 });
   } catch {
     // Pre-migration deploy or query error — silent fallback.
+  }
+
+  // Forum thread — every active anti/pro bill at state/federal scope
+  // gets one auto-posted by scripts/auto-post-bills-to-forum.mjs. We
+  // surface it so people landing on /bills/<id> can join the discussion
+  // instead of comments living invisibly on /forum/<state>. Wrapped
+  // defensively: stale forum_thread_id refs return null and we render
+  // a "start the discussion" CTA instead.
+  type ForumThreadSummary = {
+    id: string;
+    state: string | null;
+    title: string;
+    post_count: number;
+    last_activity_at: string | null;
+  };
+  let forumThread: ForumThreadSummary | null = null;
+  if (bill.forum_thread_id) {
+    const { data } = await supabase
+      .from("forum_threads")
+      .select("id, state, title, post_count, last_activity_at")
+      .eq("id", bill.forum_thread_id)
+      .maybeSingle();
+    if (data) forumThread = data as unknown as ForumThreadSummary;
   }
 
   // Linked campaigns (auto-generated or hand-written for this bill)
@@ -835,6 +860,52 @@ export default async function BillDetailPage({
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {/* Community discussion — every active anti/pro state/federal bill
+          gets an auto-posted forum thread (see scripts/auto-post-bills-to-forum.mjs).
+          Surfacing the link here makes the comments discoverable from
+          /bills/<id>. Falls back to "start the discussion" when no thread
+          exists yet. */}
+      {forumThread ? (
+        <section className="mb-6 rounded-lg border border-sky-700/40 bg-sky-950/15 p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-sky-300">
+              💬 Community discussion
+            </h2>
+            <span className="text-[10px] text-zinc-500">
+              {forumThread.post_count === 0 ? "no replies yet — be first" : `${forumThread.post_count} repl${forumThread.post_count === 1 ? "y" : "ies"}`}
+              {forumThread.last_activity_at && forumThread.post_count > 0 && (
+                <span> · last {new Date(forumThread.last_activity_at).toLocaleDateString()}</span>
+              )}
+            </span>
+          </div>
+          <a
+            href={`/forum/${(forumThread.state ?? "federal").toLowerCase()}/${forumThread.id}`}
+            className="mt-2 block rounded-md border border-sky-800/30 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-100 hover:border-sky-500"
+          >
+            {forumThread.title.length > 110 ? forumThread.title.slice(0, 110) + "…" : forumThread.title}
+            <span className="ml-2 text-xs text-sky-300">Join thread →</span>
+          </a>
+          <p className="mt-2 text-[11px] text-zinc-500">
+            Native comments on the {(forumThread.state ?? "federal").toUpperCase()} forum. Reply with on-the-ground updates, hearing audio, or coordination — visible to every iKratom member.
+          </p>
+        </section>
+      ) : (bill.kratom_relevance === "anti" || bill.kratom_relevance === "pro") && bill.scope === "state" && bill.state && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
+            💬 Community discussion
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            No forum thread for this bill yet. The auto-poster picks up active anti/pro state bills hourly. Want to start the discussion now?
+          </p>
+          <a
+            href={`/forum/${bill.state.toLowerCase()}/new`}
+            className="mt-2 inline-block rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+          >
+            Start a thread on /forum/{bill.state} →
+          </a>
         </section>
       )}
 
