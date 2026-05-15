@@ -86,6 +86,28 @@ export default async function HomePage() {
 
   const activeCount = campaigns?.length ?? 0;
 
+  // Coverage numbers for the mission stat strip — pulled in parallel
+  // with the campaign data above for the same query budget.
+  const [
+    { count: bannedStateCount },
+    { count: activeBillCount },
+    { count: imminentBanCount },
+    { count: localBanCount },
+  ] = await Promise.all([
+    supabase.from("bills").select("state", { count: "exact", head: true })
+      .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
+      .eq("status", "enacted").not("opposition_summary_md", "is", null),
+    supabase.from("bills").select("id", { count: "exact", head: true })
+      .eq("active", true).in("kratom_relevance", ["anti", "pro"])
+      .gte("last_action_at", new Date(Date.now() - 365 * 86_400_000).toISOString()),
+    supabase.from("bills").select("id", { count: "exact", head: true })
+      .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
+      .eq("status", "passed_chamber"),
+    supabase.from("bills").select("id", { count: "exact", head: true })
+      .eq("kratom_relevance", "anti").eq("active", true).eq("status", "enacted")
+      .in("scope", ["county", "municipal"]),
+  ]);
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
       {/* International callout — only shows for non-English locales */}
@@ -95,19 +117,73 @@ export default async function HomePage() {
         </div>
       )}
 
-      {/* Band 1 — Hero (C voice: action-first) */}
-      <section className="border-b border-zinc-800 pb-6">
+      {/* Band 1 — Hero. Owner directive 2026-05-14: 'we need to get the
+          message across clearly and broadly what we are here to do and
+          that we will accomplish our mission together.' Lead with the
+          mission, follow with the live signal, end with the call to act. */}
+      <section className="border-b border-zinc-800 pb-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          ◉ Live policy feed · {activeCount} active action{activeCount === 1 ? "" : "s"}
+          ◉ Nonpartisan kratom advocacy · live policy feed
         </p>
         <h1 className="mt-3 text-4xl font-bold leading-tight sm:text-5xl">
-          Pick one.<br/>
-          <span className="text-zinc-400">Send it in two minutes.</span>
+          Kratom policy moves fast.<br/>
+          <span className="text-emerald-400">We move faster — together.</span>
         </h1>
-        <p className="mt-4 max-w-2xl text-base text-zinc-400">
-          A nonpartisan toolbelt for kratom advocates. Every card below is a real
-          bill or rule-change moving in your state — we wrote the letter, found
-          your reps, built the one-click flow. Sign in, prefill, send.
+        <p className="mt-5 max-w-2xl text-base leading-relaxed text-zinc-300">
+          Every day, a city council, state legislature, or federal agency
+          decides something about kratom. Most advocates don&apos;t hear
+          about it until it&apos;s too late. <span className="font-semibold text-zinc-100">iKratom flips that.</span>
+        </p>
+        <p className="mt-3 max-w-2xl text-base leading-relaxed text-zinc-400">
+          We track every bill, hearing, and ordinance in the United States,
+          surface the ones that affect you, write the letter to your specific
+          legislators, and put a one-click send button on it. You decide what
+          to say. We make it possible to actually say it.
+        </p>
+
+        {/* Mission stat strip — concrete answer to 'what is at stake' */}
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MissionStat value={bannedStateCount ?? 0} label="States banning kratom" tone="red" />
+          <MissionStat value={imminentBanCount ?? 0} label="Imminent state bans" tone={(imminentBanCount ?? 0) > 0 ? "amber" : "neutral"} />
+          <MissionStat value={localBanCount ?? 0} label="County + city bans" tone="red" />
+          <MissionStat value={activeBillCount ?? 0} label="Bills tracked this year" tone="emerald" />
+        </div>
+
+        {/* CTAs */}
+        <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+          <Link
+            href="/signup"
+            className="rounded-md bg-emerald-500 px-5 py-2.5 font-semibold text-zinc-950 hover:bg-emerald-400"
+          >
+            Join the network — 90 seconds →
+          </Link>
+          <Link
+            href="/banned"
+            className="rounded-md border border-red-700/50 bg-red-950/15 px-5 py-2.5 font-semibold text-red-300 hover:border-red-400"
+          >
+            🚫 See where it&apos;s banned
+          </Link>
+          <Link
+            href="/pulse"
+            className="rounded-md border border-zinc-700 px-5 py-2.5 font-semibold hover:border-emerald-500 hover:text-emerald-400"
+          >
+            🚨 Live pulse
+          </Link>
+        </div>
+      </section>
+
+      {/* Band 1.5 — Active actions header */}
+      <section className="mt-8">
+        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+          ◉ {activeCount} active action{activeCount === 1 ? "" : "s"} right now
+        </p>
+        <h2 className="mt-2 text-2xl font-bold sm:text-3xl">
+          Pick one. <span className="text-zinc-400">Send it in two minutes.</span>
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+          Every card is a real bill or rule-change moving in your jurisdiction. We
+          wrote the letter, found your reps, built the one-click flow. You read,
+          edit, send.
         </p>
       </section>
 
@@ -305,6 +381,22 @@ function Card({ icon, title, body }: { icon: string; title: string; body: string
       <p className="text-3xl">{icon}</p>
       <h3 className="mt-3 text-lg font-semibold">{title}</h3>
       <p className="mt-2 text-sm leading-relaxed text-zinc-400">{body}</p>
+    </div>
+  );
+}
+
+function MissionStat({ value, label, tone }: {
+  value: number; label: string; tone: "red" | "amber" | "emerald" | "neutral";
+}) {
+  const cls =
+    tone === "red"     ? "border-red-700/50 bg-red-950/20 text-red-200" :
+    tone === "amber"   ? "border-amber-700/50 bg-amber-950/20 text-amber-200" :
+    tone === "emerald" ? "border-emerald-700/40 bg-emerald-950/15 text-emerald-200" :
+                         "border-zinc-800 bg-zinc-950/40 text-zinc-300";
+  return (
+    <div className={`rounded-md border p-3 text-center ${cls}`}>
+      <p className="text-3xl font-bold tabular-nums">{value.toLocaleString()}</p>
+      <p className="mt-1 text-[10px] uppercase tracking-wider opacity-80">{label}</p>
     </div>
   );
 }

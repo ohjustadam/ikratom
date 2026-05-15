@@ -173,10 +173,56 @@ async function resolveOne(alert) {
     return { status: "auto-resolved", reason: wasSynonym ? "synonym-match" : "db-caught-up" };
   }
 
+  // CASE 1.5: Keyword tie-break from last_action text. Owner directive
+  // 2026-05-14: 'you should always audit and fix these before they reach
+  // me.' When DB and AI disagree, the bill's own last_action text often
+  // contains an unambiguous signal: "Approved by the Governor", "Chapter
+  // 429", "Session Sine Die", "Died", "Placed in Legislative Files".
+  // Trust those over either the DB status (which may be stale) or the AI
+  // claim (which may be wrong).
+  const lastAction = bill.last_action ?? "";
+  const lastActionAt = bill.last_action_at ? new Date(bill.last_action_at) : null;
+  const ageDays = lastActionAt ? Math.floor((Date.now() - lastActionAt.getTime()) / 86_400_000) : null;
+  const ENACTED_PATTERNS = [
+    /approved by the governor/i, /signed by (the )?governor/i, /became law/i,
+    /\bchapter\s+\d+\b/i, /effective date/i, /^enacted\b/i,
+  ];
+  const DEAD_PATTERNS = [
+    /session sine die/i, /\bdied\b/i, /indefinitely postponed/i,
+    /\bwithdrawn\b/i, /placed in legislative files/i, /\bvetoed\b/i,
+  ];
+  let keywordStatus = null;
+  let keywordReason = "";
+  if (aiStatusNorm === "enacted" && ENACTED_PATTERNS.some((re) => re.test(lastAction))) {
+    keywordStatus = "enacted";
+    keywordReason = `last_action "${lastAction.slice(0, 60)}" matches enacted pattern + AI agrees`;
+  } else if (aiStatusNorm === "dead" && DEAD_PATTERNS.some((re) => re.test(lastAction))) {
+    keywordStatus = "dead";
+    keywordReason = `last_action "${lastAction.slice(0, 60)}" matches dead pattern + AI agrees`;
+  } else if (aiStatusNorm === "dead" && ageDays != null && ageDays >= 730) {
+    // 2+ year old with AI saying dead — almost certainly from a closed session
+    keywordStatus = "dead";
+    keywordReason = `last_action_at is ${ageDays}d old (>= 2yr threshold) + AI confirms dead`;
+  }
+  if (keywordStatus) {
+    console.log(`  ✓ keyword tie-break: ${bill.status} → ${keywordStatus} (${keywordReason})`);
+    if (!DRY_RUN) {
+      if (bill.status !== keywordStatus) {
+        await sb.from("bills").update({ status: keywordStatus }).eq("id", bill.id);
+      }
+      await sb.from("policy_alerts").update({
+        moderation_status: "rejected",
+        moderation_note: `Auto-resolved via keyword tie-break: ${keywordReason}`,
+        moderated_at: new Date().toISOString(),
+      }).eq("id", alert.id);
+    }
+    return { status: "auto-resolved", reason: "keyword-tiebreak" };
+  }
+
   // Skip the LegiScan tie-break if we don't have a key — those alerts
   // stay open for manual admin review.
   if (!HAS_LEGISCAN) {
-    console.log("  ⏭  DB ≠ AI and LegiScan disabled — leaving open for admin");
+    console.log("  ⏭  DB ≠ AI, no keyword signal, LegiScan disabled — leaving open for admin");
     return { status: "no-legiscan-match" };
   }
 
@@ -285,9 +331,11 @@ const t0 = Date.now();
 const counts = {
   "auto-resolved": 0,
   "db-caught-up": 0,
+  "keyword-tiebreak": 0,
   "ai-wrong": 0,
   "ai-right-bill-fixed": 0,
   "bill-deleted": 0,
+  "synonym-match": 0,
   "three-way-disagree": 0,
   "no-bill": 0,
   "no-legiscan-match": 0,
@@ -311,6 +359,7 @@ const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
 console.log(`\n========== Done in ${elapsed} min ==========`);
 console.log(`Auto-resolved: ${counts["auto-resolved"]} of ${open.length}`);
 console.log(`  · DB caught up:         ${counts["db-caught-up"]}`);
+console.log(`  · Keyword tie-break:    ${counts["keyword-tiebreak"]}`);
 console.log(`  · AI was wrong:         ${counts["ai-wrong"]}`);
 console.log(`  · AI right, bill fixed: ${counts["ai-right-bill-fixed"]}`);
 console.log(`  · Bill deleted:         ${counts["bill-deleted"]}`);
