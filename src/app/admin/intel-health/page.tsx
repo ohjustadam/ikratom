@@ -67,6 +67,33 @@ export default async function IntelHealthPage() {
     .select("id", { count: "exact", head: true })
     .not("policy_classified_at", "is", null);
 
+  // Editorial freshness — owner directive 2026-05-14 to surface staleness
+  // of editorial content (briefings, sync discrepancies, etc.) so the admin
+  // can quickly see what's drifting without clicking into each subpage.
+  const sixtyDaysAgo = new Date(now - 60 * 86_400_000).toISOString();
+  const [
+    { count: briefingsTotal },
+    { count: briefingsStale },
+    { count: openDiscrepancies },
+    { count: pendingCampaigns },
+    { count: pendingIntelTips },
+    { count: localFightsOpen },
+  ] = await Promise.all([
+    supabase.from("state_briefings").select("state", { count: "exact", head: true }),
+    supabase.from("state_briefings").select("state", { count: "exact", head: true })
+      .or(`published_at.is.null,published_at.lt.${sixtyDaysAgo}`),
+    supabase.from("policy_alerts").select("id", { count: "exact", head: true })
+      .eq("kind", "scraper_stale").eq("moderation_status", "approved"),
+    supabase.from("campaigns").select("id", { count: "exact", head: true })
+      .eq("review_state", "pending_review"),
+    supabase.from("policy_alerts").select("id", { count: "exact", head: true })
+      .eq("kind", "intel_tip").eq("moderation_status", "pending"),
+    supabase.from("bills").select("id", { count: "exact", head: true })
+      .eq("active", true).eq("kratom_relevance", "anti")
+      .in("scope", ["county", "municipal"])
+      .in("status", ["introduced", "committee"]),
+  ]);
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
       <a href="/admin" className="text-xs text-zinc-500 hover:text-emerald-400">
@@ -116,6 +143,59 @@ export default async function IntelHealthPage() {
         <Stat label="Auto-campaigns this week" value={campaignsAuto.count ?? 0} sub="from policy_alerts" />
         <Stat label="Intel tips (lifetime)" value={intelTips.count ?? 0} sub="advocate-submitted" />
         <Stat label="Bills missing journey" value={billsNoJourney ?? 0} sub="needs enrich-bills:journey" tone={(billsNoJourney ?? 0) > 5 ? "warn" : "ok"} />
+      </section>
+
+      {/* Queue + freshness watch — added 2026-05-15 per owner directive.
+          Surfaces what's drifting without requiring a click into each
+          sub-page. Each row also links to the corresponding admin queue. */}
+      <section className="mb-8">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-300">
+          Queue + freshness watch
+        </h2>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <QueueRow
+            href="/admin/campaigns/pending"
+            label="Campaigns pending review"
+            count={pendingCampaigns ?? 0}
+            note="Auto-generated campaigns awaiting human approval"
+            warnAt={5}
+          />
+          <QueueRow
+            href="/admin/sync-discrepancies"
+            label="Sync discrepancies open"
+            count={openDiscrepancies ?? 0}
+            note="Bills where AI fact-check disagrees with DB (post auto-resolver)"
+            warnAt={10}
+          />
+          <QueueRow
+            href="/admin/intel-queue"
+            label="Intel tips awaiting review"
+            count={pendingIntelTips ?? 0}
+            note="Advocate-submitted local intel from /alerts/submit"
+            warnAt={3}
+          />
+          <QueueRow
+            href="/bills?filter=local-active"
+            label="Active local fights"
+            count={localFightsOpen ?? 0}
+            note="County + municipal anti-kratom bills in committee or introduced"
+            warnAt={null}
+          />
+          <QueueRow
+            href="/briefings"
+            label="State briefings stale (60d+)"
+            count={briefingsStale ?? 0}
+            note={`${briefingsTotal ?? 0} total briefings indexed`}
+            warnAt={5}
+          />
+          <QueueRow
+            href="/admin/stance/coverage"
+            label="Stance coverage matrix"
+            count={null}
+            note="Click to see per-state legislator stance fill rate"
+            warnAt={null}
+          />
+        </div>
       </section>
 
       {/* Per-source freshness */}
@@ -251,5 +331,41 @@ function Stat({
       </div>
       {sub && <div className="text-[10px] text-zinc-600">{sub}</div>}
     </div>
+  );
+}
+
+function QueueRow({
+  href, label, count, note, warnAt,
+}: {
+  href: string;
+  label: string;
+  count: number | null;
+  note: string;
+  warnAt: number | null;
+}) {
+  const tone = count == null
+    ? "neutral"
+    : warnAt == null
+    ? "neutral"
+    : count > warnAt ? "amber" : count > 0 ? "emerald" : "neutral";
+  const cls =
+    tone === "amber"   ? "border-amber-700/50 bg-amber-950/15 hover:border-amber-400" :
+    tone === "emerald" ? "border-emerald-700/40 bg-emerald-950/15 hover:border-emerald-400" :
+                         "border-zinc-800 bg-zinc-950/40 hover:border-emerald-500";
+  const valCls =
+    tone === "amber"   ? "text-amber-200" :
+    tone === "emerald" ? "text-emerald-200" :
+                         "text-zinc-300";
+  return (
+    <a href={href} className={`flex items-center gap-4 rounded-md border p-3 ${cls}`}>
+      <div className={`min-w-[60px] text-right font-mono text-2xl font-bold tabular-nums ${valCls}`}>
+        {count == null ? "—" : count.toLocaleString()}
+      </div>
+      <div className="flex-1">
+        <p className="text-sm font-semibold text-zinc-100">{label}</p>
+        <p className="text-[11px] text-zinc-500">{note}</p>
+      </div>
+      <span className="text-xs text-zinc-500">→</span>
+    </a>
   );
 }
