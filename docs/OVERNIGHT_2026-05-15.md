@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-**Four PRs stacked, all ready for review.** They have to merge in order because each is based on the previous (Github will rebase automatically as the chain lands).
+**Seven PRs stacked, all ready for review.** They have to merge in order because each is based on the previous (Github will rebase automatically as the chain lands).
 
 | # | Branch | Title | What it does |
 |---|---|---|---|
@@ -12,8 +12,11 @@
 | #281 | feat-takeback-hub-page | /takeback hub page | Aggregates all 7 banning-state takeback intel into one landing |
 | #282 | feat-state-news-coverage | news coverage on /states/[code] | Same dedup pattern as /bills/[id] news section |
 | #283 | feat-backfill-alert-bill-linkage | queue + freshness watch on /admin/intel-health | 6-row drift dashboard at the top of /admin/intel-health |
+| #284 | feat-takeback-state-badge | per-state takeback badge on /states/[code] | Amber banner on banned-state pages linking direct to repeal plan |
+| #285 | feat-people-directory | /people directory of every bill stakeholder | Browseable allies / experts / journalists / opponents across all states |
+| #286 | feat-profile-seven-oh-stance | optional 7-OH stance on user profile (migration 0143) | Closes your "ask users in profile" directive — non-feed-altering, opt-in only |
 
-Merge order: **#280 → #281 → #282 → #283**.
+Merge order: **#280 → #281 → #282 → #283 → #284 → #285 → #286**.
 
 After each merge, the next PR's diff cleans up. All four pass `npm run verify` (107 tests + typecheck) at every commit on every branch.
 
@@ -32,6 +35,7 @@ After each merge, the next PR's diff cleans up. All four pass `npm run verify` (
 2. **Auth-gated DB changes already applied live** — these can't be rolled back without your explicit OK:
    - Migration 0141 (opposition_summary_md + repeal_plan_md columns on bills)
    - Migration 0142 (neutral campaign_templates rows + bill-anchor guard in auto-campaign trigger)
+   - Migration 0143 (profiles.seven_oh_stance NULLABLE column + check constraint)
    - 24 stakeholders inserted across the 7 banning states
    - 21 Suffolk policy_alerts retroactively linked to bill_id 56286cb1 + 5 mis-localized to NY
    - 238 pending news-only auto-campaigns mass-rejected (admin queue 239 → 1)
