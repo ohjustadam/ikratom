@@ -15,8 +15,18 @@ const STRENGTH_COLORS: Record<string, string> = {
   inconclusive: "border-zinc-800 bg-zinc-950/40 text-zinc-500",
 };
 
-export default async function ResearchPaperPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ResearchPaperPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ from?: string; duplicate?: string }>;
+}) {
   const { id } = await params;
+  const sp = (await searchParams) ?? {};
+  const arrivedFromSubmit = sp.from === "submit";
+  const wasDuplicate = sp.duplicate === "1";
+
   const sb = await createClient();
   const { data: p } = await sb
     .from("research_papers")
@@ -66,6 +76,27 @@ export default async function ResearchPaperPage({ params }: { params: Promise<{ 
       <Link href="/research" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Research library
       </Link>
+
+      {/* Flash from /research/submit. wasDuplicate = library already had
+          this URL; otherwise it's a fresh submission landing for review. */}
+      {arrivedFromSubmit && (
+        <div className={`mt-3 mb-4 rounded-md border-2 p-3 text-sm ${
+          wasDuplicate
+            ? "border-amber-700/50 bg-amber-950/15 text-amber-200"
+            : "border-emerald-700/50 bg-emerald-950/15 text-emerald-200"
+        }`}>
+          {wasDuplicate ? (
+            <>
+              📚 This paper was already in the library. Taking you to its existing entry.
+            </>
+          ) : (
+            <>
+              ✓ Added to the library. Bibliographic metadata captured; topic tags + AI evaluation will populate after the next editorial pass. Thanks for contributing.
+            </>
+          )}
+        </div>
+      )}
+
       <header className="mt-2 mb-6 border-b border-zinc-800 pb-4">
         <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
           {p.publication_year != null && <span className="font-mono text-zinc-500">{p.publication_year}</span>}
