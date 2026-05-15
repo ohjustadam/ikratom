@@ -229,6 +229,31 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/verify-news-body.mjs --limit 200
 
+  sync-courtlistener-kratom:
+    # Court litigation tracking via CourtListener (Free Law Project).
+    # Pulls federal + state court opinions AND active RECAP dockets
+    # mentioning kratom. Free unlimited API, no key required.
+    # Surfaces industry-party cases (AKA/GKC/Botanic Tonics as named
+    # plaintiff or defendant) — when a state passes a kratom ban, the
+    # industry's next move is the courts. ~1,600 dockets + ~200
+    # opinions in their index today; this script caps at 5 pages per
+    # search (~100 results each) per run, so re-runs catch the
+    # freshest cases. Idempotent UPSERT on cl_cluster_id / cl_docket_id.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Sync CourtListener kratom cases
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/sync-courtlistener-kratom.mjs --max-pages 5
+
   scrape-utah-lobbying:
     # Phase 3 D2 pilot — scrape Utah's lobbyist registry. Single HTML
     # page, ~8MB, parses to ~6,800 registrations. Kratom-industry rows
@@ -258,7 +283,7 @@ jobs:
     # Runs AFTER all the data-collection jobs so the briefing reflects
     # today's bill/news/BoP/state-lobbying state. ~5s per state × 51
     # states ≈ 5 min.
-    needs: [classify-bop-ai, scrape-utah-lobbying]
+    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

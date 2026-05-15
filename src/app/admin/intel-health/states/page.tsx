@@ -55,6 +55,7 @@ type StateStat = {
   news_mentions: number;
   state_lobbyists_active: number;
   bill_votes: number;
+  court_cases: number;
   audit_flags: string[];
 };
 
@@ -74,7 +75,7 @@ export default async function PerStateIntelHealthPage() {
   // stacks old briefings via is_active=false), and include the
   // critique audit trail from D5 + the body length for the D7
   // health check.
-  const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists, billVotes] = await Promise.all([
+  const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists, billVotes, courtCases] = await Promise.all([
     supabase.from("profiles").select("state").not("state", "is", null),
     supabase.from("bills").select("state").eq("active", true),
     supabase.from("municipal_meetings")
@@ -105,6 +106,10 @@ export default async function PerStateIntelHealthPage() {
     // back empty across all 51 states, the secret isn't set.
     supabase.from("bill_votes")
       .select("bill_id, bills!inner(state)"),
+    // Court litigation per state (CourtListener sync).
+    supabase.from("court_cases")
+      .select("state")
+      .not("state", "is", null),
   ]);
 
   // Aggregate
@@ -113,7 +118,7 @@ export default async function PerStateIntelHealthPage() {
     stats[code] = {
       state: code, users: 0, active_bills: 0, upcoming_meetings: 0, alerts_30d: 0,
       briefing_generated_at: null, briefing_body_len: 0, briefing_critique: null,
-      news_mentions: 0, state_lobbyists_active: 0, bill_votes: 0, audit_flags: [],
+      news_mentions: 0, state_lobbyists_active: 0, bill_votes: 0, court_cases: 0, audit_flags: [],
     };
   }
 
@@ -198,6 +203,11 @@ export default async function PerStateIntelHealthPage() {
     const billState = Array.isArray(r.bills) ? r.bills[0]?.state : r.bills?.state;
     const s = billState?.toUpperCase();
     if (s && stats[s]) stats[s].bill_votes++;
+  }
+  // Court cases (CourtListener sync)
+  for (const r of (courtCases.data ?? []) as Array<{ state: string | null }>) {
+    const s = r.state?.toUpperCase();
+    if (s && stats[s]) stats[s].court_cases++;
   }
 
   // Sort by activity total descending
@@ -321,6 +331,7 @@ export default async function PerStateIntelHealthPage() {
                   <li className="flex justify-between"><span>📰 News mentions</span><span className="font-mono">{s.news_mentions}</span></li>
                   <li className="flex justify-between"><span>🏛 State lobbyists</span><span className="font-mono">{s.state_lobbyists_active}</span></li>
                   <li className="flex justify-between"><span>🗳 Voting records</span><span className={`font-mono ${s.bill_votes === 0 ? "text-red-400" : ""}`}>{s.bill_votes}</span></li>
+                  <li className="flex justify-between"><span>⚖ Court cases</span><span className="font-mono">{s.court_cases}</span></li>
                 </ul>
                 {flagged && (
                   <ul className="mt-2 space-y-0.5 rounded border border-red-800/40 bg-red-950/20 p-1.5 text-[10px] text-red-200">
