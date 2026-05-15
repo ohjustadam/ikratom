@@ -303,6 +303,64 @@ export default async function BillDetailPage({
     alertSourceUrl = alerts?.[0]?.source_url ?? null;
   }
 
+  // News coverage — pull every news_items article linked through the
+  // policy_alerts → bill_id chain. Owner directive 2026-05-14: 'bills
+  // should also have all relative news articles attached, putting them
+  // together and telling their stories.' Dedupe heavily by title because
+  // News12 affiliates (Bronx/Westchester/Long Island/NJ/Hudson Valley)
+  // syndicate the same piece across 5+ regional URLs.
+  type NewsItem = {
+    id: string;
+    title: string;
+    source_name: string | null;
+    url: string;
+    published_at: string | null;
+    summary: string | null;
+  };
+  let newsCoverage: NewsItem[] = [];
+  {
+    const { data: linkedAlerts } = await supabase
+      .from("policy_alerts")
+      .select("id")
+      .eq("bill_id", bill.id);
+    const linkedAlertIds = (linkedAlerts ?? []).map((a: { id: string }) => a.id);
+    if (linkedAlertIds.length > 0) {
+      const { data: news } = await supabase
+        .from("news_items")
+        .select("id, title, source_name, url, published_at, summary")
+        .in("policy_alert_id", linkedAlertIds)
+        .eq("active", true)
+        .order("published_at", { ascending: false })
+        .limit(50);
+      const all = (news ?? []) as NewsItem[];
+      // Dedupe by normalized title — strip outlet suffix patterns like
+      // " - News12 | Long Island" so syndicated copies collapse to one
+      // row. Keep the earliest-published copy as the canonical (usually
+      // the originating outlet).
+      const normalize = (t: string) => t
+        .toLowerCase()
+        .replace(/\s*[-—|]\s*[a-z0-9 .'’&]+$/i, "") // strip " — Newsday" / " | News12 ..."
+        .replace(/\s+/g, " ")
+        .trim();
+      const seen = new Map<string, NewsItem>();
+      for (const n of all) {
+        const key = normalize(n.title);
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, n);
+          continue;
+        }
+        // Prefer earliest-published (originating outlet over syndication)
+        const existingTime = existing.published_at ? new Date(existing.published_at).getTime() : Infinity;
+        const newTime = n.published_at ? new Date(n.published_at).getTime() : Infinity;
+        if (newTime < existingTime) seen.set(key, n);
+      }
+      newsCoverage = [...seen.values()]
+        .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
+        .slice(0, 12);
+    }
+  }
+
   // Determine if the calling user is signed in + already subscribed to
   // this bill, so the "🔔 Notify me" button renders in the right state.
   const { data: { user: viewer } } = await supabase.auth.getUser();
@@ -856,6 +914,59 @@ export default async function BillDetailPage({
                       <span> · last action {new Date(s.bill.last_action_at).toLocaleDateString()}</span>
                     )}
                   </p>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* News coverage — every news article we've scraped that's been
+          linked to this bill via the policy_alerts → bill_id chain.
+          Deduplicated heavily so syndicated News12 / Newsday copies
+          collapse into a single entry. Tells the bill's story
+          chronologically. */}
+      {newsCoverage.length > 0 && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
+              📰 News coverage · {newsCoverage.length}
+            </h2>
+            <span className="text-[10px] text-zinc-500">deduped across syndications</span>
+          </div>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Every news article we&apos;ve indexed that mentions this bill or its underlying event, oldest at the bottom.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {newsCoverage.map((n) => (
+              <li key={n.id}>
+                <a
+                  href={n.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded-md border border-zinc-800 bg-zinc-950/60 p-3 hover:border-emerald-500"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                    {n.source_name && (
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
+                        {n.source_name}
+                      </span>
+                    )}
+                    {n.published_at && (
+                      <span className="text-zinc-500">
+                        {new Date(n.published_at).toLocaleDateString()}
+                      </span>
+                    )}
+                    <span className="ml-auto text-emerald-400">read →</span>
+                  </div>
+                  <p className="mt-1 text-sm font-medium text-zinc-100 line-clamp-2">
+                    {n.title}
+                  </p>
+                  {n.summary && (
+                    <p className="mt-1 text-[11px] text-zinc-500 line-clamp-2">
+                      {n.summary.slice(0, 200)}
+                    </p>
+                  )}
                 </a>
               </li>
             ))}

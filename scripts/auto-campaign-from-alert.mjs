@@ -64,23 +64,36 @@ function templateForAlert(alert) {
     alert.locality === "ALL" ? "the national level" :
     alert.locality;
 
+  // Owner directive 2026-05-14: templates must NOT infer the user's
+  // position on 7-OH (pro or anti). Default messaging asks legislators
+  // to be specific about WHICH products their policy targets, names
+  // the five distinct alkaloid classes (natural leaf, mitragynine,
+  // 7-OH, pseudoindoxyl, synthetic) without endorsing a side, and
+  // requests evidence-based decision-making + transparent public
+  // process. Users with a recorded profile stance can opt into a
+  // stance-specific variant via the campaign editor; this default
+  // is neutral.
   if (alert.kind === "bill_event" && alert.title?.toLowerCase().includes("city")) {
-    // City ordinance pattern (Marshall IL, Ventura CA)
     return {
-      subject: `Re: kratom-related ordinance in ${localityName} — please consider the alkaloid distinction`,
+      subject: `Re: kratom ordinance in ${localityName} — please clarify scope`,
       body: `Dear {{recipient_title}} {{recipient_last_name}},
 
-I'm writing as a member of the kratom advocacy community regarding the recent kratom-related action in ${localityName}.
+I'm writing as a constituent regarding the recent kratom-related ordinance activity in ${localityName}.
 
-A growing body of state legislation — including bills in New Hampshire, Ohio, and elsewhere — distinguishes between natural leaf kratom (the plant in its traditional form) and 7-hydroxymitragynine-enriched or synthetic kratom products. The legitimate industry supports restrictions on enriched and synthetic products. We oppose conflating those products with natural leaf, which has been used safely for centuries and is supported by a substantial harm-reduction literature.
+Kratom is not a single substance. Policy language often refers to it as one thing, but the science and the marketplace recognize at least five distinct classes:
+- Natural leaf kratom (the unmodified plant)
+- Mitragynine (the dominant natural alkaloid)
+- 7-hydroxymitragynine (a trace natural alkaloid often concentrated or isolated in modern products)
+- Mitragynine pseudoindoxyl (an oxidation metabolite)
+- Synthetic / semi-synthetic alkaloid analogues
 
-I respectfully ask that any local action preserve access to natural-leaf kratom while addressing the documented concerns about enriched/synthetic derivatives.
+Each has a different pharmacology, history of use, and risk profile. Policy that treats them as identical can either over-restrict (capturing traditional plant use that has decades of relatively safe consumption data) or under-restrict (leaving concentrated or synthetic products under-regulated).
 
-If your jurisdiction has not yet acted, the Kratom Consumer Protection Act (KCPA) framework — already adopted by eight states — provides a tested model that distinguishes legitimate products from concerning ones, including age limits, labeling requirements, and a 7-OH cap.
+I respectfully ask that any local action explicitly state which of these classes it targets, what testing or labeling standards apply, and what public process led to the decision.
 
 Background and platform: https://www.ikratom.org${sourceLine}
 
-Thank you for your time and consideration.
+Thank you for your time.
 
 Sincerely,
 {{full_name}}
@@ -95,12 +108,15 @@ Sincerely,
 
 I submit this public comment regarding kratom-related items on the upcoming agenda.
 
-I urge the Board to distinguish carefully between natural leaf kratom and 7-hydroxymitragynine-enriched or synthetic kratom products. The legitimate industry supports restrictions on enriched and synthetic derivatives — what we oppose is broad scheduling that captures the natural plant.
+I respectfully ask the Board to make explicit which products are within scope of any proposed action. Kratom-related products on the US market today include the natural leaf, mitragynine, 7-hydroxymitragynine in concentrated form, mitragynine pseudoindoxyl, and synthetic / semi-synthetic alkaloid analogues. These differ in pharmacology, history, and risk.
 
-The federal National Drug Control Strategy 2026 (May 2026, ONDCP) explicitly distinguishes 7-OH-enriched products from natural leaf in its enforcement framework. State boards adopting that same distinction protect consumers without criminalizing a substance with documented harm-reduction benefits.
+Whichever direction the Board chooses, I ask that the rule:
+- Name the specific compounds and product forms being addressed
+- Cite the evidence underlying that scope
+- Make the rationale and public process publicly available
 
 Source: ${alert.source_url ?? "(see ikratom.org)"}
-Briefing: https://www.ikratom.org/briefings/ndcs-2026
+Background: https://www.ikratom.org
 
 Sincerely,
 {{full_name}}
@@ -110,14 +126,14 @@ Sincerely,
 
   if (alert.kind === "ag_enforcement" || alert.kind === "fda_action") {
     return {
-      subject: `Concern about scope of kratom enforcement in ${localityName}`,
+      subject: `Kratom enforcement in ${localityName} — request for scope clarification`,
       body: `Dear {{recipient_title}} {{recipient_last_name}},
 
 I'm writing regarding the recent kratom-related enforcement action in ${localityName}.
 
-I support enforcement against 7-hydroxymitragynine-enriched, synthetically altered, or mislabeled kratom products. I am concerned, however, when enforcement language conflates those products with natural-leaf kratom, which has a different chemical profile, a long history of traditional use, and growing peer-reviewed literature documenting its role in harm reduction for opioid dependence.
+I respectfully request that the agency clarify exactly which products and compounds the enforcement covers. "Kratom" as a category includes the natural leaf, mitragynine, 7-hydroxymitragynine in concentrated forms, mitragynine pseudoindoxyl, and synthetic analogues — each pharmacologically distinct. Enforcement language that does not specify which of these is in scope creates regulatory uncertainty for consumers, retailers, and downstream policy.
 
-I respectfully ask that future enforcement and policy communication make this distinction explicit.
+I take no position in this letter on whether the underlying restriction is correct — I am asking for clarity on what it actually covers, the evidence supporting that scope, and how it was decided.
 
 Source: ${alert.source_url ?? ""}
 
@@ -129,17 +145,21 @@ Sincerely,
 
   // Default: state-bill or generic news event
   return {
-    subject: `Kratom policy in ${localityName} — please preserve natural leaf access`,
+    subject: `Kratom policy in ${localityName} — request for evidence-based scope`,
     body: `Dear {{recipient_title}} {{recipient_last_name}},
 
-I'm writing as a member of the kratom advocacy community regarding recent policy activity in ${localityName}.
+I'm writing as a constituent regarding recent kratom-related policy activity in ${localityName}.
 
-Modern kratom legislation — including the federal NDCS 2026 framework and bills like NH SB 557 — distinguishes between natural leaf kratom (the plant) and 7-hydroxymitragynine-enriched / synthetic derivatives. The first preserves a centuries-old plant medicine; the second targets concerning new products.
+Effective kratom policy depends on which products it targets. "Kratom" today refers to a family of products with significantly different chemistry: natural leaf, mitragynine, 7-hydroxymitragynine (as a trace natural alkaloid AND as a concentrated product), pseudoindoxyl, and synthetic / semi-synthetic analogues. The right policy may differ for each.
 
-I support sensible regulation that maintains this distinction. The Kratom Consumer Protection Act framework — adopted in eight states — is the tested model.
+I respectfully ask that any legislation:
+- State the specific compounds and product classes within scope
+- Cite the evidence base for the chosen approach
+- Allow a transparent comment period and recorded vote
+
+I'm not writing to tell you which way to vote. I'm writing to ask that the decision rest on a clear factual record so constituents can evaluate it on its merits.
 
 Source: ${alert.source_url ?? ""}
-Briefing: https://www.ikratom.org/briefings/ndcs-2026
 
 Sincerely,
 {{full_name}}
@@ -225,6 +245,19 @@ async function processAlert(alert) {
   }
   if (!alert.action_required) {
     console.log("  ⏭  action_required=false; skipping");
+    return "skip";
+  }
+  // Owner directive 2026-05-14: 'we shouldnt be creating campaigns to call
+  // gov officials just because a news article. there should be something
+  // actionablly happening.' A campaign needs a concrete anchor — either
+  // a bill_id (legislation actively moving) OR a specifically actionable
+  // alert kind (bop_hearing, ag_enforcement, fda_action) where the event
+  // itself IS the action. Generic news_break / bill_event without a
+  // bill_id link is too noisy and was producing 200+ duplicate
+  // cross-state campaigns from syndicated news.
+  const ANCHORED_KINDS = new Set(["bop_hearing", "ag_enforcement", "fda_action"]);
+  if (!alert.bill_id && !ANCHORED_KINDS.has(alert.kind)) {
+    console.log(`  ⏭  no bill_id + kind=${alert.kind} not anchored — skipping (news-only alert)`);
     return "skip";
   }
 
