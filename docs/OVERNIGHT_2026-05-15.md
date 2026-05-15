@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-**Nine PRs stacked, all ready for review.** They have to merge in order because each is based on the previous (Github will rebase automatically as the chain lands).
+**Nineteen PRs stacked, all ready for review.** They have to merge in order because each is based on the previous (Github will rebase automatically as the chain lands).
 
 | # | Branch | Title | What it does |
 |---|---|---|---|
@@ -38,7 +38,7 @@ Test suite: 107 → 230 tests (+123 overnight), all green. **THREE production bu
 2. **PR #289** — News from News12 + Newsday for the same story showed as 2 rows because the dedup regex didn't iterate through multi-segment outlet suffixes
 3. **PR #293** — `normalizeLocality` silently truncated full state names, so "Marshall, missouri" became "Marshall, MI" (Michigan!). Any user typing a full state name would be misclassified.
 
-After each merge, the next PR's diff cleans up. All four pass `npm run verify` (107 tests + typecheck) at every commit on every branch.
+After each merge, the next PR's diff cleans up. All 19 pass `npm run verify` (230 tests + typecheck) at every commit on every branch.
 
 ## What needs your eyes before you do anything else
 
