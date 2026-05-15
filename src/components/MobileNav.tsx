@@ -27,10 +27,13 @@ import { createPortal } from "react-dom";
 const PRIMARY_LINKS = [
   { href: "/dashboard", label: "Dashboard", icon: "🎛️" },
   { href: "/campaigns", label: "Campaigns", icon: "📣" },
+  { href: "/takeback", label: "Takeback", icon: "🎯" },
+  { href: "/banned", label: "Banned tracker", icon: "🚫" },
   { href: "/bills", label: "Bills", icon: "📜" },
   { href: "/bop-watch", label: "BoP Watch", icon: "🛡️" },
   { href: "/submit", label: "Submit", icon: "➕" },
   { href: "/legislators", label: "Legislators", icon: "🏛️" },
+  { href: "/people", label: "People", icon: "🧠" },
   { href: "/states", label: "By state", icon: "📍" },
   { href: "/forum", label: "Community", icon: "💬" },
   { href: "/news", label: "News", icon: "📰" },
