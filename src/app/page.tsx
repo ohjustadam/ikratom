@@ -141,12 +141,14 @@ export default async function HomePage() {
           to say. We make it possible to actually say it.
         </p>
 
-        {/* Mission stat strip — concrete answer to 'what is at stake' */}
+        {/* Mission stat strip — concrete answer to 'what is at stake'.
+            Each tile is a link to the page that opens up the underlying
+            data, so visitors can click any number to see the rows. */}
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <MissionStat value={bannedStateCount ?? 0} label="States banning kratom" tone="red" />
-          <MissionStat value={imminentBanCount ?? 0} label="Imminent state bans" tone={(imminentBanCount ?? 0) > 0 ? "amber" : "neutral"} />
-          <MissionStat value={localBanCount ?? 0} label="County + city bans" tone="red" />
-          <MissionStat value={activeBillCount ?? 0} label="Bills tracked this year" tone="emerald" />
+          <MissionStat value={bannedStateCount ?? 0} label="States banning kratom" tone="red" href="/banned" />
+          <MissionStat value={imminentBanCount ?? 0} label="Imminent state bans" tone={(imminentBanCount ?? 0) > 0 ? "amber" : "neutral"} href="/takeback" />
+          <MissionStat value={localBanCount ?? 0} label="County + city bans" tone="red" href="/banned" />
+          <MissionStat value={activeBillCount ?? 0} label="Bills tracked this year" tone="emerald" href="/bills" />
         </div>
 
         {/* CTAs */}
@@ -391,18 +393,29 @@ function Card({ icon, title, body }: { icon: string; title: string; body: string
   );
 }
 
-function MissionStat({ value, label, tone }: {
-  value: number; label: string; tone: "red" | "amber" | "emerald" | "neutral";
+function MissionStat({ value, label, tone, href }: {
+  value: number;
+  label: string;
+  tone: "red" | "amber" | "emerald" | "neutral";
+  href?: string;
 }) {
   const cls =
-    tone === "red"     ? "border-red-700/50 bg-red-950/20 text-red-200" :
-    tone === "amber"   ? "border-amber-700/50 bg-amber-950/20 text-amber-200" :
-    tone === "emerald" ? "border-emerald-700/40 bg-emerald-950/15 text-emerald-200" :
-                         "border-zinc-800 bg-zinc-950/40 text-zinc-300";
-  return (
-    <div className={`rounded-md border p-3 text-center ${cls}`}>
+    tone === "red"     ? "border-red-700/50 bg-red-950/20 text-red-200 hover:border-red-400" :
+    tone === "amber"   ? "border-amber-700/50 bg-amber-950/20 text-amber-200 hover:border-amber-400" :
+    tone === "emerald" ? "border-emerald-700/40 bg-emerald-950/15 text-emerald-200 hover:border-emerald-400" :
+                         "border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:border-emerald-500";
+  const inner = (
+    <>
       <p className="text-3xl font-bold tabular-nums">{value.toLocaleString()}</p>
       <p className="mt-1 text-[10px] uppercase tracking-wider opacity-80">{label}</p>
-    </div>
+    </>
+  );
+  if (!href) {
+    return <div className={`rounded-md border p-3 text-center ${cls}`}>{inner}</div>;
+  }
+  return (
+    <Link href={href} className={`block rounded-md border p-3 text-center transition ${cls}`}>
+      {inner}
+    </Link>
   );
 }
