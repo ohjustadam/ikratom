@@ -86,6 +86,23 @@ export function ProfileForm({ profile, email }: { profile: Profile | null; email
         </label>
       </Section>
 
+      <Section
+        title="Your stance on 7-OH (optional)"
+        subtitle="Kratom advocates aren't a monolith. You can let us know where you stand on 7-hydroxymitragynine-concentrated products and the platform will offer you a stance-aligned variant of any campaign template. The platform itself stays neutral — your feed, the alerts you see, and the bills you track do NOT change based on this answer. Leave blank if you'd rather not say."
+      >
+        <Select
+          label="My position on 7-OH-concentrated products"
+          name="seven_oh_stance"
+          defaultValue={(profile as { seven_oh_stance?: string | null } | null)?.seven_oh_stance ?? ""}
+          options={[
+            { value: "", label: "— prefer not to say (default) —" },
+            { value: "pro", label: "Pro: 7-OH should remain available with sensible regulation" },
+            { value: "anti", label: "Anti: 7-OH-concentrated products should be restricted" },
+            { value: "neutral", label: "Neutral: I want regulators to focus on evidence-based scope" },
+          ]}
+        />
+      </Section>
+
       {error && (
         <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
           {error}
@@ -139,9 +156,16 @@ function Field({
   );
 }
 
+type SelectOption = string | { value: string; label: string };
+
 function Select({
   label, name, defaultValue, options,
-}: { label: string; name: string; defaultValue?: string; options: string[] }) {
+}: { label: string; name: string; defaultValue?: string; options: SelectOption[] }) {
+  const normalized = options.map((o) =>
+    typeof o === "string" ? { value: o, label: o } : o,
+  );
+  // When options carry their own '' placeholder we suppress the auto-added one.
+  const hasBlank = normalized.some((o) => o.value === "");
   return (
     <div>
       <label className="block text-xs font-medium text-zinc-400">{label}</label>
@@ -150,9 +174,9 @@ function Select({
         defaultValue={defaultValue}
         className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
       >
-        <option value="">—</option>
-        {options.map((s) => (
-          <option key={s} value={s}>{s}</option>
+        {!hasBlank && <option value="">—</option>}
+        {normalized.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
     </div>
