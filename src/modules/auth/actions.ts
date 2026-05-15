@@ -7,6 +7,7 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { getDistrictsForAddress } from "@/lib/civic";
 import { isPasswordPwned } from "@/lib/pwned-passwords";
 import { recordSignIn } from "./actions-devices";
+import { recordAuthEvent } from "@/lib/auth-events";
 import type { AuthResult } from "./types";
 
 /**
@@ -164,6 +165,20 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   const { error, data } = await supabase.auth.signUp({ email, password });
 
   if (error) {
+    await recordAuthEvent({
+      kind: "signup", provider: "password", status: "fail",
+      errorCode: error.code ?? "signup_error",
+      errorMessage: error.message,
+      email, ip: ip ?? null,
+    });
+  } else if (data.user) {
+    await recordAuthEvent({
+      kind: "signup", provider: "password", status: "ok",
+      userId: data.user.id, email, ip: ip ?? null,
+    });
+  }
+
+  if (error) {
     // Email-enumeration defense: Supabase returns "User already
     // registered" (or similar) when the email exists. Returning that
     // verbatim lets an attacker enumerate which emails have accounts.
@@ -301,6 +316,12 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   const supabase = await createClient();
   const { error, data } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    await recordAuthEvent({
+      kind: "login", provider: "password", status: "fail",
+      errorCode: error.code ?? "invalid_credentials",
+      errorMessage: error.message,
+      email, ip: ip ?? null,
+    });
     // Map Supabase's generic error messages to user-friendly explanations.
     // Balance: we want to help legit users (who fat-fingered their password,
     // never confirmed their email, etc.) without enabling email-enumeration
@@ -340,6 +361,10 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
     try { await recordSignIn(data.user.id); } catch (e) {
       console.error("[signIn] recordSignIn failed:", e);
     }
+    await recordAuthEvent({
+      kind: "login", provider: "password", status: "ok",
+      userId: data.user.id, email, ip: ip ?? null,
+    });
   }
 
   // First-time signin: if onboarding not done yet, route through /onboarding.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { recordAdminAction } from "@/lib/audit";
+import { recordAuthEvent } from "@/lib/auth-events";
 
 /**
  * Discord OAuth callback. Validates CSRF state, exchanges the auth
@@ -17,17 +18,27 @@ export async function GET(request: NextRequest) {
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const errorParam = url.searchParams.get("error");
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+  const userAgent = request.headers.get("user-agent") ?? null;
 
   const cookieStore = await cookies();
   const expectedState = cookieStore.get("d_oauth_state")?.value;
   cookieStore.delete("d_oauth_state");
 
   if (errorParam) {
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "discord", status: "fail",
+      errorCode: errorParam, ip, userAgent,
+    });
     return NextResponse.redirect(
       new URL(`/account?discord_error=${encodeURIComponent(errorParam)}`, process.env.APP_URL!),
     );
   }
   if (!code || !state || !expectedState || state !== expectedState) {
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "discord", status: "fail",
+      errorCode: "state_mismatch", ip, userAgent,
+    });
     return NextResponse.redirect(
       new URL("/account?discord_error=state_mismatch", process.env.APP_URL!),
     );
@@ -63,6 +74,12 @@ export async function GET(request: NextRequest) {
     }),
   });
   if (!tokenRes.ok) {
+    const errBody = await tokenRes.text().catch(() => "");
+    await recordAuthEvent({
+      kind: "oauth_callback", provider: "discord", status: "fail",
+      errorCode: "token_exchange_failed", errorMessage: errBody.slice(0, 400),
+      userId: user.id, email: user.email, ip, userAgent,
+    });
     return NextResponse.redirect(
       new URL("/account?discord_error=token_exchange_failed", process.env.APP_URL!),
     );
@@ -125,6 +142,11 @@ export async function GET(request: NextRequest) {
     targetType: "user",
     targetId: user.id,
     details: { discord_username: me.global_name ?? me.username },
+  });
+  await recordAuthEvent({
+    kind: "discord_connect", provider: "discord", status: "ok",
+    userId: user.id, email: user.email, ip, userAgent,
+    context: { discord_username: me.global_name ?? me.username },
   });
 
   return NextResponse.redirect(
