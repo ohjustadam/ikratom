@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-**Nine PRs stacked, all ready for review.** They have to merge in order because each is based on the previous (Github will rebase automatically as the chain lands).
+**Nineteen PRs stacked, all ready for review.** They have to merge in order because each is based on the previous (Github will rebase automatically as the chain lands).
 
 | # | Branch | Title | What it does |
 |---|---|---|---|
@@ -25,10 +25,19 @@
 | #294 | feat-admin-data-quality | /admin/data-quality dashboard | 6 data-integrity categories with current counts + suggested resolution paths |
 | #295 | feat-clickable-mission-stats | clickable mission stats on home page | Visitor reading "6 states banning kratom" can click directly through to /banned |
 | #296 | feat-cosine-sim-tests | 10 tests for cosineSim (768-dim embedding math) | Coverage investment for the load-bearing math behind cross-state bill similarity |
+| #297 | feat-moderation-tests | 24 tests for forum moderation (signal detection + decision) | Coverage for `detectModerationSignals` + `moderateNewContent` — gates every forum post |
+| #298 | feat-ical-tests | 20 tests for ical helpers (RFC 5545 compliance) | Coverage for the /calendar/feed.ics generator users subscribe to in Apple/Google Calendar |
 
-Merge order: **#280 → ... → #296**.
+Merge order: **#280 → ... → #298**.
 
-Test suite: 107 → 186 tests (+79 overnight), all green. **THREE production bugs caught by the new tests overnight** — each would have required you to spot them visually after restart. The test investment paid off three times.
+**Suggested merge cadence:** since Vercel Hobby rate-limited us mid-session (see issue #2 below), each merge triggers a fresh deploy + can re-trigger the rate limit. Recommended:
+- Merge #280 first (it's the meaty 8-part-directive PR — verify visually in browser before merging)
+- Wait for Vercel to settle, then merge #281-#283 together (or wait 24h for full reset)
+- Continue in batches of 2-3 with rest periods, OR upgrade to Vercel Pro (one-time decision)
+
+Alternative: merge all 19 in one batch and accept the rate-limit warnings — they don't block merges, they only block preview deploys. Once everything's on `main`, the canonical production deploy supersedes all preview deploys.
+
+Test suite: 107 → 230 tests (+123 overnight), all green. **THREE production bugs caught by the new tests overnight** — each would have required you to spot them visually after restart. The test investment paid off three times.
 
 ### The three production bugs:
 
@@ -36,7 +45,7 @@ Test suite: 107 → 186 tests (+79 overnight), all green. **THREE production bug
 2. **PR #289** — News from News12 + Newsday for the same story showed as 2 rows because the dedup regex didn't iterate through multi-segment outlet suffixes
 3. **PR #293** — `normalizeLocality` silently truncated full state names, so "Marshall, missouri" became "Marshall, MI" (Michigan!). Any user typing a full state name would be misclassified.
 
-After each merge, the next PR's diff cleans up. All four pass `npm run verify` (107 tests + typecheck) at every commit on every branch.
+After each merge, the next PR's diff cleans up. All 19 pass `npm run verify` (230 tests + typecheck) at every commit on every branch.
 
 ## What needs your eyes before you do anything else
 
@@ -153,8 +162,8 @@ All three directions are about respecting the admin's attention — the platform
 
 ## Final tally
 
-- **18 stacked PRs** (#280 through #297)
-- **+79 tests** (107 → 210)
+- **19 stacked PRs** (#280 through #298)
+- **+123 tests** (107 → 230)
 - **3 production bugs caught + fixed** by the new tests:
   - extractSponsor regex disallowed periods (Sen. / Rep.) — /takeback was showing "—" for every sponsor card
   - news-dedup didn't iterate multi-segment outlets — same story counted twice when News12 + Newsday both ran it
