@@ -3,6 +3,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { recordAdminAction } from "@/lib/audit";
+import {
+  ALLOWED_UPLOAD_EXT,
+  filenameExt,
+  rejectReasonForUpload,
+} from "@/lib/file-signatures";
 
 /**
  * Server action: leader-advocate / admin submits a research-paper URL.
@@ -73,6 +78,28 @@ export async function submitResearchPaperUpload(input: {
   // Storage path safety: must live under the user's own folder + bucket
   if (!input.storagePath || !input.storagePath.startsWith(`${user.id}/`)) {
     return { ok: false, error: "Storage path must be in your own folder." };
+  }
+
+  // Filename safety: defense in depth on extension. The bucket's
+  // allowed_mime_types and the client also enforce this — server check
+  // catches the malicious-client case where they hit Supabase Storage
+  // directly with a faked content-type header.
+  const ext = filenameExt(input.filename);
+  if (!ALLOWED_UPLOAD_EXT.has(ext)) {
+    await deleteUploaded(input.storagePath); // don't leave it lying around
+    return { ok: false, error: `File extension .${ext || "(none)"} isn't allowed. Accepted: .pdf, .txt, .md` };
+  }
+
+  // AUTHORITATIVE FILE-CONTENT CHECK: download the first 16 bytes of
+  // the just-uploaded file and verify the magic bytes match what we
+  // expect for the claimed type. This is the only check a malicious
+  // client cannot bypass — the bucket's allowed_mime_types relies on
+  // the upload request's content-type header which the attacker
+  // controls. The file bytes themselves are what we actually serve.
+  const sigOk = await verifyUploadedSignature(input.storagePath, ext);
+  if (!sigOk.ok) {
+    await deleteUploaded(input.storagePath);
+    return { ok: false, error: sigOk.error };
   }
 
   // Sanitize the title / authors / abstract user input
@@ -248,4 +275,51 @@ function decodeEntities(s: string): string {
     .replace(/&nbsp;/g, " ")
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
+
+// ----- Upload validation helpers (defense in depth vs malicious clients) -----
+
+function adminStorageClient() {
+  return createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  );
+}
+
+/**
+ * Authoritative file-content check. Downloads the first 16 bytes of
+ * the uploaded file and runs the shared magic-bytes detector
+ * (src/lib/file-signatures.ts). This is the check a malicious client
+ * cannot bypass — the bucket's allowed_mime_types relies on the
+ * upload request's content-type header which the attacker controls.
+ */
+async function verifyUploadedSignature(
+  storagePath: string,
+  ext: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const admin = adminStorageClient();
+    const { data: blob, error } = await admin.storage
+      .from("research-uploads")
+      .download(storagePath);
+    if (error || !blob) {
+      return { ok: false, error: "Couldn't read the uploaded file to verify its contents." };
+    }
+    const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+    const reason = rejectReasonForUpload(head, ext);
+    if (reason) return { ok: false, error: reason };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: `Signature check failed: ${(e as Error).message}` };
+  }
+}
+
+async function deleteUploaded(storagePath: string): Promise<void> {
+  try {
+    await adminStorageClient().storage.from("research-uploads").remove([storagePath]);
+  } catch {
+    // Best-effort cleanup; if it fails the orphan can be swept by the
+    // quarterly admin pass (see docs/STORAGE_STRATEGY.md).
+  }
 }

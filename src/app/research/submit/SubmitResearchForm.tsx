@@ -4,6 +4,12 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitResearchPaper, submitResearchPaperUpload } from "@/modules/research/submit-actions";
 import { createClient } from "@/lib/supabase/client";
+import {
+  ALLOWED_UPLOAD_EXT,
+  ALLOWED_UPLOAD_MIME,
+  filenameExt,
+  rejectReasonForUpload,
+} from "@/lib/file-signatures";
 
 /**
  * Submit form with staged kratom-leaf progress.
@@ -45,7 +51,26 @@ const PHASES = [
 type Mode = "url" | "upload";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB — matches bucket cap from migration 0145
-const ALLOWED_MIME = new Set(["application/pdf", "text/plain", "text/markdown"]);
+const MIN_UPLOAD_BYTES = 64; // empty / near-empty files are almost always corrupt or a probe
+// Common dangerous extensions we explicitly call out in the deny path
+// so users get a clear error message instead of a generic "not allowed".
+// The authoritative test is rejectReasonForUpload(head, ext) which uses
+// the file's actual magic bytes — the extension list is a fast UX layer.
+const COMMON_BLOCKED_HINTS: Record<string, string> = {
+  exe: "Windows executable", msi: "Windows installer", bat: "Batch script",
+  sh: "Shell script", dmg: "macOS disk image", apk: "Android package",
+  zip: "ZIP archive", rar: "RAR archive", "7z": "7-zip archive",
+  tar: "tar archive", gz: "gzip archive", iso: "disk image",
+  mp4: "video", mov: "video", avi: "video", mkv: "video", webm: "video",
+  mp3: "audio", wav: "audio", ogg: "audio", m4a: "audio", flac: "audio",
+  jpg: "image", jpeg: "image", png: "image", gif: "image", webp: "image",
+  doc: "Word document (use PDF export)", docx: "Word document (use PDF export)",
+  xls: "Excel spreadsheet (use PDF export)", xlsx: "Excel spreadsheet (use PDF export)",
+  ppt: "PowerPoint (use PDF export)", pptx: "PowerPoint (use PDF export)",
+  html: "HTML (could contain scripts)", htm: "HTML (could contain scripts)",
+  svg: "SVG (could contain scripts)", xml: "XML",
+  js: "JavaScript", py: "Python script", rb: "Ruby script",
+};
 
 export function SubmitResearchForm({ submitterName, userId }: { submitterName: string; userId: string }) {
   const router = useRouter();
@@ -87,11 +112,35 @@ export function SubmitResearchForm({ submitterName, userId }: { submitterName: s
   }, [pending]);
 
   async function uploadFileToStorage(f: File): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+    // 1. Size bounds (both directions — 0-byte files are almost always probes)
     if (f.size > MAX_UPLOAD_BYTES) {
       return { ok: false, error: `File is ${(f.size / 1024 / 1024).toFixed(1)} MB; limit is 10 MB.` };
     }
-    if (!ALLOWED_MIME.has(f.type)) {
-      return { ok: false, error: `File type ${f.type || "(unknown)"} not allowed. Accepted: PDF, plain text, markdown.` };
+    if (f.size < MIN_UPLOAD_BYTES) {
+      return { ok: false, error: `File is too small (${f.size} bytes). Probably empty or corrupt.` };
+    }
+    // 2. Extension allowlist — friendly error message for common blocked types
+    const ext = filenameExt(f.name);
+    const blockedHint = COMMON_BLOCKED_HINTS[ext];
+    if (blockedHint) {
+      return { ok: false, error: `${blockedHint} (.${ext}) isn't allowed here. Accepted: .pdf, .txt, .md` };
+    }
+    if (!ALLOWED_UPLOAD_EXT.has(ext)) {
+      return { ok: false, error: `File extension .${ext || "(none)"} isn't allowed. Accepted: .pdf, .txt, .md` };
+    }
+    // 3. MIME allowlist — second line of defense; browser-provided so
+    //    can be lied about, but cheap to check and catches honest mismatches
+    if (!ALLOWED_UPLOAD_MIME.has(f.type)) {
+      return { ok: false, error: `MIME type ${f.type || "(unknown)"} not allowed. Accepted: PDF, plain text, markdown.` };
+    }
+    // 4. Magic-bytes peek — read the first 16 bytes client-side and
+    //    sanity-check the signature matches the extension. The SERVER
+    //    runs this same check authoritatively after upload — a malicious
+    //    client can skip this, but the server check is bypass-proof.
+    const head = new Uint8Array(await f.slice(0, 16).arrayBuffer());
+    const reason = rejectReasonForUpload(head, ext);
+    if (reason) {
+      return { ok: false, error: reason };
     }
     // Path: {user_id}/{paper_uuid_placeholder}/{safe_filename}
     const rand = crypto.randomUUID();
@@ -205,19 +254,22 @@ export function SubmitResearchForm({ submitterName, userId }: { submitterName: s
               <input
                 id="file"
                 type="file"
-                accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
+                accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 disabled={pending}
                 className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-950/30 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-emerald-300 disabled:opacity-60"
               />
               <p className="mt-1 text-[10px] text-zinc-500">
-                PDF, plain text, or markdown. Up to 10 MB. Files stored privately; readers get signed URLs at render time.
-                {file && (
-                  <span className="ml-2 text-zinc-300">
-                    Selected: <span className="font-mono">{file.name}</span> ({(file.size / 1024).toFixed(0)} KB)
-                  </span>
-                )}
+                <strong className="text-zinc-300">Allowed:</strong> .pdf, .txt, .md · up to 10 MB · stored privately, served via signed URLs.
               </p>
+              <p className="mt-0.5 text-[10px] text-zinc-600">
+                <strong className="text-zinc-500">Blocked:</strong> video, audio, executables, archives, images, Office docs, scripts, HTML. Use the URL mode to link those if they live elsewhere.
+              </p>
+              {file && (
+                <p className="mt-1 text-[10px] text-zinc-300">
+                  Selected: <span className="font-mono">{file.name}</span> ({(file.size / 1024).toFixed(0)} KB · {file.type || "(no MIME)"})
+                </p>
+              )}
             </div>
             <details className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
               <summary className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">

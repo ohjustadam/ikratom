@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { AudioReader } from "@/components/AudioReader";
+import { AdminAutofillButton } from "./AdminAutofillButton";
+import { getAdminContext } from "@/modules/admin/actions";
 
 export const metadata = { title: "Research paper" };
 export const dynamic = "force-dynamic";
@@ -59,6 +61,12 @@ export default async function ResearchPaperPage({
   const findingsHtml = p.ai_key_findings_md
     ? await marked.parse(p.ai_key_findings_md as string, { gfm: true, breaks: false })
     : null;
+
+  // Admin viewer? Used to surface admin-only controls (e.g. AI abstract
+  // auto-fill when the paper has no abstract yet).
+  const adminCheck = await getAdminContext();
+  const isAdmin = adminCheck.ok;
+  const abstractEmpty = !p.abstract || (p.abstract as string).trim().length < 200;
 
   // schema.org ScholarlyArticle — the canonical schema for research
   // papers. When AI summarizers / Google Scholar / Semantic Scholar
@@ -252,12 +260,19 @@ export default async function ResearchPaperPage({
               id={`paper-${p.id}-abstract`}
               text={`${p.title}. By ${(p.authors as string[] | null)?.join(", ") ?? "unknown authors"}. ${p.publication_year ? `Published ${p.publication_year}.` : ""} Abstract: ${p.abstract as string}`}
               label="Listen to abstract"
-              compact
             />
           </div>
           <article className="briefing-md text-sm whitespace-pre-wrap text-zinc-300">
             {p.abstract}
           </article>
+        </section>
+      )}
+
+      {/* Admin-only AI auto-fill — appears when abstract is empty or too
+          short. Uses the free AI router (Groq → Gemini → Ollama). */}
+      {isAdmin && abstractEmpty && (
+        <section className="mt-4">
+          <AdminAutofillButton paperId={p.id as string} />
         </section>
       )}
 
