@@ -24,10 +24,11 @@
 | #293 | feat-locality-tests | tests for normalizeLocality + **fixes a critical correctness bug** | Caught: "Marshall, missouri" was being normalized to "Marshall, MI" (Michigan, not Missouri!) — would silently misclassify any user typing a full state name |
 | #294 | feat-admin-data-quality | /admin/data-quality dashboard | 6 data-integrity categories with current counts + suggested resolution paths |
 | #295 | feat-clickable-mission-stats | clickable mission stats on home page | Visitor reading "6 states banning kratom" can click directly through to /banned |
+| #296 | feat-cosine-sim-tests | 10 tests for cosineSim (768-dim embedding math) | Coverage investment for the load-bearing math behind cross-state bill similarity |
 
-Merge order: **#280 → ... → #295**.
+Merge order: **#280 → ... → #296**.
 
-Test suite: 107 → 176 tests, all green. **THREE production bugs caught by the new tests overnight** — each would have required you to spot them visually after restart. The test investment paid off three times.
+Test suite: 107 → 186 tests (+79 overnight), all green. **THREE production bugs caught by the new tests overnight** — each would have required you to spot them visually after restart. The test investment paid off three times.
 
 ### The three production bugs:
 
