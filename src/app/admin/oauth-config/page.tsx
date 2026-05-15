@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
-import { recentAuthFailureSummary, suggestedFixForErrorCode } from "@/lib/auth-events";
+import { recentAuthFailureSummary, authFailureAutoResolveStats, suggestedFixForErrorCode } from "@/lib/auth-events";
+import { FailureClusterActions } from "./FailureClusterActions";
 
 export const metadata = { title: "OAuth Config — admin" };
 export const dynamic = "force-dynamic";
@@ -61,7 +62,10 @@ export default async function OAuthConfigPage() {
 
   // Pull recent auth failure aggregates (last 7d) so the admin can see
   // patterns at a glance — e.g. "5 redirect_uri_mismatch in last 24h".
+  // Only ESCALATED failures appear (auto-resolved ones are silenced by
+  // the classifier; see src/lib/auth-events-auto-fix.ts).
   const failures = await recentAuthFailureSummary({ sinceHours: 24 * 7, limit: 20 });
+  const stats = await authFailureAutoResolveStats({ sinceHours: 24 * 7 });
 
   // Build environments the app is likely deployed to. Each one needs its
   // own redirect URI registered. localhost is dev-only; the prod URL
@@ -92,16 +96,38 @@ export default async function OAuthConfigPage() {
         </p>
       </header>
 
+      {/* Auto-resolver stats — added 2026-05-15. Tells admin how many
+          failures were silently handled BEFORE pending review. Only the
+          escalated ones appear in the cluster list below. */}
+      <section className="mb-4 grid grid-cols-3 gap-3">
+        <div className="rounded-md border border-emerald-700/30 bg-emerald-950/15 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-emerald-300/80">Auto-resolved · 7d</p>
+          <p className="mt-0.5 text-2xl font-bold tabular-nums text-emerald-300">{stats.auto_resolved}</p>
+          <p className="mt-1 text-[10px] text-zinc-500">user typos · cancellations · transient blips</p>
+        </div>
+        <div className="rounded-md border border-amber-700/30 bg-amber-950/15 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-amber-300/80">Escalated · 7d</p>
+          <p className="mt-0.5 text-2xl font-bold tabular-nums text-amber-300">{stats.escalated}</p>
+          <p className="mt-1 text-[10px] text-zinc-500">config drift · unknown patterns</p>
+        </div>
+        <div className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-zinc-400">Legacy unclassified · 7d</p>
+          <p className="mt-0.5 text-2xl font-bold tabular-nums text-zinc-300">{stats.unclassified_legacy}</p>
+          <p className="mt-1 text-[10px] text-zinc-500">pre-0146 rows; shown for safety</p>
+        </div>
+      </section>
+
       {/* Recent failure summary — added 2026-05-15 for self-healing.
-          Surfaces clusters of auth failures so the admin can spot a new
-          config drift quickly (e.g. 5x redirect_uri_mismatch in 24h). */}
+          Surfaces clusters of auth failures the classifier couldn't
+          auto-resolve. Each row has "Send to devs" (files a GitHub
+          issue) + "Dismiss" (manually acknowledged). */}
       {failures.length > 0 && (
         <section className="mb-6 rounded-lg border-2 border-amber-700/50 bg-amber-950/15 p-5">
           <h2 className="text-sm font-bold uppercase tracking-wider text-amber-300">
-            🚨 Recent auth failures · last 7 days
+            🚨 Escalated auth failures · last 7 days
           </h2>
           <p className="mt-1 text-[11px] text-amber-200/80">
-            Aggregated by (kind, provider, error code). If a cluster appears here, the auto-resolver couldn&apos;t recover — check the suggested fix.
+            Aggregated by (kind, provider, error code). User-side errors + transient blips are auto-resolved and don&apos;t appear here — only patterns the classifier flagged as needing admin action.
           </p>
           <ul className="mt-3 space-y-2">
             {failures.map((f, i) => {
@@ -113,6 +139,11 @@ export default async function OAuthConfigPage() {
                     <span className="font-mono text-zinc-200">{f.kind}</span>
                     {f.provider && <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-300">{f.provider}</span>}
                     {f.error_code && <span className="rounded bg-amber-950/60 px-1.5 py-0.5 text-amber-200">{f.error_code}</span>}
+                    {f.auto_resolved_count > 0 && (
+                      <span className="rounded bg-emerald-950/50 px-1.5 py-0.5 text-[10px] text-emerald-300" title="Auto-resolved before escalation">
+                        +{f.auto_resolved_count} auto-fixed
+                      </span>
+                    )}
                     <span className="ml-auto text-zinc-500">latest {new Date(f.latest_at).toLocaleString()}</span>
                   </div>
                   {fix && (
@@ -120,6 +151,19 @@ export default async function OAuthConfigPage() {
                       <span className="font-semibold text-emerald-400">Suggested fix:</span> {fix}
                     </p>
                   )}
+                  {f.latest_notes && !fix && (
+                    <p className="mt-2 text-[11px] italic text-zinc-400">
+                      Classifier: {f.latest_notes}
+                    </p>
+                  )}
+                  <FailureClusterActions
+                    cluster={{
+                      kind: f.kind,
+                      provider: f.provider,
+                      error_code: f.error_code,
+                      dev_issue_url: f.dev_issue_url,
+                    }}
+                  />
                 </li>
               );
             })}
@@ -128,7 +172,7 @@ export default async function OAuthConfigPage() {
       )}
       {failures.length === 0 && (
         <p className="mb-6 rounded-md border border-emerald-700/40 bg-emerald-950/15 p-3 text-[12px] text-emerald-300">
-          ✓ No auth failures in last 7 days. Self-healing diagnostics armed and reporting clean.
+          ✓ No auth failures need admin attention in the last 7 days. {stats.auto_resolved > 0 && <>The classifier auto-resolved <strong>{stats.auto_resolved}</strong> user-side errors silently. </>}Self-healing diagnostics armed and reporting clean.
         </p>
       )}
 
