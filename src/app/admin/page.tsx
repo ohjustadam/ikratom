@@ -281,6 +281,11 @@ export default async function AdminPage() {
             body="Live status of Ollama / Gemini / Groq + provider quotas + cost tracking."
           />
           <AdminCard
+            href="/admin/chat"
+            title="🤖 Admin chatbot · alpha"
+            body="RAG-grounded chat over the iKratom corpus. Cited answers, free-tier inference, 30 msgs/hour."
+          />
+          <AdminCard
             href="/admin/bop-monitor"
             title="BoP Monitor"
             body="State Board of Pharmacy + adjacent agency surfaces. Early warning for the administrative path to a ban."
