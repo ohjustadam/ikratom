@@ -157,7 +157,7 @@ The overnight push extended the 8-part directive in three directions:
 
 1. **Discoverability**. /takeback hub + home-page CTAs + /banned takeback CTA + nav additions + clickable mission stats + sitemap entries — all make the new pages a first-class navigation surface instead of buried per-bill content.
 2. **Quality + freshness signals**. /admin/intel-health queue dashboard + /admin/data-quality + activity filter on /bills + sync auto-resolver keyword tie-break + editorial backlog row — all reduce noise the admin has to manually review.
-3. **Durability**. Extracted three pure-logic helpers (takeback, news-dedup, bill-title) + cosineSim + moderation into a tested library. 79 new tests cover the load-bearing code paths. Three real bugs caught BY the tests, not by the user.
+3. **Durability**. Extracted pure-logic helpers (takeback, news-dedup, bill-title, locality, cosineSim, moderation, ical, legislator-action-plan) into a tested library. 163 new tests cover the load-bearing code paths. Three real bugs caught BY the tests, not by the user.
 
 All three directions are about respecting the admin's attention — the platform should surface real work, not fake work, and prove its math is correct via assertions rather than vibes.
 
