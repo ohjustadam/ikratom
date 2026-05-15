@@ -28,6 +28,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/legislators`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${base}/states`, lastModified: now, changeFrequency: "daily", priority: 0.7 },
     { url: `${base}/deadlines`, lastModified: now, changeFrequency: "hourly", priority: 0.85 },
+    // New 2026-05-14/15 surfaces — high search value because they answer
+    // queries like "where is kratom banned" / "kratom takeback plan" /
+    // "people fighting kratom bills" that currently rank competitors.
+    { url: `${base}/banned`, lastModified: now, changeFrequency: "daily", priority: 0.9 },
+    { url: `${base}/takeback`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
+    { url: `${base}/people`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
     // 50 + DC per-state landing pages (high SEO value — search for "kratom Texas" etc.)
     ...["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN",
         "IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH",
