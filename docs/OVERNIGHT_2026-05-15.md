@@ -17,10 +17,11 @@
 | #286 | feat-profile-seven-oh-stance | optional 7-OH stance on user profile (migration 0143) | Closes your "ask users in profile" directive — non-feed-altering, opt-in only |
 | #287 | feat-nav-takeback-people | surface /takeback, /banned, /people in main + mobile nav | Discoverability for the new pages |
 | #288 | feat-takeback-helpers-tests | refactor + 20 tests + **fixes a real bug** in extractSponsor | Caught: every /takeback card was showing "—" for sponsor in production |
+| #289 | feat-news-dedup-lib | extract news-dedup to lib + 16 tests + **fixes another real bug** | Caught: news-dedup wasn't collapsing multi-segment syndicate suffixes (News12 + Newsday were showing as 2 rows for the same story) |
 
-Merge order: **#280 → #281 → #282 → #283 → #284 → #285 → #286 → #287 → #288**.
+Merge order: **#280 → #281 → #282 → #283 → #284 → #285 → #286 → #287 → #288 → #289**.
 
-Test suite: 107 → 127 tests, all green.
+Test suite: 107 → 143 tests, all green. Two production bugs caught by the new tests that I shipped tonight — both would have required you to spot them visually after restart. The test investment paid off twice.
 
 After each merge, the next PR's diff cleans up. All four pass `npm run verify` (107 tests + typecheck) at every commit on every branch.
 
