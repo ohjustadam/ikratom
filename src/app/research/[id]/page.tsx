@@ -252,7 +252,6 @@ export default async function ResearchPaperPage({
               id={`paper-${p.id}-abstract`}
               text={`${p.title}. By ${(p.authors as string[] | null)?.join(", ") ?? "unknown authors"}. ${p.publication_year ? `Published ${p.publication_year}.` : ""} Abstract: ${p.abstract as string}`}
               label="Listen to abstract"
-              compact
             />
           </div>
           <article className="briefing-md text-sm whitespace-pre-wrap text-zinc-300">
