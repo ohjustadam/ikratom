@@ -38,6 +38,13 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 type Sort = "recent" | "state" | "alpha";
+type Activity = "moving" | "active" | "all";
+
+const ACTIVITY_THRESHOLDS_MS: Record<Activity, number | null> = {
+  moving: 90 * 86_400_000,    // last action in past 90 days
+  active: 365 * 86_400_000,   // last action in past 12 months (DEFAULT)
+  all: null,                  // no filter — includes zombies
+};
 
 export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: string | null }) {
   const [stateFilter, setStateFilter] = useState<string>(userState ? "yours" : "all");
@@ -45,6 +52,11 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("recent");
+  // Owner directive 2026-05-14: 'there is no telling the difference between
+  // what is what, if anything is old, dead, etc.' Default 'active' = last
+  // action within 12 months. Users can widen to 'all' to see zombies if
+  // researching. This matches the /states/[code] filter for consistency.
+  const [activity, setActivity] = useState<Activity>("active");
 
   const statesPresent = useMemo(() => {
     return Array.from(new Set(bills.map((b) => b.state))).sort();
@@ -59,8 +71,23 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
     return c;
   }, [bills]);
 
+  // Counts for each activity window so the chip labels show what's in scope.
+  const activityCounts = useMemo(() => {
+    const now = Date.now();
+    let moving = 0, active = 0;
+    for (const b of bills) {
+      if (!b.last_action_at) continue;
+      const age = now - new Date(b.last_action_at).getTime();
+      if (age <= ACTIVITY_THRESHOLDS_MS.moving!) moving++;
+      if (age <= ACTIVITY_THRESHOLDS_MS.active!) active++;
+    }
+    return { moving, active, all: bills.length };
+  }, [bills]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const activityCutoff = ACTIVITY_THRESHOLDS_MS[activity];
+    const now = Date.now();
     let arr = bills.filter((b) => {
       // State
       if (stateFilter === "yours" && b.state !== userState) return false;
@@ -70,8 +97,14 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
         const r = b.kratom_relevance ?? "neutral";
         if (r !== relevanceFilter) return false;
       }
-      // Status
+      // Status — also auto-hide 'dead' status when activity != 'all'
       if (statusFilter !== "all" && b.status !== statusFilter) return false;
+      if (activity !== "all" && statusFilter === "all" && b.status === "dead") return false;
+      // Activity window — drop bills whose last action is older than the cutoff
+      if (activityCutoff != null) {
+        if (!b.last_action_at) return false;
+        if (now - new Date(b.last_action_at).getTime() > activityCutoff) return false;
+      }
       // Search
       if (q) {
         const hay = `${b.bill_number} ${b.title ?? ""} ${b.summary ?? ""} ${b.last_action ?? ""}`.toLowerCase();
@@ -93,7 +126,7 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
       });
     }
     return arr;
-  }, [bills, stateFilter, relevanceFilter, statusFilter, query, sort, userState]);
+  }, [bills, stateFilter, relevanceFilter, statusFilter, query, sort, userState, activity]);
 
   if (bills.length === 0) {
     return (
@@ -155,6 +188,22 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
             <option value="state">By state, A→Z</option>
             <option value="alpha">Title A→Z</option>
           </select>
+        </div>
+
+        {/* Activity chips — default is 'active' (last 12 months). 'Moving'
+            shows only past-90-day action; 'All' includes zombies. Inserted
+            ABOVE relevance chips because activity is the primary trust
+            signal — users need to see this isn't a stale list. */}
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <Chip active={activity === "moving"} onClick={() => setActivity("moving")} count={activityCounts.moving}>
+            ⚡ Moving (90d)
+          </Chip>
+          <Chip active={activity === "active"} onClick={() => setActivity("active")} count={activityCounts.active}>
+            Active (12mo)
+          </Chip>
+          <Chip active={activity === "all"} onClick={() => setActivity("all")} count={activityCounts.all}>
+            All (incl. dead / closed)
+          </Chip>
         </div>
 
         {/* Relevance chips */}

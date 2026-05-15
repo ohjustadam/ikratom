@@ -67,15 +67,29 @@ export default async function StatePage({ params }: Props) {
   const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const horizon = new Date(now.getTime() + 90 * 86_400_000).toISOString();
 
-  const [bills, meetings, alerts, campaigns, briefing] = await Promise.all([
+  // "Truly active" threshold: last legislative action within the past 12
+  // months. Anything older is almost certainly from a closed session and
+  // showing it as 'active' is misleading. Owner directive 2026-05-14:
+  // 'are all 20 of those active bills under new york truly active bills?
+  // there is no telling the difference between what is what.'
+  const ACTIVE_WINDOW_DAYS = 365;
+  const activeSince = new Date(now.getTime() - ACTIVE_WINDOW_DAYS * 86_400_000).toISOString();
+  // Past-meeting window: meetings in the last 14 days are still narratively
+  // 'live' — the Suffolk County vote happened 2 days ago and is the central
+  // active fight in NY right now; showing it on /states/NY is essential.
+  const pastMeetingWindow = new Date(now.getTime() - 14 * 86_400_000).toISOString();
+
+  const [bills, meetings, pastMeetings, alerts, campaigns, briefing] = await Promise.all([
     supabase
       .from("bills")
-      .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at")
+      .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at, scope, locality")
       .eq("state", codeUpper)
       .eq("active", true)
       .in("kratom_relevance", ["anti", "pro"])
+      .neq("status", "dead")
+      .gte("last_action_at", activeSince)
       .order("last_action_at", { ascending: false, nullsFirst: false })
-      .limit(20),
+      .limit(40),
     supabase
       .from("municipal_meetings")
       .select("id, locality, body_name, meeting_at, zoom_url, agenda_url")
@@ -85,6 +99,18 @@ export default async function StatePage({ params }: Props) {
       .lte("meeting_at", horizon)
       .order("meeting_at", { ascending: true })
       .limit(15),
+    // Past meetings within last 14 days — important for things like the
+    // Suffolk County vote that happened 2 days ago and is the live fight.
+    supabase
+      .from("municipal_meetings")
+      .select("id, locality, body_name, meeting_at, kratom_relevance, agenda_url")
+      .eq("state", codeUpper)
+      .eq("moderation_status", "approved")
+      .eq("kratom_relevance", "confirmed")
+      .gte("meeting_at", pastMeetingWindow)
+      .lt("meeting_at", now.toISOString())
+      .order("meeting_at", { ascending: false })
+      .limit(5),
     supabase
       .from("policy_alerts")
       .select("id, kind, severity, title, body, locality, created_at, occurs_at, bill_id, source_url")
@@ -157,8 +183,34 @@ export default async function StatePage({ params }: Props) {
     return Date.now() - eventDate.getTime() <= STATE_FRESH_MS;
   }).slice(0, 10);
 
-  const totalSignals = (bills.data?.length ?? 0)
+  // Bucket bills: county/municipal-scope active fights surface FIRST
+  // because they're concrete + actionable (a vote is happening soon
+  // in your county vs an abstract state-bill-in-committee). State-scope
+  // bills are split into "moving recently" (last 90 days) vs "tracked
+  // but quiet" so the page doesn't drown a hot local fight under a
+  // pile of stale state-scope bills.
+  type BillRow = {
+    id: string; bill_number: string; title: string | null; status: string | null;
+    kratom_relevance: string | null; last_action: string | null; last_action_at: string | null;
+    scope: string | null; locality: string | null;
+  };
+  const allBills = (bills.data ?? []) as BillRow[];
+  const RECENT_STATE_DAYS = 90;
+  const recentCutoff = Date.now() - RECENT_STATE_DAYS * 86_400_000;
+  const localFights = allBills.filter(b => b.scope === "county" || b.scope === "municipal");
+  const movingStateBills = allBills.filter(b =>
+    b.scope === "state"
+    && b.last_action_at != null
+    && new Date(b.last_action_at).getTime() >= recentCutoff
+  );
+  const quietStateBills = allBills.filter(b =>
+    b.scope === "state"
+    && (b.last_action_at == null || new Date(b.last_action_at).getTime() < recentCutoff)
+  );
+
+  const totalSignals = allBills.length
     + (meetings.data?.length ?? 0)
+    + (pastMeetings.data?.length ?? 0)
     + freshAlerts.length
     + (campaigns.data?.length ?? 0);
 
@@ -299,43 +351,167 @@ export default async function StatePage({ params }: Props) {
         </section>
       )}
 
-      {/* Bills */}
-      {(bills.data ?? []).length > 0 && (
+      {/* Local fights — county/municipal-scope active battles. Pinned at
+          the top because they're concrete + actionable (e.g. Suffolk
+          County Resolution 1279-2026 currently tabled; users in NY need
+          to see this prominently). */}
+      {localFights.length > 0 && (
+        <section className="mb-8 rounded-lg border-2 border-red-700/40 bg-gradient-to-br from-red-950/20 to-zinc-950/40 p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-red-300">
+              🚨 Active local fights · {localFights.length}
+            </h2>
+            <span className="text-[10px] text-zinc-500">county + city ordinances</span>
+          </div>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            County and city-level kratom-ordinance fights happening in {stateName} right now. These are the moments where a small number of votes decides the outcome.
+          </p>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {localFights.map((b) => {
+              const daysAgo = b.last_action_at ? Math.floor((Date.now() - new Date(b.last_action_at).getTime()) / 86_400_000) : null;
+              return (
+                <li key={b.id}>
+                  <Link
+                    href={`/bills/${b.id}`}
+                    className="block rounded-md border-2 border-red-700/40 bg-zinc-950/60 p-3 hover:border-red-400"
+                  >
+                    <p className="flex flex-wrap items-baseline gap-2">
+                      <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-300">
+                        {b.scope}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-zinc-100">{b.bill_number}</span>
+                      {daysAgo != null && (
+                        <span className="ml-auto text-[10px] text-zinc-500">{daysAgo}d ago</span>
+                      )}
+                    </p>
+                    {b.locality && (
+                      <p className="mt-1 text-xs font-semibold text-zinc-200">{b.locality}</p>
+                    )}
+                    {b.title && <p className="mt-1 line-clamp-2 text-[11px] text-zinc-400">{b.title}</p>}
+                    {b.last_action && (
+                      <p className="mt-1 text-[10px] text-zinc-600 line-clamp-1">{b.last_action}</p>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* State bills MOVING — last 90 days of legislative activity. */}
+      {movingStateBills.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-300">
-            Active bills · {bills.data?.length ?? 0}
+          <h2 className="mb-2 text-sm font-bold uppercase tracking-wider text-zinc-300">
+            State bills moving · {movingStateBills.length}
           </h2>
+          <p className="mb-3 text-[11px] text-zinc-500">
+            State-scope bills with legislative activity in the last 90 days.
+          </p>
           <ul className="grid gap-2 sm:grid-cols-2">
-            {(bills.data ?? []).map((b) => (
-              <li key={b.id}>
-                <Link
-                  href={`/bills/${b.id}`}
-                  className={`block rounded-md border p-3 hover:border-emerald-500 ${
-                    b.kratom_relevance === "anti"
-                      ? "border-red-700/40 bg-red-950/10"
-                      : "border-emerald-700/40 bg-emerald-950/10"
-                  }`}
-                >
-                  <p className="flex items-baseline gap-2">
-                    <span className="font-mono text-sm font-bold text-zinc-100">
-                      {b.bill_number}
-                    </span>
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+            {movingStateBills.map((b) => {
+              const daysAgo = b.last_action_at ? Math.floor((Date.now() - new Date(b.last_action_at).getTime()) / 86_400_000) : null;
+              return (
+                <li key={b.id}>
+                  <Link
+                    href={`/bills/${b.id}`}
+                    className={`block rounded-md border p-3 hover:border-emerald-500 ${
                       b.kratom_relevance === "anti"
-                        ? "bg-red-950/40 text-red-300"
-                        : "bg-emerald-950/40 text-emerald-300"
+                        ? "border-red-700/40 bg-red-950/10"
+                        : "border-emerald-700/40 bg-emerald-950/10"
+                    }`}
+                  >
+                    <p className="flex items-baseline gap-2">
+                      <span className="font-mono text-sm font-bold text-zinc-100">{b.bill_number}</span>
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                        b.kratom_relevance === "anti" ? "bg-red-950/40 text-red-300" : "bg-emerald-950/40 text-emerald-300"
+                      }`}>
+                        {b.kratom_relevance === "anti" ? "🚫 restrictive" : "✅ supportive"}
+                      </span>
+                      <span className="ml-auto text-[10px] text-zinc-500">{b.status}{daysAgo != null && ` · ${daysAgo}d`}</span>
+                    </p>
+                    {b.title && <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{b.title}</p>}
+                    {b.last_action && (
+                      <p className="mt-1 text-[10px] text-zinc-600">{b.last_action}</p>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* State bills TRACKED but quiet — collapsed by default so the
+          page leads with what's actually moving. */}
+      {quietStateBills.length > 0 && (
+        <section className="mb-8">
+          <details className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
+              Tracked but quiet (90+ days no action) · {quietStateBills.length}
+            </summary>
+            <p className="mt-2 text-[11px] text-zinc-500">
+              These bills exist in the {stateName} legislature&apos;s system but haven&apos;t moved in 3+ months. Likely from a closed session or in a holding pattern. Useful context; not urgent.
+            </p>
+            <ul className="mt-3 grid gap-1 sm:grid-cols-2">
+              {quietStateBills.map((b) => (
+                <li key={b.id}>
+                  <Link
+                    href={`/bills/${b.id}`}
+                    className="block rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-[11px] hover:border-zinc-600"
+                  >
+                    <span className="font-mono text-zinc-300">{b.bill_number}</span>
+                    <span className={`ml-2 rounded px-1 py-0.5 text-[9px] uppercase ${
+                      b.kratom_relevance === "anti" ? "text-red-400" : "text-emerald-400"
                     }`}>
-                      {b.kratom_relevance === "anti" ? "🚫 restrictive" : "✅ supportive"}
+                      {b.kratom_relevance}
                     </span>
-                    <span className="ml-auto text-[10px] text-zinc-500">{b.status}</span>
-                  </p>
-                  {b.title && <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{b.title}</p>}
-                  {b.last_action && (
-                    <p className="mt-1 text-[10px] text-zinc-600">{b.last_action}</p>
-                  )}
-                </Link>
-              </li>
-            ))}
+                    {b.title && <span className="ml-2 text-zinc-500">— {b.title.slice(0, 60)}</span>}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </section>
+      )}
+
+      {/* Recent past meetings (last 14 days, kratom-confirmed). Critical
+          for the Suffolk County case: vote happened 2 days ago. The page
+          would otherwise miss it entirely (the "next 90 days" filter only
+          shows future meetings). */}
+      {(pastMeetings.data ?? []).length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-orange-300">
+            Just happened · last 14 days
+          </h2>
+          <ul className="space-y-2">
+            {(pastMeetings.data ?? []).map((m: { id: string; locality: string | null; body_name: string | null; meeting_at: string; agenda_url: string | null }) => {
+              const when = new Date(m.meeting_at);
+              const daysAgo = Math.floor((Date.now() - when.getTime()) / 86_400_000);
+              return (
+                <li key={m.id}>
+                  <Link
+                    href={`/meetings/${m.id}`}
+                    className="block rounded-md border border-orange-700/40 bg-orange-950/15 p-3 hover:border-orange-500"
+                  >
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="rounded bg-orange-900/40 px-1.5 py-0.5 text-[10px] font-bold uppercase text-orange-300">
+                        {daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `${daysAgo}d ago`}
+                      </span>
+                      <span className="font-semibold text-zinc-100">
+                        {m.locality}{m.body_name ? ` · ${m.body_name}` : ""}
+                      </span>
+                      <span className="ml-auto text-[10px] text-zinc-500">
+                        {when.toLocaleString(undefined, { month: "short", day: "numeric" })}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] text-zinc-500">
+                      Recent local meeting where kratom appeared on the agenda. Click for outcome + follow-up coverage.
+                    </p>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

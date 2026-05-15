@@ -3,6 +3,11 @@ import { getCreatorContext, getAdminQueueCounts } from "@/modules/admin/actions"
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Admin" };
+// Owner directive 2026-05-14: 'the campaigns stats number is wrong, this
+// should update realtime. same with all stats here.' Force dynamic so
+// every request re-queries — no caching of stale stats.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /**
  * Admin/Owner control room. Reorganized per ROADMAP.md audit: items
@@ -27,18 +32,28 @@ export default async function AdminPage() {
   const adminOnly = ctx.isAdmin || ctx.isOwner;
 
   const supabase = await createClient();
+  // Honest stats. The pre-fix single 'Campaigns' count returned the table
+  // total (~2,000+ including superseded + rejected) which the admin
+  // correctly identified as misleading. We now show active + pending
+  // separately and call them what they are.
   const [
     { count: userCount },
-    { count: campaignCount },
-    { count: legislatorCount },
-    { count: billCount },
+    { count: activeCampaignCount },
+    { count: pendingCampaignCount },
+    { count: activeLegislatorCount },
+    { count: activeBillCount },
     { count: actionCount },
     queues,
   ] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }),
-    supabase.from("campaigns").select("id", { count: "exact", head: true }),
-    supabase.from("legislators").select("id", { count: "exact", head: true }),
-    supabase.from("bills").select("id", { count: "exact", head: true }),
+    supabase.from("campaigns").select("id", { count: "exact", head: true })
+      .eq("active", true),
+    supabase.from("campaigns").select("id", { count: "exact", head: true })
+      .eq("review_state", "pending_review"),
+    supabase.from("legislators").select("id", { count: "exact", head: true })
+      .eq("active", true),
+    supabase.from("bills").select("id", { count: "exact", head: true })
+      .eq("active", true),
     supabase.from("campaign_actions").select("id", { count: "exact", head: true }),
     getAdminQueueCounts(),
   ]);
@@ -136,14 +151,18 @@ export default async function AdminPage() {
         </section>
       )}
 
-      {/* ── Stats strip ───────────────────────────────────────────── */}
-      <section className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      {/* ── Stats strip ─ honest counts, force-dynamic, no cache. ──── */}
+      <section className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <Stat label="Users" value={userCount} />
-        <Stat label="Campaigns" value={campaignCount} />
-        <Stat label="Legislators" value={legislatorCount} />
-        <Stat label="Bills" value={billCount} />
+        <Stat label="Active campaigns" value={activeCampaignCount} tone={(activeCampaignCount ?? 0) > 0 ? "emerald" : "neutral"} />
+        <Stat label="Pending review" value={pendingCampaignCount} tone={(pendingCampaignCount ?? 0) > 0 ? "amber" : "neutral"} />
+        <Stat label="Active legislators" value={activeLegislatorCount} />
+        <Stat label="Active bills" value={activeBillCount} />
         <Stat label="Actions sent" value={actionCount} />
       </section>
+      <p className="mb-10 text-[10px] uppercase tracking-wider text-zinc-600">
+        Stats refresh on every page load · last query {new Date().toISOString().slice(0, 19).replace("T", " ")} UTC
+      </p>
 
       {/* ── P1 Daily ops ──────────────────────────────────────────── */}
       <section className="mb-10">
@@ -305,11 +324,23 @@ export default async function AdminPage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | null | undefined }) {
+function Stat({ label, value, tone }: {
+  label: string; value: number | null | undefined; tone?: "emerald" | "amber" | "neutral";
+}) {
+  const cls =
+    tone === "emerald" ? "border-emerald-700/40 bg-emerald-950/15" :
+    tone === "amber"   ? "border-amber-700/40 bg-amber-950/15" :
+                         "border-zinc-800 bg-zinc-950/40";
+  const valCls =
+    tone === "emerald" ? "text-emerald-200" :
+    tone === "amber"   ? "text-amber-200" :
+                         "text-zinc-100";
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+    <div className={`rounded-lg border p-4 ${cls}`}>
       <div className="text-xs uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className="mt-1 text-2xl font-bold text-zinc-100">{value ?? "—"}</div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${valCls}`}>
+        {value == null ? "—" : value.toLocaleString()}
+      </div>
     </div>
   );
 }

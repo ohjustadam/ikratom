@@ -14,6 +14,7 @@ import { BillFullText } from "./BillFullText";
 import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillLocalActionCard";
 import { findSimilarBills } from "@/lib/bill-similarity";
 import { IntelTipForm } from "./IntelTipForm";
+import { Markdown } from "@/components/Markdown";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -48,6 +49,9 @@ type BillRow = {
   text_synced_at: string | null;
   local_meta: LocalMeta | null;
   local_meta_extracted_at: string | null;
+  opposition_summary_md: string | null;
+  repeal_plan_md: string | null;
+  forum_thread_id: string | null;
 };
 
 type Stance = "bans" | "restricts" | "schedules" | "preserves" | "neutral" | "unaddressed";
@@ -154,7 +158,9 @@ export default async function BillDetailPage({
       "journey_narrative, amendments_count, journey_analyzed_at, " +
       "substance_targeting, substance_targeting_analyzed_at, " +
       "summary_long, bill_text_versions, text_synced_at, " +
-      "local_meta, local_meta_extracted_at",
+      "local_meta, local_meta_extracted_at, " +
+      "opposition_summary_md, repeal_plan_md, " +
+      "forum_thread_id",
     )
     .eq("id", id)
     .single();
@@ -225,6 +231,29 @@ export default async function BillDetailPage({
     // Pre-migration deploy or query error — silent fallback.
   }
 
+  // Forum thread — every active anti/pro bill at state/federal scope
+  // gets one auto-posted by scripts/auto-post-bills-to-forum.mjs. We
+  // surface it so people landing on /bills/<id> can join the discussion
+  // instead of comments living invisibly on /forum/<state>. Wrapped
+  // defensively: stale forum_thread_id refs return null and we render
+  // a "start the discussion" CTA instead.
+  type ForumThreadSummary = {
+    id: string;
+    state: string | null;
+    title: string;
+    post_count: number;
+    last_activity_at: string | null;
+  };
+  let forumThread: ForumThreadSummary | null = null;
+  if (bill.forum_thread_id) {
+    const { data } = await supabase
+      .from("forum_threads")
+      .select("id, state, title, post_count, last_activity_at")
+      .eq("id", bill.forum_thread_id)
+      .maybeSingle();
+    if (data) forumThread = data as unknown as ForumThreadSummary;
+  }
+
   // Linked campaigns (auto-generated or hand-written for this bill)
   const { data: campaignsRaw } = await supabase
     .from("campaigns")
@@ -272,6 +301,64 @@ export default async function BillDetailPage({
       .order("created_at", { ascending: false })
       .limit(1);
     alertSourceUrl = alerts?.[0]?.source_url ?? null;
+  }
+
+  // News coverage — pull every news_items article linked through the
+  // policy_alerts → bill_id chain. Owner directive 2026-05-14: 'bills
+  // should also have all relative news articles attached, putting them
+  // together and telling their stories.' Dedupe heavily by title because
+  // News12 affiliates (Bronx/Westchester/Long Island/NJ/Hudson Valley)
+  // syndicate the same piece across 5+ regional URLs.
+  type NewsItem = {
+    id: string;
+    title: string;
+    source_name: string | null;
+    url: string;
+    published_at: string | null;
+    summary: string | null;
+  };
+  let newsCoverage: NewsItem[] = [];
+  {
+    const { data: linkedAlerts } = await supabase
+      .from("policy_alerts")
+      .select("id")
+      .eq("bill_id", bill.id);
+    const linkedAlertIds = (linkedAlerts ?? []).map((a: { id: string }) => a.id);
+    if (linkedAlertIds.length > 0) {
+      const { data: news } = await supabase
+        .from("news_items")
+        .select("id, title, source_name, url, published_at, summary")
+        .in("policy_alert_id", linkedAlertIds)
+        .eq("active", true)
+        .order("published_at", { ascending: false })
+        .limit(50);
+      const all = (news ?? []) as NewsItem[];
+      // Dedupe by normalized title — strip outlet suffix patterns like
+      // " - News12 | Long Island" so syndicated copies collapse to one
+      // row. Keep the earliest-published copy as the canonical (usually
+      // the originating outlet).
+      const normalize = (t: string) => t
+        .toLowerCase()
+        .replace(/\s*[-—|]\s*[a-z0-9 .'’&]+$/i, "") // strip " — Newsday" / " | News12 ..."
+        .replace(/\s+/g, " ")
+        .trim();
+      const seen = new Map<string, NewsItem>();
+      for (const n of all) {
+        const key = normalize(n.title);
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, n);
+          continue;
+        }
+        // Prefer earliest-published (originating outlet over syndication)
+        const existingTime = existing.published_at ? new Date(existing.published_at).getTime() : Infinity;
+        const newTime = n.published_at ? new Date(n.published_at).getTime() : Infinity;
+        if (newTime < existingTime) seen.set(key, n);
+      }
+      newsCoverage = [...seen.values()]
+        .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
+        .slice(0, 12);
+    }
   }
 
   // Determine if the calling user is signed in + already subscribed to
@@ -505,6 +592,50 @@ export default async function BillDetailPage({
           for "get pushed when this bill changes status". */}
       <SignUpNudge context="bill" stateCode={bill.state} className="mb-6" />
       <EnablePushNudge context="bill" stateCode={bill.state} className="mb-6" />
+
+      {/* Takeback playbook — editorial content for enacted-ban + imminent-ban
+          bills. Two sections: who pushed the ban (opposition_summary_md) and
+          the concrete plan to repeal (repeal_plan_md). Rendered as a single
+          composite section so the analytical context and the action plan stay
+          adjacent. Only fires when at least one column is populated, which is
+          by-design only for the 7 banning states + imminent TN. */}
+      {(bill.opposition_summary_md || bill.repeal_plan_md) && (
+        <section className="mb-6 rounded-lg border-2 border-amber-700/40 bg-gradient-to-br from-zinc-950/60 to-amber-950/15 p-5">
+          <div className="mb-3 flex flex-wrap items-baseline gap-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-300">
+              🎯 Takeback intel
+            </p>
+            <span className="text-[10px] text-zinc-500">
+              who pushed this · what the political trail looks like · how to repeal
+            </span>
+          </div>
+          <p className="text-[11px] leading-relaxed text-zinc-400">
+            Editorial-curated political-action intel for this {bill.status === "enacted" ? "enacted ban" : "imminent ban"}. Sources, named legislators, and a phased repeal plan. Most of the work of repealing a state ban is naming the right allies and constraints — that&apos;s what this section is for.
+          </p>
+
+          {bill.opposition_summary_md && (
+            <div className="mt-4 rounded-md border border-red-800/40 bg-red-950/15 p-4">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-red-300">
+                ⚠ Who pushed this ban
+              </p>
+              <Markdown>{bill.opposition_summary_md}</Markdown>
+            </div>
+          )}
+
+          {bill.repeal_plan_md && (
+            <div className="mt-4 rounded-md border border-emerald-800/40 bg-emerald-950/15 p-4">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
+                🛠 Repeal action plan
+              </p>
+              <Markdown>{bill.repeal_plan_md}</Markdown>
+            </div>
+          )}
+
+          <p className="mt-4 text-[10px] uppercase tracking-wider text-zinc-600">
+            Editorial — submit corrections + additional intel via the &quot;Add local intel&quot; button on the people-of-interest section below.
+          </p>
+        </section>
+      )}
 
       {/* "YOUR REP IS DECIDING THIS BILL" — district-level urgency.
           When the bill is in a committee that one of the user's reps
@@ -787,6 +918,105 @@ export default async function BillDetailPage({
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {/* News coverage — every news article we've scraped that's been
+          linked to this bill via the policy_alerts → bill_id chain.
+          Deduplicated heavily so syndicated News12 / Newsday copies
+          collapse into a single entry. Tells the bill's story
+          chronologically. */}
+      {newsCoverage.length > 0 && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
+              📰 News coverage · {newsCoverage.length}
+            </h2>
+            <span className="text-[10px] text-zinc-500">deduped across syndications</span>
+          </div>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Every news article we&apos;ve indexed that mentions this bill or its underlying event, oldest at the bottom.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {newsCoverage.map((n) => (
+              <li key={n.id}>
+                <a
+                  href={n.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded-md border border-zinc-800 bg-zinc-950/60 p-3 hover:border-emerald-500"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                    {n.source_name && (
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
+                        {n.source_name}
+                      </span>
+                    )}
+                    {n.published_at && (
+                      <span className="text-zinc-500">
+                        {new Date(n.published_at).toLocaleDateString()}
+                      </span>
+                    )}
+                    <span className="ml-auto text-emerald-400">read →</span>
+                  </div>
+                  <p className="mt-1 text-sm font-medium text-zinc-100 line-clamp-2">
+                    {n.title}
+                  </p>
+                  {n.summary && (
+                    <p className="mt-1 text-[11px] text-zinc-500 line-clamp-2">
+                      {n.summary.slice(0, 200)}
+                    </p>
+                  )}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* Community discussion — every active anti/pro state/federal bill
+          gets an auto-posted forum thread (see scripts/auto-post-bills-to-forum.mjs).
+          Surfacing the link here makes the comments discoverable from
+          /bills/<id>. Falls back to "start the discussion" when no thread
+          exists yet. */}
+      {forumThread ? (
+        <section className="mb-6 rounded-lg border border-sky-700/40 bg-sky-950/15 p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-sky-300">
+              💬 Community discussion
+            </h2>
+            <span className="text-[10px] text-zinc-500">
+              {forumThread.post_count === 0 ? "no replies yet — be first" : `${forumThread.post_count} repl${forumThread.post_count === 1 ? "y" : "ies"}`}
+              {forumThread.last_activity_at && forumThread.post_count > 0 && (
+                <span> · last {new Date(forumThread.last_activity_at).toLocaleDateString()}</span>
+              )}
+            </span>
+          </div>
+          <a
+            href={`/forum/${(forumThread.state ?? "federal").toLowerCase()}/${forumThread.id}`}
+            className="mt-2 block rounded-md border border-sky-800/30 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-100 hover:border-sky-500"
+          >
+            {forumThread.title.length > 110 ? forumThread.title.slice(0, 110) + "…" : forumThread.title}
+            <span className="ml-2 text-xs text-sky-300">Join thread →</span>
+          </a>
+          <p className="mt-2 text-[11px] text-zinc-500">
+            Native comments on the {(forumThread.state ?? "federal").toUpperCase()} forum. Reply with on-the-ground updates, hearing audio, or coordination — visible to every iKratom member.
+          </p>
+        </section>
+      ) : (bill.kratom_relevance === "anti" || bill.kratom_relevance === "pro") && bill.scope === "state" && bill.state && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
+            💬 Community discussion
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            No forum thread for this bill yet. The auto-poster picks up active anti/pro state bills hourly. Want to start the discussion now?
+          </p>
+          <a
+            href={`/forum/${bill.state.toLowerCase()}/new`}
+            className="mt-2 inline-block rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+          >
+            Start a thread on /forum/{bill.state} →
+          </a>
         </section>
       )}
 
