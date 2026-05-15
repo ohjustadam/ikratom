@@ -75,7 +75,7 @@ export default async function PerStateIntelHealthPage() {
   // stacks old briefings via is_active=false), and include the
   // critique audit trail from D5 + the body length for the D7
   // health check.
-  const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists, billVotes, courtCases, federalRulemaking] = await Promise.all([
+  const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists, billVotes, courtCases, federalRulemaking, federalAwards] = await Promise.all([
     supabase.from("profiles").select("state").not("state", "is", null),
     supabase.from("bills").select("state").eq("active", true),
     supabase.from("municipal_meetings")
@@ -114,6 +114,10 @@ export default async function PerStateIntelHealthPage() {
     // count totals + open-for-comment count for the top-line stats.
     supabase.from("federal_rulemaking")
       .select("open_for_comment, agency_id"),
+    // Federal awards — NATIONAL layer. Total $ flowing federally
+    // for kratom-related work.
+    supabase.from("federal_awards")
+      .select("amount, is_research"),
   ]);
 
   // Aggregate
@@ -248,6 +252,12 @@ export default async function PerStateIntelHealthPage() {
   const fedTotal = fedRows.length;
   const fedOpenForComment = fedRows.filter(r => r.open_for_comment).length;
 
+  // Federal awards aggregates (NATIONAL — money flowing federally).
+  type FedAwardRow = { amount: number | null; is_research: boolean | null };
+  const awardRows = (federalAwards.data ?? []) as FedAwardRow[];
+  const awardCount = awardRows.length;
+  const awardTotalDollars = awardRows.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+
   // Surface ops blockers: when an entire intel layer is at 0 across
   // all 51 states, something is broken at the secrets/cron level —
   // not a per-state coverage gap. Surface plainly so the owner knows
@@ -313,6 +323,8 @@ export default async function PerStateIntelHealthPage() {
           value={fedOpenForComment}
           tone={fedOpenForComment > 0 ? "warn" : undefined}
         />
+        <Stat label="Federal awards" value={awardCount} />
+        <Stat label="Federal $ awarded" value={awardTotalDollars} format="dollars" />
       </section>
       {fedOpenForComment > 0 && (
         <section className="mb-6 rounded-lg border-2 border-amber-600/60 bg-amber-950/25 p-4">
@@ -397,13 +409,16 @@ export default async function PerStateIntelHealthPage() {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone?: "warn" }) {
+function Stat({ label, value, tone, format }: { label: string; value: number; tone?: "warn"; format?: "dollars" }) {
   const borderCls = tone === "warn" ? "border-red-700/50 bg-red-950/20" : "border-zinc-800 bg-zinc-950/40";
   const valueCls = tone === "warn" ? "text-red-200" : "text-zinc-100";
+  const displayValue = format === "dollars"
+    ? (value >= 1_000_000 ? `$${(value / 1_000_000).toFixed(1)}M` : value >= 1_000 ? `$${(value / 1_000).toFixed(0)}k` : `$${value}`)
+    : value.toLocaleString();
   return (
     <div className={`rounded-lg border p-3 ${borderCls}`}>
       <p className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className={`mt-1 text-2xl font-bold tabular-nums ${valueCls}`}>{value}</p>
+      <p className={`mt-1 text-2xl font-bold tabular-nums ${valueCls}`}>{displayValue}</p>
     </div>
   );
 }
