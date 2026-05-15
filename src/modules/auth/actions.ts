@@ -559,6 +559,12 @@ export async function updateProfile(formData: FormData): Promise<AuthResult> {
   const shopName = cap((formData.get("shop_name") as string) || "", 120);
   const isMedical = formData.get("is_medical_professional") === "on";
 
+  // Opt-in user stance on 7-OH. Per migration 0143 check constraint:
+  // only 'pro' / 'anti' / 'neutral' / NULL are accepted. Empty string
+  // from the select means 'prefer not to say' → store NULL.
+  const stanceRaw = ((formData.get("seven_oh_stance") as string) || "").trim();
+  const sevenOhStance = ["pro", "anti", "neutral"].includes(stanceRaw) ? stanceRaw : null;
+
   // Username is required (3–30 chars, lowercase letters/digits/_).
   // Existing users without one get this on first profile save.
   if (!usernameRaw) return { error: "Username is required." };
@@ -616,6 +622,7 @@ export async function updateProfile(formData: FormData): Promise<AuthResult> {
       is_shop_owner: isShopOwner,
       shop_name: isShopOwner ? shopName : null,
       is_medical_professional: isMedical,
+      seven_oh_stance: sevenOhStance,
       updated_at: new Date().toISOString(),
     })
     .eq("id", user.id);
