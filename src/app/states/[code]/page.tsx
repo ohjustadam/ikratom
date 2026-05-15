@@ -79,7 +79,12 @@ export default async function StatePage({ params }: Props) {
   // active fight in NY right now; showing it on /states/NY is essential.
   const pastMeetingWindow = new Date(now.getTime() - 14 * 86_400_000).toISOString();
 
-  const [bills, meetings, pastMeetings, alerts, campaigns, briefing] = await Promise.all([
+  // News window: last 60 days of kratom coverage tagged to this state.
+  // Wider window than the 30d alert window because news context can be
+  // a few months stale and still valuable for organizing.
+  const newsSince = new Date(now.getTime() - 60 * 86_400_000).toISOString();
+
+  const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw] = await Promise.all([
     supabase
       .from("bills")
       .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at, scope, locality")
@@ -132,6 +137,14 @@ export default async function StatePage({ params }: Props) {
       .select("state, published_at")
       .eq("state", codeUpper)
       .maybeSingle(),
+    supabase
+      .from("news_items")
+      .select("id, title, source_name, url, published_at, summary")
+      .eq("state", codeUpper)
+      .eq("active", true)
+      .gte("published_at", newsSince)
+      .order("published_at", { ascending: false })
+      .limit(40),
   ]);
 
   // Real-event-date filter for alerts — match the freshness logic
@@ -167,6 +180,33 @@ export default async function StatePage({ params }: Props) {
       if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
     }
   }
+  // Dedup news items — News12 affiliates and Newsday echo-posts produce
+  // 3-5+ identical-title rows per real story. Strip outlet suffixes then
+  // collapse to one entry (keep earliest published as canonical = the
+  // originating outlet).
+  type NewsItem = {
+    id: string; title: string; source_name: string | null; url: string;
+    published_at: string | null; summary: string | null;
+  };
+  const rawNews = (newsRaw.data ?? []) as NewsItem[];
+  const normalizeNewsTitle = (t: string) =>
+    t.toLowerCase()
+     .replace(/\s*[-—|]\s*[a-z0-9 .'’&]+$/i, "")
+     .replace(/\s+/g, " ")
+     .trim();
+  const seenNews = new Map<string, NewsItem>();
+  for (const n of rawNews) {
+    const key = normalizeNewsTitle(n.title);
+    const existing = seenNews.get(key);
+    if (!existing) { seenNews.set(key, n); continue; }
+    const aT = existing.published_at ? new Date(existing.published_at).getTime() : Infinity;
+    const bT = n.published_at ? new Date(n.published_at).getTime() : Infinity;
+    if (bT < aT) seenNews.set(key, n);
+  }
+  const news = [...seenNews.values()]
+    .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
+    .slice(0, 12);
+
   const STATE_FRESH_DAYS = 30;
   const STATE_FRESH_MS = STATE_FRESH_DAYS * 86_400_000;
   const freshAlerts = rawAlerts.filter((a) => {
@@ -577,6 +617,59 @@ export default async function StatePage({ params }: Props) {
                 </li>
               );
             })}
+          </ul>
+        </section>
+      )}
+
+      {/* News coverage in this state — last 60d, deduped across syndicates.
+          Same chain logic as /bills/[id] but state-wide rather than bill-
+          scoped. Owner directive 2026-05-14: 'we have so much information
+          that has context to correlate to each other... putting them
+          together and telling their stories.' */}
+      {news.length > 0 && (
+        <section className="mb-8">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-300">
+              📰 News in {stateName} · {news.length}
+            </h2>
+            <span className="text-[10px] text-zinc-500">last 60 days, deduped</span>
+          </div>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Every news article we&apos;ve indexed mentioning kratom + {stateName}. Collapsed across syndicates (News12 affiliates, AOL/MSN echoes) to one entry per real story.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {news.map((n) => (
+              <li key={n.id}>
+                <a
+                  href={n.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded-md border border-zinc-800 bg-zinc-950/60 p-3 hover:border-emerald-500"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                    {n.source_name && (
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
+                        {n.source_name}
+                      </span>
+                    )}
+                    {n.published_at && (
+                      <span className="text-zinc-500">
+                        {new Date(n.published_at).toLocaleDateString()}
+                      </span>
+                    )}
+                    <span className="ml-auto text-emerald-400">read →</span>
+                  </div>
+                  <p className="mt-1 text-sm font-medium text-zinc-100 line-clamp-2">
+                    {n.title}
+                  </p>
+                  {n.summary && (
+                    <p className="mt-1 text-[11px] text-zinc-500 line-clamp-2">
+                      {n.summary.slice(0, 200)}
+                    </p>
+                  )}
+                </a>
+              </li>
+            ))}
           </ul>
         </section>
       )}
