@@ -176,6 +176,9 @@ STATE CAPITAL: (no row in state_capital_info — admin has not curated yet)
     : `\nKRATOM-RELEVANT COMMITTEE CHAIRS (${chairRows.length}; these are the decision-makers — bills die in their committees):
 ${chairRows.map(c => `  ${c.chamber.toUpperCase()} · ${c.committee_name}: chair = ${c.legislators?.full_name ?? "?"} (${c.legislators?.district ? "district " + c.legislators.district : "?"})`).join("\n")}`;
 
+  // Court litigation section is built by a helper (after this
+  // function — keeps the inline prompt build readable).
+
   // State-level lobbyist registrations (Phase 3 D2). Active rows are the
   // present-day signal; historical rows give context on industry attention.
   // Currently only Utah is scraped — other states show "(no state lobbying
@@ -238,6 +241,7 @@ ${data.news.length === 0 ? "  (none in last 30 days)" : data.news.map(n => `  - 
 ${committeeSection}
 ${stanceSection}
 ${stateLobbyingSection}
+${buildCourtCasesSection(data)}
 
 STATE STATUS (from states table):
   kratom_status: ${data.stateStatus ?? "(unset)"}
@@ -249,11 +253,53 @@ MUNICIPAL OFFICIALS ON FILE:
 Synthesize this into the briefing. Name primary bill sponsors when discussing each bill. Use capital + scheduling info verbatim when relevant. Quote admin stance rationales when listing champions/hostiles.`;
 }
 
+/**
+ * Build the COURT LITIGATION prompt section. Surfaces decided opinions
+ * and active dockets relevant to this state. Industry-party dockets
+ * (AKA / Botanic Tonics / GKC as a named party) are flagged separately
+ * because they're the highest-signal — they show whether a state's
+ * kratom law is being legally challenged right now.
+ */
+function buildCourtCasesSection(data) {
+  const cases = data.courtCases ?? [];
+  if (cases.length === 0) {
+    return `\nCOURT LITIGATION: (no kratom-related court cases for ${data.state} on file. CourtListener sync runs daily; cases appear here when filed in this state's courts or when the state is a named defendant.)`;
+  }
+  const industry = cases.filter(c => c.parties_industry);
+  const opinions = cases.filter(c => c.case_kind === "opinion");
+  const dockets = cases.filter(c => c.case_kind === "docket");
+  const lines = [];
+  lines.push(`\nCOURT LITIGATION (${cases.length} ${data.state} case${cases.length === 1 ? "" : "s"} — courts are the second battlefield after the legislature):`);
+  if (industry.length > 0) {
+    lines.push(`  INDUSTRY-PARTY (${industry.length} — direct AKA/GKC/Botanic Tonics involvement):`);
+    for (const c of industry.slice(0, 5)) {
+      lines.push(`    - ${(c.date_filed ?? "?").slice(0, 10)} · ${c.case_name?.slice(0, 100)} (${c.court_name ?? "?"})${c.challenged_law ? ` — challenges ${c.challenged_law} law` : ""}`);
+    }
+  }
+  if (opinions.length > 0) {
+    lines.push(`  PUBLISHED OPINIONS (${opinions.length} — decided cases interpreting kratom statutes):`);
+    for (const o of opinions.slice(0, 3)) {
+      lines.push(`    - ${(o.date_filed ?? "?").slice(0, 10)} · ${o.case_name?.slice(0, 100)} (${o.court_name ?? "?"})`);
+    }
+  }
+  if (dockets.length > industry.length) {
+    const otherDockets = dockets.filter(d => !d.parties_industry);
+    if (otherDockets.length > 0) {
+      lines.push(`  ACTIVE DOCKETS, non-industry (${otherDockets.length}):`);
+      for (const d of otherDockets.slice(0, 3)) {
+        lines.push(`    - ${(d.date_filed ?? "?").slice(0, 10)} · ${d.case_name?.slice(0, 100)}`);
+      }
+    }
+  }
+  lines.push(`  When the state passes a kratom restriction, the industry's next move is the courts. These rows surface those filings as they happen.`);
+  return lines.join("\n");
+}
+
 async function loadStateData(state) {
   // Parallel data fetch — includes capital info, sponsors, stances, committees
   const [
     stateRow, capitalRow, legsAll, bills, bopSrc, bopFindings, news, camps,
-    stanceRows, committeeRows, stateLobbyistRows,
+    stanceRows, committeeRows, stateLobbyistRows, courtCaseRows,
   ] = await Promise.all([
     sb.from("states").select("abbr, name, kratom_status, notes").eq("abbr", state).maybeSingle(),
     sb.from("state_capital_info")
@@ -299,6 +345,17 @@ async function loadStateData(state) {
       .eq("state", state)
       .eq("is_kratom_relevant", true)
       .order("start_date", { ascending: false }),
+    // Court litigation (CourtListener sync). Surfaces both opinions
+    // (decided cases interpreting kratom statutes in this state) and
+    // active dockets (industry suits, criminal challenges). Most
+    // valuable: parties_industry=true rows show direct AKA / Botanic
+    // Tonics / GKC litigation. Falls through to empty when court
+    // sync hasn't run yet.
+    sb.from("court_cases")
+      .select("case_name, case_kind, court_name, date_filed, citation, parties_industry, challenged_law, cl_url, snippet")
+      .eq("state", state)
+      .order("date_filed", { ascending: false, nullsFirst: false })
+      .limit(15),
   ]);
 
   // Sponsors: pull all rows for these specific bills + their resolved legislator names.
@@ -353,6 +410,7 @@ async function loadStateData(state) {
     stances: stanceRows.data ?? [],
     committees: committeeRows.data ?? [],
     stateLobbyists: stateLobbyistRows.data ?? [],
+    courtCases: courtCaseRows.data ?? [],
   };
 }
 
