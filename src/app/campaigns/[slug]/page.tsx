@@ -296,6 +296,12 @@ export default async function CampaignPage({
         lastSentAt={myProgress.lastSentAt}
         initialSubject={subject}
         initialBody={body}
+        hasStreet={!!profile?.street}
+        hasDistricts={!!(
+          profile?.congressional_district ||
+          profile?.state_senate_district ||
+          profile?.state_house_district
+        )}
       />
 
       {/* Share to your network — distributed organic mobilization */}

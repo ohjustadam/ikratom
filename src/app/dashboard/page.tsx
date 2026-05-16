@@ -6,6 +6,7 @@ import { StreakBadge } from "@/components/StreakBadge";
 import { getCockpitLayout } from "@/modules/dashboard/actions";
 import { CockpitCustomizer } from "@/modules/dashboard/CockpitCustomizer";
 import { ReplayTourButton } from "@/modules/dashboard/ReplayTourButton";
+import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 import { OnboardingTour } from "@/modules/dashboard/OnboardingTour";
 import { TutorialReplay, WelcomeReplayTour } from "@/modules/dashboard/TutorialReplay";
 import { WelcomeExploreWidget } from "@/modules/dashboard/widgets/WelcomeExploreWidget";
@@ -118,12 +119,24 @@ export default async function DashboardPage({
         cta={{ href: "/account", label: "Complete profile →" }}
       />
     ) : !districtsResolved ? (
-      <Banner
-        tone="amber"
-        title="We couldn't auto-detect your districts"
-        body="Add your full street address so we can match you to your specific U.S. House and state legislative districts."
-        cta={{ href: "/account", label: "Update address →" }}
-      />
+      profile?.street ? (
+        // Address IS on file — Census just didn't have it indexed.
+        // Show a retry button + manual-find link instead of misleadingly
+        // telling the user to add an address they already added.
+        <Banner
+          tone="amber"
+          title="We couldn't auto-detect your district"
+          body="Your address is on file, but the US Census Bureau's address index doesn't cover every street. Retry the lookup, or find your reps manually."
+          slot={<RetryDistrictsButton userState={profile?.state ?? null} />}
+        />
+      ) : (
+        <Banner
+          tone="amber"
+          title="We couldn't auto-detect your districts"
+          body="Add your full street address so we can match you to your specific U.S. House and state legislative districts."
+          cta={{ href: "/account", label: "Update address →" }}
+        />
+      )
     ) : null,
     active_campaigns: (
       <ActiveCampaignsWidget userState={profile?.state ?? null} />
@@ -289,11 +302,15 @@ function Banner({
   title,
   body,
   cta,
+  slot,
 }: {
   tone: "amber" | "emerald";
   title: string;
   body: string;
-  cta: { href: string; label: string };
+  cta?: { href: string; label: string };
+  /** Optional custom slot — replaces the CTA link with arbitrary content
+   *  (e.g. an inline retry button + secondary links). */
+  slot?: React.ReactNode;
 }) {
   const bg = tone === "amber" ? "border-amber-900/40 bg-amber-950/20" : "border-emerald-900/40 bg-emerald-950/20";
   const titleCol = tone === "amber" ? "text-amber-300" : "text-emerald-300";
@@ -303,12 +320,16 @@ function Banner({
     <div className={`rounded-lg border p-5 ${bg}`}>
       <h2 className={`text-sm font-semibold ${titleCol}`}>{title}</h2>
       <p className="mt-1 text-sm text-zinc-400">{body}</p>
-      <a
-        href={cta.href}
-        className={`mt-3 inline-block rounded-md px-4 py-2 text-sm font-semibold text-zinc-950 ${btnBg} ${btnHover}`}
-      >
-        {cta.label}
-      </a>
+      {slot ? (
+        <div className="mt-3">{slot}</div>
+      ) : cta ? (
+        <a
+          href={cta.href}
+          className={`mt-3 inline-block rounded-md px-4 py-2 text-sm font-semibold text-zinc-950 ${btnBg} ${btnHover}`}
+        >
+          {cta.label}
+        </a>
+      ) : null}
     </div>
   );
 }

@@ -28,6 +28,13 @@ type SortMode = "urgency" | "newest" | "actions";
 
 const SEV_RANK: Record<string, number> = { critical: 4, alert: 3, watch: 2, routine: 1 };
 
+// State picker — every state with non-zero campaigns shows up here.
+const STATES_50 = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME",
+  "MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI",
+  "SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+];
+
 export function CampaignBrowser({
   campaigns,
   userState,
@@ -41,15 +48,32 @@ export function CampaignBrowser({
   const [scope, setScope] = useState<ScopeFilter>(userState ? "yours" : "all");
   const [stance, setStance] = useState<StanceFilter>("all");
   const [sort, setSort] = useState<SortMode>("urgency");
+  // State picker — independent of the scope chips. "" = no state filter.
+  // Lets a LA user view OK campaigns without flipping their saved profile state.
+  const [statePicked, setStatePicked] = useState<string>("");
+
+  // States that actually have at least one campaign — keeps the dropdown
+  // honest about what's available rather than showing 50 dead options.
+  const availableStates = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of campaigns) if (c.state) s.add(c.state);
+    return [...s].sort();
+  }, [campaigns]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return campaigns.filter((c) => {
-      // Scope chip
-      if (scope === "yours" && userState && c.state !== userState) return false;
-      if (scope === "federal" && c.scope !== "federal") return false;
-      if (scope === "state" && c.scope !== "state") return false;
-      if (scope === "local" && c.scope !== "municipal" && c.scope !== "county") return false;
+      // Explicit state picker beats scope when set
+      if (statePicked && c.state !== statePicked) return false;
+
+      // Scope chip — skip if a state is picked explicitly (the state picker
+      // is more specific than "yours" / "federal" / etc.)
+      if (!statePicked) {
+        if (scope === "yours" && userState && c.state !== userState) return false;
+        if (scope === "federal" && c.scope !== "federal") return false;
+        if (scope === "state" && c.scope !== "state") return false;
+        if (scope === "local" && c.scope !== "municipal" && c.scope !== "county") return false;
+      }
 
       // Stance chip
       if (stance === "anti" && c.stance !== "anti") return false;
@@ -62,7 +86,7 @@ export function CampaignBrowser({
       }
       return true;
     });
-  }, [campaigns, query, scope, stance, userState]);
+  }, [campaigns, query, scope, stance, userState, statePicked]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -124,6 +148,30 @@ export function CampaignBrowser({
               className="w-full rounded-md border border-zinc-800 bg-zinc-950 py-2 pl-9 pr-3 text-sm focus:border-emerald-500 focus:outline-none"
             />
           </div>
+
+          {/* State picker — pick any state to filter to its campaigns.
+              Works independently of the scope chips below. */}
+          <select
+            value={statePicked}
+            onChange={(e) => setStatePicked(e.target.value)}
+            className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-300 focus:border-emerald-500 focus:outline-none"
+            aria-label="Filter by state"
+          >
+            <option value="">All states</option>
+            {availableStates.map((s) => (
+              <option key={s} value={s}>
+                {s}{userState === s ? " · yours" : ""}
+              </option>
+            ))}
+            {/* Allow picking states not currently in the campaign list
+                so users can see "no campaigns in X yet" rather than
+                wondering why a state is missing. Show them at the
+                bottom, separated. */}
+            <option disabled value="">─── all 51 ───</option>
+            {STATES_50.filter((s) => !availableStates.includes(s)).map((s) => (
+              <option key={s} value={s}>{s} (no campaigns yet)</option>
+            ))}
+          </select>
 
           {/* Sort */}
           <select
