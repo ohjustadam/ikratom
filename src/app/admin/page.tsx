@@ -276,6 +276,11 @@ export default async function AdminPage() {
             body="Every redirect URI the app sends to Google / Discord. Use to fix 'Error 400: redirect_uri_mismatch' when users can't connect Gmail."
           />
           <AdminCard
+            href="/admin/user-errors"
+            title="📮 User error reports"
+            body="User-reported errors across the site. Auto-fix classifier handles user-side issues silently; escalated patterns + sustained outages bubble here."
+          />
+          <AdminCard
             href="/admin/ai-control"
             title="AI Command Center"
             body="Live status of Ollama / Gemini / Groq + provider quotas + cost tracking."

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { createThread } from "@/modules/forum/actions";
 import { TAG_LABELS, type ForumTag } from "@/modules/forum/types";
 import { useSignIn } from "@/components/auth/SignInContext";
+import { ErrorWithReport } from "@/components/ErrorWithReport";
 
 const TAGS: ForumTag[] = ["general", "legislation", "news", "event", "meetup", "market"];
 
@@ -126,9 +127,7 @@ export function NewThreadForm({
       )}
 
       {error && (
-        <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-          {error}
-        </p>
+        <ErrorWithReport message={error} kind="forum_post" errorCode={null} />
       )}
 
       <div className="flex items-center gap-3">

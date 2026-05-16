@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitStory } from "@/modules/stories/actions";
 import { useSignIn } from "@/components/auth/SignInContext";
+import { ErrorWithReport } from "@/components/ErrorWithReport";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
@@ -152,9 +153,7 @@ export function NewStoryForm({ defaultName, defaultState }: { defaultName: strin
       </div>
 
       {error && (
-        <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-          {error}
-        </p>
+        <ErrorWithReport message={error} kind="story_submit" errorCode={null} />
       )}
 
       <div className="flex items-center gap-3">

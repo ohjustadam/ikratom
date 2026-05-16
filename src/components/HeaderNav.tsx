@@ -45,9 +45,11 @@ const GROUPS: NavGroup[] = [
   {
     label: "Knowledge",
     items: [
+      { href: "/research", label: "🔬 Research", description: "Peer-reviewed kratom + 7-OH evidence library. PubMed-sourced, AI-evaluated." },
       { href: "/news", label: "News", description: "AI-classified kratom news from every state." },
       { href: "/library", label: "Library", description: "Research, white papers, talking points." },
       { href: "/briefings", label: "Briefings", description: "Short reads. Print-friendly PDFs available." },
+      { href: "/ethics", label: "🌿 Code of Morals", description: "What iKratom stands for. Choosing peace via cooperation, not war." },
     ],
   },
   {
@@ -55,6 +57,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/forum", label: "Forum", description: "State-by-state advocate discussion." },
       { href: "/communities", label: "Communities", description: "Topic-focused groups: vets, shop owners, etc." },
+      { href: "/stories", label: "📖 Story bank", description: "Real kratom-advocate stories. The most persuasive thing legislators read." },
     ],
   },
 ];

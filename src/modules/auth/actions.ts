@@ -456,12 +456,12 @@ export async function signInInline(formData: FormData): Promise<AuthResult & { m
     });
     const msg = error.message?.toLowerCase() ?? "";
     if (msg.includes("email not confirmed") || msg.includes("not been confirmed")) {
-      return { error: "Your email isn't confirmed yet.", hint: "Check your inbox + spam for the confirmation link." };
+      return { error: "Your email isn't confirmed yet.", hint: "Check your inbox + spam for the confirmation link.", errorCode: "email_not_confirmed" };
     }
     if (msg.includes("invalid login credentials") || msg.includes("invalid_credentials") || msg.includes("user not found")) {
-      return { error: "Email or password is incorrect.", hint: "Try 'Forgot password' if you've signed up before." };
+      return { error: "Email or password is incorrect.", hint: "Try 'Forgot password' if you've signed up before.", errorCode: "invalid_credentials" };
     }
-    return { error: error.message };
+    return { error: error.message, errorCode: error.code ?? null };
   }
 
   if (data.user) {

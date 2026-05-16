@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { signInInline, signUpInline } from "@/modules/auth/actions";
+import { ErrorWithReport } from "@/components/ErrorWithReport";
 
 /**
  * SignInModal — inline auth popup that DOESN'T redirect the user away.
@@ -36,7 +37,7 @@ type Mode = "signin" | "signup";
 export function SignInModal({ open, onClose, onSignedIn }: Props) {
   const [mode, setMode] = useState<Mode>("signin");
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<{ message: string; hint?: string } | null>(null);
+  const [error, setError] = useState<{ message: string; hint?: string; code?: string | null } | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const [mfaUrl, setMfaUrl] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -83,7 +84,7 @@ export function SignInModal({ open, onClose, onSignedIn }: Props) {
         if (mode === "signin") {
           const r = await signInInline(fd);
           if (r.error) {
-            setError({ message: r.error, hint: r.hint });
+            setError({ message: r.error, hint: r.hint, code: r.errorCode ?? null });
             return;
           }
           if (r.mfaRequiredUrl) {
@@ -94,7 +95,7 @@ export function SignInModal({ open, onClose, onSignedIn }: Props) {
         } else {
           const r = await signUpInline(fd);
           if (r.error) {
-            setError({ message: r.error, hint: r.hint });
+            setError({ message: r.error, hint: r.hint, code: r.errorCode ?? null });
             return;
           }
           if (r.needsConfirmation) {
@@ -215,10 +216,13 @@ export function SignInModal({ open, onClose, onSignedIn }: Props) {
             )}
 
             {error && (
-              <div className="rounded-md border border-red-900/50 bg-red-950/40 p-2.5 text-[12px] text-red-300">
-                <p className="font-semibold">{error.message}</p>
-                {error.hint && <p className="mt-0.5 text-red-300/80">{error.hint}</p>}
-              </div>
+              <ErrorWithReport
+                message={error.message}
+                hint={error.hint ?? null}
+                kind={mode === "signup" ? "signup" : "login"}
+                errorCode={error.code ?? null}
+                extraContext={{ source: "SignInModal", mode }}
+              />
             )}
 
             <button

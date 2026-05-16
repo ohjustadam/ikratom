@@ -1,6 +1,6 @@
 export type AuthResult =
-  | { success: true; error?: never; hint?: never }
-  | { error: string; hint?: string; success?: never };
+  | { success: true; error?: never; hint?: never; errorCode?: never }
+  | { error: string; hint?: string; errorCode?: string | null; success?: never };
 
 export type Profile = {
   id: string;
