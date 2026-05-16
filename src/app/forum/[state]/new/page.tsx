@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NewThreadForm } from "./NewThreadForm";
 import { listActiveCommunities } from "@/modules/forum/community-actions";
@@ -15,7 +15,8 @@ export default async function NewThreadPage({
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/login?redirect=/forum/${abbr}/new`);
+  // Anonymous visitors see the form — the in-page sign-in modal
+  // (SignInProvider in layout.tsx) opens on submit.
 
   const { data: stateRow } = await supabase
     .from("states")
@@ -24,11 +25,13 @@ export default async function NewThreadPage({
     .single();
   if (!stateRow) notFound();
 
-  const { data: prof } = await supabase
-    .from("profiles")
-    .select("state")
-    .eq("id", user.id)
-    .single();
+  const prof = user
+    ? (await supabase
+        .from("profiles")
+        .select("state")
+        .eq("id", user.id)
+        .single()).data
+    : null;
 
   const userIsLocal = prof?.state === abbr;
   const communities = await listActiveCommunities();

@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NewStoryForm } from "./NewStoryForm";
 
@@ -7,13 +6,15 @@ export const metadata = { title: "Share your story" };
 export default async function NewStoryPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login?redirect=/stories/new");
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, state")
-    .eq("id", user.id)
-    .single();
+  // Anonymous visitors see the form — the in-page sign-in modal
+  // (SignInProvider in layout.tsx) opens on submit, then the post fires.
+  const profile = user
+    ? (await supabase
+        .from("profiles")
+        .select("full_name, state")
+        .eq("id", user.id)
+        .single()).data
+    : null;
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:px-8">

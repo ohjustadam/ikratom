@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitResearchPaper, submitResearchPaperUpload } from "@/modules/research/submit-actions";
 import { createClient } from "@/lib/supabase/client";
+import { useSignIn } from "@/components/auth/SignInContext";
 import {
   ALLOWED_UPLOAD_EXT,
   ALLOWED_UPLOAD_MIME,
@@ -72,8 +73,9 @@ const COMMON_BLOCKED_HINTS: Record<string, string> = {
   js: "JavaScript", py: "Python script", rb: "Ruby script",
 };
 
-export function SubmitResearchForm({ submitterName, userId }: { submitterName: string; userId: string }) {
+export function SubmitResearchForm({ submitterName, userId }: { submitterName: string; userId: string | null }) {
   const router = useRouter();
+  const { user: signedInUser, requireSignIn } = useSignIn();
   const [mode, setMode] = useState<Mode>("url");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -111,7 +113,7 @@ export function SubmitResearchForm({ submitterName, userId }: { submitterName: s
     return () => { cancelled = true; };
   }, [pending]);
 
-  async function uploadFileToStorage(f: File): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+  async function uploadFileToStorage(f: File, currentUserId: string): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
     // 1. Size bounds (both directions — 0-byte files are almost always probes)
     if (f.size > MAX_UPLOAD_BYTES) {
       return { ok: false, error: `File is ${(f.size / 1024 / 1024).toFixed(1)} MB; limit is 10 MB.` };
@@ -145,7 +147,7 @@ export function SubmitResearchForm({ submitterName, userId }: { submitterName: s
     // Path: {user_id}/{paper_uuid_placeholder}/{safe_filename}
     const rand = crypto.randomUUID();
     const safeName = f.name.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 200);
-    const path = `${userId}/${rand}/${safeName}`;
+    const path = `${currentUserId}/${rand}/${safeName}`;
     const sb = createClient();
     const { error: upErr } = await sb.storage.from("research-uploads").upload(path, f, {
       contentType: f.type,
@@ -155,9 +157,32 @@ export function SubmitResearchForm({ submitterName, userId }: { submitterName: s
     return { ok: true, path };
   }
 
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+
+    // Gate: if not signed in, open the in-page modal. Form state is
+    // preserved across the modal interaction — no redirect, no reload.
+    let activeUserId = signedInUser?.id ?? userId;
+    if (!activeUserId) {
+      const ok = await requireSignIn();
+      if (!ok) return; // user closed the modal
+      // After sign-in, the SignInContext fires onAuthStateChange and
+      // populates signedInUser. Wait briefly for that propagation —
+      // requireSignIn() resolves once the server action returns, but
+      // the auth-state listener may not have ticked yet.
+      for (let i = 0; i < 20 && !activeUserId; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        const sb = createClient();
+        const { data } = await sb.auth.getUser();
+        if (data.user) activeUserId = data.user.id;
+      }
+      if (!activeUserId) {
+        setError("Signed in, but session didn't propagate. Refresh and try again.");
+        return;
+      }
+    }
+
     setQuipIdx(Math.floor(Math.random() * KRATOM_QUIPS.length));
     startTransition(async () => {
       let result;
@@ -169,7 +194,7 @@ export function SubmitResearchForm({ submitterName, userId }: { submitterName: s
           setPhaseIdx(-1);
           return;
         }
-        const up = await uploadFileToStorage(file);
+        const up = await uploadFileToStorage(file, activeUserId!);
         if (!up.ok) {
           setError(up.error);
           setPhaseIdx(-1);
@@ -336,8 +361,17 @@ export function SubmitResearchForm({ submitterName, userId }: { submitterName: s
           disabled={pending || !canSubmit}
           className="inline-flex items-center gap-2 rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
         >
-          {pending ? "Processing…" : mode === "url" ? "Add to library →" : "Upload + add →"}
+          {pending
+            ? "Processing…"
+            : !signedInUser && !userId
+              ? mode === "url" ? "🔒 Sign in + add →" : "🔒 Sign in + upload →"
+              : mode === "url" ? "Add to library →" : "Upload + add →"}
         </button>
+        {!signedInUser && !userId && canSubmit && (
+          <p className="text-[11px] text-zinc-500">
+            You&apos;ll be prompted to sign in or create an account — your submission stays right here.
+          </p>
+        )}
 
         {error && (
           <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">

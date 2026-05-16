@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { SubmitResearchForm } from "./SubmitResearchForm";
@@ -26,15 +25,17 @@ export const dynamic = "force-dynamic";
 export default async function SubmitResearchPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/login?redirect=/research/submit");
-  }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader, full_name")
-    .eq("id", user.id)
-    .maybeSingle();
+  // Anonymous visitors see the form too — the sign-in modal opens on
+  // submit (see SignInProvider in layout.tsx). Pre-2026-05-15 we
+  // redirected to /login here, which lost the user's context.
+  const profile = user
+    ? (await supabase
+        .from("profiles")
+        .select("is_admin, is_owner, is_advocate_leader, full_name")
+        .eq("id", user.id)
+        .maybeSingle()).data
+    : null;
   const isPrivileged = !!(profile?.is_admin || profile?.is_owner || profile?.is_advocate_leader);
 
   return (
@@ -54,7 +55,7 @@ export default async function SubmitResearchPage() {
         </p>
       </header>
 
-      {!isPrivileged ? (
+      {user && !isPrivileged ? (
         <div className="rounded-lg border border-amber-700/40 bg-amber-950/15 p-5">
           <h2 className="text-sm font-bold uppercase tracking-wider text-amber-300">
             Advocate leader access required
@@ -77,7 +78,13 @@ export default async function SubmitResearchPage() {
           </Link>
         </div>
       ) : (
-        <SubmitResearchForm submitterName={profile?.full_name ?? user.email ?? "you"} userId={user.id} />
+        // Anonymous OR privileged: render the form. The form's submit
+        // button triggers the sign-in modal if user isn't signed in;
+        // after sign-in, the same submission proceeds.
+        <SubmitResearchForm
+          submitterName={profile?.full_name ?? user?.email ?? "you"}
+          userId={user?.id ?? null}
+        />
       )}
 
       <footer className="mt-8 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-[11px] text-zinc-400">

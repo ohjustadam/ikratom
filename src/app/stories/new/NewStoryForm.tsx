@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitStory } from "@/modules/stories/actions";
+import { useSignIn } from "@/components/auth/SignInContext";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
@@ -21,6 +22,7 @@ const TAGS: Array<{ id: "pain" | "recovery" | "mental_health" | "energy" | "medi
 
 export function NewStoryForm({ defaultName, defaultState }: { defaultName: string; defaultState: string }) {
   const router = useRouter();
+  const { user, requireSignIn } = useSignIn();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [anonymous, setAnonymous] = useState(false);
@@ -36,9 +38,13 @@ export function NewStoryForm({ defaultName, defaultState }: { defaultName: strin
     );
   }
 
-  function submit(e: React.FormEvent<HTMLFormElement>) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    if (!user) {
+      const ok = await requireSignIn();
+      if (!ok) return;
+    }
     startTransition(async () => {
       const r = await submitStory({
         title,
@@ -157,7 +163,7 @@ export function NewStoryForm({ defaultName, defaultState }: { defaultName: strin
           disabled={pending}
           className="rounded-md bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
         >
-          {pending ? "Submitting…" : "Submit for review"}
+          {pending ? "Submitting…" : !user ? "🔒 Sign in + submit" : "Submit for review"}
         </button>
         <a href="/stories" className="text-sm text-zinc-500 hover:text-zinc-300">Cancel</a>
       </div>

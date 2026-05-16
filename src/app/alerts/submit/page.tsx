@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SubmitIntelForm } from "./SubmitIntelForm";
 
@@ -10,17 +9,21 @@ export const metadata = { title: "Submit intel" };
  * council agenda, AG presser, BoP hearing notice, etc. The post
  * lands in moderation; an admin reviews it on /admin/intel-queue
  * and approves to /pulse (which auto-spawns a campaign).
+ *
+ * Anonymous visitors see the form too — the in-page sign-in modal
+ * (SignInProvider in layout.tsx) opens on submit.
  */
 export default async function SubmitIntelPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login?redirect=/alerts/submit");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("state, intel_tier, intel_approved_count, intel_rejected_count")
-    .eq("id", user.id)
-    .single();
+  const profile = user
+    ? (await supabase
+        .from("profiles")
+        .select("state, intel_tier, intel_approved_count, intel_rejected_count")
+        .eq("id", user.id)
+        .single()).data
+    : null;
   const tier = (profile as { intel_tier?: string } | null)?.intel_tier ?? "rookie";
   const approvedCount = (profile as { intel_approved_count?: number } | null)?.intel_approved_count ?? 0;
   const rejectedCount = (profile as { intel_rejected_count?: number } | null)?.intel_rejected_count ?? 0;

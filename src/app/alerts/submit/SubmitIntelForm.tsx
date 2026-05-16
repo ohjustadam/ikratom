@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitIntelTip } from "@/modules/alerts/actions";
 import { enrichLibraryUrl } from "@/modules/library/enrich-url-action";
+import { useSignIn } from "@/components/auth/SignInContext";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
@@ -26,6 +27,7 @@ const SEVERITIES: { id: "watch" | "alert" | "critical"; label: string; hint: str
 
 export function SubmitIntelForm({ defaultState }: { defaultState: string }) {
   const router = useRouter();
+  const { user, requireSignIn } = useSignIn();
   const [kind, setKind] = useState<typeof KINDS[number]["id"]>("bill_event");
   const [severity, setSeverity] = useState<typeof SEVERITIES[number]["id"]>("watch");
   const [title, setTitle] = useState("");
@@ -69,9 +71,13 @@ export function SubmitIntelForm({ defaultState }: { defaultState: string }) {
     });
   }
 
-  function submit(e: React.FormEvent<HTMLFormElement>) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    if (!user) {
+      const ok = await requireSignIn();
+      if (!ok) return;
+    }
     startTransition(async () => {
       const r = await submitIntelTip({
         kind,
@@ -282,7 +288,7 @@ export function SubmitIntelForm({ defaultState }: { defaultState: string }) {
           disabled={pending}
           className="rounded-md bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
         >
-          {pending ? "Submitting…" : "Send tip to admin"}
+          {pending ? "Submitting…" : !user ? "🔒 Sign in + send tip" : "Send tip to admin"}
         </button>
         <a href="/pulse" className="text-sm text-zinc-500 hover:text-zinc-300">Cancel</a>
       </div>
