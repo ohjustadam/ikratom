@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { createThread } from "@/modules/forum/actions";
 import { TAG_LABELS, type ForumTag } from "@/modules/forum/types";
+import { useSignIn } from "@/components/auth/SignInContext";
 
 const TAGS: ForumTag[] = ["general", "legislation", "news", "event", "meetup", "market"];
 
@@ -15,15 +16,20 @@ export function NewThreadForm({
   userIsLocal: boolean;
   communities: Array<{ id: string; slug: string; name: string; icon: string | null }>;
 }) {
+  const { user, requireSignIn } = useSignIn();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [residentsOnly, setResidentsOnly] = useState(false);
 
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     const fd = new FormData(e.currentTarget);
     fd.set("state", state);
+    if (!user) {
+      const ok = await requireSignIn();
+      if (!ok) return;
+    }
     startTransition(async () => {
       const result = await createThread(fd);
       if (result?.error) setError(result.error);
@@ -131,7 +137,7 @@ export function NewThreadForm({
           disabled={pending}
           className="rounded-md bg-emerald-500 px-5 py-2 font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
         >
-          {pending ? "Posting…" : "Post thread"}
+          {pending ? "Posting…" : !user ? "🔒 Sign in + post" : "Post thread"}
         </button>
         <a href={`/forum/${state}`} className="text-sm text-zinc-400 hover:text-emerald-400">
           Cancel
