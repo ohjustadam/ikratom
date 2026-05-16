@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { submitIntelTip } from "@/modules/alerts/actions";
 import { enrichLibraryUrl } from "@/modules/library/enrich-url-action";
 import { useSignIn } from "@/components/auth/SignInContext";
+import { ErrorWithReport } from "@/components/ErrorWithReport";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
@@ -277,9 +278,7 @@ export function SubmitIntelForm({ defaultState }: { defaultState: string }) {
       </div>
 
       {error && (
-        <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-          {error}
-        </p>
+        <ErrorWithReport message={error} kind="intel_tip_submit" errorCode={null} />
       )}
 
       <div className="flex items-center gap-3">

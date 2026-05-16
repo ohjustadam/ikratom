@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { submitResearchPaper, submitResearchPaperUpload } from "@/modules/research/submit-actions";
 import { createClient } from "@/lib/supabase/client";
 import { useSignIn } from "@/components/auth/SignInContext";
+import { ErrorWithReport } from "@/components/ErrorWithReport";
 import {
   ALLOWED_UPLOAD_EXT,
   ALLOWED_UPLOAD_MIME,
@@ -374,9 +375,12 @@ export function SubmitResearchForm({ submitterName, userId }: { submitterName: s
         )}
 
         {error && (
-          <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-            {error}
-          </p>
+          <ErrorWithReport
+            message={error}
+            kind="research_submit"
+            errorCode={null}
+            extraContext={{ mode, has_file: !!file }}
+          />
         )}
       </form>
 

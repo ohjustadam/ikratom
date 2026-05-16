@@ -37,9 +37,11 @@ const PRIMARY_LINKS = [
   { href: "/states", label: "By state", icon: "📍" },
   { href: "/forum", label: "Community", icon: "💬" },
   { href: "/news", label: "News", icon: "📰" },
+  { href: "/research", label: "Research library", icon: "🔬" },
   { href: "/messages", label: "Messages", icon: "✉️" },
   { href: "/stories", label: "Stories", icon: "📖" },
   { href: "/library", label: "Library", icon: "📚" },
+  { href: "/ethics", label: "Code of Morals", icon: "🌿" },
   { href: "/notifications", label: "Notifications", icon: "🔔" },
 ];
 
