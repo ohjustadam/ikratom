@@ -8,6 +8,11 @@ import {
   filenameExt,
   rejectReasonForUpload,
 } from "@/lib/file-signatures";
+import {
+  extractResearchMetaFromHtml,
+  stripTrackingParams,
+} from "@/lib/research-metadata";
+import { enrichAbstractFromUrl } from "@/lib/research-enrich-ai";
 
 /**
  * Server action: leader-advocate / admin submits a research-paper URL.
@@ -181,7 +186,10 @@ export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult>
     };
   }
 
-  const url = rawUrl.trim().slice(0, 1000);
+  // Strip tracking params (fbclid, utm_*, etc.) BEFORE the rest of
+  // the flow so dedupe + storage are consistent regardless of which
+  // share-channel the user came through.
+  const url = stripTrackingParams(rawUrl.trim().slice(0, 1000));
   if (!URL_RE.test(url)) return { ok: false, error: "Paste a valid http(s) URL." };
 
   // Dedupe BEFORE fetching — fast path when this URL is already on the
@@ -199,47 +207,77 @@ export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult>
     .maybeSingle();
   if (existing) return { ok: true, paperId: existing.id, isDuplicate: true };
 
-  // Best-effort metadata fetch. Server-side, so we control timeouts +
-  // can hit paywalled domains that browsers can't reach.
+  // Fetch the page once. We parse all the standard academic meta tags
+  // (citation_*) which RSC, ACS, Springer, Wiley, Nature, PubMed, etc.
+  // all expose. Then, if the abstract came back truncated (og:description
+  // typically caps at ~300 chars), kick off an AI enrichment pass so
+  // the kratom-brain RAG has full content to ground on.
   let title: string = url;
-  let description: string | null = null;
-  let author: string | null = null;
+  let abstract: string | null = null;
+  let authors: string[] = [];
+  let journal: string | null = null;
+  let doi: string | null = null;
+  let publicationYear: number | null = null;
+  let publicationDate: string | null = null;
+  let pdfUrl: string | null = null;
+  let abstractLikelyTruncated = false;
+  let html: string | null = null;
   try {
     const r = await fetch(url, {
       signal: AbortSignal.timeout(15_000),
       headers: { "User-Agent": "iKratom Research Bot (research@ikratom.org)" },
     });
     if (r.ok) {
-      const html = await r.text();
-      title = extractMeta(html, /<meta[^>]+(?:property|name)=["']og:title["'][^>]+content=["']([^"']{3,300})["']/i)
-        ?? extractMeta(html, /<title>([^<]{3,300})<\/title>/i)
-        ?? title;
-      description = extractMeta(html, /<meta[^>]+(?:property|name)=["']og:description["'][^>]+content=["']([^"']{10,2000})["']/i)
-        ?? extractMeta(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']{10,2000})["']/i);
-      // citation_author meta is widely used by academic publishers
-      author = extractMeta(html, /<meta[^>]+name=["']citation_author["'][^>]+content=["']([^"']{2,200})["']/i)
-        ?? extractMeta(html, /<meta[^>]+name=["']author["'][^>]+content=["']([^"']{2,200})["']/i);
+      html = await r.text();
+      const meta = extractResearchMetaFromHtml(html);
+      title = meta.title ?? url;
+      abstract = meta.abstract;
+      authors = meta.authors;
+      journal = meta.journal ?? meta.journalAbbrev ?? null;
+      doi = meta.doi;
+      publicationYear = meta.publicationYear;
+      publicationDate = meta.publicationDate;
+      pdfUrl = meta.pdfUrl;
+      abstractLikelyTruncated = meta.abstractLikelyTruncated;
     }
   } catch {
     // Best-effort — failure leaves title=URL + abstract=null, admin can edit
   }
 
-  // Decode any HTML entities in the captured fields
-  title = decodeEntities(title).slice(0, 500);
-  description = description ? decodeEntities(description).slice(0, 4000) : null;
-  author = author ? decodeEntities(author).slice(0, 200) : null;
+  // AI enrichment: when the captured abstract is missing or looks
+  // truncated, ask the AI router (free-tier Groq → Gemini → Ollama) to
+  // extract the verbatim abstract from the page. Falls back silently
+  // if the AI can't find one.
+  let enrichmentNote = "";
+  if ((!abstract || abstractLikelyTruncated) && html) {
+    const enriched = await enrichAbstractFromUrl({ url, title });
+    if (enriched.ok && enriched.chars > (abstract?.length ?? 0)) {
+      abstract = enriched.abstract;
+      enrichmentNote = ` AI-extracted abstract via ${enriched.provider} (${enriched.chars} chars; original meta only had ${abstractLikelyTruncated ? "truncated og:description" : "no abstract"}).`;
+    }
+  }
+
+  // Final caps. Title 500, abstract 8000, author list to 50 entries.
+  title = title.slice(0, 500);
+  abstract = abstract ? abstract.slice(0, 8000) : null;
+  authors = authors.slice(0, 50);
 
   const { data: inserted, error: insErr } = await admin
     .from("research_papers")
     .insert({
       title,
-      abstract: description,
-      authors: author ? [author] : [],
+      abstract,
+      authors,
+      journal,
+      doi,
+      publication_year: publicationYear,
+      publication_date: publicationDate,
       full_text_url: url,
+      pdf_url: pdfUrl,
       topics: ["needs_review", "leader_submitted"],
       study_type: null,
       ingested_via: "leader_submit",
-      admin_notes_md: `Submitted via /research/submit by ${profile?.full_name ?? user.email} on ${new Date().toISOString().slice(0, 10)}. Pending AI evaluation pass.`,
+      admin_notes_md: `Submitted via /research/submit by ${profile?.full_name ?? user.email} on ${new Date().toISOString().slice(0, 10)}.${enrichmentNote} Pending editorial pass.`,
       is_active: true,
     })
     .select("id")
@@ -258,23 +296,6 @@ export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult>
   } catch { /* non-fatal */ }
 
   return { ok: true, paperId: inserted.id, isDuplicate: false };
-}
-
-function extractMeta(html: string, re: RegExp): string | null {
-  const m = html.match(re);
-  return m ? m[1].trim() : null;
-}
-
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
 }
 
 // ----- Upload validation helpers (defense in depth vs malicious clients) -----
