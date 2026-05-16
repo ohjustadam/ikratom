@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { SignInModal } from "./SignInModal";
+import { MfaStepUpModal } from "./MfaStepUpModal";
 
 /**
  * SignInContext — global gate for in-page sign-in prompts.
@@ -46,6 +47,10 @@ type SignInContextValue = {
   ready: boolean;
   /** Open the sign-in modal. Resolves to true on success, false on cancel. */
   requireSignIn: () => Promise<boolean>;
+  /** Open the MFA step-up modal. Resolves to true on success, false on
+   *  cancel. After success, the server has set the 1-hour mfa_bypass
+   *  cookie — the caller can retry the original admin action immediately. */
+  requireMfa: () => Promise<boolean>;
 };
 
 const Ctx = createContext<SignInContextValue | null>(null);
@@ -62,9 +67,11 @@ export function SignInProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser>(null);
   const [ready, setReady] = useState(false);
   const [open, setOpen] = useState(false);
+  const [mfaOpen, setMfaOpen] = useState(false);
   // Promise resolver kept in a ref so requireSignIn() can resolve later
   // when the user finishes the modal flow.
   const resolverRef = useRef<((ok: boolean) => void) | null>(null);
+  const mfaResolverRef = useRef<((ok: boolean) => void) | null>(null);
 
   useEffect(() => {
     const sb = createClient();
@@ -113,10 +120,30 @@ export function SignInProvider({ children }: { children: ReactNode }) {
     resolverRef.current = null;
   }, []);
 
+  const requireMfa = useCallback(() => {
+    return new Promise<boolean>((resolve) => {
+      mfaResolverRef.current = resolve;
+      setMfaOpen(true);
+    });
+  }, []);
+
+  const onMfaVerified = useCallback(() => {
+    setMfaOpen(false);
+    mfaResolverRef.current?.(true);
+    mfaResolverRef.current = null;
+  }, []);
+
+  const onMfaClose = useCallback(() => {
+    setMfaOpen(false);
+    mfaResolverRef.current?.(false);
+    mfaResolverRef.current = null;
+  }, []);
+
   return (
-    <Ctx.Provider value={{ user, ready, requireSignIn }}>
+    <Ctx.Provider value={{ user, ready, requireSignIn, requireMfa }}>
       {children}
       <SignInModal open={open} onClose={onClose} onSignedIn={onSignedIn} />
+      <MfaStepUpModal open={mfaOpen} onClose={onMfaClose} onVerified={onMfaVerified} />
     </Ctx.Provider>
   );
 }

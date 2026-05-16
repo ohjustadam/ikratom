@@ -8,6 +8,8 @@ import {
   setAccountLocked,
   generateTempPassword,
 } from "@/modules/admin/user-actions";
+import { useSignIn } from "@/components/auth/SignInContext";
+import { wasMfaRequired } from "@/lib/mfa-error";
 
 type UserRow = {
   id: string;
@@ -31,6 +33,7 @@ export function UserRolesRow({
   callerIsOwner: boolean;
   callerUserId: string;
 }) {
+  const { requireMfa } = useSignIn();
   const [isAdmin, setIsAdmin] = useState(user.is_admin);
   const [isLeader, setIsLeader] = useState(user.is_advocate_leader);
   const [isOwner, setIsOwner] = useState(user.is_owner);
@@ -40,18 +43,38 @@ export function UserRolesRow({
 
   const isSelf = user.id === callerUserId;
 
+  async function doSave(): Promise<{ ok: boolean; error?: string }> {
+    const result = await setUserRoles({
+      userId: user.id,
+      isAdmin,
+      isLeader,
+      isOwner: callerIsOwner ? isOwner : undefined,
+    });
+    return result.error ? { ok: false, error: result.error } : { ok: true };
+  }
+
   function save() {
     setMsg(null);
     startTransition(async () => {
-      const result = await setUserRoles({
-        userId: user.id,
-        isAdmin,
-        isLeader,
-        isOwner: callerIsOwner ? isOwner : undefined,
-      });
-      if (result.error) {
+      let result = await doSave();
+      // MFA step-up: open the in-page modal instead of redirecting.
+      // After successful verification, retry the same mutation. The
+      // server will see the 1-hour mfa_bypass cookie and treat the
+      // session as aal2.
+      if (!result.ok && wasMfaRequired(result.error)) {
+        const ok = await requireMfa();
+        if (!ok) {
+          setMsg("✗ Two-factor verification cancelled");
+          setIsAdmin(user.is_admin);
+          setIsLeader(user.is_advocate_leader);
+          setIsOwner(user.is_owner);
+          setTimeout(() => setMsg(null), 3000);
+          return;
+        }
+        result = await doSave();
+      }
+      if (!result.ok) {
         setMsg(`✗ ${result.error}`);
-        // revert
         setIsAdmin(user.is_admin);
         setIsLeader(user.is_advocate_leader);
         setIsOwner(user.is_owner);
