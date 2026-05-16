@@ -7,6 +7,7 @@ import { logCampaignAction, sendCampaignViaGmail } from "../actions";
 import { personalizeCampaignBody } from "../actions-personalize";
 import { CallActionPanel } from "./CallActionPanel";
 import { AttachmentRecorder } from "./AttachmentRecorder";
+import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 
 type SendMethod = "mailto" | "gmail" | "outlook" | "copy" | "platform_gmail";
 
@@ -27,6 +28,8 @@ export function CampaignAction({
   lastSentAt,
   initialSubject,
   initialBody,
+  hasStreet,
+  hasDistricts,
 }: {
   campaignId: string;
   targets: Legislator[];
@@ -44,6 +47,12 @@ export function CampaignAction({
   lastSentAt: string | null;
   initialSubject: string;
   initialBody: string;
+  /** True if the user has a saved street address. Drives the gating
+   *  copy: "missing address" vs "address present but districts unknown". */
+  hasStreet: boolean;
+  /** True if the user has at least one of US house / state senate /
+   *  state house district fields populated. */
+  hasDistricts: boolean;
 }) {
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
@@ -201,6 +210,44 @@ export function CampaignAction({
   }
 
   if (noProfile) {
+    // Distinguish "no address typed yet" from "address typed but Census
+    // didn't have it." Old copy lied to users who'd actually entered
+    // their full address (2/8 users hit by the Census-geocoder gap as
+    // of 2026-05-16, mostly rural / unincorporated).
+    if (hasStreet && !hasDistricts) {
+      return (
+        <Card>
+          <h2 className="text-lg font-semibold text-amber-300">
+            We couldn&apos;t auto-detect your district
+          </h2>
+          <p className="mt-2 text-sm text-zinc-400">
+            Your address is on file, but the US Census Bureau&apos;s address
+            index doesn&apos;t cover every street — rural and newer addresses
+            sometimes get missed. Click below to retry, or find your reps
+            manually.
+          </p>
+          <div className="mt-4">
+            <RetryDistrictsButton userState={userState} />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <a
+              href="/account"
+              className="rounded-md border border-zinc-700 px-3 py-1.5 hover:border-emerald-500 hover:text-emerald-300"
+            >
+              Update address
+            </a>
+            {userState && (
+              <a
+                href={`/legislators?state=${userState}`}
+                className="rounded-md border border-zinc-700 px-3 py-1.5 hover:border-emerald-500 hover:text-emerald-300"
+              >
+                Find {userState} legislators manually →
+              </a>
+            )}
+          </div>
+        </Card>
+      );
+    }
     return (
       <Card>
         <h2 className="text-lg font-semibold text-amber-300">
