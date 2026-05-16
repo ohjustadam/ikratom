@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getDistrictsForAddress } from "@/lib/civic";
+import { autoRequestLocalCoverageIfMissing } from "@/lib/local-reps-auto-request";
 
 const cap = (s: string, n: number) => s.slice(0, n).trim() || null;
 
@@ -53,6 +54,17 @@ export async function saveAddressStep(formData: FormData) {
     .eq("id", user.id);
 
   if (error) return { error: error.message };
+
+  // Fire-and-forget: queue local-rep coverage requests for the user's
+  // city/county if they're not already covered. Admin sees the queue
+  // grow; user doesn't have to click anything.
+  await autoRequestLocalCoverageIfMissing({
+    userId: user.id,
+    city: districts.city ?? city,
+    county: districts.county,
+    state,
+  });
+
   return { ok: true };
 }
 

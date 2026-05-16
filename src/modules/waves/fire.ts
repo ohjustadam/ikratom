@@ -23,7 +23,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sendViaGmail } from "@/lib/email/gmail";
+import { sendViaGmail, GmailTokenRevokedError, markGmailIntegrationRevoked } from "@/lib/email/gmail";
 import { renderTemplate, buildVars } from "@/modules/campaigns/templates";
 import type { Legislator } from "@/lib/legislators";
 
@@ -196,7 +196,13 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
             userSent++;
           } catch (e) {
             userFailed++;
-            void e;
+            // Self-healing: if Google revoked the user's token, mark
+            // the integration stale + bail out of this user's batch.
+            // Every remaining send would fail identically.
+            if (e instanceof GmailTokenRevokedError) {
+              await markGmailIntegrationRevoked(signup.user_id);
+              break;
+            }
           }
         }
 

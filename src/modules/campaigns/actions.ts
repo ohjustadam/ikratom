@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { getGmailIntegration, sendViaGmail } from "@/lib/email/gmail";
+import { getGmailIntegration, sendViaGmail, GmailTokenRevokedError, markGmailIntegrationRevoked } from "@/lib/email/gmail";
 import { renderTemplate, buildVars } from "./templates";
 import type { Legislator } from "@/lib/legislators";
 
@@ -220,6 +220,7 @@ export async function sendCampaignViaGmail(input: {
   const successfulIds: string[] = [];
 
   // Send sequentially to stay polite with Gmail rate limits + readable progress
+  let tokenRevoked = false;
   for (const t of validTargets) {
     try {
       const vars = buildVars(profile, t, validTargets);
@@ -238,7 +239,20 @@ export async function sendCampaignViaGmail(input: {
       successfulIds.push(t.id);
     } catch (e) {
       results.push({ id: t.id, ok: false, error: (e as Error).message });
+      // Self-healing: if the user has revoked our access (via Google
+      // permissions page) or the token has gone stale (6 months idle),
+      // mark the integration so the UI shows the Connect-Gmail CTA
+      // again. No point continuing the batch — every remaining send
+      // will fail the same way.
+      if (e instanceof GmailTokenRevokedError) {
+        tokenRevoked = true;
+        await markGmailIntegrationRevoked(user.id);
+        break;
+      }
     }
+  }
+  if (tokenRevoked) {
+    return { error: "Your Gmail connection expired or was revoked. Reconnect in /account to send via one-click." };
   }
 
   // Log successful sends to campaign_actions
