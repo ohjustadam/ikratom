@@ -12,6 +12,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
+import { SignInProvider } from "@/components/auth/SignInContext";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
 import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
@@ -121,6 +122,7 @@ export default async function RootLayout({
     <html lang={locale} className={`${geist.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
         <PostHogProvider>
+        <SignInProvider>
         {/* Leader-tour banner — visible on every page until a leader
             completes the multi-page walkthrough + signs the
             acknowledgment. Non-leaders never see it. */}
@@ -224,6 +226,7 @@ export default async function RootLayout({
         <MobileTabBar />
         <RegisterSW />
         <InstallPrompt />
+        </SignInProvider>
         </PostHogProvider>
       </body>
     </html>

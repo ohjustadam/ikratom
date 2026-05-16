@@ -422,6 +422,89 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   redirect(dest);
 }
 
+/**
+ * Inline sign-in for the modal flow — same logic as signIn() above but
+ * NEVER calls redirect(). Returns success/error so the modal can close
+ * itself and the calling page can retry the user's pending submission
+ * without losing form state.
+ *
+ * MFA step-up: if the user needs aal2, we return `mfaRequired: true` +
+ * a redirect URL. The modal then shows a "Continue MFA" link rather
+ * than awkwardly trying to challenge inside a popup.
+ */
+export async function signInInline(formData: FormData): Promise<AuthResult & { mfaRequiredUrl?: string }> {
+  const email = (formData.get("email") as string)?.trim().slice(0, 254);
+  const password = formData.get("password") as string;
+  if (!email || !password) return { error: "Email and password are required." };
+
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`signin:ip:${ip}`, 20, 300))) {
+    return { error: "Too many sign-in attempts from this network. Try again in a few minutes." };
+  }
+  if (!(await checkRateLimit(`signin:email:${email.toLowerCase()}`, 10, 300))) {
+    return { error: "Too many sign-in attempts for this email. Try again in a few minutes." };
+  }
+
+  const supabase = await createClient();
+  const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    await recordAuthEvent({
+      kind: "login", provider: "password", status: "fail",
+      errorCode: error.code ?? "invalid_credentials",
+      errorMessage: error.message,
+      email, ip: ip ?? null,
+    });
+    const msg = error.message?.toLowerCase() ?? "";
+    if (msg.includes("email not confirmed") || msg.includes("not been confirmed")) {
+      return { error: "Your email isn't confirmed yet.", hint: "Check your inbox + spam for the confirmation link." };
+    }
+    if (msg.includes("invalid login credentials") || msg.includes("invalid_credentials") || msg.includes("user not found")) {
+      return { error: "Email or password is incorrect.", hint: "Try 'Forgot password' if you've signed up before." };
+    }
+    return { error: error.message };
+  }
+
+  if (data.user) {
+    try { await recordSignIn(data.user.id); } catch (e) { console.error("[signInInline] recordSignIn failed:", e); }
+    await recordAuthEvent({
+      kind: "login", provider: "password", status: "ok",
+      userId: data.user.id, email, ip: ip ?? null,
+    });
+  }
+
+  // Honor MFA step-up — but don't redirect. Tell the caller they need
+  // to finish at /login/mfa, and they can decide whether to send the
+  // user there now or queue it.
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aal?.nextLevel === "aal2" && aal?.currentLevel !== "aal2" && data.user) {
+    const { isCurrentDeviceTrusted } = await import("./actions-trusted-devices");
+    const trusted = await isCurrentDeviceTrusted(data.user.id);
+    if (!trusted) {
+      return { success: true, mfaRequiredUrl: "/login/mfa" };
+    }
+  }
+
+  return { success: true };
+}
+
+/**
+ * Inline sign-up for the modal flow. Mirrors signUp() but returns
+ * structured success/error instead of redirecting. The Supabase
+ * confirmation email still goes out — modal copy explains that step.
+ */
+export async function signUpInline(formData: FormData): Promise<AuthResult & { needsConfirmation?: boolean }> {
+  // Delegate to existing signUp; it doesn't redirect, so this is straight passthrough.
+  // We add needsConfirmation=true on success so the modal can render the
+  // "Check your inbox" state instead of trying to auto-submit the pending action.
+  const result = await signUp(formData);
+  if (result.success) {
+    // Supabase email-confirmation defaults to ON. The user must click the
+    // confirmation link before signInWithPassword works.
+    return { success: true, needsConfirmation: true };
+  }
+  return result;
+}
+
 /** Sign out and return to home. */
 export async function signOut() {
   const supabase = await createClient();
