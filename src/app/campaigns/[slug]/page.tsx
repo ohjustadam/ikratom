@@ -344,10 +344,11 @@ export default async function CampaignPage({
           comes from <em>your</em> address, which is what legislators actually read.
         </p>
         <p className="mt-3">
-          <strong className="text-emerald-400">Coming soon:</strong> connect your Gmail
-          or Outlook account once and iKratom sends personalized emails to every
-          legislator with a single click — no client switching, full Sent-folder record,
-          one-tap action across 50 states.
+          <strong className="text-emerald-400">Faster: one-click via Gmail.</strong>{" "}
+          Connect your Gmail (button up in the action card) and iKratom sends a
+          personalized email to every legislator with a single click — each from your
+          address, each in your Sent folder. Narrowest possible scope (gmail.send only);
+          we never read your inbox or store contents. Outlook + Proton coming next.
         </p>
       </section>
     </div>

@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { getDistrictsForAddress } from "@/lib/civic";
+import { autoRequestLocalCoverageIfMissing } from "@/lib/local-reps-auto-request";
 import { isPasswordPwned } from "@/lib/pwned-passwords";
 import { recordSignIn } from "./actions-devices";
 import { recordAuthEvent } from "@/lib/auth-events";
@@ -741,5 +742,17 @@ export async function updateProfile(formData: FormData): Promise<AuthResult> {
     }
     return { error: error.message };
   }
+
+  // Queue local-rep coverage requests if this user's locality isn't
+  // in our coverage set. Fire-and-forget. See lib/local-reps-auto-request.
+  if (state) {
+    await autoRequestLocalCoverageIfMissing({
+      userId: user.id,
+      city: canonicalCity,
+      county: canonicalCounty,
+      state,
+    });
+  }
+
   return { success: true };
 }

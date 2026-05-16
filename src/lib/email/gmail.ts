@@ -35,6 +35,13 @@ export async function disconnectGmail(userId: string): Promise<void> {
   await admin.from("email_integrations").delete().eq("user_id", userId).eq("provider", "gmail");
 }
 
+/** Thrown when Google returns invalid_grant — refresh token has been
+ *  revoked by the user (or expired after 6 months of inactivity).
+ *  Caller should mark the row stale + prompt the user to reconnect. */
+export class GmailTokenRevokedError extends Error {
+  constructor() { super("Gmail token revoked"); this.name = "GmailTokenRevokedError"; }
+}
+
 async function mintAccessToken(refreshToken: string): Promise<string> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -46,9 +53,41 @@ async function mintAccessToken(refreshToken: string): Promise<string> {
       grant_type: "refresh_token",
     }),
   });
-  if (!res.ok) throw new Error(`Gmail token refresh failed: ${res.status}`);
+  if (!res.ok) {
+    // Read body to distinguish revocation from transient outage. Google
+    // returns 400 + { error: "invalid_grant" } when the user has clicked
+    // "Remove access" in their Google account or the refresh token has
+    // gone stale (Google expires unused tokens after ~6 months).
+    let body: { error?: string } = {};
+    try { body = await res.json(); } catch { /* not JSON — leave empty */ }
+    if (res.status === 400 && body.error === "invalid_grant") {
+      throw new GmailTokenRevokedError();
+    }
+    throw new Error(`Gmail token refresh failed: ${res.status}`);
+  }
   const data = await res.json();
   return data.access_token;
+}
+
+/**
+ * Mark a user's Gmail integration as stale after a revoked token.
+ * Sets last_error + clears refresh_token so the next page render
+ * shows the "Connect Gmail" CTA again. Best-effort — never throws.
+ */
+export async function markGmailIntegrationRevoked(userId: string): Promise<void> {
+  try {
+    const admin = serviceClient();
+    await admin
+      .from("email_integrations")
+      .update({
+        refresh_token: "",
+        last_error: `invalid_grant @ ${new Date().toISOString()}`,
+      })
+      .eq("user_id", userId)
+      .eq("provider", "gmail");
+  } catch (e) {
+    console.error("[gmail] markGmailIntegrationRevoked failed:", e);
+  }
 }
 
 function base64UrlEncode(s: string): string {
