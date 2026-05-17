@@ -13,6 +13,11 @@ type NewsItem = {
   kratom_topic: string | null;
   ai_relevance_score: number | null;
   duplicate_count?: number | null;
+  bill_id?: string | null;
+  bills?:
+    | { bill_number: string; state: string }
+    | Array<{ bill_number: string; state: string }>
+    | null;
 };
 
 const STATES = [
@@ -168,46 +173,59 @@ export function NewsList({ items, userState }: { items: NewsItem[]; userState: s
         </div>
       ) : (
         <ul className="space-y-3">
-          {filtered.map((i) => (
-            <li key={i.id}>
-              <a
-                href={i.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 hover:border-emerald-700/50"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  {i.state ? (
-                    <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">{i.state}</span>
-                  ) : (
-                    <span className="rounded bg-purple-950/40 px-1.5 py-0.5 text-purple-300">Federal</span>
-                  )}
-                  {i.kratom_topic && (
-                    <span className={`rounded px-1.5 py-0.5 ${TOPIC_COLORS[i.kratom_topic] ?? "bg-zinc-900 text-zinc-400"}`}>
-                      {i.kratom_topic}
-                    </span>
-                  )}
-                  {i.ai_relevance_score != null && i.ai_relevance_score >= 0.7 && (
-                    <span className="text-zinc-500">{Math.round(i.ai_relevance_score * 100)}% match</span>
-                  )}
-                  {i.source_name && <span className="text-zinc-500">{i.source_name}</span>}
-                  {i.duplicate_count != null && i.duplicate_count > 0 && (
-                    <span
-                      className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400"
-                      title="The same story was syndicated to other states"
+          {filtered.map((i) => {
+            const bill = Array.isArray(i.bills) ? i.bills[0] : i.bills;
+            return (
+              <li key={i.id} className="rounded-lg border border-zinc-800 bg-zinc-950/40 transition hover:border-emerald-700/50">
+                <a
+                  href={i.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block p-4"
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {i.state ? (
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">{i.state}</span>
+                    ) : (
+                      <span className="rounded bg-purple-950/40 px-1.5 py-0.5 text-purple-300">Federal</span>
+                    )}
+                    {i.kratom_topic && (
+                      <span className={`rounded px-1.5 py-0.5 ${TOPIC_COLORS[i.kratom_topic] ?? "bg-zinc-900 text-zinc-400"}`}>
+                        {i.kratom_topic}
+                      </span>
+                    )}
+                    {i.ai_relevance_score != null && i.ai_relevance_score >= 0.7 && (
+                      <span className="text-zinc-500">{Math.round(i.ai_relevance_score * 100)}% match</span>
+                    )}
+                    {i.source_name && <span className="text-zinc-500">{i.source_name}</span>}
+                    {i.duplicate_count != null && i.duplicate_count > 0 && (
+                      <span
+                        className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400"
+                        title="The same story was syndicated to other states"
+                      >
+                        +{i.duplicate_count} more
+                      </span>
+                    )}
+                    {i.published_at && (
+                      <span className="ml-auto text-zinc-600">{new Date(i.published_at).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                  <h3 className="mt-2 font-semibold leading-tight">{i.title}</h3>
+                  {i.summary && <p className="mt-2 text-sm text-zinc-400">{i.summary}</p>}
+                </a>
+                {bill && i.bill_id && (
+                  <div className="border-t border-zinc-800 px-4 py-2">
+                    <a
+                      href={`/bills/${i.bill_id}`}
+                      className="inline-flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 hover:underline"
                     >
-                      +{i.duplicate_count} more
-                    </span>
-                  )}
-                  {i.published_at && (
-                    <span className="ml-auto text-zinc-600">{new Date(i.published_at).toLocaleDateString()}</span>
-                  )}
-                </div>
-                <h3 className="mt-2 font-semibold leading-tight">{i.title}</h3>
-                {i.summary && <p className="mt-2 text-sm text-zinc-400">{i.summary}</p>}
-              </a>
-            </li>
-          ))}
+                      🔗 Linked bill: <span className="font-mono">{bill.state} {bill.bill_number}</span> →
+                    </a>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
