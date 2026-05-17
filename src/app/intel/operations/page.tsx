@@ -257,6 +257,119 @@ export default async function OperationsIntelPage() {
                 );
               })()}
 
+              {/* Spread chronology — when did this operation first
+                  appear in each state, sorted oldest-first? Detects
+                  concurrent-introduction windows (>= 3 bills within
+                  30 days across different states) as a coordinated-
+                  push alarm. */}
+              {(() => {
+                const perStateEarliest = [...billsByState.entries()].map(([state, entries]) => {
+                  const dates = entries
+                    .map((e) => e.bill.last_action_at)
+                    .filter((d): d is string => !!d)
+                    .sort();
+                  return { state, date: dates[0] ?? null, billCount: entries.length };
+                });
+                const chronological = perStateEarliest
+                  .filter((s) => s.date)
+                  .sort((a, b) => (a.date! < b.date! ? -1 : 1));
+                if (chronological.length < 2) return null;
+
+                // Concurrent-introduction window detection: any
+                // 30-day rolling window containing ≥ 3 distinct states
+                const WINDOW_DAYS = 30;
+                const CONCURRENT_MIN = 3;
+                const concurrentWindows: Array<{ start: string; end: string; states: string[] }> = [];
+                for (let i = 0; i < chronological.length; i++) {
+                  const start = chronological[i].date!;
+                  const startMs = new Date(start).getTime();
+                  const inWindow = [chronological[i]];
+                  for (let j = i + 1; j < chronological.length; j++) {
+                    const candidate = chronological[j];
+                    if (!candidate.date) continue;
+                    const diffDays = (new Date(candidate.date).getTime() - startMs) / 86400_000;
+                    if (diffDays <= WINDOW_DAYS) inWindow.push(candidate);
+                    else break;
+                  }
+                  if (inWindow.length >= CONCURRENT_MIN) {
+                    concurrentWindows.push({
+                      start,
+                      end: inWindow[inWindow.length - 1].date!,
+                      states: inWindow.map((w) => w.state),
+                    });
+                  }
+                }
+                // Dedupe overlapping windows: keep only the largest
+                // sliding window per cluster start
+                const dedupedWindows = concurrentWindows
+                  .sort((a, b) => b.states.length - a.states.length)
+                  .filter((w, idx, all) =>
+                    !all.slice(0, idx).some((w2) =>
+                      w2.states.length >= w.states.length &&
+                      w.states.every((s) => w2.states.includes(s)),
+                    ),
+                  )
+                  .slice(0, 3);
+
+                const first = chronological[0];
+                const last = chronological[chronological.length - 1];
+                const spanDays = first.date && last.date
+                  ? Math.round((new Date(last.date).getTime() - new Date(first.date).getTime()) / 86400_000)
+                  : 0;
+
+                return (
+                  <div className="mt-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider opacity-80">
+                      Spread chronology
+                    </p>
+                    <p className="mt-1 text-[11px] opacity-90">
+                      First in <strong className="font-mono">{first.state}</strong>{" "}
+                      ({first.date ? new Date(first.date).toLocaleDateString() : "—"})
+                      {chronological.length > 1 && (
+                        <>
+                          ; spread to <strong>{chronological.length - 1}</strong> more state{chronological.length - 1 === 1 ? "" : "s"} over <strong>{Math.max(spanDays, 1)}</strong> days.
+                        </>
+                      )}
+                    </p>
+                    {dedupedWindows.length > 0 && (
+                      <div className="mt-2 rounded border border-red-700/40 bg-red-950/15 p-2 text-[10px] text-red-100">
+                        <p className="font-semibold uppercase tracking-wider">
+                          🚨 Concurrent-push windows detected
+                        </p>
+                        <ul className="mt-1 space-y-0.5">
+                          {dedupedWindows.map((w, i) => (
+                            <li key={i}>
+                              <span className="font-mono">{w.states.length} states</span>{" "}
+                              ({w.states.join(", ")}) introduced within{" "}
+                              <span className="font-mono">
+                                {new Date(w.start).toLocaleDateString()} → {new Date(w.end).toLocaleDateString()}
+                              </span>
+                              {" "}— industry-coordinated push signal.
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <details className="mt-2 text-[10px]">
+                      <summary className="cursor-pointer opacity-70 hover:opacity-100">
+                        Full state-by-state timeline ▾
+                      </summary>
+                      <ol className="mt-1.5 flex flex-wrap gap-1 font-mono">
+                        {chronological.map((s) => (
+                          <li
+                            key={s.state}
+                            className="rounded bg-zinc-900/40 px-1.5 py-0.5"
+                            title={`${s.billCount} bill${s.billCount === 1 ? "" : "s"} in ${s.state}`}
+                          >
+                            {s.date ? new Date(s.date).toISOString().slice(0, 7) : "?"}: <strong>{s.state}</strong>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  </div>
+                );
+              })()}
+
               {Array.isArray(c.signature_phrases) && c.signature_phrases.length > 0 && (
                 <div className="mt-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wider opacity-80">
