@@ -6,6 +6,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { AudioReader } from "@/components/AudioReader";
 import { AdminAutofillButton } from "./AdminAutofillButton";
+import { ShareEverywhere } from "@/components/ShareEverywhere";
 import { getAdminContext } from "@/modules/admin/actions";
 
 export const metadata = { title: "Research paper" };
@@ -288,6 +289,18 @@ export default async function ResearchPaperPage({
           </div>
         </section>
       )}
+
+      {/* Share intent — every major platform + native share sheet on mobile.
+          No accounts linked, no API posts, no tracking. Just pre-filled
+          composers users can review and post on their own accounts. */}
+      <section className="mt-8">
+        <ShareEverywhere
+          url={`${SITE}/research/${p.id}`}
+          title={p.title as string}
+          description={(p.abstract as string | null)?.slice(0, 300) ?? "Peer-reviewed kratom research from the iKratom evidence library."}
+          hashtags={["kratom", "research"]}
+        />
+      </section>
     </div>
   );
 }

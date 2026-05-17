@@ -64,14 +64,21 @@ export default async function CampaignPage({
     .eq("id", user.id)
     .single();
 
-  // Check if user has Gmail connected for one-click send
-  const { data: gmailIntegration } = await supabase
+  // Check if user has ANY email provider connected for one-click send.
+  // PK is user_id so there's at most one row; provider can be gmail or
+  // outlook (or future: yahoo). The CampaignAction surface uses
+  // `gmailConnected` as the boolean and `gmailEmail` as the
+  // displayed-from address — both renamed only at the prop layer would
+  // mean touching many sites, so we keep the names but populate from
+  // any provider's row. Future cleanup: rename to emailConnected /
+  // emailFromAddress.
+  const { data: emailIntegration } = await supabase
     .from("email_integrations")
-    .select("account_email")
+    .select("account_email, provider")
     .eq("user_id", user.id)
-    .eq("provider", "gmail")
     .maybeSingle();
-  const gmailConnected = !!gmailIntegration;
+  const gmailConnected = !!(emailIntegration && emailIntegration.account_email);
+  const gmailIntegration = emailIntegration; // alias for existing prop names below
 
   // Resolve recipients — three modes:
   // 1. Explicit `target_legislator_ids` (campaign creator picked specific officials)
