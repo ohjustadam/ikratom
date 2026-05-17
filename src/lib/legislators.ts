@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeLocality } from "./locality";
 
 export type Legislator = {
   id: string;
@@ -80,19 +81,28 @@ export async function getUserLegislators(
     );
   }
 
-  // Local officials: match by locality string. We expect locality to be saved
-  // in a consistent format like "Austin, TX" or "Travis County, TX".
+  // Local officials: match by locality string. We canonicalize the
+  // user's city/county through normalizeLocality so casing variants
+  // ("Dallas borough" vs "Dallas Borough") still match the canonical
+  // form we save into legislators.locality. Without this, profile data
+  // typed in lowercase silently misses every local rep — bit a user
+  // (Cory Kilheeney) before 2026-05-17. Belt-and-suspenders: we ALSO
+  // do case-insensitive fallback if the canonical form doesn't match
+  // (handles legacy legislators rows that pre-date normalizeLocality).
   const localityMatches: string[] = [];
-  if (profile.city) localityMatches.push(`${profile.city}, ${profile.state}`);
-  if (profile.county) localityMatches.push(`${profile.county}, ${profile.state}`);
-  for (const loc of localityMatches) {
-    matches.push(
-      ...stateLegs.filter(
-        (l) =>
-          (l.level === "municipal" || l.level === "county") &&
-          l.locality === loc
-      )
-    );
+  if (profile.city) {
+    const norm = normalizeLocality(profile.city, profile.state);
+    if (norm) localityMatches.push(norm);
+  }
+  if (profile.county) {
+    const norm = normalizeLocality(profile.county, profile.state);
+    if (norm) localityMatches.push(norm);
+  }
+  const lowerSet = new Set(localityMatches.map((l) => l.toLowerCase()));
+  for (const l of stateLegs) {
+    if (l.level !== "municipal" && l.level !== "county") continue;
+    if (!l.locality) continue;
+    if (lowerSet.has(l.locality.toLowerCase())) matches.push(l);
   }
 
   return matches;

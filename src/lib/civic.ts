@@ -198,6 +198,20 @@ async function lookupViaNominatimThenCensusCoords(parts: {
   }
 }
 
+/**
+ * Strip leading zeros from numeric district segments so we match
+ * legislator rows that store '9' not '09', 'Hillsborough 2' not
+ * 'Hillsborough 02'. Census sometimes zero-pads to 2 digits while
+ * LegiScan / OpenStates store the canonical unpadded form.
+ *
+ * Preserves non-numeric prefixes (NH uses county-name districts like
+ * "Hillsborough 2"). Only strips zeros immediately before a digit.
+ */
+function stripLeadingZeros(s: string | null): string | null {
+  if (!s) return s;
+  return s.replace(/(^|\s)0+(\d)/g, "$1$2");
+}
+
 function extractGeographies(geos: Record<string, CensusGeo[]>): CivicDistricts {
   const out: CivicDistricts = { ...EMPTY };
   // Keys are versioned ("119th Congressional Districts", "2024 State Legislative
@@ -206,9 +220,9 @@ function extractGeographies(geos: Record<string, CensusGeo[]>): CivicDistricts {
     const first = val?.[0];
     const v = first?.BASENAME ?? null;
     if (!v) continue;
-    if (/Congressional Districts?$/i.test(key)) out.congressional_district = v;
-    else if (/State Legislative Districts.*Upper/i.test(key)) out.state_senate_district = v;
-    else if (/State Legislative Districts.*Lower/i.test(key)) out.state_house_district = v;
+    if (/Congressional Districts?$/i.test(key)) out.congressional_district = stripLeadingZeros(v);
+    else if (/State Legislative Districts.*Upper/i.test(key)) out.state_senate_district = stripLeadingZeros(v);
+    else if (/State Legislative Districts.*Lower/i.test(key)) out.state_house_district = stripLeadingZeros(v);
     else if (/^Incorporated Places$/i.test(key)) out.city = first?.NAME?.replace(/ (city|town|village)$/i, "") ?? v;
     else if (/^Counties$/i.test(key)) out.county = first?.NAME ?? `${v} County`;
     // Some Census responses use "Census Designated Places" instead of
