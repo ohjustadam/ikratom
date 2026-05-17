@@ -58,6 +58,12 @@ jobs:
     # quarterly. 50 legs/run = ~2 days to cover full ~700 federal
     # rep set on first pass; thereafter only refreshes the cache.
     # Falls back to no-op if OPENFEC_API_KEY isn't set.
+    #
+    # Second step: derive top_industries from the freshly-synced
+    # top_employers via the ~30-bucket classifier (scripts/classify-
+    # donor-industries.mjs). Runs in-job so new donor rows get their
+    # industry breakdown the same tick they're synced. Cheap — pure
+    # pattern matching, no AI, no external API.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -73,6 +79,14 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENFEC_API_KEY: ${{ secrets.OPENFEC_API_KEY }}
         run: node scripts/sync-legislator-donors.mjs --limit 50
+      - name: Classify donor industries from refreshed employers
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        # --refresh because legislator_donors.top_employers may have
+        # changed (new contribs in this cycle); re-derive industries
+        # from scratch to avoid stale aggregates.
+        run: node scripts/classify-donor-industries.mjs --refresh
 
   sync-stock-act-trades:
     # STOCK Act personal-trade disclosures for federal legislators
