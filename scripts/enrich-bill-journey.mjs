@@ -119,10 +119,30 @@ Return JSON with these EXACT fields:
 Return ONLY the JSON object. Do NOT wrap in markdown code blocks.`;
 
 // ---------- OpenStates ----------
-async function fetchBillFull(state, billNumber) {
+//
+// CRITICAL: must pass `session` when fetching. OpenStates v3 returns
+// ALL bills with matching `q`+`jurisdiction` regardless of session, so
+// "SB 154" returns one row per session it has ever existed in. Without
+// the session filter, we'd pick the first match (typically the newest
+// session) — which is a completely different bill from the one we have
+// in our DB. This was the root cause of the 39 hallucinated summaries
+// fixed in PR #325: e.g. our LA SB 154 (session 2025, kratom) was
+// being re-enriched with text from a different LA SB 154 in a more
+// recent session about West Baton Rouge Parish jury commissions.
+//
+// Always supply `bill.session_id` from the caller. If it's null (some
+// editorial-seed rows lack a session_id), we fall back to the unfiltered
+// search and log a warning — those rows are a small minority and the
+// caller should backfill session_id manually.
+async function fetchBillFull(state, billNumber, sessionId) {
   const url = new URL("https://v3.openstates.org/bills");
   url.searchParams.set("jurisdiction", state.toLowerCase());
   url.searchParams.set("q", billNumber);
+  if (sessionId) {
+    url.searchParams.set("session", sessionId);
+  } else {
+    console.log(`  ⚠ no session_id provided — falling back to unfiltered search (will pick first identifier match)`);
+  }
   // OpenStates v3 wants `include` as REPEATED query params, not comma-
   // separated. Comma-separated returns 422.
   for (const inc of ["abstracts", "sources", "actions", "sponsorships", "versions"]) {
@@ -137,10 +157,17 @@ async function fetchBillFull(state, billNumber) {
   const data = await res.json();
   const norm = (s) => s.replace(/\s+/g, "").toUpperCase();
   const want = norm(billNumber);
-  const match = data.results?.find((b) => norm(b.identifier) === want);
+  // Match on BOTH identifier and (when supplied) session — guards against
+  // any case where the session filter is ignored by upstream.
+  const match = data.results?.find((b) => {
+    if (norm(b.identifier) !== want) return false;
+    if (sessionId && b.session && b.session !== sessionId) return false;
+    return true;
+  });
   if (!match) return null;
   return {
     title: match.title,
+    session: match.session,
     abstracts: match.abstracts ?? [],
     actions: match.actions ?? [],
     versions: match.versions ?? [],
@@ -344,10 +371,16 @@ async function callOllama(systemPrompt, userPrompt, model) {
 
 // ---------- main ----------
 async function processBill(bill) {
-  console.log(`\n=== ${bill.state} ${bill.bill_number} (${bill.id}) ===`);
+  console.log(`\n=== ${bill.state} ${bill.bill_number} (${bill.id}) session=${bill.session_id ?? "?"} ===`);
   console.log(`  fetching OpenStates detail…`);
-  const detail = await fetchBillFull(bill.state, bill.bill_number);
-  if (!detail) { console.log("  ✗ not found in OpenStates"); return false; }
+  const detail = await fetchBillFull(bill.state, bill.bill_number, bill.session_id);
+  if (!detail) { console.log("  ✗ not found in OpenStates for this session"); return false; }
+  // Sanity check: if upstream returned a different session than asked,
+  // skip enrichment rather than overwrite our row with the wrong bill.
+  if (bill.session_id && detail.session && detail.session !== bill.session_id) {
+    console.log(`  ✗ session mismatch (DB=${bill.session_id} OpenStates=${detail.session}) — skipping`);
+    return false;
+  }
 
   let versions = detail.versions ?? [];
 
@@ -574,7 +607,7 @@ async function selectBills() {
   if (SPECIFIC_BILL) {
     const { data } = await supabase
       .from("bills")
-      .select("id, state, bill_number, title")
+      .select("id, state, bill_number, title, session_id")
       .eq("id", SPECIFIC_BILL)
       .single();
     return data ? [data] : [];
@@ -583,7 +616,7 @@ async function selectBills() {
   // is missing OR last_synced_at > journey_analyzed_at.
   let q = supabase
     .from("bills")
-    .select("id, state, bill_number, title, journey_analyzed_at, last_synced_at")
+    .select("id, state, bill_number, title, session_id, journey_analyzed_at, last_synced_at")
     .eq("active", true)
     .eq("scope", "state")
     .limit(LIMIT);

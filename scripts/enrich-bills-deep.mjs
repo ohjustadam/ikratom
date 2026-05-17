@@ -97,10 +97,16 @@ async function checkOllama() {
   }
 }
 
-async function fetchBillVersionPdf(state, billNumber) {
+// Fetch the latest version PDF for a specific (state, bill_number,
+// session). Passing `session` is required to avoid the cross-session
+// identifier collision documented in enrich-bill-journey.mjs:
+// without it, OpenStates returns every bill matching the identifier
+// across sessions, and we'd pick the wrong session's PDF.
+async function fetchBillVersionPdf(state, billNumber, sessionId) {
   const url = new URL("https://v3.openstates.org/bills");
   url.searchParams.set("jurisdiction", state.toLowerCase());
   url.searchParams.set("q", billNumber);
+  if (sessionId) url.searchParams.set("session", sessionId);
   url.searchParams.append("include", "versions");
   url.searchParams.set("per_page", "5");
   const res = await fetch(url.toString(), {
@@ -111,7 +117,11 @@ async function fetchBillVersionPdf(state, billNumber) {
   const data = await res.json();
   const norm = (s) => s.replace(/\s+/g, "").toUpperCase();
   const want = norm(billNumber);
-  const match = data.results?.find((b) => norm(b.identifier) === want);
+  const match = data.results?.find((b) => {
+    if (norm(b.identifier) !== want) return false;
+    if (sessionId && b.session && b.session !== sessionId) return false;
+    return true;
+  });
   if (!match || !match.versions) return null;
 
   // Pick the LATEST PDF version (last in list)
@@ -168,7 +178,7 @@ if (!(await checkOllama())) process.exit(1);
 
 let q = supabase
   .from("bills")
-  .select("id, state, bill_number, title, status, last_action, deep_analyzed_at")
+  .select("id, state, bill_number, title, status, last_action, session_id, deep_analyzed_at")
   .eq("active", true)
   .eq("scope", "state")
   .limit(LIMIT);
@@ -193,7 +203,7 @@ for (const bill of bills) {
   process.stdout.write(`  [${done + failed + 1}/${bills.length}] ${tag} `);
 
   try {
-    const versionInfo = await fetchBillVersionPdf(bill.state, bill.bill_number);
+    const versionInfo = await fetchBillVersionPdf(bill.state, bill.bill_number, bill.session_id);
     if (!versionInfo) {
       console.log("✗ no PDF version available");
       failed++;
