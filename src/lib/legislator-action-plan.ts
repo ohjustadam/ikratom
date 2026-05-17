@@ -28,6 +28,12 @@ export type LeverageSignal = {
   pharma_donations_usd: number | null;
   alcohol_donations_usd: number | null;
   tobacco_donations_usd: number | null;
+  // Industry-derived donor flags from classify-donor-industries.mjs.
+  // Each is the total $ amount from that industry's classified donors.
+  // null = unavailable (state-level or unclassified) — distinct from 0.
+  addiction_treatment_donations_usd: number | null;
+  cannabis_donations_usd: number | null;
+  gaming_donations_usd: number | null;
   // STOCK Act personal-trade signals (federal only; null = unavailable / state-level)
   // Trades in kratom-adjacent industries (opioid makers, pharma, addiction
   // treatment, tobacco, cannabis) by the legislator, spouse, or dependents.
@@ -257,6 +263,42 @@ function surfaceLeverageFlags(stance: Stance, sig: LeverageSignal): LeverageFlag
       label: `$${Math.round(sig.tobacco_donations_usd / 1000)}K from tobacco`,
       detail: "Tobacco industry has historically lobbied against alternative substances. Worth flagging.",
       severity: "warn",
+    });
+  }
+  if (
+    sig.addiction_treatment_donations_usd !== null &&
+    sig.addiction_treatment_donations_usd >= 10_000
+  ) {
+    out.push({
+      emoji: "🏥",
+      label: `$${Math.round(sig.addiction_treatment_donations_usd / 1000)}K from addiction treatment`,
+      detail:
+        "Inpatient rehab / methadone / addiction-treatment industry. Kratom is a competing self-management path; financial conflict on scheduling votes.",
+      severity: "warn",
+    });
+  }
+  if (
+    sig.cannabis_donations_usd !== null &&
+    sig.cannabis_donations_usd >= 10_000
+  ) {
+    out.push({
+      emoji: "🌿",
+      label: `$${Math.round(sig.cannabis_donations_usd / 1000)}K from cannabis`,
+      detail:
+        "Cannabis industry contributions. Cannabis competes with kratom in some consumer segments and shares regulatory dynamics — pay attention to which way the legislator lands.",
+      severity: "info",
+    });
+  }
+  if (
+    sig.gaming_donations_usd !== null &&
+    sig.gaming_donations_usd >= 25_000
+  ) {
+    out.push({
+      emoji: "🎰",
+      label: `$${Math.round(sig.gaming_donations_usd / 1000)}K from gaming`,
+      detail:
+        "Casino / gaming industry money. Gas-station-heroin products often retail in gaming corridors — note which retail channels their bills exempt.",
+      severity: "info",
     });
   }
 

@@ -366,16 +366,36 @@ export default async function BriefingPage({ params }: { params: Params }) {
 
   // ── Donor signals (federal only)
   type DonorJsonKratomRelevant = { pharma?: number; alcohol?: number; tobacco?: number; retail?: number; hospital_health?: number; total?: number };
+  type IndustryRow = {
+    industry: string;
+    label?: string;
+    advocate_flag?: boolean;
+    amount: number;
+    count?: number;
+    sample_employers?: string[];
+  };
   const donor = donorRow?.data as null | {
     cycle: number | null;
     total_receipts: number | null;
-    top_industries: Array<{ industry: string; amount: number }> | null;
+    top_industries: IndustryRow[] | null;
     top_employers: Array<{ employer: string; amount: number }> | null;
     kratom_relevant: DonorJsonKratomRelevant | null;
     resolved_status: string | null;
     synced_at: string | null;
   };
   const donorMatched = donor?.resolved_status === "matched";
+  // Industry-derived donor totals. classify-donor-industries.mjs writes
+  // top_industries as a ranked array of {industry, amount, ...}. Pull
+  // the three new advocate-relevant categories (addiction treatment,
+  // cannabis, gaming) here so they can flow into the leverage signal.
+  function industryAmount(id: string): number | null {
+    if (!donorMatched) return null;
+    const row = (donor?.top_industries ?? []).find((i) => i.industry === id);
+    return row ? row.amount : 0;
+  }
+  const addiction_usd = industryAmount("addiction_treatment");
+  const cannabis_usd = industryAmount("cannabis");
+  const gaming_usd = industryAmount("gaming_casino");
   const pharma_usd = donorMatched ? (donor!.kratom_relevant?.pharma ?? null) : null;
   const alcohol_usd = donorMatched ? (donor!.kratom_relevant?.alcohol ?? null) : null;
   const tobacco_usd = donorMatched ? (donor!.kratom_relevant?.tobacco ?? null) : null;
@@ -447,6 +467,9 @@ export default async function BriefingPage({ params }: { params: Params }) {
     pharma_donations_usd: pharma_usd,
     alcohol_donations_usd: alcohol_usd,
     tobacco_donations_usd: tobacco_usd,
+    addiction_treatment_donations_usd: addiction_usd,
+    cannabis_donations_usd: cannabis_usd,
+    gaming_donations_usd: gaming_usd,
     kratom_adjacent_trade_count: kratomAdjacentTradeCount,
     is_user_rep: isUserRep,
   };
@@ -967,19 +990,49 @@ export default async function BriefingPage({ params }: { params: Params }) {
             </div>
           )}
           {donor.top_industries && donor.top_industries.length > 0 && (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-amber-300 hover:text-amber-200">
-                Top industries ▾
-              </summary>
-              <ul className="mt-2 space-y-0.5 text-[11px]">
-                {donor.top_industries.slice(0, 10).map((row, i) => (
-                  <li key={i} className="flex justify-between text-zinc-400">
-                    <span>{row.industry}</span>
-                    <span className="font-mono tabular-nums text-zinc-300">${row.amount.toLocaleString()}</span>
+            <div className="mt-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+                Top contributing industries
+              </h3>
+              <p className="mt-1 text-[10px] text-zinc-500">
+                Derived from individual contribution employer names. The 5 substance-policy-adjacent
+                buckets above (pharma / alcohol / tobacco / retail / hospital) are a subset; the
+                table below shows the full picture across all industries we classify.
+              </p>
+              <ul className="mt-2 space-y-1">
+                {donor.top_industries.slice(0, 12).map((row, i) => (
+                  <li
+                    key={i}
+                    className={`flex flex-wrap items-baseline gap-x-2 rounded px-2 py-1 text-[11px] ${
+                      row.advocate_flag
+                        ? "border border-red-700/40 bg-red-950/15 text-red-100"
+                        : "text-zinc-400"
+                    }`}
+                    title={
+                      row.sample_employers && row.sample_employers.length > 0
+                        ? `Examples: ${row.sample_employers.join(", ")}`
+                        : undefined
+                    }
+                  >
+                    {row.advocate_flag && (
+                      <span className="text-[10px] font-bold text-red-300">⚠</span>
+                    )}
+                    <span className={row.advocate_flag ? "font-semibold" : ""}>
+                      {row.label ?? row.industry}
+                    </span>
+                    {row.count != null && (
+                      <span className="text-[9px] text-zinc-500">({row.count} contribs)</span>
+                    )}
+                    <span className="ml-auto font-mono tabular-nums text-zinc-200">
+                      ${row.amount.toLocaleString()}
+                    </span>
                   </li>
                 ))}
               </ul>
-            </details>
+              <p className="mt-2 text-[10px] text-zinc-600">
+                ⚠ = substance-policy-adjacent industry that warrants advocate scrutiny on kratom votes.
+              </p>
+            </div>
           )}
           {donor.synced_at && (
             <p className="mt-3 text-[10px] text-zinc-600">

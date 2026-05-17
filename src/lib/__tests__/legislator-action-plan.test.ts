@@ -15,6 +15,9 @@ function emptySig(): LeverageSignal {
     pharma_donations_usd: null,
     alcohol_donations_usd: null,
     tobacco_donations_usd: null,
+    addiction_treatment_donations_usd: null,
+    cannabis_donations_usd: null,
+    gaming_donations_usd: null,
     kratom_adjacent_trade_count: null,
     is_user_rep: false,
   };
