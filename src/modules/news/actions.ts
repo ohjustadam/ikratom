@@ -7,9 +7,12 @@ import { getCreatorContext } from "@/modules/admin/actions";
 // All public listings filter to canonicals (duplicate_of IS NULL) so each
 // syndicated story shows exactly once. The canonical row exposes
 // `duplicate_count` for the "also reported in N other states" badge.
+// Joins to bills via the (post-#326) news_items.bill_id linkage so the
+// /news card can show "→ NY S 8925" with a click-through to the bill.
 const NEWS_FIELDS =
   "id, state, title, summary, url, source_name, published_at, " +
-  "kratom_topic, ai_relevance_score, duplicate_count";
+  "kratom_topic, ai_relevance_score, duplicate_count, " +
+  "bill_id, bills(bill_number, state)";
 
 // Supabase generated types lag the migration that added duplicate_count, so
 // we declare the row shape here and cast at the return boundary.
@@ -24,6 +27,14 @@ export type NewsListItem = {
   kratom_topic: string | null;
   ai_relevance_score: number | null;
   duplicate_count: number | null;
+  bill_id: string | null;
+  // Supabase returns the joined row as a single object (because the FK
+  // is many-to-one) but the generated types sometimes shape it as an
+  // array. Accept both and normalize at the boundary.
+  bills:
+    | { bill_number: string; state: string }
+    | Array<{ bill_number: string; state: string }>
+    | null;
 };
 
 // False-positive defense: filter out items whose title+summary+body
