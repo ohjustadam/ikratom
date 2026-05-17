@@ -43,6 +43,44 @@ jobs:
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
         run: node scripts/sync-committees-openstates.mjs
 
+  weekly-patch-digest-broadcast:
+    # Sunday morning weekly digest. Generates a 7-day-lookback patch
+    # note via scripts/generate-patch-note.mjs and broadcasts a
+    # web-push notification to every user pointing at /whats-new.
+    #
+    # Security guardrail: the notification body is the patch-note
+    # front-matter `summary` only, NOT the full markdown. Full notes
+    # live at /whats-new/<slug>; users click through. This means
+    # we don't accidentally leak any internal detail even if the
+    # patch-note draft contains technical refs.
+    #
+    # Idempotent via notifications.kind='whats_new' + link=/whats-new/<slug>:
+    # second run with the same slug is a no-op per user.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Generate weekly patch note draft (7-day lookback)
+        run: node scripts/generate-patch-note.mjs --since "7 days ago"
+      - name: Determine latest patch-note slug
+        id: latest
+        shell: bash
+        run: |
+          SLUG=$(ls -1 src/content/patch-notes/*.md | sort | tail -1 | xargs basename | sed 's/\.md$//')
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+      - name: Broadcast weekly digest to all users
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/broadcast-whats-new.mjs --slug ${{ steps.latest.outputs.slug }} --all-users
+
   draft-legislator-stance-all:
     # Run the AI stance drafter for every state — skips already-stanced
     # legislators so cost stays low after the first full pass. Provides
