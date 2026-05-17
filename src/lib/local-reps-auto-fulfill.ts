@@ -40,6 +40,8 @@ export type AutoFulfillOutcome = {
   locality: string;
   level: "municipal" | "county";
   inserted: number;
+  /** Of `inserted`, how many were tier='tentative' (admin should spot-check). */
+  insertedTentative: number;
   skipped: number;
   skipReasons: Array<{ name: string; reason: string }>;
   fulfilled: boolean;
@@ -61,6 +63,7 @@ export async function autoFulfillLocality(input: {
     locality: localityNorm,
     level: input.level,
     inserted: 0,
+    insertedTentative: 0,
     skipped: 0,
     skipReasons: [],
     fulfilled: false,
@@ -76,15 +79,20 @@ export async function autoFulfillLocality(input: {
 
   const allSources = suggestion.sources.join(", ");
 
-  // 2. Verify each official against its cited source URL
-  const verified: { official: SuggestedOfficial; snippet: string }[] = [];
+  // 2. Verify each official against its cited source URL.
+  // `tier` distinguishes 'verified' (full-name match on cited URL) from
+  // 'tentative' (URL on government-credible domain but no name match —
+  // common for JS-rendered CMS pages and PDF rosters). Both are
+  // accepted; tentative is flagged so admin can spot-check fast.
+  const verified: { official: SuggestedOfficial; snippet: string; tier: "verified" | "tentative" }[] = [];
   for (const o of suggestion.officials) {
     const v = await verifyOfficialAgainstSource({
       fullName: o.full_name,
       sourceUrl: o.source_url,
+      localityHint: localityNorm,
     });
     if (v.ok) {
-      verified.push({ official: o, snippet: v.pageSnippet });
+      verified.push({ official: o, snippet: v.pageSnippet, tier: v.tier });
     } else {
       result.skipped++;
       result.skipReasons.push({
@@ -109,12 +117,13 @@ export async function autoFulfillLocality(input: {
   const existingNames = new Set((existing ?? []).map((r: { full_name: string }) => r.full_name.toLowerCase()));
 
   const rowsToInsert = [];
-  for (const { official, snippet } of verified) {
+  for (const { official, snippet, tier } of verified) {
     if (existingNames.has(official.full_name.toLowerCase())) {
       result.skipped++;
       result.skipReasons.push({ name: official.full_name, reason: "already in legislators" });
       continue;
     }
+    if (tier === "tentative") result.insertedTentative++;
     rowsToInsert.push({
       state: input.state,
       role: official.role,
@@ -131,6 +140,7 @@ export async function autoFulfillLocality(input: {
       active: true,
       term_end_date: official.term_end_date,
       verified_sources_md: [
+        `- Tier: **${tier}**${tier === "tentative" ? " (admin spot-check recommended)" : ""}`,
         official.source_url ? `- Source: ${official.source_url}` : null,
         `- Verifier snippet: "${snippet}"`,
         allSources ? `- Other AI-cited sources: ${allSources}` : null,
@@ -217,7 +227,9 @@ export async function reVerifyLocality(input: {
     return { locality: localityNorm, retired: [], added: 0, unchanged: 0, error: suggestion.error };
   }
 
-  // Build verified-name set from the new suggestion
+  // Build verified-name set from the new suggestion (any tier counts —
+  // tentative is still good enough evidence that they're an active
+  // official; only fully-rejected officials get treated as "gone")
   const verifiedNames = new Set<string>();
   for (const o of suggestion.officials) {
     const v = await verifyOfficialAgainstSource({ fullName: o.full_name, sourceUrl: o.source_url });
