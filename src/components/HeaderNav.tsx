@@ -43,6 +43,18 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "Intel",
+    items: [
+      { href: "/intel", label: "◉ Intel hub", description: "Where the influence actually flows — lobbying, courts, rulemaking, money, actors." },
+      { href: "/intel/donations", label: "🧮 Donor leaderboard", description: "Federal legislators ranked by substance-policy-adjacent industry contributions." },
+      { href: "/intel/lobbying", label: "📜 Lobbying filings", description: "Senate LDA disclosures mentioning kratom. AKA, GKC, BEA, retained DC firms." },
+      { href: "/intel/cases", label: "⚖ Court litigation", description: "Industry lawsuits, state-ban challenges. CourtListener + RECAP." },
+      { href: "/intel/rulemaking", label: "🏛 Federal rulemaking", description: "FDA / DEA / HHS rules + open public comment periods." },
+      { href: "/intel/awards", label: "💰 Federal money flow", description: "USAspending grants + contracts mentioning kratom." },
+      { href: "/intel/actors", label: "🎭 Actor registry", description: "Lobbyists, industry execs, regulators — the people behind the dollars." },
+    ],
+  },
+  {
     label: "Knowledge",
     items: [
       { href: "/research", label: "🔬 Research", description: "Peer-reviewed kratom + 7-OH evidence library. PubMed-sourced, AI-evaluated." },
