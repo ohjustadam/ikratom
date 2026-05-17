@@ -11,9 +11,16 @@ import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 
 type SendMethod = "mailto" | "gmail" | "outlook" | "copy" | "platform_gmail";
 
+export type TargetIntelSignal = {
+  stance?: string;
+  flagged_industries: Array<{ industry: string; label: string; amount: number }>;
+  kratom_adjacent_trades: number;
+};
+
 export function CampaignAction({
   campaignId,
   targets,
+  targetIntel,
   targetRoles,
   userState,
   campaignState,
@@ -35,6 +42,7 @@ export function CampaignAction({
 }: {
   campaignId: string;
   targets: Legislator[];
+  targetIntel?: Record<string, TargetIntelSignal>;
   targetRoles: string[];
   userState: string | null;
   campaignState: string | null;
@@ -373,7 +381,7 @@ export function CampaignAction({
 
       {/* Recipient chips — capped to keep the page from ballooning on
           large state-floor campaigns. */}
-      <RecipientChips targets={targetsWithEmail} />
+      <RecipientChips targets={targetsWithEmail} intel={targetIntel ?? {}} />
 
       {/* Editor (collapsible) */}
       {editing && (
@@ -696,24 +704,86 @@ function BoltIcon() {
  * don't blow out the page on state-floor campaigns. Default cap of 12
  * tuned for one mobile screen.
  */
-function RecipientChips({ targets }: { targets: Legislator[] }) {
+function RecipientChips({
+  targets,
+  intel,
+}: {
+  targets: Legislator[];
+  intel: Record<string, TargetIntelSignal>;
+}) {
   const CAP = 12;
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? targets : targets.slice(0, CAP);
   const hidden = Math.max(0, targets.length - CAP);
+
+  // Stance → emoji for the stance dot on the chip. Mirrors STANCE_META
+  // in /lib/legislator-action-plan.ts (kept inline to avoid an import
+  // cycle on a client component).
+  function stanceDot(stance: string | undefined): { emoji: string; tone: string } | null {
+    if (!stance || stance === "unknown") return null;
+    switch (stance) {
+      case "champion": return { emoji: "⭐", tone: "text-emerald-300" };
+      case "sympathetic": return { emoji: "🤝", tone: "text-emerald-400" };
+      case "neutral": return { emoji: "⚖", tone: "text-zinc-400" };
+      case "hostile": return { emoji: "🚫", tone: "text-red-400" };
+      default: return null;
+    }
+  }
+
   return (
     <>
-      <ul className="mt-3 flex flex-wrap gap-2">
-        {visible.map((t) => (
+      <p className="mt-3 text-[10px] text-zinc-500">
+        Chips show stance + advocate flags. Hover for detail. Click through to the legislator&apos;s briefing for the full memo.
+      </p>
+      <ul className="mt-2 flex flex-wrap gap-2">
+        {visible.map((t) => {
+          const sig = intel[t.id];
+          const dot = stanceDot(sig?.stance);
+          const industryCount = sig?.flagged_industries.length ?? 0;
+          const tradeCount = sig?.kratom_adjacent_trades ?? 0;
+          const flagSummary = [
+            industryCount > 0 && `${industryCount} flagged industry $`,
+            tradeCount > 0 && `${tradeCount} kratom-adjacent stock trade${tradeCount === 1 ? "" : "s"}`,
+          ].filter(Boolean).join(" · ");
+          return (
           <li
             key={t.id}
             className="rounded-full border border-emerald-700/40 bg-emerald-950/20 px-3 py-1 text-xs"
+            title={flagSummary || undefined}
           >
-            <span className="text-emerald-300">{ROLE_SHORT[t.role] ?? t.role}</span>{" "}
-            <span className="text-zinc-200">{t.full_name}</span>
-            {t.district && <span className="text-zinc-500"> · D{t.district}</span>}
+            <a href={`/legislators/${t.id}/briefing`} className="hover:underline">
+              <span className="text-emerald-300">{ROLE_SHORT[t.role] ?? t.role}</span>{" "}
+              <span className="text-zinc-200">{t.full_name}</span>
+              {t.district && <span className="text-zinc-500"> · D{t.district}</span>}
+              {dot && (
+                <span className={`ml-1.5 ${dot.tone}`} title={`Stance: ${sig?.stance}`}>
+                  {dot.emoji}
+                </span>
+              )}
+              {industryCount > 0 && (
+                <span
+                  className="ml-1 rounded bg-red-950/40 px-1 py-0.5 text-[10px] font-bold text-red-200"
+                  title={
+                    sig?.flagged_industries
+                      .map((i) => `${i.label}: $${i.amount.toLocaleString()}`)
+                      .join("\n")
+                  }
+                >
+                  ⚠{industryCount}
+                </span>
+              )}
+              {tradeCount > 0 && (
+                <span
+                  className="ml-1 rounded bg-red-950/40 px-1 py-0.5 text-[10px] font-bold text-red-200"
+                  title={`${tradeCount} kratom-adjacent personal stock trade${tradeCount === 1 ? "" : "s"}`}
+                >
+                  📈{tradeCount}
+                </span>
+              )}
+            </a>
           </li>
-        ))}
+          );
+        })}
         {hidden > 0 && !expanded && (
           <li>
             <button

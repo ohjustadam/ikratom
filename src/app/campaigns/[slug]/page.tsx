@@ -122,6 +122,58 @@ export default async function CampaignPage({
     targets = myReps.filter((r) => campaign.target_roles.includes(r.role));
   }
 
+  // Per-target intel signals — surfaced as chips next to each
+  // legislator in the recipient list. Three signals cheaply joined:
+  //   1. Kratom stance (champion / sympathetic / neutral / hostile / unknown)
+  //   2. Count of advocate-flagged donor industries (federal only)
+  //   3. Count of kratom-adjacent personal stock trades (federal only)
+  // All three queries are scoped to the target id set so they stay
+  // cheap regardless of how many bills a state-wide campaign covers.
+  // Pre-migration deploys (before 0149 / 0150) just see empty data.
+  const targetIds = targets.map((t) => t.id);
+  const targetIntel: Record<string, {
+    stance?: string;
+    flagged_industries: Array<{ industry: string; label: string; amount: number }>;
+    kratom_adjacent_trades: number;
+  }> = {};
+  for (const id of targetIds) {
+    targetIntel[id] = { flagged_industries: [], kratom_adjacent_trades: 0 };
+  }
+  if (targetIds.length > 0) {
+    const [stancesRes, donorsRes, tradesRes] = await Promise.all([
+      supabase
+        .from("legislator_kratom_stance")
+        .select("legislator_id, stance")
+        .in("legislator_id", targetIds),
+      supabase
+        .from("legislator_donors")
+        .select("legislator_id, top_industries")
+        .in("legislator_id", targetIds)
+        .eq("resolved_status", "matched"),
+      supabase
+        .from("federal_personal_trades")
+        .select("legislator_id")
+        .in("legislator_id", targetIds)
+        .eq("is_kratom_adjacent", true),
+    ]);
+    for (const s of (stancesRes.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
+      if (targetIntel[s.legislator_id]) targetIntel[s.legislator_id].stance = s.stance;
+    }
+    for (const d of (donorsRes.data ?? []) as Array<{
+      legislator_id: string;
+      top_industries: Array<{ industry: string; label?: string; advocate_flag?: boolean; amount: number }> | null;
+    }>) {
+      const intel = targetIntel[d.legislator_id];
+      if (!intel || !Array.isArray(d.top_industries)) continue;
+      intel.flagged_industries = d.top_industries
+        .filter((i) => i.advocate_flag && i.amount >= 5_000)
+        .map((i) => ({ industry: i.industry, label: i.label ?? i.industry, amount: i.amount }));
+    }
+    for (const t of (tradesRes.data ?? []) as Array<{ legislator_id: string }>) {
+      if (targetIntel[t.legislator_id]) targetIntel[t.legislator_id].kratom_adjacent_trades += 1;
+    }
+  }
+
   // Fallback list: when targets came back empty AND the user has no
   // district fields (Census gap), fetch ALL state-level legislators in
   // their state that match target_roles so the CampaignAction card can
@@ -330,6 +382,7 @@ export default async function CampaignPage({
       <CampaignAction
         campaignId={campaign.id}
         targets={targets}
+        targetIntel={targetIntel}
         targetRoles={campaign.target_roles}
         userState={profile?.state ?? null}
         campaignState={campaign.state}
