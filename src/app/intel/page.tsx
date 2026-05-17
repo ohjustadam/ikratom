@@ -159,6 +159,12 @@ export default async function IntelHubPage() {
           body="Federal grants + contracts mentioning kratom from USAspending.gov. Who's getting paid by FDA / NIH / DEA to research, evaluate, or study kratom. The papers and findings funded by these awards become the evidence cited in future scheduling decisions."
         />
         <Card
+          href="/intel/donations"
+          emoji="🧮"
+          title="Donor intel — conflict-of-interest leaderboard"
+          body="Federal legislators ranked by total contributions from substance-policy-adjacent industries (pharma, alcohol, tobacco, hospital, addiction-treatment, cannabis, gaming). The kratom industry itself contributes essentially zero via FEC — but industries that would BENEFIT from a kratom ban show up here. Click any row for that legislator's full briefing."
+        />
+        <Card
           href="/intel/actors"
           emoji="🎭"
           title="Industry actor registry"
