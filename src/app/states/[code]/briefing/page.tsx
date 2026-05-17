@@ -201,6 +201,9 @@ export default async function StateBriefingPage({ params }: { params: Params }) 
       pharma_donations_usd: null, // state-level — donor data not pulled here
       alcohol_donations_usd: null,
       tobacco_donations_usd: null,
+      addiction_treatment_donations_usd: null,
+      cannabis_donations_usd: null,
+      gaming_donations_usd: null,
       kratom_adjacent_trade_count: null, // federal-only signal
       is_user_rep: false, // computed per-viewer; not applicable at state-page render
     };
