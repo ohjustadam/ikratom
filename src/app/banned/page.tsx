@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
 export const metadata = {
   title: "Where kratom is banned — every state, county, and city tracking",
@@ -101,21 +102,28 @@ export default async function BannedPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-      <header className="mb-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-red-400">🚫 Banned tracker</p>
-        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Where kratom is illegal in the United States</h1>
-        <p className="mt-3 max-w-3xl text-sm text-zinc-400">
-          Every state, county, and city where kratom is currently banned, plus state bans that are imminent. Each entry links to the underlying bill detail page where you&apos;ll find sponsors, stakeholders to contact, and a form to submit local intel. <strong className="text-zinc-200">Going forward: every new local ordinance triggers a tracked bill row automatically</strong> (via the hourly extractor + body watchlist). If something&apos;s missing, the intel-tip form on any bill page is the fastest way to surface it.
-        </p>
-        <div className="mt-4">
-          <Link
-            href="/takeback"
-            className="inline-block rounded-md border border-amber-700/50 bg-amber-950/15 px-4 py-2 text-sm font-semibold text-amber-200 hover:border-amber-400"
-          >
-            🎯 See the takeback plan for every banned state →
-          </Link>
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-3">
+        <div className="max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-red-400">🚫 Banned tracker</p>
+          <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Where kratom is illegal in the United States</h1>
+          <p className="mt-3 text-sm text-zinc-400">
+            Every state, county, and city where kratom is currently banned, plus state bans that are imminent. Each entry links to the underlying bill detail page where you&apos;ll find sponsors, stakeholders to contact, and a form to submit local intel. <strong className="text-zinc-200">Going forward: every new local ordinance triggers a tracked bill row automatically</strong> (via the hourly extractor + body watchlist). If something&apos;s missing, the intel-tip form on any bill page is the fastest way to surface it.
+          </p>
         </div>
+        <PageShareWithAttribution
+          path="/banned"
+          title="Where kratom is illegal in the US"
+          summary="Every state, county, and city banning kratom — with imminent bans + repeal paths."
+        />
       </header>
+      <div className="mt-4 mb-6">
+        <Link
+          href="/takeback"
+          className="inline-block rounded-md border border-amber-700/50 bg-amber-950/15 px-4 py-2 text-sm font-semibold text-amber-200 hover:border-amber-400"
+        >
+          🎯 See the takeback plan for every banned state →
+        </Link>
+      </div>
 
       {/* Top-line stats */}
       <section className="mb-8 grid gap-3 grid-cols-2 sm:grid-cols-4">

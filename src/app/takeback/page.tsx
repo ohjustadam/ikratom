@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { extractSponsor, extractBlurb, repealPath } from "@/lib/takeback";
+import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
 export const metadata = {
   title: "Takeback — the offense + defense plan for every banned state",
@@ -68,17 +69,24 @@ export default async function TakebackPage() {
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
       <Link href="/" className="text-xs text-zinc-500 hover:text-emerald-400">← Home</Link>
 
-      <header className="mt-3 mb-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-300">
-          🎯 Takeback intel
-        </p>
-        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">
-          Every banned state has a path back.<br/>
-          <span className="text-zinc-400">Here&apos;s the plan.</span>
-        </h1>
-        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-zinc-400">
-          Six US states ban kratom. A seventh (Tennessee) is one signature away. For each, we&apos;ve mapped who pushed the ban, what coalition backed it, what funding trail (where documented), and the concrete repeal sequence — named legislators most likely to carry a Kratom Consumer Protection Act, coalition partners ready to engage, hardest constraints. Open one to see the full plan; subscribe to get pinged when status changes.
-        </p>
+      <header className="mt-3 mb-8 flex flex-wrap items-start justify-between gap-3">
+        <div className="max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-300">
+            🎯 Takeback intel
+          </p>
+          <h1 className="mt-2 text-3xl font-bold sm:text-4xl">
+            Every banned state has a path back.<br/>
+            <span className="text-zinc-400">Here&apos;s the plan.</span>
+          </h1>
+          <p className="mt-4 text-sm leading-relaxed text-zinc-400">
+            Six US states ban kratom. A seventh (Tennessee) is one signature away. For each, we&apos;ve mapped who pushed the ban, what coalition backed it, what funding trail (where documented), and the concrete repeal sequence — named legislators most likely to carry a Kratom Consumer Protection Act, coalition partners ready to engage, hardest constraints. Open one to see the full plan; subscribe to get pinged when status changes.
+          </p>
+        </div>
+        <PageShareWithAttribution
+          path="/takeback"
+          title="Takeback — the plan to repeal every kratom ban"
+          summary="Every banned state, who pushed the ban, and the concrete repeal sequence."
+        />
       </header>
 
       {/* IMMINENT — TN. Pinned + amber so it dominates. */}
