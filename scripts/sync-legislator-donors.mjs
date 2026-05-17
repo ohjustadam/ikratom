@@ -119,6 +119,47 @@ async function fec(path, params = {}) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Normalize a name for matching: lowercase, strip prefixes/suffixes,
+// drop punctuation, collapse whitespace. Used for last-name comparison
+// against FEC results. Critical because FEC stores "SMITH, JOHN A." while
+// our seed has "John Smith" — last-name match short-circuits most of
+// these mismatches.
+function normalizeName(n) {
+  return String(n || "")
+    .toLowerCase()
+    .replace(/\b(sen|rep|hon|dr|mr|mrs|ms|jr|sr|ii|iii|iv)\.?\b/g, " ")
+    .replace(/[.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function lastNameOf(n) {
+  // Handles "Smith, John A." (FEC format) AND "John A. Smith" (our format).
+  // FEC's name field is comma-prefixed "LAST, FIRST"; detect that before
+  // we normalize away the comma.
+  const raw = String(n || "").trim();
+  if (raw.includes(",")) {
+    // already last-first — take everything before the first comma, then
+    // strip prefixes/suffixes via normalize
+    const beforeComma = raw.split(",")[0];
+    return normalizeName(beforeComma).split(/\s+/).filter(Boolean).pop() ?? "";
+  }
+  const norm = normalizeName(raw);
+  const parts = norm.split(/\s+/).filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+// Normalize district to FEC's 2-char string format. Our DB has values
+// like "1", "01", "AL" (at-large). FEC uses "01"–"99", "98" or "00"
+// for at-large. We pad and strip leading zeros consistently.
+function normalizeDistrict(d) {
+  if (d == null) return null;
+  const s = String(d).trim();
+  if (/^\d+$/.test(s)) return s.padStart(2, "0");
+  if (/^al$/i.test(s)) return "00"; // FEC treats at-large as "00" in some endpoints
+  return s.toUpperCase();
+}
+
 // Categorize by employer name. Matches substrings case-insensitively
 // against the EMPLOYER_BUCKETS lookup. Returns aggregate totals per
 // bucket so the briefing UI can flag conflict-of-interest signals.
@@ -139,53 +180,108 @@ function categorizeRelevant(employers) {
   return buckets;
 }
 
+// Resolve a candidate_id via multiple strategies (district-first, then
+// name with nicknames + initials). FEC's name-search misses on legit
+// candidates whenever (a) names diverge between our seed and FEC ("Alex"
+// vs "Alejandro", "Kat" vs "Katherine"), (b) initial-only first names
+// ("J. Correa"), or (c) common names with many candidates ("Mike Rogers").
+//
+// Strategy ordered by reliability:
+//   1. cached candidate_id (skip if already resolved)
+//   2. /candidates/ filtered by state + office + district (House only)
+//      → narrows to ~1-2 incumbents per cycle, no name guess needed
+//   3. /candidates/ filtered by state + office (Senate or House w/o district)
+//      → at most 2 candidates for Senate seat, last-name disambiguates
+//   4. /candidates/search/ with name (existing path) for edge cases
+//
+// All strategies prefer incumbent_challenge='I' when multiple results.
+async function resolveCandidateId(leg, office) {
+  if (leg.openfec_candidate_id) return { id: leg.openfec_candidate_id, reason: "cached" };
+
+  const legLastName = lastNameOf(leg.full_name);
+  // STRICT: require last-name match. Without this guard, the
+  // district/state-office strategies can confidently mis-attribute donor
+  // data when our seed district is stale (e.g. Ami Bera vs. Kevin Kiley
+  // both in CA House). Better to leave a row not_found than to attribute
+  // someone else's donor profile to this legislator — silent wrong
+  // answers are worse than silent gaps.
+  const tryStrategy = async (label, params) => {
+    try {
+      const data = await fec("/candidates/", params);
+      const results = (data.results ?? []).filter((r) => r.candidate_id);
+      if (results.length === 0) return null;
+      const lnMatches = results.filter((r) => lastNameOf(r.name) === legLastName);
+      if (lnMatches.length === 0) return null;
+      const incumbent = lnMatches.find((r) => r.incumbent_challenge === "I");
+      const chosen = incumbent ?? lnMatches[0];
+      return { id: chosen.candidate_id, reason: label, total: results.length };
+    } catch (e) {
+      console.log(`  ⚠ ${label} failed: ${e.message?.slice(0, 80)}`);
+      return null;
+    }
+  };
+
+  // Strategy 2: state + office + district (House only — Senate doesn't have districts)
+  if (office === "H") {
+    const district = normalizeDistrict(leg.district);
+    if (district) {
+      const r = await tryStrategy("district", {
+        state: leg.state, office, district,
+        cycle: CYCLE, has_raised_funds: true, per_page: 20,
+      });
+      if (r) return r;
+    }
+  }
+
+  // Strategy 3: state + office (no district)
+  const r3 = await tryStrategy("state-office", {
+    state: leg.state, office,
+    cycle: CYCLE, has_raised_funds: true, per_page: 50,
+  });
+  if (r3) return r3;
+
+  // Strategy 4: original name search (fallback for write-ins,
+  // appointed-mid-cycle, or other edge cases the above can't catch).
+  // Still requires last-name match.
+  try {
+    const data = await fec("/candidates/search/", {
+      q: leg.full_name, state: leg.state, office, cycle: CYCLE,
+    });
+    const results = (data.results ?? []).filter((r) => r.candidate_id);
+    if (results.length === 0) return null;
+    const lnMatches = results.filter((r) => lastNameOf(r.name) === legLastName);
+    if (lnMatches.length === 0) return null;
+    const incumbent = lnMatches.find((r) => r.incumbent_challenge === "I");
+    const chosen = incumbent ?? lnMatches[0];
+    return { id: chosen.candidate_id, reason: "name-search", total: results.length };
+  } catch (e) {
+    console.log(`  ⚠ name-search failed: ${e.message?.slice(0, 80)}`);
+  }
+
+  return null;
+}
+
 async function syncOne(leg) {
   console.log(`\n=== ${leg.state} ${leg.full_name} | ${leg.role} ===`);
 
   const office = leg.role === "us_senate" ? "S" : leg.role === "us_house" ? "H" : null;
   if (!office) { console.log("  ⏭  not federal"); return "skip"; }
 
-  let candidateId = leg.openfec_candidate_id;
-
-  if (!candidateId) {
-    // Search by name + state + office
-    try {
-      const searchData = await fec("/candidates/search/", {
-        q: leg.full_name,
-        state: leg.state,
-        office,
-        cycle: CYCLE,
-      });
-      const results = searchData.results ?? [];
-      if (results.length === 0) {
-        console.log(`  ⏭  no OpenFEC match`);
-        await sb.from("legislator_donors").upsert({
-          legislator_id: leg.id,
-          cycle: CYCLE,
-          resolved_status: "not_found",
-          resolve_notes: `Searched "${leg.full_name}" in ${leg.state} ${office} cycle ${CYCLE}`,
-          synced_at: new Date().toISOString(),
-        }, { onConflict: "legislator_id" });
-        return "skip";
-      }
-      // Prefer incumbents (incumbent_challenge='I') when multiple
-      // candidates match — challengers, withdrawn candidates, and
-      // open-seat candidates all show up in /candidates/search/ for
-      // the same name. Fall back to first result if no incumbent
-      // flag is present.
-      const incumbent = results.find((r) => r.incumbent_challenge === "I");
-      const exactNameMatch = results.find((r) =>
-        (r.name ?? "").toLowerCase().includes(leg.full_name.toLowerCase()) ||
-        leg.full_name.toLowerCase().includes((r.name ?? "").toLowerCase())
-      );
-      const chosen = incumbent ?? exactNameMatch ?? results[0];
-      candidateId = chosen.candidate_id;
-      const matchReason = incumbent ? "incumbent" : exactNameMatch ? "exact-name" : "first-result";
-      console.log(`  ↳ resolved to ${candidateId} (${matchReason}, ${results.length} total candidate${results.length === 1 ? "" : "s"})`);
-    } catch (e) {
-      console.log(`  ✗ search failed: ${e.message?.slice(0, 100)}`);
-      return "fail";
-    }
+  const resolved = await resolveCandidateId(leg, office);
+  if (!resolved) {
+    console.log(`  ⏭  no OpenFEC match after district/state-office/name strategies`);
+    await sb.from("legislator_donors").upsert({
+      legislator_id: leg.id,
+      cycle: CYCLE,
+      resolved_status: "not_found",
+      resolve_notes: `Exhausted district/state-office/name strategies for "${leg.full_name}" in ${leg.state} ${office} cycle ${CYCLE}`,
+      synced_at: new Date().toISOString(),
+    }, { onConflict: "legislator_id" });
+    return "skip";
+  }
+  const candidateId = resolved.id;
+  if (resolved.reason !== "cached") {
+    console.log(`  ↳ resolved to ${candidateId} via ${resolved.reason}${resolved.total ? ` (${resolved.total} candidates checked)` : ""}`);
   }
 
   // Pull totals
