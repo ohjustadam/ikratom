@@ -383,6 +383,72 @@ export default async function BillDetailPage({
     district: string | null;
   }>;
 
+  // Aggregate donor industries across this bill's sponsors. Federal
+  // only — state legislators don't have donor data populated. Sums
+  // top_industries amounts across every matched sponsor so the bill
+  // page can render "Sponsors collectively received: $X from pharma,
+  // $Y from gaming, …" with advocate_flag highlights.
+  type AggregatedIndustry = {
+    industry: string;
+    label: string;
+    advocate_flag: boolean;
+    amount: number;
+    legislator_count: number;
+  };
+  let sponsorIndustryAgg: AggregatedIndustry[] = [];
+  let sponsorsWithDonorData = 0;
+  {
+    const sponsorLegIds = sponsors
+      .map((s) => s.legislator_id)
+      .filter((id): id is string => !!id);
+    if (sponsorLegIds.length > 0) {
+      const { data: donorRows } = await supabase
+        .from("legislator_donors")
+        .select("legislator_id, top_industries, resolved_status")
+        .in("legislator_id", sponsorLegIds)
+        .eq("resolved_status", "matched");
+
+      type IndustryRow = {
+        industry: string;
+        label?: string;
+        advocate_flag?: boolean;
+        amount: number;
+      };
+      const byIndustry = new Map<string, AggregatedIndustry>();
+      for (const row of (donorRows ?? []) as Array<{
+        legislator_id: string;
+        top_industries: IndustryRow[] | null;
+      }>) {
+        if (!Array.isArray(row.top_industries) || row.top_industries.length === 0) {
+          continue;
+        }
+        sponsorsWithDonorData++;
+        // Track which legislators contribute to which industry so we
+        // can show the "N sponsors" count for each row.
+        const seenThisSponsor = new Set<string>();
+        for (const ind of row.top_industries) {
+          if (!ind.industry || typeof ind.amount !== "number") continue;
+          const cur = byIndustry.get(ind.industry) ?? {
+            industry: ind.industry,
+            label: ind.label ?? ind.industry,
+            advocate_flag: !!ind.advocate_flag,
+            amount: 0,
+            legislator_count: 0,
+          };
+          cur.amount += ind.amount;
+          if (!seenThisSponsor.has(ind.industry)) {
+            cur.legislator_count += 1;
+            seenThisSponsor.add(ind.industry);
+          }
+          byIndustry.set(ind.industry, cur);
+        }
+      }
+      sponsorIndustryAgg = [...byIndustry.values()]
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 12);
+    }
+  }
+
   // Staleness assessment
   const lastActionMs = bill.last_action_at ? new Date(bill.last_action_at).getTime() : null;
   const daysSinceAction = lastActionMs
@@ -1140,6 +1206,52 @@ export default async function BillDetailPage({
                   </li>
                 );
               })}
+            </ul>
+          </div>
+        )}
+
+        {/* Aggregated sponsor donor industries (federal-only, derived
+            from legislator_donors.top_industries by classify-donor-
+            industries.mjs). Surfaces the substance-policy-adjacent
+            industries that collectively bankrolled this bill's
+            sponsors. State-level bills typically render empty since
+            state legislators don't have OpenFEC donor data. */}
+        {sponsorIndustryAgg.length > 0 && (
+          <div className="mt-4 rounded-md border border-amber-700/30 bg-amber-950/10 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+              💰 Sponsors&apos; collective donor industries
+              <span className="ml-2 text-[10px] font-normal text-zinc-500">
+                ({sponsorsWithDonorData} of {sponsors.length} sponsor{sponsors.length === 1 ? "" : "s"} have federal donor data)
+              </span>
+            </p>
+            <p className="mt-1 text-[10px] text-zinc-500">
+              Industries that collectively contributed to this bill&apos;s sponsors. Sum of FEC schedule-A by-employer
+              contributions, classified by industry pattern. Substance-policy-adjacent industries (⚠) warrant advocate scrutiny.
+            </p>
+            <ul className="mt-2 space-y-1">
+              {sponsorIndustryAgg.map((ind) => (
+                <li
+                  key={ind.industry}
+                  className={`flex flex-wrap items-baseline gap-x-2 rounded px-2 py-1 text-[11px] ${
+                    ind.advocate_flag
+                      ? "border border-red-700/40 bg-red-950/15 text-red-100"
+                      : "text-zinc-400"
+                  }`}
+                >
+                  {ind.advocate_flag && (
+                    <span className="text-[10px] font-bold text-red-300">⚠</span>
+                  )}
+                  <span className={ind.advocate_flag ? "font-semibold" : ""}>
+                    {ind.label}
+                  </span>
+                  <span className="text-[9px] text-zinc-500">
+                    ({ind.legislator_count} sponsor{ind.legislator_count === 1 ? "" : "s"})
+                  </span>
+                  <span className="ml-auto font-mono tabular-nums text-zinc-200">
+                    ${ind.amount.toLocaleString()}
+                  </span>
+                </li>
+              ))}
             </ul>
           </div>
         )}
