@@ -15,11 +15,17 @@
  *     'Sponsor(s) Added' (TN SB 1656 — still in committee).
  *
  * What this script does:
- *   1. Finds bills where kratom_relevance='anti' AND scope='state' AND
- *      status='enacted' AND substance_targeting was deep-analyzed AND
- *      ALL five substance stances are 'neutral'. These are bills where
- *      the deep analysis disagrees with the lighter classification.
- *      Action: flip kratom_relevance to 'neutral'.
+ *   1. Finds bills where kratom_relevance='anti' AND title mentions kratom
+ *      but summary_long doesn't. After per-bill spot-check (Nov 2026),
+ *      ALL 39 hits were bills with correct anti-kratom titles whose
+ *      summary_long had been hallucinated about unrelated topics. The
+ *      relevance classification is correct; the summary is broken.
+ *      Action (default): CLEAR the bad summary_long + journey fields and
+ *      reset deep_analyzed_at so the next cron re-enriches. KEEP
+ *      kratom_relevance='anti' since the title is the source of truth.
+ *      (Legacy --flip-relevance flag preserves the old behavior of
+ *      flipping to neutral, for cases where the title was the wrong
+ *      source — e.g. LA SB 154 — but those are now rare.)
  *   2. Finds bills where status='enacted' but last_action contains 'DEAD'
  *      or 'Placed in Legislative Files'. Action: flip status to 'dead'.
  *   3. Finds bills where status='enacted' but last_action is 'Sponsor(s)
@@ -33,11 +39,14 @@ import { createClient } from "@supabase/supabase-js";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
-// Pass 1 (title-vs-summary mismatch) is OFF by default because it surfaced 39
-// bills, signaling a systemic upstream data-quality issue with summary_long
-// generation rather than per-bill misclassification. Run with --include-pass1
-// only after the root cause is investigated.
+// Pass 1 (title-vs-summary mismatch) was previously OFF by default.
+// After investigation it became safe to run because the new default
+// action is "clear bad summary" (not "flip relevance"). Still requires
+// --include-pass1 for backward compat / explicit opt-in.
 const INCLUDE_PASS_1 = args.includes("--include-pass1");
+// Legacy mode: flip kratom_relevance to neutral instead of clearing
+// the summary. Use only when the title is the suspect (rare).
+const FLIP_RELEVANCE = args.includes("--flip-relevance");
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -64,16 +73,23 @@ let totalFixes = 0;
 
 // =============================================================
 // Pass 1: title mentions kratom but deep-analyzed summary_long doesn't.
-// Most reliable misclassification signal — when the deep analysis of the
-// actual bill text contains no kratom mention, the upstream title/relevance
-// classification is almost certainly wrong (OpenStates data quality issue).
-// LA SB 154 is the prototype: title says 'criminalizes kratom' but the
-// actual bill is about West Baton Rouge Parish jury commissions.
+//
+// After investigation (Nov 2026): all 39 hits were real anti-kratom
+// bills (KCPA prohibitions, Schedule I additions, etc.) whose
+// summary_long had been generated for a completely different bill text
+// — a bug in enrich-bill-journey.mjs's PDF fetch, NOT a kratom_relevance
+// misclassification. So the right action is to clear the hallucinated
+// summaries (which actively mislead users), keep the relevance, and
+// let the next cron re-run regenerate them.
+//
+// Use --flip-relevance to revert to the old behavior (flip kratom_relevance
+// to neutral) for the rare case where the title is the wrong source.
 // =============================================================
 console.log(`=== Pass 1: title mentions kratom but deep summary doesn't ===`);
 if (!INCLUDE_PASS_1) {
-  console.log(`  (skipped — pass --include-pass1 to enable; 39 bills matched on prior run`);
-  console.log(`   suggesting systemic summary_long-vs-title mismatch upstream, not per-bill error)\n`);
+  console.log(`  (skipped — pass --include-pass1 to enable;`);
+  console.log(`   default action clears bad summary_long without flipping relevance.`);
+  console.log(`   use --flip-relevance for legacy behavior.)\n`);
 } else
 {
   const { data: rows } = await sb
@@ -97,12 +113,34 @@ if (!INCLUDE_PASS_1) {
     console.log(`    title: ${(r.title ?? "").slice(0, 90)}`);
     console.log(`    summary_long start: ${longSummary.slice(0, 150)}…`);
     if (DRY_RUN) continue;
-    const { error } = await sb
-      .from("bills")
-      .update({ kratom_relevance: "neutral", relevance_confidence: 0.3 })
-      .eq("id", r.id);
-    if (error) console.error(`    ✗ ${error.message}`);
-    else { console.log(`    ✓ flipped to neutral`); totalFixes++; }
+
+    if (FLIP_RELEVANCE) {
+      const { error } = await sb
+        .from("bills")
+        .update({ kratom_relevance: "neutral", relevance_confidence: 0.3 })
+        .eq("id", r.id);
+      if (error) console.error(`    ✗ ${error.message}`);
+      else { console.log(`    ✓ flipped to neutral`); totalFixes++; }
+    } else {
+      // Default: clear the hallucinated enrichment fields. Keep the
+      // title-driven kratom_relevance='anti' since the title is the
+      // source of truth here. Nulling deep_analyzed_at +
+      // journey_analyzed_at lets the next cron pick these up for
+      // re-enrichment.
+      const { error } = await sb
+        .from("bills")
+        .update({
+          summary_long: null,
+          summary_ai: null,
+          advocacy_callout: null,
+          journey_narrative: null,
+          journey_analyzed_at: null,
+          deep_analyzed_at: null,
+        })
+        .eq("id", r.id);
+      if (error) console.error(`    ✗ ${error.message}`);
+      else { console.log(`    ✓ cleared hallucinated summary (will re-enrich on next cron)`); totalFixes++; }
+    }
   }
   console.log(`  → ${count} bills matched.\n`);
 }
