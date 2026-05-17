@@ -159,6 +159,13 @@ export default async function IntelHubPage() {
           body="Federal grants + contracts mentioning kratom from USAspending.gov. Who's getting paid by FDA / NIH / DEA to research, evaluate, or study kratom. The papers and findings funded by these awards become the evidence cited in future scheduling decisions."
         />
         <Card
+          href="/intel/threat-matrix"
+          emoji="🎯"
+          title="Threat matrix — who to target, who to flip"
+          body="Every active legislator scored on a composite of stance, sponsorships, committee leverage, donor industries, and STOCK Act personal trades. Triaged into seven action tiers (active opponents / hostile decision-makers / flippable targets / champions / sympathetic allies / education targets / low-priority). The single targeting view that answers 'who do I focus on?'"
+          highlight
+        />
+        <Card
           href="/intel/donations"
           emoji="🧮"
           title="Donor intel — conflict-of-interest leaderboard"
