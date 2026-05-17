@@ -1,6 +1,7 @@
 import { listPublicStories } from "@/modules/stories/actions";
 import { STORY_TAG_LABELS } from "@/modules/stories/labels";
 import { createClient } from "@/lib/supabase/server";
+import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
 export const metadata = { title: "Story bank" };
 export const dynamic = "force-dynamic";
@@ -34,27 +35,34 @@ export default async function StoriesPage({
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-      <header className="mb-8">
-        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          The story bank
-        </p>
-        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">
-          Why kratom matters — in our own words
-        </h1>
-        <p className="mt-3 max-w-2xl text-zinc-400">
-          Real stories from real advocates. Use them in letters to legislators —
-          a paragraph from a constituent who got their life back beats a hundred
-          talking points. All stories are member-submitted and reviewed before
-          posting.
-        </p>
-        <div className="mt-5">
-          <a
-            href={user ? "/stories/new" : "/login?redirect=/stories/new"}
-            className="rounded-md bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
-          >
-            Share your story →
-          </a>
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-3">
+        <div className="max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+            The story bank
+          </p>
+          <h1 className="mt-2 text-3xl font-bold sm:text-4xl">
+            Why kratom matters — in our own words
+          </h1>
+          <p className="mt-3 text-zinc-400">
+            Real stories from real advocates. Use them in letters to legislators —
+            a paragraph from a constituent who got their life back beats a hundred
+            talking points. All stories are member-submitted and reviewed before
+            posting.
+          </p>
+          <div className="mt-5">
+            <a
+              href={user ? "/stories/new" : "/login?redirect=/stories/new"}
+              className="rounded-md bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
+            >
+              Share your story →
+            </a>
+          </div>
         </div>
+        <PageShareWithAttribution
+          path="/stories"
+          title="iKratom stories — why kratom matters, in advocates' own words"
+          summary="First-person stories from real kratom advocates. Use them in letters to your legislators."
+        />
       </header>
 
       {/* Filter chips */}

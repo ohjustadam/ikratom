@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { listAllRecentNews } from "@/modules/news/actions";
 import { NewsList } from "./NewsList";
+import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
 export const metadata = { title: "Kratom news" };
 
@@ -22,12 +23,19 @@ export default async function NewsPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold">Kratom news</h1>
-        <p className="mt-2 text-sm text-zinc-400">
-          Daily AI-curated news on kratom legislation, science, business, and enforcement.
-          Federal coverage + per-state. Last 30 days.
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold">Kratom news</h1>
+          <p className="mt-2 text-sm text-zinc-400">
+            Daily AI-curated news on kratom legislation, science, business, and enforcement.
+            Federal coverage + per-state. Last 30 days.
+          </p>
+        </div>
+        <PageShareWithAttribution
+          path="/news"
+          title="Kratom news — daily AI-curated"
+          summary="Daily kratom legislation, science, business, and enforcement news. Federal + every state."
+        />
       </header>
 
       <NewsList items={items} userState={userState} />
