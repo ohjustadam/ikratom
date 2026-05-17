@@ -681,6 +681,33 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/backfill-bill-committees.mjs
 
+  index-legislator-news-mentions:
+    # Phase 3 D4: scan news_items for per-legislator name mentions.
+    # Builds two regex patterns per legislator:
+    #   1. Exact full-name
+    #   2. Title+lastname (Sen./Rep./Delegate/Assemblymember + last name)
+    # Writes hits to legislator_news_mentions. State-scoped to reduce
+    # false positives. Idempotent via UNIQUE(legislator_id, news_item_id,
+    # matched_field).
+    #
+    # Surfaces on /legislators/[id]/briefing under "📰 News mentions".
+    # Cheap — pure DB regex scan, no AI calls. Daily is plenty since
+    # news_items come in hourly but per-legislator mention rate is low.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Index per-legislator name mentions in news
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/index-legislator-news-mentions.mjs
+
   correlate-news-bills-ai:
     # AI semantic news↔bill correlation. The hourly regex pass catches
     # explicit bill-number mentions; this fills in articles that cover
