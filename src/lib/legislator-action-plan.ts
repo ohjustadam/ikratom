@@ -28,6 +28,10 @@ export type LeverageSignal = {
   pharma_donations_usd: number | null;
   alcohol_donations_usd: number | null;
   tobacco_donations_usd: number | null;
+  // STOCK Act personal-trade signals (federal only; null = unavailable / state-level)
+  // Trades in kratom-adjacent industries (opioid makers, pharma, addiction
+  // treatment, tobacco, cannabis) by the legislator, spouse, or dependents.
+  kratom_adjacent_trade_count: number | null;
   // Demographic
   is_user_rep: boolean;
 };
@@ -253,6 +257,19 @@ function surfaceLeverageFlags(stance: Stance, sig: LeverageSignal): LeverageFlag
       label: `$${Math.round(sig.tobacco_donations_usd / 1000)}K from tobacco`,
       detail: "Tobacco industry has historically lobbied against alternative substances. Worth flagging.",
       severity: "warn",
+    });
+  }
+
+  // STOCK Act personal trades — direct financial exposure to kratom-adjacent
+  // industries is a documentable conflict signal (the Mullin-Botanic-Tonics
+  // pattern). One trade is noise; sustained activity is a pattern.
+  if (sig.kratom_adjacent_trade_count !== null && sig.kratom_adjacent_trade_count > 0) {
+    const n = sig.kratom_adjacent_trade_count;
+    out.push({
+      emoji: "📈",
+      label: `${n} personal trade${n === 1 ? "" : "s"} in kratom-adjacent stocks`,
+      detail: "Self, spouse, or dependents transacted in opioid manufacturers, pharma, addiction treatment, or substance-adjacent industries. PTRs are public.",
+      severity: stance === "hostile" ? "alarm" : "warn",
     });
   }
 

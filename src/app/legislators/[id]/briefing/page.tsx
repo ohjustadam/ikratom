@@ -85,6 +85,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
     viewerData,
     votingRaw,
     newsMentionsRaw,
+    personalTradesRaw,
   ] = await Promise.all([
     sb.from("legislator_kratom_stance")
       .select("stance, rationale_md, last_evidence_url, last_updated_at")
@@ -120,6 +121,30 @@ export default async function BriefingPage({ params }: { params: Params }) {
       .eq("legislator_id", id)
       .order("news_items(published_at)", { ascending: false })
       .limit(30),
+    // STOCK Act personal trades — federal only. We split into two
+    // queries because prolific traders have many trades but few in
+    // kratom-adjacent industries — sorting by date and limiting would
+    // drop the most relevant rows. So: pull ALL kratom-adjacent +
+    // the latest N non-adjacent for context. Pre-migration deploys
+    // (before 0138) get null arrays and render no section.
+    leg.role === "us_senate" || leg.role === "us_house"
+      ? Promise.all([
+          sb.from("federal_personal_trades")
+            .select("id, transaction_date, filing_date, transaction_type, ticker, asset_description, asset_type, amount_range, amount_lower, amount_upper, owner, is_kratom_adjacent, kratom_relevance_note, ptr_link, chamber")
+            .eq("legislator_id", id)
+            .eq("is_kratom_adjacent", true)
+            .order("transaction_date", { ascending: false, nullsFirst: false }),
+          sb.from("federal_personal_trades")
+            .select("id, transaction_date, filing_date, transaction_type, ticker, asset_description, asset_type, amount_range, amount_lower, amount_upper, owner, is_kratom_adjacent, kratom_relevance_note, ptr_link, chamber")
+            .eq("legislator_id", id)
+            .eq("is_kratom_adjacent", false)
+            .order("transaction_date", { ascending: false, nullsFirst: false })
+            .limit(50),
+          sb.from("federal_personal_trades")
+            .select("id", { count: "exact", head: true })
+            .eq("legislator_id", id),
+        ])
+      : Promise.resolve(null),
   ]);
 
   const stance: Stance =
@@ -355,6 +380,46 @@ export default async function BriefingPage({ params }: { params: Params }) {
   const alcohol_usd = donorMatched ? (donor!.kratom_relevant?.alcohol ?? null) : null;
   const tobacco_usd = donorMatched ? (donor!.kratom_relevant?.tobacco ?? null) : null;
 
+  // ── STOCK Act personal trades (federal only). Defensive in case the
+  // table doesn't exist yet (pre-0138 deploy) — null data is fine, we
+  // render nothing.
+  type PersonalTrade = {
+    id: string;
+    transaction_date: string | null;
+    filing_date: string | null;
+    transaction_type: string | null;
+    ticker: string | null;
+    asset_description: string;
+    asset_type: string | null;
+    amount_range: string | null;
+    amount_lower: number | null;
+    amount_upper: number | null;
+    owner: string | null;
+    is_kratom_adjacent: boolean | null;
+    kratom_relevance_note: string | null;
+    ptr_link: string | null;
+    chamber: string | null;
+  };
+  let kratomAdjacentTrades: PersonalTrade[] = [];
+  let otherTrades: PersonalTrade[] = [];
+  let personalTradesTotalCount = 0;
+  try {
+    if (Array.isArray(personalTradesRaw)) {
+      const [adjRes, otherRes, countRes] = personalTradesRaw as [
+        { data: PersonalTrade[] | null },
+        { data: PersonalTrade[] | null },
+        { count: number | null },
+      ];
+      kratomAdjacentTrades = (adjRes?.data ?? []) as PersonalTrade[];
+      otherTrades = (otherRes?.data ?? []) as PersonalTrade[];
+      personalTradesTotalCount = countRes?.count ?? 0;
+    }
+  } catch {
+    // Pre-migration deploy — silently empty.
+  }
+  const kratomAdjacentTradeCount =
+    leg.role === "us_senate" || leg.role === "us_house" ? kratomAdjacentTrades.length : null;
+
   // ── Viewer-rep status
   const viewerUser = viewerData?.data?.user ?? null;
   let isUserRep = false;
@@ -382,6 +447,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
     pharma_donations_usd: pharma_usd,
     alcohol_donations_usd: alcohol_usd,
     tobacco_donations_usd: tobacco_usd,
+    kratom_adjacent_trade_count: kratomAdjacentTradeCount,
     is_user_rep: isUserRep,
   };
   const plan = buildActionPlan(stance, signal);
@@ -923,6 +989,129 @@ export default async function BriefingPage({ params }: { params: Params }) {
         </section>
       )}
 
+      {/* ── STOCK Act personal trades (federal only) ───────────── */}
+      {personalTradesTotalCount > 0 && (
+        <section className={`mb-6 rounded-lg border p-5 ${
+          kratomAdjacentTrades.length > 0
+            ? "border-red-700/50 bg-red-950/15"
+            : "border-zinc-800 bg-zinc-950/40"
+        }`}>
+          <h2 className={`mb-2 text-xs font-semibold uppercase tracking-wider ${
+            kratomAdjacentTrades.length > 0 ? "text-red-300" : "text-zinc-400"
+          }`}>
+            📈 Personal stock trades · {personalTradesTotalCount} disclosed
+            {kratomAdjacentTrades.length > 0 && (
+              <span className="ml-2 rounded bg-red-500/30 px-1.5 py-0.5 text-[10px] font-bold text-red-100">
+                {kratomAdjacentTrades.length} KRATOM-ADJACENT
+              </span>
+            )}
+          </h2>
+          <p className="text-xs text-zinc-400">
+            STOCK Act Periodic Transaction Reports — self, spouse, and dependent trades filed within 30 days of execution.{" "}
+            <a
+              href={leg.role === "us_senate" ? "https://efdsearch.senate.gov" : "https://disclosures-clerk.house.gov"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-400 hover:underline"
+            >
+              Source ↗
+            </a>
+          </p>
+
+          {kratomAdjacentTrades.length > 0 && (
+            <>
+              <h3 className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-red-200">
+                Kratom-adjacent trades
+              </h3>
+              <ul className="mt-2 space-y-2">
+                {kratomAdjacentTrades.slice(0, 15).map((t) => (
+                  <li key={t.id} className="rounded border border-red-700/30 bg-red-950/10 p-2.5">
+                    <div className="flex flex-wrap items-baseline gap-2 text-xs">
+                      <span className="font-mono font-semibold text-red-200">
+                        {t.transaction_date ?? "date unknown"}
+                      </span>
+                      <span className="font-semibold uppercase tracking-wide text-zinc-200">
+                        {t.transaction_type ?? "trade"}
+                      </span>
+                      {t.ticker && (
+                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
+                          {t.ticker}
+                        </span>
+                      )}
+                      {t.owner && t.owner.toLowerCase() !== "self" && (
+                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] capitalize text-zinc-400">
+                          {t.owner}
+                        </span>
+                      )}
+                      {t.amount_range && (
+                        <span className="ml-auto font-mono tabular-nums text-amber-300">
+                          {t.amount_range}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-300">{t.asset_description}</p>
+                    {t.kratom_relevance_note && (
+                      <p className="mt-1 text-[10px] italic text-red-300/80">
+                        {t.kratom_relevance_note}
+                      </p>
+                    )}
+                    {t.ptr_link && (
+                      <a
+                        href={t.ptr_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-block text-[10px] text-emerald-400 hover:underline"
+                      >
+                        View PTR ↗
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {kratomAdjacentTrades.length > 15 && (
+                <p className="mt-2 text-[10px] text-zinc-500">
+                  + {kratomAdjacentTrades.length - 15} more kratom-adjacent trades
+                </p>
+              )}
+            </>
+          )}
+
+          {otherTrades.length > 0 && (
+            <details className="mt-4">
+              <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-zinc-400 hover:text-emerald-400">
+                Recent non-flagged trades ({Math.min(otherTrades.length, 50)} of {personalTradesTotalCount - kratomAdjacentTrades.length}) ▾
+              </summary>
+              <ul className="mt-2 space-y-1">
+                {otherTrades.map((t) => (
+                  <li key={t.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-zinc-900 py-1.5 text-[11px]">
+                    <span className="font-mono text-zinc-500">
+                      {t.transaction_date ?? "—"}
+                    </span>
+                    <span className="text-zinc-300 capitalize">
+                      {t.transaction_type?.toLowerCase() ?? "trade"}
+                    </span>
+                    {t.ticker && <span className="font-mono text-zinc-400">{t.ticker}</span>}
+                    <span className="text-zinc-400">{t.asset_description.slice(0, 60)}{t.asset_description.length > 60 ? "…" : ""}</span>
+                    {t.amount_range && (
+                      <span className="ml-auto font-mono tabular-nums text-zinc-500">{t.amount_range}</span>
+                    )}
+                  </li>
+                ))}
+                {personalTradesTotalCount - kratomAdjacentTrades.length > otherTrades.length && (
+                  <li className="pt-1 text-[10px] text-zinc-500">
+                    + {personalTradesTotalCount - kratomAdjacentTrades.length - otherTrades.length} earlier non-flagged trades (not shown — view full disclosures via the source link above)
+                  </li>
+                )}
+              </ul>
+            </details>
+          )}
+
+          <p className="mt-3 text-[10px] text-zinc-600">
+            Data via Senate Stock Watcher + House Stock Watcher community archives. Kratom-adjacency flags are heuristic (opioid/pharma/addiction/substance-policy tickers); verify each before publishing.
+          </p>
+        </section>
+      )}
+
       {/* ── Intel gaps ─────────────────────────────────────────── */}
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
@@ -933,10 +1122,16 @@ export default async function BriefingPage({ params }: { params: Params }) {
             <li>· <span className="text-zinc-300">Stance assessment</span> — AI drafter hasn&apos;t run for this state yet, or the legislator has no kratom signal in our data.</li>
           )}
           {(leg.role === "us_senate" || leg.role === "us_house") && !donorMatched && (
-            <li>· <span className="text-zinc-300">Federal donor profile</span> — FEC matching pending. Adam, the OpenFEC pipeline has a known matching gap; investigation in flight.</li>
+            <li>· <span className="text-zinc-300">Federal donor profile</span> — FEC matching pending. The OpenFEC pipeline has a known matching gap; investigation in flight.</li>
           )}
           {!(leg.role === "us_senate" || leg.role === "us_house") && (
             <li>· <span className="text-zinc-300">Financial disclosures</span> — state-level lobbyist/donor data is not yet centralized in our system (50-state scraping effort).</li>
+          )}
+          {!(leg.role === "us_senate" || leg.role === "us_house") && (
+            <li>· <span className="text-zinc-300">Personal stock trades</span> — STOCK Act disclosures are federal-only; state legislators have varied reporting (50-state effort needed).</li>
+          )}
+          {(leg.role === "us_senate" || leg.role === "us_house") && personalTradesTotalCount === 0 && (
+            <li>· <span className="text-zinc-300">Personal stock trades</span> — no PTRs filed by this legislator, OR our name-matcher didn&apos;t resolve them. Senate Stock Watcher + House Stock Watcher are our sources.</li>
           )}
           <li>· <span className="text-zinc-300">Voting records</span> — roll-call votes aren&apos;t yet synced. Pipeline candidate via LegiScan API.</li>
           <li>· <span className="text-zinc-300">News mentions + sentiment</span> — we have news but don&apos;t per-legislator-index it yet.</li>
