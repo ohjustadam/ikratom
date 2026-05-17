@@ -88,6 +88,33 @@ jobs:
         # from scratch to avoid stale aggregates.
         run: node scripts/classify-donor-industries.mjs --refresh
 
+  sync-bill-sponsors-all:
+    # Back-fill bill_sponsors via OpenStates for every active anti/pro
+    # bill across all 50 states. Critical for the /intel/threat-matrix
+    # to surface hostile / champion legislators nationwide — without
+    # this, structural signals are NY-only.
+    #
+    # The script is the same one that worked locally — bills that miss
+    # a sponsor match keep sponsor_name_raw so the data isn't lost.
+    # Polite at 1.2s/call → ~7 minutes for the full sweep at current
+    # corpus size (~357 active bills). Idempotent via UNIQUE
+    # (bill_id, legislator_id, classification).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Backfill bill sponsorships across all states
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+        run: node scripts/sync-bill-sponsors.mjs --all
+
   sync-stock-act-trades:
     # STOCK Act personal-trade disclosures for federal legislators
     # (Periodic Transaction Reports). Pulls Senate + House data from
