@@ -748,6 +748,13 @@ export default async function BillDetailPage({
             defaultTitle={`${bill.state} ${bill.bill_number}: ${(bill.title ?? "follow up").slice(0, 60)}`}
             defaultMessage="Check status / contact rep"
           />
+          <Link
+            href={`/bills/${bill.id}/dossier`}
+            className="rounded border border-emerald-700/40 bg-emerald-950/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-950/30"
+            title="Printable citation-ready 1-page intel dossier — for journalists, agency staffers, advocates"
+          >
+            📄 Print dossier
+          </Link>
           <PageShareWithAttribution
             path={`/bills/${bill.id}`}
             title={`${bill.state} ${bill.bill_number}: ${bill.title?.slice(0, 80) ?? "(no title)"}`}
