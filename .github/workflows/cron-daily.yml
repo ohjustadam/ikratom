@@ -680,3 +680,43 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/backfill-bill-committees.mjs
+
+  enrich-bill-journey:
+    # Regenerate the 4-paragraph journey narrative + 200-300 word
+    # summary_long for active anti/pro bills. Pulls every version's
+    # PDF from OpenStates (or FastDemocracy fallback), then routes
+    # through the AI router (Groq → Gemini → Cerebras → Mistral →
+    # Cloudflare → Ollama).
+    #
+    # Without this job in cron, bills whose summary_long was cleared
+    # by hygiene-misclassified-anti-bills.mjs (PR #325) never get
+    # repopulated. PR #328 also depends on this running with the
+    # session-filtered OpenStates lookup so re-enrichment produces
+    # the CORRECT bill's text rather than a same-numbered bill from
+    # a different session.
+    #
+    # Runs AFTER legiscan-wide-pass so the freshest version list is
+    # available. --all-stale picks up any bill whose journey is older
+    # than 7 days OR null (e.g. the 39 cleared in PR #325). The
+    # script caps at LIMIT (default 20) per run to spread AI quota
+    # across many days — full backfill takes ~2 daily runs.
+    needs: legiscan-wide-pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Re-enrich stale + cleared bill journeys
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: node scripts/enrich-bill-journey.mjs --all-stale --limit 30

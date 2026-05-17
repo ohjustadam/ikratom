@@ -227,3 +227,17 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           APP_URL: ${{ secrets.APP_URL }}
         run: node scripts/fire-custom-reminders.mjs
+      - name: Correlate news_items to bills (migration 0149)
+        # Maintains news_items.bill_id linkage. Two stages:
+        #   1. Copy bill_id from any policy_alerts the news_item is
+        #      attached to (exact, cheap)
+        #   2. Regex-match bill numbers in title/summary against the
+        #      bills table when state matches (heuristic, free)
+        # Idempotent — sets bill_correlation_attempted_at on every
+        # row processed so re-runs only touch fresh news. Runs after
+        # the news-ingest steps in this job so today's articles get
+        # correlated in the same tick. Cheap: pure DB + regex, no AI.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/correlate-news-to-bills.mjs
