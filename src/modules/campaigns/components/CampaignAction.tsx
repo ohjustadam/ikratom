@@ -30,6 +30,8 @@ export function CampaignAction({
   initialBody,
   hasStreet,
   hasDistricts,
+  pickableStateReps,
+  campaignSlug,
 }: {
   campaignId: string;
   targets: Legislator[];
@@ -53,6 +55,12 @@ export function CampaignAction({
   /** True if the user has at least one of US house / state senate /
    *  state house district fields populated. */
   hasDistricts: boolean;
+  /** When districts can't be auto-detected (Census gap), this is the
+   *  list of state-level legislators in the user's state matching the
+   *  campaign's target_roles. User picks manually → ?manual_targets=... */
+  pickableStateReps: Legislator[];
+  /** Campaign slug for building the ?manual_targets URL. */
+  campaignSlug: string;
 }) {
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
@@ -223,13 +231,22 @@ export function CampaignAction({
           <p className="mt-2 text-sm text-zinc-400">
             Your address is on file, but the US Census Bureau&apos;s address
             index doesn&apos;t cover every street — rural and newer addresses
-            sometimes get missed. Click below to retry, or find your reps
-            manually.
+            sometimes get missed. Retry the lookup, or pick your reps
+            from the list below.
           </p>
           <div className="mt-4">
             <RetryDistrictsButton userState={userState} />
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+
+          {pickableStateReps.length > 0 && (
+            <StateRepPicker
+              reps={pickableStateReps}
+              campaignSlug={campaignSlug}
+              targetRoles={targetRoles}
+            />
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2 text-xs">
             <a
               href="/account"
               className="rounded-md border border-zinc-700 px-3 py-1.5 hover:border-emerald-500 hover:text-emerald-300"
@@ -241,7 +258,7 @@ export function CampaignAction({
                 href={`/legislators?state=${userState}`}
                 className="rounded-md border border-zinc-700 px-3 py-1.5 hover:border-emerald-500 hover:text-emerald-300"
               >
-                Find {userState} legislators manually →
+                Browse all {userState} legislators →
               </a>
             )}
           </div>
@@ -718,4 +735,108 @@ function timeAgo(iso: string): string {
   const days = Math.floor(sec / 86400);
   if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+/**
+ * Manual state-rep picker — shown inside the "no districts auto-detected"
+ * card when the user has a saved address but Census couldn't map it.
+ * Lets the user check the boxes for whichever legislators they want to
+ * contact, then redirects to /campaigns/[slug]?manual_targets=id1,id2,...
+ * The slug page re-renders with those targets and the full send UI
+ * appears below.
+ */
+function StateRepPicker({
+  reps,
+  campaignSlug,
+  targetRoles,
+}: {
+  reps: Legislator[];
+  campaignSlug: string;
+  targetRoles: string[];
+}) {
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  function toggle(id: string) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Group by role for readable scanning
+  const grouped = new Map<string, Legislator[]>();
+  for (const r of reps) {
+    if (!grouped.has(r.role)) grouped.set(r.role, []);
+    grouped.get(r.role)!.push(r);
+  }
+  for (const arr of grouped.values()) {
+    arr.sort((a, b) => (a.district ?? "").localeCompare(b.district ?? "") || a.full_name.localeCompare(b.full_name));
+  }
+
+  const sendHref = picked.size > 0
+    ? `/campaigns/${campaignSlug}?manual_targets=${[...picked].join(",")}`
+    : null;
+
+  return (
+    <div className="mt-5 rounded-md border-2 border-dashed border-emerald-700/50 bg-emerald-950/10 p-4">
+      <p className="text-xs font-bold uppercase tracking-widest text-emerald-300">
+        Pick your reps manually
+      </p>
+      <p className="mt-1 text-sm text-zinc-300">
+        {reps.length} {targetRoles.map((r) => ROLE_SHORT[r] ?? r).join(" / ")} in your state. Tick the ones you want to email — usually just the legislators for your district.
+      </p>
+      <div className="mt-3 max-h-72 overflow-y-auto rounded border border-zinc-800 bg-zinc-950 p-2">
+        {[...grouped.entries()].map(([role, group]) => (
+          <div key={role} className="mb-2">
+            <p className="px-2 py-1 text-[10px] uppercase tracking-wider text-emerald-300/80">
+              {ROLE_SHORT[role] ?? role} ({group.length})
+            </p>
+            <ul>
+              {group.map((r) => (
+                <li key={r.id}>
+                  <label className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-zinc-900">
+                    <input
+                      type="checkbox"
+                      checked={picked.has(r.id)}
+                      onChange={() => toggle(r.id)}
+                      className="h-3.5 w-3.5"
+                    />
+                    <span className="font-mono text-zinc-500">
+                      {r.district ? `D${r.district}` : "  "}
+                    </span>
+                    <span className="text-zinc-200">{r.full_name}</span>
+                    {r.party && <span className="text-zinc-500">· {r.party}</span>}
+                    {!r.email && <span className="text-amber-400/80">· no email</span>}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex items-center gap-2 text-xs">
+        {sendHref ? (
+          <a
+            href={sendHref}
+            className="rounded-md bg-emerald-500 px-4 py-1.5 font-semibold text-zinc-950 hover:bg-emerald-400"
+          >
+            Use these {picked.size} →
+          </a>
+        ) : (
+          <span className="text-zinc-500">Pick at least one to continue.</span>
+        )}
+        {picked.size > 0 && (
+          <button
+            type="button"
+            onClick={() => setPicked(new Set())}
+            className="text-zinc-400 hover:text-emerald-400"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
