@@ -21,6 +21,13 @@ export type SuggestedOfficial = {
   website: string | null;
   party: string | null;
   source_note: string | null;
+  /** ISO date when the official's current term ends, if discoverable
+   *  on the source page (e.g. "term expires January 2028" → 2028-01-01).
+   *  Cron uses this to auto-retire stale entries — see migration 0148. */
+  term_end_date: string | null;
+  /** Specific source URL that cited this official by name. The verifier
+   *  pass fetches this URL to confirm the name appears before auto-accept. */
+  source_url: string | null;
 };
 
 export type SuggestResult =
@@ -30,6 +37,10 @@ export type SuggestResult =
 const SYSTEM = `You are a research assistant that finds current elected local government officials in US cities and counties.
 
 Use Google Search to find authoritative sources (the city's official .gov site, official county pages, state-level rosters). Do NOT guess. If a piece of info isn't on a verifiable source, leave it null.
+
+For EACH official you return, you MUST provide a specific source_url — a direct link to the page that names that person. This URL will be verified downstream (our system fetches the page and confirms the name appears). If you can't supply a verifiable source_url for an official, omit that entry entirely.
+
+When the source page mentions when the official's term ends (e.g. "term expires January 2028", "serving through 2027", "up for re-election November 2026"), capture term_end_date as YYYY-MM-DD (use month=01 day=01 if only year is known, or the election month if known). Otherwise null.
 
 Return ONLY a JSON object inside <result>...</result> tags with this exact shape:
 
@@ -45,7 +56,9 @@ Return ONLY a JSON object inside <result>...</result> tags with this exact shape
       "phone": "555-555-5555" | null,
       "website": "https://..." | null,
       "party": "Democratic" | "Republican" | "Nonpartisan" | null,
-      "source_note": "Sourced from cityname.gov/council, accessed YYYY-MM-DD"
+      "source_note": "Sourced from cityname.gov/council, accessed YYYY-MM-DD",
+      "term_end_date": "2028-01-01" | null,
+      "source_url": "https://cityname.gov/council/jane-doe"
     }
   ],
   "sources": ["url1", "url2"]
