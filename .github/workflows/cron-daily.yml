@@ -781,6 +781,28 @@ jobs:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: node scripts/correlate-news-to-bills.mjs --ai --ai-limit 200
 
+  detect-bill-clusters:
+    # Coordinated-operation detection across active anti/pro bills.
+    # Runs after legiscan-wide-pass so the freshest bill text is in
+    # place when we cluster. Pattern-based v1 (regex on title +
+    # summary + bill_text_versions) — cheap, no AI. Idempotent:
+    # cluster + member rows are upserted on each run.
+    needs: legiscan-wide-pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Detect coordinated-operation clusters
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/detect-bill-clusters.mjs
+
   enrich-bill-journey:
     # Regenerate the 4-paragraph journey narrative + 200-300 word
     # summary_long for active anti/pro bills. Pulls every version's

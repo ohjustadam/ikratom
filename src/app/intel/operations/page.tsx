@@ -76,6 +76,79 @@ export default async function OperationsIntelPage() {
     }).filter(Boolean),
   ).size;
 
+  // Sponsor-stance distribution per cluster. Pulls primary sponsors
+  // across all clustered bills + their drafted stance (when available),
+  // then aggregates per cluster: how many champion / sympathetic /
+  // hostile / unknown primary-sponsor legs back this operation?
+  // Surfaces the human network behind each model-legislation pattern.
+  type SponsorAgg = {
+    total: number;
+    by_stance: Record<string, number>;
+    states: Set<string>;
+  };
+  const sponsorAggByCluster = new Map<string, SponsorAgg>();
+  for (const [clusterId, ms] of membersByCluster.entries()) {
+    sponsorAggByCluster.set(clusterId, { total: 0, by_stance: {}, states: new Set() });
+    for (const m of ms) {
+      sponsorAggByCluster.get(clusterId)!.states.add(m.bill.state);
+    }
+  }
+  {
+    const allClusterBillIds = [
+      ...new Set(
+        (members ?? [])
+          .map((m) => normalizeBill((m as Member).bills)?.id)
+          .filter((x): x is string => !!x),
+      ),
+    ];
+    if (allClusterBillIds.length > 0) {
+      const { data: sps } = await sb
+        .from("bill_sponsors")
+        .select("bill_id, legislator_id, classification")
+        .in("bill_id", allClusterBillIds)
+        .eq("classification", "primary");
+      const sponsorLegIds = [
+        ...new Set((sps ?? []).map((s) => s.legislator_id).filter((x): x is string => !!x)),
+      ];
+      const stanceByLeg = new Map<string, string>();
+      if (sponsorLegIds.length > 0) {
+        const { data: stances } = await sb
+          .from("legislator_kratom_stance")
+          .select("legislator_id, stance")
+          .in("legislator_id", sponsorLegIds);
+        for (const s of (stances ?? []) as Array<{ legislator_id: string; stance: string }>) {
+          stanceByLeg.set(s.legislator_id, s.stance);
+        }
+      }
+      // Map bill_id → clusters that contain it
+      const clustersByBill = new Map<string, Set<string>>();
+      for (const m of (members ?? []) as Member[]) {
+        const b = normalizeBill(m.bills);
+        if (!b) continue;
+        if (!clustersByBill.has(b.id)) clustersByBill.set(b.id, new Set());
+        clustersByBill.get(b.id)!.add(m.cluster_id);
+      }
+      // Walk sponsors → for each cluster the bill belongs to, increment
+      // sponsor counts under the legislator's stance bucket. A legislator
+      // co-listed on multiple bills in the same cluster only counts once.
+      const seenLegPerCluster = new Map<string, Set<string>>();
+      for (const s of (sps ?? []) as Array<{ bill_id: string; legislator_id: string }>) {
+        const clusters = clustersByBill.get(s.bill_id) ?? new Set();
+        const stance = stanceByLeg.get(s.legislator_id) ?? "unknown";
+        for (const cid of clusters) {
+          const seenKey = `${cid}:${s.legislator_id}`;
+          if (seenLegPerCluster.has(cid) && seenLegPerCluster.get(cid)!.has(s.legislator_id)) continue;
+          if (!seenLegPerCluster.has(cid)) seenLegPerCluster.set(cid, new Set());
+          seenLegPerCluster.get(cid)!.add(s.legislator_id);
+          const agg = sponsorAggByCluster.get(cid);
+          if (!agg) continue;
+          agg.total += 1;
+          agg.by_stance[stance] = (agg.by_stance[stance] ?? 0) + 1;
+        }
+      }
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="text-xs">
@@ -121,7 +194,8 @@ export default async function OperationsIntelPage() {
           return (
             <article
               key={c.id}
-              className={`rounded-lg border p-5 ${tone}`}
+              id={c.slug}
+              className={`rounded-lg border p-5 scroll-mt-20 ${tone}`}
             >
               <div className="flex flex-wrap items-baseline gap-2">
                 <h2 className="text-xl font-bold">{c.name}</h2>
@@ -146,6 +220,42 @@ export default async function OperationsIntelPage() {
                   {c.suspected_origin}
                 </p>
               )}
+
+              {(() => {
+                const agg = sponsorAggByCluster.get(c.id);
+                if (!agg || agg.total === 0) return null;
+                const order = ["hostile", "neutral", "unknown", "sympathetic", "champion"] as const;
+                const emoji: Record<string, string> = {
+                  hostile: "🚫", neutral: "⚖", unknown: "❓",
+                  sympathetic: "🤝", champion: "⭐",
+                };
+                const tone: Record<string, string> = {
+                  hostile: "border-red-700/40 bg-red-950/15 text-red-200",
+                  neutral: "border-zinc-700 bg-zinc-900/40 text-zinc-300",
+                  unknown: "border-zinc-700 bg-zinc-900/40 text-zinc-400",
+                  sympathetic: "border-emerald-700/40 bg-emerald-950/15 text-emerald-200",
+                  champion: "border-emerald-500/50 bg-emerald-950/20 text-emerald-200",
+                };
+                return (
+                  <div className="mt-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider opacity-80">
+                      Primary sponsors backing this operation ({agg.total} distinct legislators)
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {order
+                        .filter((s) => (agg.by_stance[s] ?? 0) > 0)
+                        .map((s) => (
+                          <span
+                            key={s}
+                            className={`rounded border px-2 py-0.5 text-[10px] ${tone[s]}`}
+                          >
+                            {emoji[s]} {agg.by_stance[s]} {s}
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {Array.isArray(c.signature_phrases) && c.signature_phrases.length > 0 && (
                 <div className="mt-3">

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
@@ -620,6 +621,52 @@ export default async function BillDetailPage({
     } catch {
       // bill-committee lib or threat-score lib unavailable — silent.
     }
+  }
+
+  // ── Cluster memberships — which coordinated-operation patterns
+  // does this bill match? Surfaces the connection to /intel/operations
+  // so users see this isn't a one-off state bill but part of a national
+  // tactic.
+  type ClusterMembership = {
+    cluster_id: string;
+    confidence: number;
+    match_reason: string | null;
+    slug: string;
+    name: string;
+    posture: string;
+    bill_count: number;
+    state_count: number;
+  };
+  let billClusterMemberships: ClusterMembership[] = [];
+  try {
+    const { data: memberships } = await supabase
+      .from("bill_cluster_members")
+      .select("cluster_id, confidence, match_reason, bill_clusters!inner(slug, name, posture, bill_count, state_count)")
+      .eq("bill_id", bill.id);
+    type M = {
+      cluster_id: string; confidence: number; match_reason: string | null;
+      bill_clusters: { slug: string; name: string; posture: string; bill_count: number; state_count: number }
+                   | Array<{ slug: string; name: string; posture: string; bill_count: number; state_count: number }>
+                   | null;
+    };
+    for (const m of (memberships ?? []) as M[]) {
+      const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+      if (!c) continue;
+      billClusterMemberships.push({
+        cluster_id: m.cluster_id,
+        confidence: m.confidence,
+        match_reason: m.match_reason,
+        slug: c.slug,
+        name: c.name,
+        posture: c.posture,
+        bill_count: c.bill_count,
+        state_count: c.state_count,
+      });
+    }
+    billClusterMemberships.sort((a, b) => b.confidence - a.confidence);
+  } catch {
+    // Pre-migration deploy (before 0151) — silent empty.
+    billClusterMemberships = [];
   }
 
   // Staleness assessment
@@ -1351,6 +1398,57 @@ export default async function BillDetailPage({
             </p>
           )}
         </div>
+
+        {/* Coordinated-operation cluster memberships — shows that
+            this bill is part of nationwide patterns, with click-through
+            to /intel/operations for the full network view. */}
+        {billClusterMemberships.length > 0 && (
+          <div className="mt-4 rounded-md border border-violet-700/40 bg-violet-950/15 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-violet-300">
+              🕸 Coordinated operation · this bill is part of nationwide pattern{billClusterMemberships.length === 1 ? "" : "s"}
+            </p>
+            <p className="mt-1 text-[10px] text-zinc-500">
+              The same operative language appears across multiple states. Click any pattern below for the full network.
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {billClusterMemberships.map((c) => {
+                const postureTone =
+                  c.posture === "restrictive" ? "border-red-700/40 bg-red-950/10 text-red-200" :
+                  c.posture === "protective" ? "border-emerald-700/40 bg-emerald-950/10 text-emerald-200" :
+                  c.posture === "regulatory" ? "border-amber-700/40 bg-amber-950/10 text-amber-200" :
+                  "border-zinc-700 bg-zinc-950/40 text-zinc-300";
+                const postureEmoji =
+                  c.posture === "restrictive" ? "🚫" :
+                  c.posture === "protective" ? "🛡" :
+                  c.posture === "regulatory" ? "⚖" : "↔";
+                return (
+                  <li key={c.cluster_id}>
+                    <Link
+                      href={`/intel/operations#${c.slug}`}
+                      className={`block rounded border px-2.5 py-1.5 text-[11px] transition hover:opacity-90 ${postureTone}`}
+                      title={c.match_reason ?? undefined}
+                    >
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="font-semibold">
+                          {postureEmoji} {c.name}
+                        </span>
+                        <span className="ml-auto text-[10px] opacity-80">
+                          <strong className="font-mono tabular-nums">{c.bill_count}</strong> bills ·{" "}
+                          <strong className="font-mono tabular-nums">{c.state_count}</strong> states
+                        </span>
+                      </div>
+                      {c.match_reason && (
+                        <p className="mt-1 text-[10px] italic opacity-70 line-clamp-2">
+                          {c.match_reason.slice(0, 200)}{c.match_reason.length > 200 ? "…" : ""}
+                        </p>
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         {/* Sponsors */}
         {sponsors.length > 0 && (
