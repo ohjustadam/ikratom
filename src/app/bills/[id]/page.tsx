@@ -304,10 +304,15 @@ export default async function BillDetailPage({
     alertSourceUrl = alerts?.[0]?.source_url ?? null;
   }
 
-  // News coverage — pull every news_items article linked through the
-  // policy_alerts → bill_id chain. Dedupe via shared lib (strips outlet
-  // suffixes, keeps earliest-published as canonical). See
-  // src/lib/news-dedup.ts.
+  // News coverage — pull every news_items article linked to this bill
+  // via either:
+  //   (a) news_items.bill_id direct linkage (set by correlate-news-to-bills.mjs
+  //       via regex bill-number match or AI semantic match; migration 0149)
+  //   (b) policy_alerts → bill_id chain (older indirect path)
+  //
+  // Union the two via `or()` so we capture both kinds of evidence.
+  // Dedupe via shared lib (strips outlet suffixes, keeps earliest-published
+  // as canonical). See src/lib/news-dedup.ts.
   let newsCoverage: NewsItem[] = [];
   {
     const { data: linkedAlerts } = await supabase
@@ -315,16 +320,21 @@ export default async function BillDetailPage({
       .select("id")
       .eq("bill_id", bill.id);
     const linkedAlertIds = (linkedAlerts ?? []).map((a: { id: string }) => a.id);
+
+    // Build a Supabase `or` filter: bill_id direct match, OR (when there
+    // are linked alerts) policy_alert_id IN the alert set.
+    const orClauses = [`bill_id.eq.${bill.id}`];
     if (linkedAlertIds.length > 0) {
-      const { data: news } = await supabase
-        .from("news_items")
-        .select("id, title, source_name, url, published_at, summary")
-        .in("policy_alert_id", linkedAlertIds)
-        .eq("active", true)
-        .order("published_at", { ascending: false })
-        .limit(50);
-      newsCoverage = dedupNews((news ?? []) as NewsItem[], 12);
+      orClauses.push(`policy_alert_id.in.(${linkedAlertIds.join(",")})`);
     }
+    const { data: news } = await supabase
+      .from("news_items")
+      .select("id, title, source_name, url, published_at, summary")
+      .or(orClauses.join(","))
+      .eq("active", true)
+      .order("published_at", { ascending: false })
+      .limit(80);
+    newsCoverage = dedupNews((news ?? []) as NewsItem[], 12);
   }
 
   // Determine if the calling user is signed in + already subscribed to
