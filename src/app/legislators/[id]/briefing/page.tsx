@@ -364,6 +364,67 @@ export default async function BriefingPage({ params }: { params: Params }) {
     return bd - ad;
   });
 
+  // News on bills this legislator sponsors. Implicit mention path:
+  // even if a legislator isn't named in an article, news linked to a
+  // bill they sponsor is still high-signal intel about their public
+  // posture. Uses the post-#326/#332/#333 news_items.bill_id linkage.
+  type SponsoredBillNews = {
+    news_id: string;
+    news_title: string;
+    source_name: string | null;
+    url: string | null;
+    published_at: string | null;
+    bill_id: string;
+    bill_number: string;
+    classification: string;
+  };
+  let sponsoredBillNews: SponsoredBillNews[] = [];
+  try {
+    const sponsoredIds = [...new Set(sponsorships.map((s) => s.bill_id))];
+    if (sponsoredIds.length > 0) {
+      const { data: sbnRaw } = await sb
+        .from("news_items")
+        .select("id, title, source_name, url, published_at, bill_id, bills!inner(bill_number)")
+        .in("bill_id", sponsoredIds)
+        .eq("active", true)
+        .order("published_at", { ascending: false })
+        .limit(30);
+      const classByBill = new Map(sponsorships.map((s) => [s.bill_id, s.classification]));
+      // De-dupe by news_id (an article might link to multiple sponsored bills).
+      const seen = new Set<string>();
+      for (const row of (sbnRaw ?? []) as Array<{
+        id: string;
+        title: string;
+        source_name: string | null;
+        url: string | null;
+        published_at: string | null;
+        bill_id: string;
+        bills: { bill_number: string } | Array<{ bill_number: string }> | null;
+      }>) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        const b = Array.isArray(row.bills) ? row.bills[0] : row.bills;
+        if (!b) continue;
+        // Skip if the legislator was already explicitly named in this
+        // article — explicit takes precedence so we don't double-show.
+        if (newsMentionsByArticle.has(row.id)) continue;
+        sponsoredBillNews.push({
+          news_id: row.id,
+          news_title: row.title,
+          source_name: row.source_name,
+          url: row.url,
+          published_at: row.published_at,
+          bill_id: row.bill_id,
+          bill_number: b.bill_number,
+          classification: classByBill.get(row.bill_id) ?? "cosponsor",
+        });
+      }
+    }
+  } catch {
+    // News bill_id column missing (pre-0149) or other transient — silent empty.
+    sponsoredBillNews = [];
+  }
+
   // ── Donor signals (federal only)
   type DonorJsonKratomRelevant = { pharma?: number; alcohol?: number; tobacco?: number; retail?: number; hospital_health?: number; total?: number };
   type IndustryRow = {
@@ -868,6 +929,53 @@ export default async function BriefingPage({ params }: { params: Params }) {
           {newsMentions.length > 10 && (
             <p className="mt-2 text-[11px] text-zinc-500">
               + {newsMentions.length - 10} older mentions not shown.
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* ── News on bills this legislator sponsors ───────────── */}
+      {sponsoredBillNews.length > 0 && (
+        <section className="mb-6 rounded-lg border border-sky-700/30 bg-sky-950/10 p-5">
+          <h2 className="mb-2 flex flex-wrap items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-sky-300">
+            📰 News on bills they sponsor
+            <span className="text-[10px] font-normal text-zinc-500">
+              ({sponsoredBillNews.length} article{sponsoredBillNews.length === 1 ? "" : "s"})
+            </span>
+          </h2>
+          <p className="text-[11px] text-zinc-400">
+            Articles indexed against bills this legislator authored or cosponsored. Implicit mentions — the legislator may not be named in the article but is on the bill.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {sponsoredBillNews.slice(0, 10).map((m) => (
+              <li key={m.news_id}>
+                <a
+                  href={m.url ?? `#`}
+                  target={m.url ? "_blank" : undefined}
+                  rel={m.url ? "noopener noreferrer" : undefined}
+                  className="block rounded-md border border-sky-700/20 bg-zinc-950/40 p-2.5 transition hover:border-sky-500"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                    <span className="font-semibold text-zinc-100">
+                      {m.news_title.slice(0, 140)}{m.news_title.length > 140 ? "…" : ""}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-2 text-[10px] text-zinc-500">
+                    {m.source_name && <span>{m.source_name}</span>}
+                    {m.published_at && (
+                      <span>· {new Date(m.published_at).toLocaleDateString()}</span>
+                    )}
+                    <span className="ml-auto rounded bg-sky-950/40 px-1.5 py-0.5 font-mono text-[10px] text-sky-300">
+                      {m.bill_number} ({m.classification})
+                    </span>
+                  </div>
+                </a>
+              </li>
+            ))}
+          </ul>
+          {sponsoredBillNews.length > 10 && (
+            <p className="mt-2 text-[11px] text-zinc-500">
+              + {sponsoredBillNews.length - 10} more not shown.
             </p>
           )}
         </section>
