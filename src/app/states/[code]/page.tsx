@@ -85,7 +85,11 @@ export default async function StatePage({ params }: Props) {
   // a few months stale and still valuable for organizing.
   const newsSince = new Date(now.getTime() - 60 * 86_400_000).toISOString();
 
-  const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw, takebackBill] = await Promise.all([
+  // Threat-tier stats — surface "your state has X active opponents,
+  // Y flippable targets" so users landing here see exactly how much
+  // work is to be done. Uses the same composite scorer as
+  // /intel/threat-matrix; data pulled in the parallel block below.
+  const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw, takebackBill, stateLegs, stateStances, stateSponsors, stateKratomCommittees] = await Promise.all([
     supabase
       .from("bills")
       .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at, scope, locality")
@@ -162,7 +166,86 @@ export default async function StatePage({ params }: Props) {
       .order("status", { ascending: true })
       .limit(1)
       .maybeSingle(),
+    // Threat-stat inputs: legislators + stances + anti/pro sponsorships
+    // + kratom-relevant committee memberships, all scoped to this state.
+    supabase
+      .from("legislators")
+      .select("id, role")
+      .eq("state", codeUpper)
+      .eq("active", true)
+      .limit(2000),
+    supabase.from("legislator_kratom_stance").select("legislator_id, stance"),
+    supabase
+      .from("bill_sponsors")
+      .select("legislator_id, classification, bills!inner(state, kratom_relevance, active)")
+      .eq("bills.state", codeUpper)
+      .eq("bills.active", true)
+      .in("bills.kratom_relevance", ["anti", "pro"]),
+    supabase
+      .from("legislator_committees")
+      .select("legislator_id, role")
+      .eq("is_kratom_relevant", true)
+      .limit(2000),
   ]);
+
+  // ── Threat-tier counts using the composite scorer
+  let threatStats = { active_opponent: 0, hostile_decision_maker: 0, flippable_target: 0, champion: 0, sympathetic_ally: 0, education_target: 0, low_priority: 0 };
+  try {
+    const { assessThreat } = await import("@/lib/legislator-threat-score");
+    const legs = ((stateLegs?.data ?? []) as Array<{ id: string; role: string }>);
+    const legIds = new Set(legs.map((l) => l.id));
+    const stanceByLeg = new Map<string, string>();
+    for (const r of (stateStances?.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
+      if (legIds.has(r.legislator_id)) stanceByLeg.set(r.legislator_id, r.stance);
+    }
+    type SpAgg = { has_anti: boolean; has_pro: boolean; anti_primary: number; primary_count: number; cosponsor_count: number };
+    const spByLeg = new Map<string, SpAgg>();
+    for (const s of (stateSponsors?.data ?? []) as Array<{ legislator_id: string; classification: string; bills: { kratom_relevance: string | null } | Array<{ kratom_relevance: string | null }> | null }>) {
+      const b = Array.isArray(s.bills) ? s.bills[0] : s.bills;
+      if (!b) continue;
+      const agg = spByLeg.get(s.legislator_id) ?? { has_anti: false, has_pro: false, anti_primary: 0, primary_count: 0, cosponsor_count: 0 };
+      if (s.classification === "primary") {
+        agg.primary_count++;
+        if (b.kratom_relevance === "anti") agg.anti_primary++;
+      } else agg.cosponsor_count++;
+      if (b.kratom_relevance === "anti") agg.has_anti = true;
+      if (b.kratom_relevance === "pro") agg.has_pro = true;
+      spByLeg.set(s.legislator_id, agg);
+    }
+    const onKratomCmtLegs = new Set<string>();
+    const chairKratomLegs = new Set<string>();
+    for (const c of (stateKratomCommittees?.data ?? []) as Array<{ legislator_id: string; role: string }>) {
+      if (!legIds.has(c.legislator_id)) continue;
+      onKratomCmtLegs.add(c.legislator_id);
+      if (c.role === "chair") chairKratomLegs.add(c.legislator_id);
+    }
+    for (const l of legs) {
+      const stance = (stanceByLeg.get(l.id) ?? "unknown") as "champion" | "sympathetic" | "neutral" | "hostile" | "unknown";
+      const sp = spByLeg.get(l.id);
+      const a = assessThreat({
+        stance,
+        has_anti_sponsorship: !!sp?.has_anti,
+        has_pro_sponsorship: !!sp?.has_pro,
+        primary_sponsorship_count: sp?.anti_primary ?? 0,
+        cosponsorship_count: sp?.cosponsor_count ?? 0,
+        is_chair_of_kratom_relevant: chairKratomLegs.has(l.id),
+        is_member_of_kratom_relevant: onKratomCmtLegs.has(l.id),
+        bills_in_their_committees: 0,
+        pharma_usd: null, alcohol_usd: null, tobacco_usd: null,
+        addiction_treatment_usd: null, cannabis_usd: null, gaming_usd: null, hospital_health_usd: null,
+        kratom_adjacent_trade_count: null,
+      });
+      threatStats[a.tier as keyof typeof threatStats] += 1;
+    }
+  } catch {
+    // threat-score lib unavailable — silent.
+  }
+  const actionableThreatCount =
+    threatStats.active_opponent +
+    threatStats.hostile_decision_maker +
+    threatStats.flippable_target +
+    threatStats.champion +
+    threatStats.sympathetic_ally;
 
   // Real-event-date filter for alerts — match the freshness logic
   // from PRs #199 + #203 so this page doesn't surface 100-day-old
@@ -309,6 +392,60 @@ export default async function StatePage({ params }: Props) {
           municipal meetings, recent alerts, and the campaigns where you can
           take one-click action.
         </p>
+
+        {/* Threat-tier snapshot — surfaces the composite-scorer counts
+            for this state so users see exactly how much work is to be
+            done. Each chip links into the threat matrix filtered to
+            that tier in this state. */}
+        {actionableThreatCount > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+            {threatStats.active_opponent > 0 && (
+              <Link
+                href={`/intel/threat-matrix?state=${codeUpper}&tier=active_opponent`}
+                className="rounded border border-red-500 bg-red-950/30 px-2 py-1 font-semibold text-red-200 hover:bg-red-950/50"
+                title="Hostile stance + restrictive sponsorship. Organize counter-pressure."
+              >
+                🚨 {threatStats.active_opponent} active opponent{threatStats.active_opponent === 1 ? "" : "s"}
+              </Link>
+            )}
+            {threatStats.hostile_decision_maker > 0 && (
+              <Link
+                href={`/intel/threat-matrix?state=${codeUpper}&tier=hostile_decision_maker`}
+                className="rounded border border-red-700/60 bg-red-950/20 px-2 py-1 font-semibold text-red-200 hover:bg-red-950/40"
+                title="Hostile + committee/bill power. Block procedurally."
+              >
+                ⚠ {threatStats.hostile_decision_maker} hostile decision-maker{threatStats.hostile_decision_maker === 1 ? "" : "s"}
+              </Link>
+            )}
+            {threatStats.flippable_target > 0 && (
+              <Link
+                href={`/intel/threat-matrix?state=${codeUpper}&tier=flippable_target`}
+                className="rounded border border-amber-500 bg-amber-950/30 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/50"
+                title="Unknown/neutral + on kratom-deciding committee + low conflicts. Highest conversion ROI."
+              >
+                🎯 {threatStats.flippable_target} flippable target{threatStats.flippable_target === 1 ? "" : "s"}
+              </Link>
+            )}
+            {threatStats.champion > 0 && (
+              <Link
+                href={`/intel/threat-matrix?state=${codeUpper}&tier=champion`}
+                className="rounded border border-emerald-500 bg-emerald-950/30 px-2 py-1 font-semibold text-emerald-200 hover:bg-emerald-950/50"
+                title="Pro-kratom champions. Reinforce."
+              >
+                ⭐ {threatStats.champion} champion{threatStats.champion === 1 ? "" : "s"}
+              </Link>
+            )}
+            {threatStats.sympathetic_ally > 0 && (
+              <Link
+                href={`/intel/threat-matrix?state=${codeUpper}&tier=sympathetic_ally`}
+                className="rounded border border-emerald-700/60 bg-emerald-950/20 px-2 py-1 text-emerald-300 hover:bg-emerald-950/40"
+                title="Sympathetic posture. Upgrade to primary sponsor."
+              >
+                🤝 {threatStats.sympathetic_ally} sympathetic
+              </Link>
+            )}
+          </div>
+        )}
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           {totalSignals === 0 && (
             <span className="rounded border border-amber-700/40 bg-amber-950/15 px-3 py-1 text-amber-300">
@@ -329,6 +466,13 @@ export default async function StatePage({ params }: Props) {
             data-event="open_state_briefing"
           >
             ◉ Intel briefing
+          </Link>
+          <Link
+            href={`/intel/threat-matrix?state=${codeUpper}`}
+            className="rounded border border-amber-500 bg-amber-950/20 px-3 py-1 font-semibold text-amber-300 hover:bg-amber-950/40"
+            data-event="open_state_threat_matrix"
+          >
+            🎯 Threat matrix
           </Link>
           <Link
             href={`/calendar?state=${codeUpper}`}
