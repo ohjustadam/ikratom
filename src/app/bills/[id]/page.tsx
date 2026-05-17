@@ -449,6 +449,174 @@ export default async function BillDetailPage({
     }
   }
 
+  // ── Committee leverage — when the bill sits in a specific committee,
+  // surface every member of that committee with their threat-matrix tier
+  // so advocates know exactly who can block/advance the bill.
+  // Closes the loop between "active anti bill exists" and "here are the
+  // 12 people deciding it; 3 are flippable, 2 are active opponents."
+  type CommitteeMember = {
+    legislator_id: string;
+    full_name: string;
+    state: string;
+    role: string;
+    district: string | null;
+    party: string | null;
+    committee_role: string; // chair / vice_chair / member
+    tier: string;
+    tier_label: string;
+    tier_emoji: string;
+    tier_color: string;
+    threat_score: number;
+    vulnerability_score: number;
+    has_anti_sponsorship: boolean;
+    has_pro_sponsorship: boolean;
+    rationale: string;
+  };
+  let committeeMembers: CommitteeMember[] = [];
+  if (currentCommitteeName && bill.state) {
+    try {
+      const { assessThreat } = await import("@/lib/legislator-threat-score");
+      const { committeesMatch } = await import("@/lib/bill-committee");
+      // Find legislators on a committee that matches the bill's
+      // current committee (substring/fuzzy match against
+      // legislator_committees.committee_name).
+      const { data: stateCommittees } = await supabase
+        .from("legislator_committees")
+        .select("legislator_id, committee_name, role, is_kratom_relevant, legislators!inner(id, full_name, state, role, district, party, active)")
+        .eq("legislators.state", bill.state)
+        .eq("legislators.active", true)
+        .limit(2000);
+      type CmtRow = {
+        legislator_id: string;
+        committee_name: string;
+        role: string;
+        is_kratom_relevant: boolean | null;
+        legislators: {
+          id: string; full_name: string; state: string; role: string;
+          district: string | null; party: string | null; active: boolean;
+        } | Array<{ id: string; full_name: string; state: string; role: string; district: string | null; party: string | null; active: boolean }> | null;
+      };
+      const matched = ((stateCommittees ?? []) as CmtRow[]).filter((c) =>
+        committeesMatch(currentCommitteeName!, c.committee_name),
+      );
+      if (matched.length > 0) {
+        // Bulk-pull intel signals for the matched legislators
+        const memberIds = matched.map((c) => c.legislator_id);
+        const [stancesRes, sponsorsRes, donorsRes, tradesRes] = await Promise.all([
+          supabase.from("legislator_kratom_stance").select("legislator_id, stance").in("legislator_id", memberIds),
+          supabase.from("bill_sponsors")
+            .select("legislator_id, classification, bills!inner(kratom_relevance, active)")
+            .in("legislator_id", memberIds)
+            .eq("bills.active", true),
+          supabase.from("legislator_donors")
+            .select("legislator_id, top_industries")
+            .in("legislator_id", memberIds)
+            .eq("resolved_status", "matched"),
+          supabase.from("federal_personal_trades")
+            .select("legislator_id")
+            .in("legislator_id", memberIds)
+            .eq("is_kratom_adjacent", true),
+        ]);
+        const stanceByLeg = new Map<string, string>();
+        for (const r of (stancesRes.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
+          stanceByLeg.set(r.legislator_id, r.stance);
+        }
+        type SpAgg = {
+          primary_count: number; cosponsor_count: number;
+          has_anti: boolean; has_pro: boolean; anti_primary: number; pro_primary: number;
+        };
+        const spByLeg = new Map<string, SpAgg>();
+        for (const s of (sponsorsRes.data ?? []) as Array<{ legislator_id: string; classification: string; bills: { kratom_relevance: string | null } | Array<{ kratom_relevance: string | null }> | null }>) {
+          const b = Array.isArray(s.bills) ? s.bills[0] : s.bills;
+          if (!b) continue;
+          const agg = spByLeg.get(s.legislator_id) ?? { primary_count: 0, cosponsor_count: 0, has_anti: false, has_pro: false, anti_primary: 0, pro_primary: 0 };
+          if (s.classification === "primary") {
+            agg.primary_count++;
+            if (b.kratom_relevance === "anti") agg.anti_primary++;
+            if (b.kratom_relevance === "pro") agg.pro_primary++;
+          } else { agg.cosponsor_count++; }
+          if (b.kratom_relevance === "anti") agg.has_anti = true;
+          if (b.kratom_relevance === "pro") agg.has_pro = true;
+          spByLeg.set(s.legislator_id, agg);
+        }
+        const donorsByLeg = new Map<string, Array<{ industry: string; amount: number; advocate_flag?: boolean }>>();
+        for (const d of (donorsRes.data ?? []) as Array<{ legislator_id: string; top_industries: Array<{ industry: string; amount: number; advocate_flag?: boolean }> | null }>) {
+          if (d.top_industries) donorsByLeg.set(d.legislator_id, d.top_industries);
+        }
+        const tradesByLeg = new Map<string, number>();
+        for (const t of (tradesRes.data ?? []) as Array<{ legislator_id: string }>) {
+          tradesByLeg.set(t.legislator_id, (tradesByLeg.get(t.legislator_id) ?? 0) + 1);
+        }
+
+        for (const c of matched) {
+          const l = Array.isArray(c.legislators) ? c.legislators[0] : c.legislators;
+          if (!l) continue;
+          const isFederal = l.role === "us_senate" || l.role === "us_house";
+          const stance = (stanceByLeg.get(c.legislator_id) ?? "unknown") as
+            "champion" | "sympathetic" | "neutral" | "hostile" | "unknown";
+          const sp = spByLeg.get(c.legislator_id);
+          const inds = donorsByLeg.get(c.legislator_id) ?? [];
+          function indAmt(name: string) {
+            if (!isFederal) return null;
+            const row = inds.find((i) => i.industry === name);
+            return row?.amount ?? 0;
+          }
+          const assess = assessThreat({
+            stance,
+            has_anti_sponsorship: !!sp?.has_anti,
+            has_pro_sponsorship: !!sp?.has_pro,
+            primary_sponsorship_count: sp?.anti_primary ?? 0,
+            cosponsorship_count: sp?.cosponsor_count ?? 0,
+            is_chair_of_kratom_relevant: c.role === "chair" && !!c.is_kratom_relevant,
+            is_member_of_kratom_relevant: !!c.is_kratom_relevant,
+            bills_in_their_committees: 1, // this very bill
+            pharma_usd: indAmt("pharma_biotech"),
+            alcohol_usd: indAmt("alcohol"),
+            tobacco_usd: indAmt("tobacco_nicotine"),
+            addiction_treatment_usd: indAmt("addiction_treatment"),
+            cannabis_usd: indAmt("cannabis"),
+            gaming_usd: indAmt("gaming_casino"),
+            hospital_health_usd: indAmt("hospital_health"),
+            kratom_adjacent_trade_count: isFederal ? (tradesByLeg.get(c.legislator_id) ?? 0) : null,
+          });
+          committeeMembers.push({
+            legislator_id: c.legislator_id,
+            full_name: l.full_name,
+            state: l.state,
+            role: l.role,
+            district: l.district,
+            party: l.party,
+            committee_role: c.role,
+            tier: assess.tier,
+            tier_label: assess.tier_label,
+            tier_emoji: assess.tier_emoji,
+            tier_color: assess.tier_color,
+            threat_score: assess.threat_score,
+            vulnerability_score: assess.vulnerability_score,
+            has_anti_sponsorship: !!sp?.has_anti,
+            has_pro_sponsorship: !!sp?.has_pro,
+            rationale: assess.rationale,
+          });
+        }
+        // Sort: chair first, then by threat DESC for opposition, vuln DESC for flippables
+        const TIER_ORDER_LOCAL: Record<string, number> = {
+          active_opponent: 0, hostile_decision_maker: 1, flippable_target: 2,
+          champion: 3, sympathetic_ally: 4, education_target: 5, low_priority: 6,
+        };
+        committeeMembers.sort((a, b) => {
+          if (a.committee_role === "chair" && b.committee_role !== "chair") return -1;
+          if (b.committee_role === "chair" && a.committee_role !== "chair") return 1;
+          const ta = TIER_ORDER_LOCAL[a.tier] ?? 9;
+          const tb = TIER_ORDER_LOCAL[b.tier] ?? 9;
+          if (ta !== tb) return ta - tb;
+          return b.threat_score - a.threat_score;
+        });
+      }
+    } catch {
+      // bill-committee lib or threat-score lib unavailable — silent.
+    }
+  }
+
   // Staleness assessment
   const lastActionMs = bill.last_action_at ? new Date(bill.last_action_at).getTime() : null;
   const daysSinceAction = lastActionMs
@@ -1250,6 +1418,65 @@ export default async function BillDetailPage({
                   <span className="ml-auto font-mono tabular-nums text-zinc-200">
                     ${ind.amount.toLocaleString()}
                   </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Committee leverage — every member of the committee where
+            this bill currently sits, ranked by threat-matrix tier so
+            advocates know who can block / advance / be flipped.
+            Highest-leverage call list on the page. */}
+        {committeeMembers.length > 0 && (
+          <div className="mt-4 rounded-md border border-emerald-700/40 bg-emerald-950/10 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+              🎯 Committee leverage · who&apos;s deciding this bill
+            </p>
+            <p className="mt-1 text-[10px] text-zinc-500">
+              The bill is in <span className="font-mono text-zinc-300">{currentCommitteeName ?? "committee"}</span>.
+              {" "}{committeeMembers.length} member{committeeMembers.length === 1 ? "" : "s"}, ranked by threat-matrix tier.
+              Chair listed first; click any name for the full briefing.
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {committeeMembers.map((m) => (
+                <li key={m.legislator_id}>
+                  <a
+                    href={`/legislators/${m.legislator_id}/briefing`}
+                    className={`block rounded border px-2.5 py-1.5 text-[11px] transition hover:opacity-90 ${m.tier_color}`}
+                    title={m.rationale}
+                  >
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="font-semibold">{m.full_name}</span>
+                      <span className="rounded bg-zinc-900/40 px-1.5 py-0.5 font-mono text-[9px] uppercase">
+                        {m.role.replace(/_/g, " ")}
+                      </span>
+                      {m.district && (
+                        <span className="text-[10px] text-zinc-400">D{m.district}</span>
+                      )}
+                      {m.party && (
+                        <span className="text-[10px] text-zinc-400">{m.party}</span>
+                      )}
+                      {m.committee_role === "chair" && (
+                        <span className="rounded bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                          🪑 CHAIR
+                        </span>
+                      )}
+                      {m.committee_role === "vice_chair" && (
+                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] uppercase text-zinc-400">
+                          vice chair
+                        </span>
+                      )}
+                      <span className="ml-auto flex items-center gap-2">
+                        <span className="font-mono text-[10px]">
+                          {m.tier_emoji} {m.tier_label}
+                        </span>
+                        <span className="font-mono text-[9px] opacity-75">
+                          T{m.threat_score}·V{m.vulnerability_score}
+                        </span>
+                      </span>
+                    </div>
+                  </a>
                 </li>
               ))}
             </ul>
