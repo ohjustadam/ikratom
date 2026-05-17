@@ -35,6 +35,13 @@ export default async function IntelHubPage() {
     openCommentCount,
     federalAwardsAgg,
     industryPartyCasesCount,
+    // Threat-matrix headline inputs — anti-bill primary-sponsor count
+    // is our best "active opponent" proxy without running the full
+    // matrix scorer here (which is heavy). Same data the matrix uses;
+    // signal-derived hostile tier rests on this signal.
+    antiPrimarySponsorshipsRaw,
+    proPrimarySponsorshipsRaw,
+    activeAntiBillsCount,
   ] = await Promise.all([
     sb.from("lobbying_filings").select("id", { count: "exact", head: true }),
     sb.from("legislator_donors").select("legislator_id", { count: "exact", head: true }).eq("resolved_status", "matched"),
@@ -45,7 +52,46 @@ export default async function IntelHubPage() {
     sb.from("federal_rulemaking").select("id", { count: "exact", head: true }).eq("open_for_comment", true),
     sb.from("federal_awards").select("amount"),
     sb.from("court_cases").select("id", { count: "exact", head: true }).eq("parties_industry", true),
+    sb
+      .from("bill_sponsors")
+      .select("legislator_id, bills!inner(state, active, kratom_relevance)")
+      .eq("classification", "primary")
+      .eq("bills.active", true)
+      .eq("bills.kratom_relevance", "anti"),
+    sb
+      .from("bill_sponsors")
+      .select("legislator_id, bills!inner(state, active, kratom_relevance)")
+      .eq("classification", "primary")
+      .eq("bills.active", true)
+      .eq("bills.kratom_relevance", "pro"),
+    sb
+      .from("bills")
+      .select("id", { count: "exact", head: true })
+      .eq("active", true)
+      .eq("kratom_relevance", "anti"),
   ]);
+
+  // Distinct legislator counts + state breadth for the threat-matrix
+  // headline. "Active opponents" today = unique primary anti-sponsors.
+  // The full matrix on /intel/threat-matrix layers in stance + committee
+  // + donor signals for finer tiering; here we surface the most
+  // legible top-line number.
+  const antiPrimaryLegs = new Set<string>();
+  const antiPrimaryStates = new Set<string>();
+  for (const r of (antiPrimarySponsorshipsRaw.data ?? []) as Array<{
+    legislator_id: string;
+    bills: { state: string } | Array<{ state: string }> | null;
+  }>) {
+    antiPrimaryLegs.add(r.legislator_id);
+    const b = Array.isArray(r.bills) ? r.bills[0] : r.bills;
+    if (b?.state) antiPrimaryStates.add(b.state);
+  }
+  const proPrimaryLegs = new Set<string>();
+  for (const r of (proPrimarySponsorshipsRaw.data ?? []) as Array<{
+    legislator_id: string;
+  }>) {
+    proPrimaryLegs.add(r.legislator_id);
+  }
 
   // Sum federal-award dollar amounts
   const awardTotal = (federalAwardsAgg.data ?? []).reduce(
@@ -91,6 +137,17 @@ export default async function IntelHubPage() {
 
       {/* Top-line stats — the full intel surface area */}
       <section className="mb-10 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+        <StatCard
+          label="Active opponents"
+          value={antiPrimaryLegs.size.toLocaleString()}
+          sub={`primary anti-bill sponsors across ${antiPrimaryStates.size} states`}
+          tone="amber"
+        />
+        <StatCard
+          label="Active anti-kratom bills"
+          value={activeAntiBillsCount.count?.toLocaleString() ?? "0"}
+          sub={`${proPrimaryLegs.size} pro-kratom primary sponsors`}
+        />
         <StatCard
           label="LDA lobbying filings"
           value={lobbyingCount.count?.toLocaleString() ?? "0"}
