@@ -681,6 +681,38 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/backfill-bill-committees.mjs
 
+  correlate-news-bills-ai:
+    # AI semantic news↔bill correlation. The hourly regex pass catches
+    # explicit bill-number mentions; this fills in articles that cover
+    # a specific bill thematically without naming the bill number.
+    #
+    # Runs daily because Gemini grounding has a 1,500/day free-tier
+    # cap. --ai-limit 200 per run keeps headroom for other intel
+    # jobs that share the quota.
+    #
+    # Gated by migration 0150's bill_ai_correlation_attempted_at so
+    # the AI pass doesn't re-evaluate rows it has already scored.
+    # Pre-migration deploys see the column missing and the script
+    # exits gracefully via the Supabase error.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: AI-correlate unmatched news to bills
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: node scripts/correlate-news-to-bills.mjs --ai --ai-limit 200
+
   enrich-bill-journey:
     # Regenerate the 4-paragraph journey narrative + 200-300 word
     # summary_long for active anti/pro bills. Pulls every version's
