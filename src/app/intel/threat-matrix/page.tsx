@@ -96,7 +96,13 @@ export default async function ThreatMatrixPage({
     }
     return all;
   }
-  async function fetchAllCommittees(): Promise<Array<{
+  // Only kratom-relevant committees matter for the threat matrix.
+  // Server-side filter cuts the row count from ~32k → ~6k and lets us
+  // skip the per-leg substring match for bills-in-committee (which was
+  // crude anyway). The "currently deciding" signal still works because
+  // active kratom bills are virtually always assigned to kratom-relevant
+  // committees (Health / Judiciary / Public Safety / etc.).
+  async function fetchKratomCommittees(): Promise<Array<{
     legislator_id: string;
     committee_name: string;
     role: string;
@@ -109,10 +115,11 @@ export default async function ThreatMatrixPage({
       is_kratom_relevant: boolean | null;
     }> = [];
     const CHUNK = 1000;
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 10; i++) {
       const { data } = await sb
         .from("legislator_committees")
         .select("legislator_id, committee_name, role, is_kratom_relevant")
+        .eq("is_kratom_relevant", true)
         .order("legislator_id", { ascending: true })
         .range(i * CHUNK, (i + 1) * CHUNK - 1);
       const rows = data ?? [];
@@ -137,7 +144,7 @@ export default async function ThreatMatrixPage({
       .from("bill_sponsors")
       .select("legislator_id, classification, bills!inner(kratom_relevance, state, active, current_committee_name)")
       .eq("bills.active", true),
-    fetchAllCommittees(),
+    fetchKratomCommittees(),
     sb
       .from("bills")
       .select("id, state, current_committee_name, kratom_relevance")
