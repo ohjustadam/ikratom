@@ -2,7 +2,12 @@
 
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { getGmailIntegration, sendViaGmail, GmailTokenRevokedError, markGmailIntegrationRevoked } from "@/lib/email/gmail";
+import {
+  getEmailIntegration,
+  sendOnUserBehalf,
+  EmailTokenRevokedError,
+  markEmailIntegrationRevoked,
+} from "@/lib/email/user-send";
 import { renderTemplate, buildVars } from "./templates";
 import type { Legislator } from "@/lib/legislators";
 
@@ -172,9 +177,11 @@ export async function sendCampaignViaGmail(input: {
     .eq("id", user.id)
     .single();
 
-  // Gmail integration
-  const integration = await getGmailIntegration(user.id);
-  if (!integration) return { error: "Gmail not connected. Connect in /account first." };
+  // Connected email provider (Gmail or Outlook — whichever the user
+  // OAuth'd with last). Unified dispatcher dispatches to the right
+  // adapter at send time.
+  const integration = await getEmailIntegration(user.id);
+  if (!integration) return { error: "No email provider connected. Connect Gmail or Outlook in /account first." };
 
   // Daily cap check
   const dailyCount = await getDailyActionCount(supabase, user.id);
@@ -219,17 +226,16 @@ export async function sendCampaignViaGmail(input: {
   const results: { id: string; ok: boolean; error?: string }[] = [];
   const successfulIds: string[] = [];
 
-  // Send sequentially to stay polite with Gmail rate limits + readable progress
+  // Send sequentially to stay polite with provider rate limits + readable progress
   let tokenRevoked = false;
   for (const t of validTargets) {
     try {
       const vars = buildVars(profile, t, validTargets);
       const personalizedBody = renderTemplate(bodyTemplate, vars);
 
-      await sendViaGmail({
-        refreshToken: integration.refresh_token,
+      await sendOnUserBehalf({
+        integration,
         fromName: profile?.full_name ?? null,
-        fromEmail: integration.account_email,
         to: t.email,
         subject,
         body: personalizedBody,
@@ -239,20 +245,19 @@ export async function sendCampaignViaGmail(input: {
       successfulIds.push(t.id);
     } catch (e) {
       results.push({ id: t.id, ok: false, error: (e as Error).message });
-      // Self-healing: if the user has revoked our access (via Google
-      // permissions page) or the token has gone stale (6 months idle),
-      // mark the integration so the UI shows the Connect-Gmail CTA
-      // again. No point continuing the batch — every remaining send
-      // will fail the same way.
-      if (e instanceof GmailTokenRevokedError) {
+      // Self-healing: if the user has revoked our access OR the token
+      // has gone stale, mark the integration so the UI shows the
+      // Connect CTA again. No point continuing the batch — every
+      // remaining send will fail the same way.
+      if (e instanceof EmailTokenRevokedError) {
         tokenRevoked = true;
-        await markGmailIntegrationRevoked(user.id);
+        await markEmailIntegrationRevoked(user.id, e.provider);
         break;
       }
     }
   }
   if (tokenRevoked) {
-    return { error: "Your Gmail connection expired or was revoked. Reconnect in /account to send via one-click." };
+    return { error: "Your email connection expired or was revoked. Reconnect in /account to resume one-click send." };
   }
 
   // Log successful sends to campaign_actions

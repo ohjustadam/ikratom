@@ -34,10 +34,20 @@ export function ShareButtons({
   const [copied, setCopied] = useState(false);
   const [, startTransition] = useTransition();
 
-  function logClick(platform: "facebook" | "x" | "reddit" | "sms" | "threads" | "copy_link") {
+  type Platform = "facebook" | "x" | "reddit" | "sms" | "threads" | "copy_link" | "bluesky" | "linkedin" | "telegram" | "whatsapp" | "email" | "native";
+  function logClick(platform: Platform) {
+    // recordShare's underlying enum only knows the original 6; cast new
+    // platforms to "copy_link" so the click still gets counted as a
+    // share-engagement event without a schema migration today. The
+    // platform-specific breakdown can be added when the enum is expanded.
+    const trackedPlatform: "facebook" | "x" | "reddit" | "sms" | "threads" | "copy_link" =
+      platform === "facebook" || platform === "x" || platform === "reddit" ||
+      platform === "sms" || platform === "threads" || platform === "copy_link"
+        ? platform
+        : "copy_link";
     startTransition(async () => {
       await recordShare({
-        platform,
+        platform: trackedPlatform,
         campaignId: target.kind === "campaign" ? target.campaignId : undefined,
         billId: target.kind === "bill" ? target.billId : undefined,
         storyId: target.kind === "story" ? target.storyId : undefined,
@@ -50,6 +60,21 @@ export function ShareButtons({
   const redditHref = `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
   const smsHref = `sms:?body=${encodeURIComponent(`${title} — ${url}`)}`;
   const threadsHref = `https://www.threads.net/intent/post?text=${encodeURIComponent(`${title} ${url}`)}`;
+  // Q3 #2 additions — Bluesky, LinkedIn, Telegram, WhatsApp, email, native:
+  const blueskyHref = `https://bsky.app/intent/compose?text=${encodeURIComponent(`${title}\n\n${url}`)}`;
+  const linkedinHref = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`;
+  const telegramHref = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title)}`;
+  const whatsappHref = `https://wa.me/?text=${encodeURIComponent(`${title}\n${url}`)}`;
+  const emailHref = `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(`${title}\n\n${text}\n\n${url}`)}`;
+
+  // Lazy-detect Web Share API for the mobile OS share-sheet button
+  const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+  async function nativeShare() {
+    try {
+      await navigator.share({ title, text, url });
+      logClick("native");
+    } catch { /* user cancelled */ }
+  }
 
   function copyLink() {
     navigator.clipboard.writeText(`${title}\n\n${text}\n\n${url}`).then(() => {
@@ -105,6 +130,46 @@ export function ShareButtons({
         Threads
       </a>
       <a
+        href={blueskyHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={() => logClick("bluesky")}
+        className={btn("border-sky-700/50 bg-sky-950/20 text-sky-200 hover:border-sky-400")}
+        title="Share to Bluesky"
+      >
+        Bluesky
+      </a>
+      <a
+        href={linkedinHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={() => logClick("linkedin")}
+        className={btn("border-blue-800/50 bg-blue-950/20 text-blue-200 hover:border-blue-500")}
+        title="Share to LinkedIn"
+      >
+        LinkedIn
+      </a>
+      <a
+        href={telegramHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={() => logClick("telegram")}
+        className={btn("border-sky-700/50 bg-sky-950/20 text-sky-200 hover:border-sky-400")}
+        title="Share to Telegram"
+      >
+        Telegram
+      </a>
+      <a
+        href={whatsappHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={() => logClick("whatsapp")}
+        className={btn("border-emerald-700/50 bg-emerald-950/20 text-emerald-200 hover:border-emerald-400")}
+        title="Share to WhatsApp"
+      >
+        WhatsApp
+      </a>
+      <a
         href={smsHref}
         onClick={() => logClick("sms")}
         className={btn("border-emerald-900/50 bg-emerald-950/20 text-emerald-300 hover:border-emerald-500")}
@@ -112,6 +177,24 @@ export function ShareButtons({
       >
         SMS
       </a>
+      <a
+        href={emailHref}
+        onClick={() => logClick("email")}
+        className={btn("border-zinc-700 text-zinc-300 hover:border-emerald-500")}
+        title="Send via email"
+      >
+        Email
+      </a>
+      {canNativeShare && (
+        <button
+          type="button"
+          onClick={nativeShare}
+          className={btn("border-purple-700/50 bg-purple-950/20 text-purple-200 hover:border-purple-400")}
+          title="Share via system share sheet (Snapchat, TikTok, Instagram, etc.)"
+        >
+          ↗ More apps
+        </button>
+      )}
       <button
         type="button"
         onClick={copyLink}

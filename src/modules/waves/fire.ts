@@ -23,7 +23,12 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sendViaGmail, GmailTokenRevokedError, markGmailIntegrationRevoked } from "@/lib/email/gmail";
+import {
+  getEmailIntegration,
+  sendOnUserBehalf,
+  EmailTokenRevokedError,
+  markEmailIntegrationRevoked,
+} from "@/lib/email/user-send";
 import { renderTemplate, buildVars } from "@/modules/campaigns/templates";
 import type { Legislator } from "@/lib/legislators";
 
@@ -139,15 +144,11 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
           .eq("id", signup.user_id)
           .single();
 
-        const { data: integration } = await supabase
-          .from("email_integrations")
-          .select("refresh_token, account_email")
-          .eq("user_id", signup.user_id)
-          .eq("provider", "gmail")
-          .maybeSingle();
-
+        // Provider-agnostic: returns the user's connected gmail OR
+        // outlook row, whichever is set. Skips them if they revoked.
+        const integration = await getEmailIntegration(signup.user_id);
         if (!integration) {
-          await markSignup(supabase, signup.id, "failed", "gmail_disconnected");
+          await markSignup(supabase, signup.id, "failed", "email_disconnected");
           waveFailed++;
           continue;
         }
@@ -176,10 +177,9 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
             const vars = buildVars(profile ?? null, target, sendable);
             const subject = renderTemplate(campaign.subject_template, vars);
             const body = renderTemplate(campaign.body_template, vars);
-            await sendViaGmail({
-              refreshToken: integration.refresh_token,
+            await sendOnUserBehalf({
+              integration,
               fromName: profile?.full_name ?? null,
-              fromEmail: integration.account_email,
               to: target.email!,
               subject,
               body,
@@ -196,11 +196,11 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
             userSent++;
           } catch (e) {
             userFailed++;
-            // Self-healing: if Google revoked the user's token, mark
-            // the integration stale + bail out of this user's batch.
-            // Every remaining send would fail identically.
-            if (e instanceof GmailTokenRevokedError) {
-              await markGmailIntegrationRevoked(signup.user_id);
+            // Self-healing: if the user's token was revoked (either
+            // provider), mark the integration stale + bail out of this
+            // user's batch. Every remaining send would fail identically.
+            if (e instanceof EmailTokenRevokedError) {
+              await markEmailIntegrationRevoked(signup.user_id, e.provider);
               break;
             }
           }
