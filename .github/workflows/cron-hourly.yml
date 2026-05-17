@@ -227,6 +227,18 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           APP_URL: ${{ secrets.APP_URL }}
         run: node scripts/fire-custom-reminders.mjs
+      - name: Scrape protectkratom.org state alert pages
+        # AKA publishes time-sensitive state-level kratom-policy alerts
+        # (BoP rulings, city-council hearings, governor vetoes) on
+        # protectkratom.org/<state> — typically hours-to-days ahead of
+        # public news indexing. We scrape, classify severity + kind,
+        # and upsert into policy_alerts as `pending` for admin review.
+        # Idempotent via dedupe_key. Hourly so new AKA alerts surface
+        # within an hour of being posted.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/scrape-protectkratom-org.mjs
       - name: Correlate news_items to bills (regex pass)
         # Maintains news_items.bill_id linkage. Two regex stages:
         #   1. Copy bill_id from any policy_alerts the news_item is
