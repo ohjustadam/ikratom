@@ -537,6 +537,36 @@ export default async function BriefingPage({ params }: { params: Params }) {
   const plan = buildActionPlan(stance, signal);
   const stanceMeta = STANCE_META[stance];
 
+  // Threat-matrix tier assessment for the chip in the header. Same
+  // composite scorer that powers /intel/threat-matrix; surfaces here
+  // so users coming from the matrix see the rank + score in context,
+  // and so we don't make them bounce back-and-forth to remember why
+  // this person was on their list.
+  const { assessThreat } = await import("@/lib/legislator-threat-score");
+  function flaggedIndustryAmount(name: string): number | null {
+    if (!donorMatched) return null;
+    const row = (donor?.top_industries ?? []).find((i) => i.industry === name);
+    return row?.amount ?? 0;
+  }
+  const threatAssessment = assessThreat({
+    stance,
+    has_anti_sponsorship,
+    has_pro_sponsorship,
+    primary_sponsorship_count: primary.filter((p) => p.kratom_relevance === "anti").length,
+    cosponsorship_count: cosponsor.length,
+    is_chair_of_kratom_relevant: isChairOfKratomRelevant,
+    is_member_of_kratom_relevant: isMemberOfKratomRelevant,
+    bills_in_their_committees: currentlyDeciding.length,
+    pharma_usd: flaggedIndustryAmount("pharma_biotech"),
+    alcohol_usd: flaggedIndustryAmount("alcohol"),
+    tobacco_usd: flaggedIndustryAmount("tobacco_nicotine"),
+    addiction_treatment_usd: flaggedIndustryAmount("addiction_treatment"),
+    cannabis_usd: flaggedIndustryAmount("cannabis"),
+    gaming_usd: flaggedIndustryAmount("gaming_casino"),
+    hospital_health_usd: flaggedIndustryAmount("hospital_health"),
+    kratom_adjacent_trade_count: kratomAdjacentTradeCount,
+  });
+
   // Display helpers
   const displayRole = leg.role.replace(/_/g, " ");
   const tel = leg.phone?.replace(/[^\d+]/g, "");
@@ -564,9 +594,27 @@ export default async function BriefingPage({ params }: { params: Params }) {
           <span className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${stanceMeta.tone}`}>
             {stanceMeta.emoji} {stanceMeta.label}
           </span>
+          {/* Threat-matrix tier chip — surfaces /intel/threat-matrix's
+              composite ranking so users coming from the matrix see the
+              tier + scores in context. Click navigates back to that
+              tier's filtered slice. */}
+          <Link
+            href={`/intel/threat-matrix?tier=${threatAssessment.tier}`}
+            className={`ml-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider hover:opacity-80 ${threatAssessment.tier_color}`}
+            title={threatAssessment.rationale}
+          >
+            {threatAssessment.tier_emoji} {threatAssessment.tier_label}
+            <span className="ml-1 font-mono text-[9px] opacity-75">
+              T{threatAssessment.threat_score}·V{threatAssessment.vulnerability_score}
+            </span>
+          </Link>
         </div>
         <p className="mt-3 text-sm text-zinc-400">
           One-page memo on this person&apos;s kratom posture, the leverage windows that exist right now, and what to do about them.
+        </p>
+        <p className="mt-2 text-[11px] text-zinc-500">
+          <span className="font-semibold text-zinc-300">Targeting tier:</span>{" "}
+          {threatAssessment.rationale}
         </p>
         {/* Custom reminder — set a follow-up about THIS legislator.
             Use case: "remind me to follow up Sen. Smith next Tuesday
