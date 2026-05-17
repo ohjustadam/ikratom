@@ -34,6 +34,8 @@ const PRIMARY_LINKS = [
   { href: "/submit", label: "Submit", icon: "➕" },
   { href: "/legislators", label: "Legislators", icon: "🏛️" },
   { href: "/people", label: "People", icon: "🧠" },
+  { href: "/intel", label: "Intel hub", icon: "◉" },
+  { href: "/intel/donations", label: "Donor leaderboard", icon: "🧮" },
   { href: "/states", label: "By state", icon: "📍" },
   { href: "/forum", label: "Community", icon: "💬" },
   { href: "/news", label: "News", icon: "📰" },
