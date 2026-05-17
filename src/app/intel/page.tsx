@@ -223,6 +223,13 @@ export default async function IntelHubPage() {
           highlight
         />
         <Card
+          href="/intel/operations"
+          emoji="🕸"
+          title="Coordinated operations — model legislation, named + traced"
+          body="Kratom-policy adversaries don't operate state-by-state independently. They use model legislation — the same operative language pushed in multiple states simultaneously by lobbyist networks. This surface names every detected operation (KCPA framework, ICE Out sweep, Synthetic-only ban, Schedule I total ban, Age-21, Lab-testing, Retail-license), lists every bill in each cluster, and exposes the recurring signature phrases."
+          highlight
+        />
+        <Card
           href="/intel/donations"
           emoji="🧮"
           title="Donor intel — conflict-of-interest leaderboard"
