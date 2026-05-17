@@ -102,12 +102,47 @@ function donorConflictMagnitude(inp: ThreatInputs): number {
  *
  * Tier picks one bucket based on combined signals; advocates know
  * exactly what to do at each tier without reading a long memo.
+ *
+ * Signal-derived stance: when explicit stance is "unknown" but the
+ * legislator has primary sponsorship of an ANTI bill (or primary of
+ * a PRO bill), we infer effective hostility (or championship) so the
+ * tier classification reflects actions, not just drafted stances.
+ * Marked in the rationale as "(signal-derived)".
  */
+
+/**
+ * Derive an effective stance from explicit stance + structural signals.
+ * The AI stance drafter only covers ~14% of legislators today; sponsorship
+ * data is structural and self-revealing — if a legislator primary-sponsors
+ * an active anti-kratom bill, they ARE hostile regardless of whether AI
+ * has gotten around to drafting them.
+ */
+export function effectiveStance(inp: ThreatInputs): { stance: Stance; derived: boolean } {
+  if (inp.stance !== "unknown") return { stance: inp.stance, derived: false };
+  // Primary sponsor of an active anti bill = effective hostile
+  if (inp.primary_sponsorship_count > 0 && inp.has_anti_sponsorship) {
+    return { stance: "hostile", derived: true };
+  }
+  // Primary sponsor of an active pro bill = effective champion
+  if (inp.has_pro_sponsorship && inp.primary_sponsorship_count > 0) {
+    return { stance: "champion", derived: true };
+  }
+  // Cosponsor of an anti bill = effectively neutral (light hostile lean)
+  if (inp.has_anti_sponsorship) return { stance: "neutral", derived: true };
+  // Cosponsor of a pro bill = effectively sympathetic
+  if (inp.has_pro_sponsorship) return { stance: "sympathetic", derived: true };
+  return { stance: "unknown", derived: false };
+}
+
 export function assessThreat(inp: ThreatInputs): ThreatAssessment {
+  const { stance: derivedStance, derived: stanceDerived } = effectiveStance(inp);
+  // Operate on the derived stance for tier branching + the threat
+  // calculation. Explicit stance still wins when set.
+  const stance = derivedStance;
   // ── Threat
   let threat = 0;
-  if (inp.stance === "hostile") threat += 25;
-  else if (inp.stance === "neutral") threat += 5;
+  if (stance === "hostile") threat += 25;
+  else if (stance === "neutral") threat += 5;
   if (inp.has_anti_sponsorship) threat += 20;
   if (inp.primary_sponsorship_count > 0 && inp.has_anti_sponsorship) {
     threat += Math.min(inp.primary_sponsorship_count * 5, 15);
@@ -123,16 +158,16 @@ export function assessThreat(inp: ThreatInputs): ThreatAssessment {
   }
   // Champions/sympathetic legislators get a strong negative — they
   // can't be a threat ranked on the same scale as opponents.
-  if (inp.stance === "champion") threat = Math.max(0, threat - 50);
-  if (inp.stance === "sympathetic") threat = Math.max(0, threat - 30);
+  if (stance === "champion") threat = Math.max(0, threat - 50);
+  if (stance === "sympathetic") threat = Math.max(0, threat - 30);
   if (inp.has_pro_sponsorship) threat = Math.max(0, threat - 20);
   threat = Math.max(0, Math.min(100, Math.round(threat)));
 
   // ── Vulnerability (flippability — for non-hostile)
   let vuln = 0;
-  if (inp.stance === "unknown") vuln += 25;
-  else if (inp.stance === "neutral") vuln += 30;
-  else if (inp.stance === "sympathetic") vuln += 15;
+  if (stance === "unknown") vuln += 25;
+  else if (stance === "neutral") vuln += 30;
+  else if (stance === "sympathetic") vuln += 15;
   // Vulnerable when on a committee where they can act on what we teach them
   if (inp.is_member_of_kratom_relevant) vuln += 20;
   if (inp.is_chair_of_kratom_relevant) vuln += 15; // chair = max leverage
@@ -145,7 +180,7 @@ export function assessThreat(inp: ThreatInputs): ThreatAssessment {
   else if (conflict < 15) vuln += 10;
   // Active opponents (anti-sponsorship) aren't flippable
   if (inp.has_anti_sponsorship) vuln = Math.max(0, vuln - 35);
-  if (inp.stance === "hostile") vuln = Math.max(0, vuln - 25);
+  if (stance === "hostile") vuln = Math.max(0, vuln - 25);
   vuln = Math.max(0, Math.min(100, Math.round(vuln)));
 
   // ── Tier (priority bucket)
@@ -158,27 +193,29 @@ export function assessThreat(inp: ThreatInputs): ThreatAssessment {
   const hasCommitteePower = inp.is_chair_of_kratom_relevant || inp.is_member_of_kratom_relevant;
   const decidingNow = inp.bills_in_their_committees > 0;
 
-  if (inp.stance === "hostile" && inp.has_anti_sponsorship) {
+  const stanceTag = stanceDerived ? " (signal-derived)" : "";
+
+  if (stance === "hostile" && inp.has_anti_sponsorship) {
     tier = "active_opponent";
     label = "Active opponent";
     emoji = "🚨";
     color = "border-red-500 bg-red-950/30 text-red-200";
-    rationale = `Hostile stance + primary sponsor of ${inp.primary_sponsorship_count} restrictive bill${inp.primary_sponsorship_count === 1 ? "" : "s"}. Organize counter-pressure; flipping unlikely.`;
-  } else if (inp.stance === "hostile" && (hasCommitteePower || decidingNow)) {
+    rationale = `Hostile${stanceTag} + primary sponsor of ${inp.primary_sponsorship_count} restrictive bill${inp.primary_sponsorship_count === 1 ? "" : "s"}. Organize counter-pressure; flipping unlikely.`;
+  } else if (stance === "hostile" && (hasCommitteePower || decidingNow)) {
     tier = "hostile_decision_maker";
     label = "Hostile decision-maker";
     emoji = "⚠";
     color = "border-red-700/50 bg-red-950/15 text-red-200";
-    rationale = `Hostile stance + ${inp.is_chair_of_kratom_relevant ? "chairs a kratom-deciding committee" : "sits on kratom-deciding committee"}. Block their bills; pressure on procedural process.`;
-  } else if (inp.stance === "champion") {
+    rationale = `Hostile${stanceTag} + ${inp.is_chair_of_kratom_relevant ? "chairs a kratom-deciding committee" : "sits on kratom-deciding committee"}. Block their bills; pressure on procedural process.`;
+  } else if (stance === "champion") {
     tier = "champion";
     label = "Champion";
     emoji = "⭐";
     color = "border-emerald-500/50 bg-emerald-950/20 text-emerald-200";
     rationale = inp.has_pro_sponsorship
-      ? `Primary sponsor of pro-kratom legislation. Reinforce + fuel their case with stories.`
-      : `Public champion. Don't ask for a position — they already took one. Equip them.`;
-  } else if (inp.stance === "sympathetic") {
+      ? `Champion${stanceTag} — primary sponsor of pro-kratom legislation. Reinforce + fuel their case with stories.`
+      : `Champion${stanceTag} — public posture. Don't ask for a position; equip them.`;
+  } else if (stance === "sympathetic") {
     tier = "sympathetic_ally";
     label = "Sympathetic ally";
     emoji = "🤝";
@@ -187,7 +224,7 @@ export function assessThreat(inp: ThreatInputs): ThreatAssessment {
       ? `Cosponsor of pro-kratom legislation. Push for primary-sponsor upgrade on next bill.`
       : `Sympathetic public posture. Push for public commitment + cosponsorship.`;
   } else if (
-    (inp.stance === "unknown" || inp.stance === "neutral")
+    (stance === "unknown" || stance === "neutral")
     && (hasCommitteePower || decidingNow)
     && conflict < 15
   ) {
@@ -195,13 +232,13 @@ export function assessThreat(inp: ThreatInputs): ThreatAssessment {
     label = "Flippable target";
     emoji = "🎯";
     color = "border-amber-500/60 bg-amber-950/20 text-amber-200";
-    rationale = `${inp.stance === "neutral" ? "Neutral" : "Unknown"} stance + on kratom-deciding committee + low donor conflicts. Education window is open; conversion is realistic.`;
-  } else if (inp.stance === "neutral" || (inp.stance === "unknown" && conflict < 5)) {
+    rationale = `${stance === "neutral" ? "Neutral" : "Unknown"} stance + on kratom-deciding committee + low donor conflicts. Education window is open; conversion is realistic.`;
+  } else if (stance === "neutral" || (stance === "unknown" && conflict < 5)) {
     tier = "education_target";
     label = "Education target";
     emoji = "📚";
     color = "border-sky-700/40 bg-sky-950/10 text-sky-300";
-    rationale = `${inp.stance === "neutral" ? "Neutral" : "Unknown stance"} legislator without committee leverage or significant donor conflicts. Build relationship for future leverage.`;
+    rationale = `${stance === "neutral" ? "Neutral" : "Unknown stance"} legislator without committee leverage or significant donor conflicts. Build relationship for future leverage.`;
   } else {
     tier = "low_priority";
     label = "Low priority";
