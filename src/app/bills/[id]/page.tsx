@@ -461,6 +461,8 @@ export default async function BillDetailPage({
     role: string;
     district: string | null;
     party: string | null;
+    phone: string | null;
+    email: string | null;
     committee_role: string; // chair / vice_chair / member
     tier: string;
     tier_label: string;
@@ -482,7 +484,7 @@ export default async function BillDetailPage({
       // legislator_committees.committee_name).
       const { data: stateCommittees } = await supabase
         .from("legislator_committees")
-        .select("legislator_id, committee_name, role, is_kratom_relevant, legislators!inner(id, full_name, state, role, district, party, active)")
+        .select("legislator_id, committee_name, role, is_kratom_relevant, legislators!inner(id, full_name, state, role, district, party, phone, email, active)")
         .eq("legislators.state", bill.state)
         .eq("legislators.active", true)
         .limit(2000);
@@ -493,8 +495,9 @@ export default async function BillDetailPage({
         is_kratom_relevant: boolean | null;
         legislators: {
           id: string; full_name: string; state: string; role: string;
-          district: string | null; party: string | null; active: boolean;
-        } | Array<{ id: string; full_name: string; state: string; role: string; district: string | null; party: string | null; active: boolean }> | null;
+          district: string | null; party: string | null;
+          phone: string | null; email: string | null; active: boolean;
+        } | Array<{ id: string; full_name: string; state: string; role: string; district: string | null; party: string | null; phone: string | null; email: string | null; active: boolean }> | null;
       };
       const matched = ((stateCommittees ?? []) as CmtRow[]).filter((c) =>
         committeesMatch(currentCommitteeName!, c.committee_name),
@@ -586,6 +589,8 @@ export default async function BillDetailPage({
             role: l.role,
             district: l.district,
             party: l.party,
+            phone: l.phone,
+            email: l.email,
             committee_role: c.role,
             tier: assess.tier,
             tier_label: assess.tier_label,
@@ -1436,18 +1441,36 @@ export default async function BillDetailPage({
             <p className="mt-1 text-[10px] text-zinc-500">
               The bill is in <span className="font-mono text-zinc-300">{currentCommitteeName ?? "committee"}</span>.
               {" "}{committeeMembers.length} member{committeeMembers.length === 1 ? "" : "s"}, ranked by threat-matrix tier.
-              Chair listed first; click any name for the full briefing.
+              <span className="ml-1 text-emerald-300">
+                {(() => {
+                  const callable = committeeMembers.filter(
+                    (m) => m.tier === "flippable_target" || m.tier === "hostile_decision_maker" || m.committee_role === "chair",
+                  );
+                  return callable.length > 0
+                    ? `${callable.length} priority call target${callable.length === 1 ? "" : "s"} below.`
+                    : "";
+                })()}
+              </span>
             </p>
             <ul className="mt-2 space-y-1.5">
-              {committeeMembers.map((m) => (
+              {committeeMembers.map((m) => {
+                const isPriority =
+                  m.tier === "flippable_target" ||
+                  m.tier === "hostile_decision_maker" ||
+                  m.committee_role === "chair";
+                return (
                 <li key={m.legislator_id}>
-                  <a
-                    href={`/legislators/${m.legislator_id}/briefing`}
-                    className={`block rounded border px-2.5 py-1.5 text-[11px] transition hover:opacity-90 ${m.tier_color}`}
+                  <div
+                    className={`block rounded border px-2.5 py-1.5 text-[11px] ${m.tier_color}`}
                     title={m.rationale}
                   >
                     <div className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="font-semibold">{m.full_name}</span>
+                      <a
+                        href={`/legislators/${m.legislator_id}/briefing`}
+                        className="font-semibold hover:underline"
+                      >
+                        {m.full_name}
+                      </a>
                       <span className="rounded bg-zinc-900/40 px-1.5 py-0.5 font-mono text-[9px] uppercase">
                         {m.role.replace(/_/g, " ")}
                       </span>
@@ -1476,9 +1499,35 @@ export default async function BillDetailPage({
                         </span>
                       </span>
                     </div>
-                  </a>
+                    {/* Contact row — only when we have a phone/email AND
+                        this member is one of the priority targets. Keeps
+                        the panel scannable; the briefing covers full
+                        contact details for any row the user clicks through. */}
+                    {isPriority && (m.phone || m.email) && (
+                      <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-zinc-900/40 pt-1 text-[10px]">
+                        {m.phone && (
+                          <a
+                            href={`tel:${m.phone.replace(/[^\d+]/g, "")}`}
+                            className="rounded bg-emerald-950/40 px-2 py-0.5 font-mono text-emerald-200 hover:bg-emerald-900/40"
+                          >
+                            📞 {m.phone}
+                          </a>
+                        )}
+                        {m.email && (
+                          <a
+                            href={`mailto:${m.email}?subject=${encodeURIComponent(`Re: ${bill.bill_number} — constituent concern`)}`}
+                            className="rounded bg-emerald-950/40 px-2 py-0.5 font-mono text-emerald-200 hover:bg-emerald-900/40"
+                          >
+                            ✉ email
+                          </a>
+                        )}
+                        <span className="text-zinc-500">— {m.tier === "flippable_target" ? "highest conversion ROI" : m.committee_role === "chair" ? "controls the calendar" : "blocking leverage"}</span>
+                      </div>
+                    )}
+                  </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
         )}
