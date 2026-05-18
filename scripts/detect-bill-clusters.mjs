@@ -168,6 +168,26 @@ const CLUSTER_PATTERNS = [
     ],
   },
   {
+    slug: "municipal_prohibition",
+    name: "Municipal-level prohibition cluster",
+    posture: "restrictive",
+    summary_md:
+      "City + county ordinances banning kratom sales / possession within municipal limits. Distinct from state action — these often pass with minimal public debate via council vote, then propagate to neighboring municipalities. Particularly active in Mississippi (multiple counties + cities) and select Southern jurisdictions. The pattern is concerning because it builds a patchwork that pressures state legislatures toward statewide bans.",
+    suspected_origin:
+      "Local law-enforcement + faith-community coalitions; in MS specifically, organized via county sheriff associations.",
+    include_re:
+      /\bmunicipal\b.*\bprohibition\b|\bcity\b.*\bban\b.*\bkratom\b|\bkratom\b.*\bcity\b.*\bban\b|\bcounty\b.*\bprohibition\b|\bcounty\s*council\s*vote\b|\bcity\s*ordinance\b.*\bkratom\b|\bkratom\b.*\bcity\s*ordinance\b/i,
+    exclude_re: null,
+    signature_phrases: [
+      "municipal kratom prohibition",
+      "county-level kratom prohibition",
+      "city ordinance",
+      "city council",
+      "borough",
+      "county council",
+    ],
+  },
+  {
     slug: "retail_license",
     name: "Retail license / registration regime",
     posture: "regulatory",
