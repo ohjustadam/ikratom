@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { OperationResponseClient } from "./OperationResponseClient";
+import { matchStoriesForCluster, type MatchedStory } from "@/modules/stories/match";
 
 export const dynamic = "force-dynamic";
 
@@ -282,6 +283,13 @@ export default async function OperationResponsePage({
   const visibleBillIds = new Set(visibleRows.map((r) => r.bill.id));
   const visibleChairs = chairTargets.filter((ct) => visibleBillIds.has(ct.bill.id));
 
+  // Match resonant stories from the story bank for this operation.
+  // Defensive — empty if no stories yet or matcher errors.
+  let matchedStories: MatchedStory[] = [];
+  try {
+    matchedStories = await matchStoriesForCluster(c.slug, myState, 3);
+  } catch { /* defensive */ }
+
   // Compose a chair-specific mailto template — chairs face a different
   // ask than sponsors. For restrictive ops: ask the chair to NOT
   // schedule the bill (or to schedule + vote it down). For protective
@@ -327,6 +335,54 @@ export default async function OperationResponsePage({
           )}
         </p>
       </header>
+
+      {/* Resonant stories — auto-matched from kratom_stories by
+          tag + state. Advocates can copy these into their emails.
+          Real stories move legislators in a way talking points
+          never will. */}
+      {matchedStories.length > 0 && (
+        <section className="mb-6 rounded-lg border border-violet-700/40 bg-violet-950/15 p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-violet-300">
+            📖 Resonant stories · paste into your message
+          </p>
+          <p className="mt-1 text-[11px] text-zinc-300">
+            Real stories from kratom advocates matched to this operation. Paste any of them into your
+            email — legislators read constituent stories far more carefully than talking points.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {matchedStories.map((s) => (
+              <li key={s.id} className="rounded-md border border-violet-700/30 bg-violet-950/10 p-3 text-[11px]">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  {s.title && <span className="font-semibold text-violet-100">{s.title}</span>}
+                  <span className="text-[10px] text-zinc-500">
+                    — {s.display_name ?? "Anonymous"}
+                    {s.state && `, ${s.state}`}
+                  </span>
+                  {s.is_local && (
+                    <span className="rounded bg-violet-500 px-1 py-0.5 text-[9px] font-bold uppercase text-zinc-950">
+                      Local
+                    </span>
+                  )}
+                  {s.tags.length > 0 && (
+                    <span className="ml-auto text-[9px] text-zinc-500">
+                      {s.tags.slice(0, 4).join(" · ")}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-[11px] leading-relaxed text-zinc-300">
+                  {s.body.length > 600 ? `${s.body.slice(0, 600)}…` : s.body}
+                </p>
+                <p className="mt-2 text-[10px] text-zinc-500">
+                  <Link href={`/stories/${s.id}`} className="hover:text-violet-300">Open full story →</Link>
+                </p>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[10px] text-zinc-500">
+            Want to share your own? <Link href="/stories/new" className="text-violet-300 hover:underline">Submit a story</Link> — approved stories become available to other advocates writing about similar bills.
+          </p>
+        </section>
+      )}
 
       {/* Target the chairs — committee chairs holding cluster bills.
           Higher leverage than rank-and-file sponsors because chairs
