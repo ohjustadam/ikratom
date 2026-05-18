@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getAdminContext } from "@/modules/admin/actions";
 
 export const metadata = {
   title: "Intel hub — kratom policy",
@@ -22,6 +23,13 @@ export const dynamic = "force-dynamic";
  */
 export default async function IntelHubPage() {
   const sb = await createClient();
+
+  // "Honest gaps" section is admin-only — exposing capability gaps
+  // publicly tells adversaries exactly where we're weakest. The list
+  // is internally valuable (roadmap visibility) but strategically
+  // costly when public.
+  const adminCtx = await getAdminContext();
+  const isAdminOrOwner = adminCtx.ok && (adminCtx.isAdmin || adminCtx.isOwner);
 
   // Quick aggregates for the hub. All counts; no row data so each
   // query is cheap.
@@ -261,19 +269,34 @@ export default async function IntelHubPage() {
         />
       </section>
 
-      <section className="mt-10 rounded-lg border border-zinc-800 bg-zinc-950/40 p-6">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Honest gaps</h2>
-        <p className="mt-2 text-sm text-zinc-300">
-          What we don&apos;t yet have:
-        </p>
-        <ul className="mt-2 space-y-1 text-xs text-zinc-400">
-          <li>· <strong className="text-zinc-300">Roll-call voting records</strong> — table + sync code shipped (LegiScan + OpenStates fallback). LegiScan path needs an API key in CI secrets to fully populate; OpenStates path is chipping at ~50 bills/day.</li>
-          <li>· <strong className="text-zinc-300">State-level lobbying disclosures</strong> — UT pilot live (16 active AKA / Botanic Tonics registrations captured). FL / NJ / CA / TX queued — each state needs its own adapter due to different bot-detection.</li>
-          <li>· <strong className="text-zinc-300">501(c)(4) donor identity</strong> — AKA and GKC don&apos;t have to disclose who funds them. Form 990s show topline but not donor list. The structural &quot;dark money&quot; gap; only investigative journalism breaks it.</li>
-          <li>· <strong className="text-zinc-300">Personal financial disclosures (STOCK Act)</strong> — federal legislators&apos; personal stock trades. Public but PDF-only and require parsing. On the roadmap as D3.</li>
-          <li>· <strong className="text-zinc-300">Per-legislator press releases</strong> — current news scrape is kratom-policy-focused not legislator-focused. A per-legislator press-release scraper would lift the news_mentions signal density meaningfully.</li>
-        </ul>
-      </section>
+      {/* "Honest gaps" — admin-only. Public visitors see no roadmap
+          telegraphing where we're weakest. Adversaries don't need our
+          help finding the seams. */}
+      {isAdminOrOwner && (
+        <section className="mt-10 rounded-lg border border-amber-700/40 bg-amber-950/15 p-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+              Honest gaps · admin only
+            </h2>
+            <span className="rounded-full bg-amber-900/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-200">
+              🔒 internal
+            </span>
+          </div>
+          <p className="mt-2 text-[11px] text-amber-200/70">
+            Hidden from public visitors. Telegraphing capability gaps to adversaries is strategically costly; this section is for owner/admin roadmap visibility only.
+          </p>
+          <p className="mt-2 text-sm text-zinc-300">
+            What we don&apos;t yet have:
+          </p>
+          <ul className="mt-2 space-y-1 text-xs text-zinc-400">
+            <li>· <strong className="text-zinc-300">Roll-call voting records</strong> — table + sync code shipped (LegiScan + OpenStates fallback). LegiScan path needs an API key in CI secrets to fully populate; OpenStates path is chipping at ~50 bills/day.</li>
+            <li>· <strong className="text-zinc-300">State-level lobbying disclosures</strong> — UT pilot live (16 active AKA / Botanic Tonics registrations captured). FL / NJ / CA / TX queued — each state needs its own adapter due to different bot-detection.</li>
+            <li>· <strong className="text-zinc-300">501(c)(4) donor identity</strong> — AKA and GKC don&apos;t have to disclose who funds them. Form 990s show topline but not donor list. The structural &quot;dark money&quot; gap; only investigative journalism breaks it.</li>
+            <li>· <strong className="text-zinc-300">Personal financial disclosures (STOCK Act)</strong> — federal legislators&apos; personal stock trades. Public but PDF-only and require parsing. On the roadmap as D3.</li>
+            <li>· <strong className="text-zinc-300">Per-legislator press releases</strong> — current news scrape is kratom-policy-focused not legislator-focused. A per-legislator press-release scraper would lift the news_mentions signal density meaningfully.</li>
+          </ul>
+        </section>
+      )}
 
       <footer className="mt-8 text-[10px] text-zinc-500">
         Data sources: Senate LDA (<a href="https://lda.senate.gov/" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">lda.senate.gov</a>),

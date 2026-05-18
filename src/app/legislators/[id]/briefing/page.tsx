@@ -12,6 +12,7 @@ import {
 } from "@/lib/legislator-action-plan";
 import { actorsForLegislator, FACTION_META, ROLE_LABEL } from "@/lib/kratom-industry-actors";
 import { RemindMeButton } from "@/components/RemindMeButton";
+import { getAdminContext } from "@/modules/admin/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -535,6 +536,13 @@ export default async function BriefingPage({ params }: { params: Params }) {
     is_user_rep: isUserRep,
   };
   const plan = buildActionPlan(stance, signal);
+
+  // Admin-only gate for the "Intel gaps" section. Public visitors
+  // shouldn't see our roadmap of missing data — that telegraphs to
+  // adversaries exactly where the platform is weakest. Internal
+  // value preserved for owner/admin viewing.
+  const adminCtx = await getAdminContext();
+  const isAdminOrOwner = adminCtx.ok && (adminCtx.isAdmin || adminCtx.isOwner);
   const stanceMeta = STANCE_META[stance];
 
   // Threat-matrix tier assessment for the chip in the header. Same
@@ -1321,35 +1329,47 @@ export default async function BriefingPage({ params }: { params: Params }) {
         </section>
       )}
 
-      {/* ── Intel gaps ─────────────────────────────────────────── */}
-      <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          Intel gaps · what we don&apos;t have yet
-        </h2>
-        <ul className="space-y-1 text-xs text-zinc-400">
-          {stance === "unknown" && !stanceRationale && (
-            <li>· <span className="text-zinc-300">Stance assessment</span> — AI drafter hasn&apos;t run for this state yet, or the legislator has no kratom signal in our data.</li>
-          )}
-          {(leg.role === "us_senate" || leg.role === "us_house") && !donorMatched && (
-            <li>· <span className="text-zinc-300">Federal donor profile</span> — FEC matching pending. The OpenFEC pipeline has a known matching gap; investigation in flight.</li>
-          )}
-          {!(leg.role === "us_senate" || leg.role === "us_house") && (
-            <li>· <span className="text-zinc-300">Financial disclosures</span> — state-level lobbyist/donor data is not yet centralized in our system (50-state scraping effort).</li>
-          )}
-          {!(leg.role === "us_senate" || leg.role === "us_house") && (
-            <li>· <span className="text-zinc-300">Personal stock trades</span> — STOCK Act disclosures are federal-only; state legislators have varied reporting (50-state effort needed).</li>
-          )}
-          {(leg.role === "us_senate" || leg.role === "us_house") && personalTradesTotalCount === 0 && (
-            <li>· <span className="text-zinc-300">Personal stock trades</span> — no PTRs filed by this legislator, OR our name-matcher didn&apos;t resolve them. Senate Stock Watcher + House Stock Watcher are our sources.</li>
-          )}
-          <li>· <span className="text-zinc-300">Voting records</span> — roll-call votes aren&apos;t yet synced. Pipeline candidate via LegiScan API.</li>
-          <li>· <span className="text-zinc-300">News mentions + sentiment</span> — we have news but don&apos;t per-legislator-index it yet.</li>
-          <li>· <span className="text-zinc-300">Personal statements / press releases</span> — not scraped from official sites.</li>
-        </ul>
-        <p className="mt-3 text-[10px] text-zinc-600">
-          Phase 2 of the briefing system will close these gaps. Admins can prioritize a specific legislator&apos;s enrichment via the request flow (forthcoming).
-        </p>
-      </section>
+      {/* ── Intel gaps · admin-only ────────────────────────────────
+          Hidden from public visitors. Telegraphing capability gaps
+          to adversaries (which legislators have weak coverage, which
+          data feeds aren't yet wired) is strategically costly. The
+          internal roadmap visibility is preserved for owners + admins
+          who need it for prioritization. */}
+      {isAdminOrOwner && (
+        <section className="mb-6 rounded-lg border border-amber-700/40 bg-amber-950/15 p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+              Intel gaps · admin only
+            </h2>
+            <span className="rounded-full bg-amber-900/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-200">
+              🔒 internal
+            </span>
+          </div>
+          <ul className="mt-2 space-y-1 text-xs text-zinc-400">
+            {stance === "unknown" && !stanceRationale && (
+              <li>· <span className="text-zinc-300">Stance assessment</span> — AI drafter hasn&apos;t run for this state yet, or the legislator has no kratom signal in our data.</li>
+            )}
+            {(leg.role === "us_senate" || leg.role === "us_house") && !donorMatched && (
+              <li>· <span className="text-zinc-300">Federal donor profile</span> — FEC matching pending. The OpenFEC pipeline has a known matching gap; investigation in flight.</li>
+            )}
+            {!(leg.role === "us_senate" || leg.role === "us_house") && (
+              <li>· <span className="text-zinc-300">Financial disclosures</span> — state-level lobbyist/donor data is not yet centralized in our system (50-state scraping effort).</li>
+            )}
+            {!(leg.role === "us_senate" || leg.role === "us_house") && (
+              <li>· <span className="text-zinc-300">Personal stock trades</span> — STOCK Act disclosures are federal-only; state legislators have varied reporting (50-state effort needed).</li>
+            )}
+            {(leg.role === "us_senate" || leg.role === "us_house") && personalTradesTotalCount === 0 && (
+              <li>· <span className="text-zinc-300">Personal stock trades</span> — no PTRs filed by this legislator, OR our name-matcher didn&apos;t resolve them. Senate Stock Watcher + House Stock Watcher are our sources.</li>
+            )}
+            <li>· <span className="text-zinc-300">Voting records</span> — roll-call votes aren&apos;t yet synced. Pipeline candidate via LegiScan API.</li>
+            <li>· <span className="text-zinc-300">News mentions + sentiment</span> — we have news but don&apos;t per-legislator-index it yet.</li>
+            <li>· <span className="text-zinc-300">Personal statements / press releases</span> — not scraped from official sites.</li>
+          </ul>
+          <p className="mt-3 text-[10px] text-zinc-600">
+            Phase 2 of the briefing system will close these gaps. Admins can prioritize a specific legislator&apos;s enrichment via the request flow (forthcoming).
+          </p>
+        </section>
+      )}
 
       <footer className="mt-10 border-t border-zinc-800 pt-4 text-[10px] text-zinc-500">
         Briefing generated {new Date().toISOString().slice(0, 19).replace("T", " ")} UTC.
