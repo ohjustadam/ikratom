@@ -56,6 +56,7 @@ const GROUPS: NavGroup[] = [
       { href: "/intel/cases", label: "⚖ Court litigation", description: "Industry lawsuits, state-ban challenges. CourtListener + RECAP." },
       { href: "/intel/rulemaking", label: "🏛 Federal rulemaking", description: "FDA / DEA / HHS rules + open public comment periods." },
       { href: "/intel/awards", label: "💰 Federal money flow", description: "USAspending grants + contracts mentioning kratom." },
+      { href: "/intel/votes", label: "🗳 Voting record", description: "Every recorded kratom roll call. Side-by-side state comparison grid — who voted yes/no on what." },
       { href: "/intel/actors", label: "🎭 Actor registry", description: "Lobbyists, industry execs, regulators — the people behind the dollars." },
     ],
   },
