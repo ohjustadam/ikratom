@@ -38,6 +38,7 @@ type LeaderboardRow = {
   flagged_amount: number;
   flagged_industries: IndustryRow[];
   cycle: number | null;
+  clusters: Array<{ slug: string; name: string }>;
 };
 
 const FLAGGED_INDUSTRY_LABELS: Record<string, string> = {
@@ -67,12 +68,21 @@ export default async function DonationsIntelPage() {
 
   // Pull every matched donor + the joined legislator. RLS allows
   // public read on both tables.
-  const { data: donorsRaw } = await sb
-    .from("legislator_donors")
-    .select("legislator_id, total_receipts, cycle, top_industries")
-    .eq("resolved_status", "matched");
+  const [donorsRes, sponsorsRes, membersRes] = await Promise.all([
+    sb
+      .from("legislator_donors")
+      .select("legislator_id, total_receipts, cycle, top_industries")
+      .eq("resolved_status", "matched"),
+    sb
+      .from("bill_sponsors")
+      .select("legislator_id, bill_id, classification")
+      .eq("classification", "primary"),
+    sb
+      .from("bill_cluster_members")
+      .select("bill_id, bill_clusters!inner(slug, name)"),
+  ]);
 
-  const donors = (donorsRaw ?? []) as DonorRow[];
+  const donors = (donorsRes.data ?? []) as DonorRow[];
   const legIds = donors.map((d) => d.legislator_id);
 
   const { data: legs } = await sb
@@ -80,6 +90,27 @@ export default async function DonationsIntelPage() {
     .select("id, full_name, state, role, party, district")
     .in("id", legIds);
   const legById = new Map((legs ?? []).map((l) => [l.id, l as LegislatorRow]));
+
+  // billId → set of {slug, name}
+  type ClusterRef = { slug: string; name: string };
+  const billToClusters = new Map<string, ClusterRef[]>();
+  for (const m of (membersRes.data ?? []) as Array<{
+    bill_id: string;
+    bill_clusters: ClusterRef | ClusterRef[] | null;
+  }>) {
+    const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+    if (!c) continue;
+    if (!billToClusters.has(m.bill_id)) billToClusters.set(m.bill_id, []);
+    billToClusters.get(m.bill_id)!.push(c);
+  }
+  // legislator_id → unique cluster slugs they primary-sponsor
+  const clustersByLeg = new Map<string, Map<string, ClusterRef>>();
+  for (const s of (sponsorsRes.data ?? []) as Array<{ legislator_id: string; bill_id: string }>) {
+    const clusters = billToClusters.get(s.bill_id) ?? [];
+    if (clusters.length === 0) continue;
+    if (!clustersByLeg.has(s.legislator_id)) clustersByLeg.set(s.legislator_id, new Map());
+    for (const c of clusters) clustersByLeg.get(s.legislator_id)!.set(c.slug, c);
+  }
 
   // Build leaderboard rows: sum amounts across flagged industries.
   const rows: LeaderboardRow[] = [];
@@ -96,6 +127,7 @@ export default async function DonationsIntelPage() {
       flagged_amount: flaggedAmount,
       flagged_industries: flagged.sort((a, b) => b.amount - a.amount),
       cycle: d.cycle,
+      clusters: [...(clustersByLeg.get(leg.id)?.values() ?? [])],
     });
   }
   rows.sort((a, b) => b.flagged_amount - a.flagged_amount);
@@ -227,6 +259,21 @@ export default async function DonationsIntelPage() {
                       </span>
                     ))}
                   </div>
+                  {r.clusters.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+                        🕸 sponsors bills in:
+                      </span>
+                      {r.clusters.map((c) => (
+                        <span
+                          key={c.slug}
+                          className="rounded border border-violet-700/40 bg-violet-950/20 px-2 py-0.5 text-[10px] text-violet-100"
+                        >
+                          {c.name.split("—")[0].trim().split("(")[0].trim()}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </Link>
               </li>
             ))}
