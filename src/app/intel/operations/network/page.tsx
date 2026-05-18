@@ -751,9 +751,13 @@ export default async function OperationsNetworkPage() {
         All views computed live from <code className="rounded bg-zinc-900 px-1">bill_cluster_members</code>,{" "}
         <code className="rounded bg-zinc-900 px-1">bill_sponsors</code>,{" "}
         <code className="rounded bg-zinc-900 px-1">lobbying_filings</code>, and the hardcoded
-        actor registry. No new tables; the network is implicit in existing data joins. v1 — future
-        layers will add donor-overlap edges, sponsor-lobbyist contact attribution, and visual
-        force-directed graph rendering.
+        actor registry. No new tables; the network is implicit in existing data joins. Cross-page
+        bridges: operations-involved chip on{" "}
+        <Link href="/intel/threat-matrix" className="text-zinc-400 hover:text-emerald-400">threat matrix</Link>,
+        cluster involvement on the{" "}
+        <Link href="/intel/donations" className="text-zinc-400 hover:text-emerald-400">donor leaderboard</Link>,
+        federal LDA per faction on the{" "}
+        <Link href="/intel/actors" className="text-zinc-400 hover:text-emerald-400">actor registry</Link>.
       </footer>
     </div>
   );
