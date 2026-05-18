@@ -247,6 +247,32 @@ export default async function StatePage({ params }: Props) {
     threatStats.champion +
     threatStats.sympathetic_ally;
 
+  // Active coordinated operations in this state — surfaces which of
+  // the 8 detected model-legislation patterns have bills here. Single
+  // join through bill_cluster_members → bills(state).
+  type StateClusterRow = { slug: string; name: string; posture: string; bill_count: number };
+  let stateClusters: StateClusterRow[] = [];
+  try {
+    const { data: cm } = await supabase
+      .from("bill_cluster_members")
+      .select("bill_clusters!inner(slug, name, posture), bills!inner(state, active)")
+      .eq("bills.state", codeUpper)
+      .eq("bills.active", true);
+    const counts = new Map<string, StateClusterRow>();
+    type CMRow = {
+      bill_clusters: { slug: string; name: string; posture: string }
+                   | Array<{ slug: string; name: string; posture: string }> | null;
+    };
+    for (const m of (cm ?? []) as CMRow[]) {
+      const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+      if (!c) continue;
+      const cur = counts.get(c.slug) ?? { slug: c.slug, name: c.name, posture: c.posture, bill_count: 0 };
+      cur.bill_count += 1;
+      counts.set(c.slug, cur);
+    }
+    stateClusters = [...counts.values()].sort((a, b) => b.bill_count - a.bill_count);
+  } catch { /* pre-0151 deploy */ }
+
   // Real-event-date filter for alerts — match the freshness logic
   // from PRs #199 + #203 so this page doesn't surface 100-day-old
   // news as 'recent alerts' just because the alert row was
@@ -446,6 +472,36 @@ export default async function StatePage({ params }: Props) {
             )}
           </div>
         )}
+
+        {/* Coordinated-operation chips for this state — surfaces which
+            detected national patterns have bills here. Click for the
+            single-cluster detail page filtered to this state's bills. */}
+        {stateClusters.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+            {stateClusters.map((c) => {
+              const tone =
+                c.posture === "restrictive" ? "border-red-700/40 bg-red-950/15 text-red-200" :
+                c.posture === "protective" ? "border-emerald-700/40 bg-emerald-950/15 text-emerald-200" :
+                c.posture === "regulatory" ? "border-amber-700/40 bg-amber-950/15 text-amber-200" :
+                "border-zinc-700 bg-zinc-900/40 text-zinc-300";
+              const emoji =
+                c.posture === "restrictive" ? "🚫" :
+                c.posture === "protective" ? "🛡" :
+                c.posture === "regulatory" ? "⚖" : "↔";
+              return (
+                <Link
+                  key={c.slug}
+                  href={`/intel/operations/${c.slug}`}
+                  className={`rounded border px-2 py-1 hover:opacity-90 ${tone}`}
+                  title={`Part of nationwide ${c.name}. Click for the full operation.`}
+                >
+                  🕸 {emoji} {c.name.split("—")[0].trim().split("(")[0].trim()} · {c.bill_count}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           {totalSignals === 0 && (
             <span className="rounded border border-amber-700/40 bg-amber-950/15 px-3 py-1 text-amber-300">
