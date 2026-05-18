@@ -104,6 +104,32 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
   }
   const statesSorted = [...billsByState.entries()].sort((a, b) => b[1].length - a[1].length);
 
+  // Sister clusters — other clusters that share bills with this one.
+  // Reveals the tactical bundling specific to this operation
+  // (e.g. KCPA bills are also Age-21 bills 38% of the time).
+  type SisterCluster = { slug: string; name: string; posture: string; shared: number };
+  const sisters: SisterCluster[] = [];
+  const billIdsForSister = billsInCluster.map((e) => e.bill.id);
+  if (billIdsForSister.length > 0) {
+    const { data: otherMembers } = await sb
+      .from("bill_cluster_members")
+      .select("bill_id, bill_clusters!inner(slug, name, posture)")
+      .in("bill_id", billIdsForSister)
+      .neq("cluster_id", c.id);
+    type Joined = { slug: string; name: string; posture: string };
+    const sisterMap = new Map<string, SisterCluster>();
+    for (const m of (otherMembers ?? []) as Array<{
+      bill_id: string; bill_clusters: Joined | Joined[] | null;
+    }>) {
+      const other = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+      if (!other) continue;
+      const agg = sisterMap.get(other.slug) ?? { slug: other.slug, name: other.name, posture: other.posture, shared: 0 };
+      agg.shared += 1;
+      sisterMap.set(other.slug, agg);
+    }
+    sisters.push(...[...sisterMap.values()].sort((a, b) => b.shared - a.shared));
+  }
+
   // Primary sponsors of bills in this cluster + their stance + donor industries
   const billIds = billsInCluster.map((e) => e.bill.id);
   let sponsorStanceDist: Record<string, number> = {};
@@ -222,6 +248,36 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
               </code>
             ))}
           </div>
+        </section>
+      )}
+
+      {/* Sister clusters — other operations that share bills with
+          this one. Reveals tactical bundling: this cluster's bills
+          often appear alongside these others. */}
+      {sisters.length > 0 && (
+        <section className="mb-6 rounded-lg border border-violet-700/30 bg-violet-950/10 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-violet-300">
+            🔗 Sister clusters · operations bundled with this one
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Other detected operations whose bills also match this cluster&apos;s pattern. Bills
+            appearing in both clusters indicate drafters bundling tactics — useful for reading
+            intent (e.g. a KCPA framework bill that&apos;s also Age-21 is a different beast than
+            either pattern alone).
+          </p>
+          <ul className="mt-2 space-y-1 text-[11px]">
+            {sisters.slice(0, 6).map((s) => (
+              <li key={s.slug} className="flex items-baseline gap-x-2 rounded border border-violet-700/20 bg-violet-950/5 px-2 py-1">
+                <Link href={`/intel/operations/${s.slug}`} className="font-semibold text-violet-100 hover:underline">
+                  {s.name.split("—")[0].trim().split("(")[0].trim()}
+                </Link>
+                <span className="text-zinc-500 text-[10px]">[{s.posture}]</span>
+                <span className="ml-auto font-mono text-zinc-300">
+                  <strong>{s.shared}</strong> shared bill{s.shared === 1 ? "" : "s"}
+                </span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
