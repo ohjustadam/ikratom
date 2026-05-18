@@ -34,6 +34,8 @@ type BillRow = {
   relevance_confidence: number | null;
   last_action: string | null;
   last_action_at: string | null;
+  current_committee_name: string | null;
+  active: boolean | null;
   source_url: string | null;
   official_url: string | null;
   session_id: string | null;
@@ -723,6 +725,22 @@ export default async function BillDetailPage({
     researchAlignments = [];
   }
 
+  // ── Momentum / status prediction
+  // Pure heuristic combining staleness + status + sponsor count +
+  // cluster membership + news mentions. Captures "is this bill moving
+  // or dying?" at a glance. v2 will replace with a classifier trained
+  // on historical session outcomes.
+  const { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } = await import("@/lib/bill-momentum");
+  const momentum = computeBillMomentum({
+    last_action_at: bill.last_action_at ?? null,
+    status: bill.status ?? null,
+    current_committee_name: bill.current_committee_name ?? null,
+    sponsor_count: sponsors.length,
+    cluster_count: billClusterMemberships.length,
+    recent_news_mentions: newsCoverage.length,
+    active: bill.active !== false,
+  });
+
   // Staleness assessment
   const lastActionMs = bill.last_action_at ? new Date(bill.last_action_at).getTime() : null;
   const daysSinceAction = lastActionMs
@@ -852,6 +870,12 @@ export default async function BillDetailPage({
           {status && (
             <span className="rounded bg-zinc-900 px-2 py-1 text-zinc-400">{status}</span>
           )}
+          <span
+            className={`rounded border px-2 py-1 font-semibold ${MOMENTUM_TONE[momentum.label]}`}
+            title={`${momentum.rationale} (score: ${momentum.score}/100)`}
+          >
+            {MOMENTUM_LABEL[momentum.label]}
+          </span>
         </div>
         <h1 className="mt-3 text-2xl font-bold leading-tight sm:text-3xl">
           {displayTitle(bill.title, 120)}
@@ -1510,6 +1534,35 @@ export default async function BillDetailPage({
             </ul>
           </div>
         )}
+
+        {/* Momentum prediction — at-a-glance read on whether the bill
+            is advancing, stalled, or effectively dead. Heuristic only;
+            no ML. Surfaces the contributing signals so an advocate can
+            understand WHY the prediction lands where it does. */}
+        <div className="mt-4 rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className={`rounded border px-2 py-1 text-[11px] font-semibold ${MOMENTUM_TONE[momentum.label]}`}>
+              {MOMENTUM_LABEL[momentum.label]}
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+              momentum score
+            </span>
+            <span className="font-mono text-xs text-zinc-300">
+              {momentum.score}/100
+            </span>
+          </div>
+          <p className="mt-2 text-[11px] text-zinc-400">{momentum.rationale}</p>
+          {momentum.signals.length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-1 text-[10px] text-zinc-500">
+              {momentum.signals.map((s, i) => (
+                <li key={i} className="rounded bg-zinc-900/60 px-1.5 py-0.5">{s}</li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-[9px] text-zinc-600">
+            Heuristic v1 — combines recency, status, sponsor count, cluster membership, news coverage. Not a prediction with statistical guarantees; treat as a fast read, not a verdict.
+          </p>
+        </div>
 
         {/* Scientific basis — cross-referenced research from our library.
             Auto-aligned via cluster→topic mapping + keyword overlap.
