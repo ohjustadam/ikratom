@@ -43,6 +43,24 @@ jobs:
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
         run: node scripts/sync-committees-openstates.mjs
 
+  sync-nonprofit-990s:
+    # Weekly refresh of ProPublica Form 990 data for kratom-policy-
+    # aligned orgs (AKA, GKC, etc.). 990 filings update annually
+    # by definition; weekly is plenty.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/sync-nonprofit-990s.mjs
+
   weekly-patch-digest-broadcast:
     # Sunday morning weekly digest. Generates a 7-day-lookback patch
     # note via scripts/generate-patch-note.mjs and broadcasts a
