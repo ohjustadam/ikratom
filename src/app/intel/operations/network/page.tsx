@@ -169,6 +169,43 @@ export default async function OperationsNetworkPage() {
     .sort((a, b) => b.filings - a.filings || b.income - a.income)
     .slice(0, 15);
 
+  // ── 3b. Named lobbyists — individuals (not firms). LDA `lobbyists`
+  // is a JSON array of {first_name, last_name, covered_position}.
+  // Aggregating by full name surfaces the actual humans who turn
+  // up across multiple kratom filings + their former-gov backgrounds
+  // (the "revolving door" pattern).
+  type LobbyistPerson = {
+    name: string;
+    filings: number;
+    clients: Set<string>;
+    registrants: Set<string>;
+    covered_positions: Set<string>;
+  };
+  const byPerson = new Map<string, LobbyistPerson>();
+  for (const l of ldas) {
+    const arr = Array.isArray(l.lobbyists) ? l.lobbyists : [];
+    type LobbyistEntry = { first_name?: string | null; last_name?: string | null; covered_position?: string | null };
+    for (const lob of arr as LobbyistEntry[]) {
+      const first = lob?.first_name?.trim();
+      const last = lob?.last_name?.trim();
+      if (!last) continue;
+      const fullName = first ? `${first} ${last}`.toUpperCase() : last.toUpperCase();
+      const agg = byPerson.get(fullName) ?? {
+        name: fullName, filings: 0, clients: new Set(),
+        registrants: new Set(), covered_positions: new Set(),
+      };
+      agg.filings += 1;
+      if (l.client_name) agg.clients.add(l.client_name);
+      if (l.registrant_name) agg.registrants.add(l.registrant_name);
+      if (lob.covered_position) agg.covered_positions.add(lob.covered_position);
+      byPerson.set(fullName, agg);
+    }
+  }
+  const topPeople = [...byPerson.values()]
+    .filter((p) => p.filings >= 2)
+    .sort((a, b) => b.filings - a.filings)
+    .slice(0, 20);
+
   // ── 4. State coordination index (operations active per state)
   type StateCoordRow = { state: string; cluster_count: number; bill_count: number };
   const stateClusterMap = new Map<string, Set<string>>();
@@ -353,6 +390,39 @@ export default async function OperationsNetworkPage() {
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {/* 3b. Named lobbyists */}
+      {topPeople.length > 0 && (
+        <section className="mb-8 rounded-lg border border-violet-500/40 bg-violet-950/10 p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-violet-300">
+            👤 Named lobbyists · individuals on multiple kratom filings
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            People (not firms) appearing on ≥ 2 kratom-issue federal LDA filings.
+            Covered-position field surfaces former-government roles — the &quot;revolving door&quot; signal.
+          </p>
+          <ul className="mt-3 space-y-1">
+            {topPeople.map((p) => (
+              <li key={p.name} className="rounded border border-violet-700/30 bg-violet-950/10 px-2.5 py-1.5 text-[11px]">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-semibold text-violet-100">{p.name}</span>
+                  <span className="text-[10px] text-zinc-400">
+                    {p.filings} filing{p.filings === 1 ? "" : "s"} · {p.clients.size} client{p.clients.size === 1 ? "" : "s"} · {p.registrants.size} firm{p.registrants.size === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {p.covered_positions.size > 0 && (
+                  <p className="mt-0.5 text-[10px] italic text-amber-300">
+                    🔄 Revolving door: {[...p.covered_positions].slice(0, 2).join(" · ")}
+                  </p>
+                )}
+                <p className="mt-0.5 text-[10px] text-zinc-500">
+                  Clients: {[...p.clients].slice(0, 4).join(" · ")}{p.clients.size > 4 ? ` + ${p.clients.size - 4} more` : ""}
+                </p>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
