@@ -135,21 +135,83 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
   let sponsorStanceDist: Record<string, number> = {};
   let donorIndustryRows: Array<{ industry: string; label: string; advocate_flag: boolean; amount: number; recipients: number }> = [];
   let federalSponsorCount = 0;
+  // Top operators on THIS cluster — primary sponsors ranked by how
+  // many other detected operations they're also running. Surfaces
+  // the "ringleaders" of this specific operation. Distinct from the
+  // sister-cluster view (which is bill-level overlap, not person-
+  // level). Tracks bills+states per legislator on this cluster.
+  type ClusterOperator = {
+    legislator_id: string;
+    full_name: string;
+    state: string;
+    role: string;
+    party: string | null;
+    bills_in_cluster: number;
+    total_clusters: number;
+  };
+  let topOperators: ClusterOperator[] = [];
   if (billIds.length > 0) {
     const { data: sps } = await sb
       .from("bill_sponsors")
-      .select("legislator_id, classification")
+      .select("legislator_id, bill_id, classification")
       .in("bill_id", billIds)
       .eq("classification", "primary");
     const distinctLegIds = [...new Set((sps ?? []).map((s) => s.legislator_id).filter((x): x is string => !!x))];
     if (distinctLegIds.length > 0) {
-      const [stanceRes, donorRes] = await Promise.all([
+      const [stanceRes, donorRes, legInfoRes, allClusterMembershipsRes] = await Promise.all([
         sb.from("legislator_kratom_stance").select("legislator_id, stance").in("legislator_id", distinctLegIds),
         sb.from("legislator_donors")
           .select("legislator_id, top_industries")
           .in("legislator_id", distinctLegIds)
           .eq("resolved_status", "matched"),
+        sb.from("legislators")
+          .select("id, full_name, state, role, party")
+          .in("id", distinctLegIds),
+        // For each sponsor, fetch ALL their primary-sponsored bills'
+        // cluster memberships so we can rank by multi-cluster spread.
+        sb.from("bill_sponsors")
+          .select("legislator_id, bills!inner(bill_cluster_members(cluster_id))")
+          .in("legislator_id", distinctLegIds)
+          .eq("classification", "primary"),
       ]);
+      // Build legislator info + cluster spread maps
+      type LegInfo = { id: string; full_name: string; state: string; role: string; party: string | null };
+      const legInfoMap = new Map<string, LegInfo>();
+      for (const l of (legInfoRes.data ?? []) as LegInfo[]) legInfoMap.set(l.id, l);
+      // legislator_id → set of cluster_ids across all their primary
+      // sponsorships (any cluster, not just this one)
+      const allClustersByLeg = new Map<string, Set<string>>();
+      type SpRow = {
+        legislator_id: string;
+        bills: { bill_cluster_members: Array<{ cluster_id: string }> | null }
+             | Array<{ bill_cluster_members: Array<{ cluster_id: string }> | null }> | null;
+      };
+      for (const sp of (allClusterMembershipsRes.data ?? []) as SpRow[]) {
+        const bill = Array.isArray(sp.bills) ? sp.bills[0] : sp.bills;
+        const cms = bill?.bill_cluster_members ?? [];
+        if (!allClustersByLeg.has(sp.legislator_id)) allClustersByLeg.set(sp.legislator_id, new Set());
+        for (const m of cms) allClustersByLeg.get(sp.legislator_id)!.add(m.cluster_id);
+      }
+      // Count bills-on-this-cluster per legislator
+      const billsOnThisCluster = new Map<string, number>();
+      for (const s of (sps ?? []) as Array<{ legislator_id: string | null }>) {
+        if (!s.legislator_id) continue;
+        billsOnThisCluster.set(s.legislator_id, (billsOnThisCluster.get(s.legislator_id) ?? 0) + 1);
+      }
+      topOperators = [...legInfoMap.values()]
+        .map((leg): ClusterOperator => ({
+          legislator_id: leg.id,
+          full_name: leg.full_name,
+          state: leg.state,
+          role: leg.role,
+          party: leg.party,
+          bills_in_cluster: billsOnThisCluster.get(leg.id) ?? 0,
+          total_clusters: allClustersByLeg.get(leg.id)?.size ?? 1,
+        }))
+        .sort((a, b) =>
+          b.total_clusters - a.total_clusters ||
+          b.bills_in_cluster - a.bills_in_cluster,
+        );
       const stanceByLeg = new Map<string, string>();
       for (const s of (stanceRes.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
         stanceByLeg.set(s.legislator_id, s.stance);
@@ -277,6 +339,46 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
                 </span>
               </li>
             ))}
+          </ul>
+        </section>
+      )}
+
+      {/* Top operators on this cluster — primary sponsors ranked by
+          their multi-cluster spread. The ringleaders of this op. */}
+      {topOperators.length > 0 && (
+        <section className="mb-6 rounded-lg border border-red-700/30 bg-red-950/10 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-red-300">
+            🚨 Top operators · who&apos;s running this op
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Primary sponsors of this operation&apos;s bills, ranked by how many OTHER detected
+            operations they also run. Multi-operation operators are the most networked actors —
+            their backing signals a coordinated campaign, not a one-off bill.
+          </p>
+          <ul className="mt-2 space-y-1 text-[11px]">
+            {topOperators.slice(0, 10).map((o) => (
+              <li key={o.legislator_id} className="flex flex-wrap items-baseline gap-x-2 rounded border border-red-700/20 bg-red-950/5 px-2 py-1">
+                <Link href={`/legislators/${o.legislator_id}/briefing`} className="font-semibold text-red-100 hover:underline">
+                  {o.full_name}
+                </Link>
+                <span className="font-mono text-[9px] text-zinc-500">({o.state})</span>
+                {o.party && <span className="text-[10px] text-zinc-500">{o.party}</span>}
+                <span className="rounded bg-zinc-900/60 px-1.5 py-0.5 font-mono text-[9px] uppercase text-zinc-300">
+                  {o.role.replace(/_/g, " ")}
+                </span>
+                <span className="ml-auto font-mono text-[10px] text-zinc-300">
+                  <strong>{o.bills_in_cluster}</strong> bill{o.bills_in_cluster === 1 ? "" : "s"} here
+                  {o.total_clusters >= 2 && (
+                    <> · <strong>{o.total_clusters}</strong> total ops</>
+                  )}
+                </span>
+              </li>
+            ))}
+            {topOperators.length > 10 && (
+              <li className="pt-1 text-[10px] text-zinc-500">
+                + {topOperators.length - 10} more sponsor{topOperators.length - 10 === 1 ? "" : "s"} not shown.
+              </li>
+            )}
           </ul>
         </section>
       )}
