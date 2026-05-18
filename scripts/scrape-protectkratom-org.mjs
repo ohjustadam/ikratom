@@ -51,8 +51,8 @@ const STATE_PAGES = [
   { slug: "tennessee",    state: "TN", label: "Tennessee" },
   { slug: "illinois",     state: "IL", label: "Illinois" },
   { slug: "minnesota",    state: "MN", label: "Minnesota" },
-  { slug: "new-york",     state: "NY", label: "New York" },
-  { slug: "west-virginia",state: "WV", label: "West Virginia" },
+  { slug: "newyork",      state: "NY", label: "New York" },
+  { slug: "westvirginia", state: "WV", label: "West Virginia" },
   { slug: "massachusetts",state: "MA", label: "Massachusetts" },
 ];
 
