@@ -40,6 +40,7 @@ type ScoredRow = {
     bills_in_committees: number;
     kratom_adjacent_trade_count: number | null;
     flagged_industry_total: number;
+    cluster_count: number;
   };
 };
 
@@ -142,7 +143,7 @@ export default async function ThreatMatrixPage({
     sb.from("legislator_kratom_stance").select("legislator_id, stance"),
     sb
       .from("bill_sponsors")
-      .select("legislator_id, classification, bills!inner(kratom_relevance, state, active, current_committee_name)")
+      .select("legislator_id, classification, bill_id, bills!inner(kratom_relevance, state, active, current_committee_name)")
       .eq("bills.active", true),
     fetchKratomCommittees(),
     sb
@@ -159,6 +160,14 @@ export default async function ThreatMatrixPage({
       .select("legislator_id")
       .eq("is_kratom_adjacent", true),
   ]);
+
+  // Cluster involvement per legislator — join bill_sponsors (primary)
+  // to bill_cluster_members. Shows how many distinct coordinated
+  // operations each legislator is running bills for. Multi-cluster
+  // operators are the most damning signal in the network map.
+  const clusterMembersRaw = await sb
+    .from("bill_cluster_members")
+    .select("bill_id, bill_clusters!inner(slug)");
 
   // Build a synthetic raw wrapper so existing code that reads
   // `committeesRaw.data` works without further refactor.
@@ -274,6 +283,31 @@ export default async function ThreatMatrixPage({
     tradeCountByLeg.set(t.legislator_id, (tradeCountByLeg.get(t.legislator_id) ?? 0) + 1);
   }
 
+  // billId → set of cluster slugs (from cluster-members join)
+  const billToClusterSlugs = new Map<string, Set<string>>();
+  for (const m of (clusterMembersRaw.data ?? []) as Array<{
+    bill_id: string;
+    bill_clusters: { slug: string } | Array<{ slug: string }> | null;
+  }>) {
+    const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+    if (!c) continue;
+    if (!billToClusterSlugs.has(m.bill_id)) billToClusterSlugs.set(m.bill_id, new Set());
+    billToClusterSlugs.get(m.bill_id)!.add(c.slug);
+  }
+  // legislator_id → set of cluster slugs they primary-sponsor on
+  const clusterCountByLeg = new Map<string, Set<string>>();
+  for (const s of (sponsorsRaw.data ?? []) as Array<{
+    legislator_id: string;
+    classification: string;
+    bill_id: string;
+  }>) {
+    if (s.classification !== "primary") continue;
+    const slugs = billToClusterSlugs.get(s.bill_id);
+    if (!slugs) continue;
+    if (!clusterCountByLeg.has(s.legislator_id)) clusterCountByLeg.set(s.legislator_id, new Set());
+    for (const slug of slugs) clusterCountByLeg.get(s.legislator_id)!.add(slug);
+  }
+
   // ── Score every legislator
   const scored: ScoredRow[] = [];
   for (const leg of legs) {
@@ -335,6 +369,7 @@ export default async function ThreatMatrixPage({
         bills_in_committees: billsInCmt,
         kratom_adjacent_trade_count: tradeCount,
         flagged_industry_total: flaggedIndustryTotal,
+        cluster_count: clusterCountByLeg.get(leg.id)?.size ?? 0,
       },
     });
   }
@@ -484,6 +519,14 @@ export default async function ThreatMatrixPage({
                       {r.signals.has_anti_sponsorship && (
                         <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-200">
                           🚫 {r.signals.anti_sponsor_count} restrictive bill{r.signals.anti_sponsor_count === 1 ? "" : "s"}
+                        </span>
+                      )}
+                      {r.signals.cluster_count >= 2 && (
+                        <span
+                          className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-200"
+                          title="Distinct coordinated operations this legislator primary-sponsors bills for"
+                        >
+                          🕸 {r.signals.cluster_count} operations
                         </span>
                       )}
                       {r.signals.has_pro_sponsorship && (
