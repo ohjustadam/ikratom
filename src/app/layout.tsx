@@ -187,8 +187,12 @@ export default async function RootLayout({
           </div>
         </header>
 
-        {/* Mobile gets pb-20 so tab bar doesn't cover the bottom of pages */}
-        <main className="flex-1 pb-20 md:pb-0">{children}</main>
+        {/* Mobile gets tab-bar-height + safe-area-inset-bottom padding so
+            content never sits behind the bottom nav OR the iPhone home
+            indicator / Android gesture pill. The 5rem matches MobileTabBar's
+            ~56px height; safe-area adds the gesture-bar offset on devices
+            that need it. */}
+        <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">{children}</main>
 
         <footer className="border-t border-zinc-800 bg-zinc-950 py-8">
           <div className="mx-auto max-w-6xl px-4 text-center text-xs text-zinc-500 sm:px-6 lg:px-8">

@@ -356,6 +356,10 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Exclude static asset paths from proxy handling. `.well-known/`
+    // is excluded so files like security.txt, assetlinks.json (used
+    // by Android TWA verification) and apple-app-site-association
+    // are served raw without going through bot-block or auth refresh.
+    "/((?!_next/static|_next/image|favicon.ico|\\.well-known/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json|txt)$).*)",
   ],
 };
