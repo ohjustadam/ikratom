@@ -200,6 +200,7 @@ export default async function RootLayout({
               <a href="/calendar" className="hover:text-emerald-400">Calendar</a>
               <a href="/deadlines" className="hover:text-emerald-400">Deadlines</a>
               <a href="/whats-new" className="hover:text-emerald-400">What&apos;s new</a>
+              <a href="/support" className="font-semibold text-emerald-400 hover:text-emerald-300">♥ Support</a>
               <a href="/status" className="hover:text-emerald-400">Status</a>
               <a href="/glossary" className="hover:text-emerald-400">Glossary</a>
               <a href="/communities" className="hover:text-emerald-400">Communities</a>
