@@ -273,6 +273,86 @@ export default async function StatePage({ params }: Props) {
     stateClusters = [...counts.values()].sort((a, b) => b.bill_count - a.bill_count);
   } catch { /* pre-0151 deploy */ }
 
+  // Top operators in this state — legislators who primary-sponsor
+  // cluster-membered bills here. Surfaces who's running the local
+  // arm of the coordinated operations. Defensive try around the
+  // multi-step join so a single-cluster table failure doesn't
+  // tear down the state page.
+  type StateOperator = {
+    legislator_id: string;
+    full_name: string;
+    role: string;
+    party: string | null;
+    cluster_slugs: string[];
+    bill_count: number;
+  };
+  let stateOperators: StateOperator[] = [];
+  try {
+    const { data: stateBillsForOps } = await supabase
+      .from("bills")
+      .select("id")
+      .eq("state", codeUpper)
+      .eq("active", true);
+    const billIds = (stateBillsForOps ?? []).map((b) => b.id as string);
+    if (billIds.length > 0) {
+      const [sponsorsRes, membersRes] = await Promise.all([
+        supabase
+          .from("bill_sponsors")
+          .select("legislator_id, bill_id, classification, legislators!inner(id, full_name, role, party, active)")
+          .in("bill_id", billIds)
+          .eq("classification", "primary")
+          .eq("legislators.active", true),
+        supabase
+          .from("bill_cluster_members")
+          .select("bill_id, bill_clusters!inner(slug)")
+          .in("bill_id", billIds),
+      ]);
+      type BillCluster = { slug: string };
+      const billToSlugs = new Map<string, Set<string>>();
+      for (const m of (membersRes.data ?? []) as Array<{
+        bill_id: string; bill_clusters: BillCluster | BillCluster[] | null;
+      }>) {
+        const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+        if (!c) continue;
+        if (!billToSlugs.has(m.bill_id)) billToSlugs.set(m.bill_id, new Set());
+        billToSlugs.get(m.bill_id)!.add(c.slug);
+      }
+      type LegInfo = { id: string; full_name: string; role: string; party: string | null };
+      const byLeg = new Map<string, {
+        leg: LegInfo; bills: Set<string>; clusters: Set<string>;
+      }>();
+      for (const s of (sponsorsRes.data ?? []) as Array<{
+        legislator_id: string; bill_id: string;
+        legislators: LegInfo | LegInfo[] | null;
+      }>) {
+        const leg = Array.isArray(s.legislators) ? s.legislators[0] : s.legislators;
+        if (!leg) continue;
+        const slugs = billToSlugs.get(s.bill_id);
+        if (!slugs || slugs.size === 0) continue;
+        const agg = byLeg.get(s.legislator_id) ?? {
+          leg, bills: new Set<string>(), clusters: new Set<string>(),
+        };
+        agg.bills.add(s.bill_id);
+        for (const slug of slugs) agg.clusters.add(slug);
+        byLeg.set(s.legislator_id, agg);
+      }
+      stateOperators = [...byLeg.entries()]
+        .map(([id, v]) => ({
+          legislator_id: id,
+          full_name: v.leg.full_name,
+          role: v.leg.role,
+          party: v.leg.party,
+          cluster_slugs: [...v.clusters],
+          bill_count: v.bills.size,
+        }))
+        .filter((o) => o.cluster_slugs.length >= 1)
+        .sort((a, b) =>
+          b.cluster_slugs.length - a.cluster_slugs.length ||
+          b.bill_count - a.bill_count,
+        );
+    }
+  } catch { /* pre-migration */ }
+
   // Real-event-date filter for alerts — match the freshness logic
   // from PRs #199 + #203 so this page doesn't surface 100-day-old
   // news as 'recent alerts' just because the alert row was
@@ -807,6 +887,61 @@ export default async function StatePage({ params }: Props) {
                 </li>
               );
             })}
+          </ul>
+        </section>
+      )}
+
+      {/* State operators — legislators primary-sponsoring cluster-
+          membered bills here. Shows who's running the local arm of
+          the coordinated operations. Sorted by cluster-count then
+          bill-count; ≥1 cluster filter. Limit 8. */}
+      {stateOperators.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-2 text-sm font-bold uppercase tracking-wider text-red-300">
+            🕸 State operators · who&apos;s running the operations here
+          </h2>
+          <p className="mb-3 text-[11px] text-zinc-500">
+            Legislators primary-sponsoring bills in {codeUpper} that match a detected coordinated
+            operation. Multi-operation operators are the most networked actors locally.
+          </p>
+          <ul className="space-y-1.5">
+            {stateOperators.slice(0, 8).map((o) => (
+              <li key={o.legislator_id} className="rounded border border-red-700/30 bg-red-950/10 px-3 py-1.5 text-[11px]">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <Link href={`/legislators/${o.legislator_id}/briefing`} className="font-semibold text-red-100 hover:underline">
+                    {o.full_name}
+                  </Link>
+                  <span className="rounded bg-zinc-900/60 px-1.5 py-0.5 font-mono text-[9px] uppercase text-zinc-300">
+                    {o.role.replace(/_/g, " ")}
+                  </span>
+                  {o.party && (
+                    <span className="text-[10px] text-zinc-500">{o.party}</span>
+                  )}
+                  <span className="ml-auto font-mono text-[10px] text-zinc-300">
+                    <strong>{o.cluster_slugs.length}</strong> op{o.cluster_slugs.length === 1 ? "" : "s"} · <strong>{o.bill_count}</strong> bill{o.bill_count === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+                  {o.cluster_slugs.slice(0, 4).map((slug) => (
+                    <Link
+                      key={slug}
+                      href={`/intel/operations/${slug}`}
+                      className="rounded bg-zinc-900/60 px-1.5 py-0.5 font-mono text-zinc-300 hover:text-emerald-400"
+                    >
+                      {slug.replace(/_/g, " ")}
+                    </Link>
+                  ))}
+                  {o.cluster_slugs.length > 4 && (
+                    <span className="text-zinc-500">+ {o.cluster_slugs.length - 4} more</span>
+                  )}
+                </div>
+              </li>
+            ))}
+            {stateOperators.length > 8 && (
+              <li className="pt-1 text-[10px] text-zinc-500">
+                + {stateOperators.length - 8} more state operators not shown.
+              </li>
+            )}
           </ul>
         </section>
       )}
