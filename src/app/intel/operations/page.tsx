@@ -255,10 +255,21 @@ export default async function OperationsIntelPage() {
               className={`rounded-lg border p-5 scroll-mt-20 ${tone}`}
             >
               <div className="flex flex-wrap items-baseline gap-2">
-                <h2 className="text-xl font-bold">{c.name}</h2>
+                <h2 className="text-xl font-bold">
+                  <Link href={`/intel/operations/${c.slug}`} className="hover:underline">
+                    {c.name}
+                  </Link>
+                </h2>
                 <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tone}`}>
                   {POSTURE_LABEL[c.posture] ?? c.posture}
                 </span>
+                <Link
+                  href={`/intel/operations/${c.slug}/dossier`}
+                  className="ml-2 rounded border border-emerald-700/40 bg-emerald-950/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-950/30"
+                  title="Printable citation-ready dossier"
+                >
+                  📄 Print
+                </Link>
                 <span className="ml-auto text-[11px] opacity-80">
                   <strong className="font-mono tabular-nums">{c.bill_count}</strong> bills ·{" "}
                   <strong className="font-mono tabular-nums">{c.state_count}</strong> states
