@@ -259,6 +259,63 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
         </section>
       )}
 
+      {/* Federal LDA lobbying overlap — filings that intersect the
+          cluster's active window. Surfaces which DC firms / clients
+          were federally lobbying on kratom while this state-level
+          operation was spreading. Same-period activity isn't proof
+          of causation, but the overlap is intel-worthy. */}
+      {await (async () => {
+        if (!c.earliest_introduced || !c.latest_introduced) return null;
+        const { data: ldas } = await sb
+          .from("lobbying_filings")
+          .select("filing_year, filing_period_display, registrant_name, client_name, lobbyists, income, issue_descriptions")
+          .eq("is_kratom_relevant", true)
+          .gte("dt_posted", c.earliest_introduced)
+          .lte("dt_posted", c.latest_introduced)
+          .order("dt_posted", { ascending: false })
+          .limit(30);
+        const rows = (ldas ?? []) as Array<{
+          filing_year: number | null; filing_period_display: string | null;
+          registrant_name: string | null; client_name: string | null;
+          lobbyists: unknown; income: number | null;
+          issue_descriptions: string[] | null;
+        }>;
+        if (rows.length === 0) return null;
+        const totalIncome = rows.reduce((s, r) => s + (Number(r.income) || 0), 0);
+        const clients = new Set(rows.map((r) => r.client_name).filter(Boolean));
+        const registrants = new Set(rows.map((r) => r.registrant_name).filter(Boolean));
+        return (
+          <section className="mb-6 rounded-lg border border-violet-700/40 bg-violet-950/15 p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-violet-300">
+              📜 Federal lobbying during this operation&apos;s active window
+            </h2>
+            <p className="mt-1 text-[11px] text-zinc-400">
+              {rows.length} kratom-issue federal LDA filings between {c.earliest_introduced} and {c.latest_introduced}.
+              {clients.size > 0 && <> {clients.size} client{clients.size === 1 ? "" : "s"}, {registrants.size} registrant{registrants.size === 1 ? "" : "s"}.</>}
+              {totalIncome > 0 && <> Total disclosed income: <strong className="text-violet-200">${totalIncome.toLocaleString()}</strong>.</>}
+            </p>
+            <ul className="mt-2 space-y-0.5 text-[11px]">
+              {rows.slice(0, 12).map((r, i) => (
+                <li key={i} className="flex flex-wrap items-baseline gap-x-2 border-b border-zinc-900/40 py-0.5">
+                  <span className="font-mono text-zinc-500">{r.filing_year}</span>
+                  <span className="font-semibold">{r.client_name ?? "—"}</span>
+                  <span className="text-zinc-500">via</span>
+                  <span>{r.registrant_name ?? "—"}</span>
+                  {r.income != null && r.income > 0 && (
+                    <span className="ml-auto font-mono text-violet-200">${r.income.toLocaleString()}</span>
+                  )}
+                </li>
+              ))}
+              {rows.length > 12 && (
+                <li className="pt-1 text-[10px] text-zinc-500">
+                  + {rows.length - 12} more. See <Link href="/intel/lobbying" className="text-violet-300 hover:underline">/intel/lobbying</Link> for the full federal LDA index.
+                </li>
+              )}
+            </ul>
+          </section>
+        );
+      })()}
+
       {/* Donor industry overlap */}
       {donorIndustryRows.length > 0 && (
         <section className="mb-6 rounded-lg border border-amber-700/40 bg-amber-950/10 p-4">
