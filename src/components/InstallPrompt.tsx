@@ -88,7 +88,10 @@ export function InstallPrompt() {
   if (!visible || (!deferred && !iosHint)) return null;
 
   return (
-    <div className="fixed bottom-4 left-1/2 z-40 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-emerald-700/40 bg-zinc-950 p-3 shadow-2xl">
+    <div
+      className="fixed left-1/2 z-40 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-emerald-700/40 bg-zinc-950 p-3 shadow-2xl"
+      style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))" }}
+    >
       <div className="flex items-start gap-3">
         <span className="text-2xl" aria-hidden>📲</span>
         <div className="min-w-0 flex-1">

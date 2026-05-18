@@ -171,7 +171,7 @@ export default async function BopWatchPage({
                     </td>
                     <td className="p-2 align-top">
                       <div className="text-zinc-200">{s.board_name}</div>
-                      <div className="text-[11px] text-zinc-500">
+                      <div className="text-xs text-zinc-400">
                         {s.surface} ·{" "}
                         <a
                           href={s.agenda_url}
@@ -183,7 +183,7 @@ export default async function BopWatchPage({
                         </a>
                       </div>
                     </td>
-                    <td className="p-2 align-top text-[11px]">
+                    <td className="p-2 align-top text-xs">
                       {!s.enabled && (
                         <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-500">paused</span>
                       )}
@@ -200,7 +200,7 @@ export default async function BopWatchPage({
                         <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-500">pending</span>
                       )}
                     </td>
-                    <td className="p-2 text-right align-top text-[11px] text-zinc-500">
+                    <td className="p-2 text-right align-top text-xs text-zinc-400">
                       {s.last_scraped_at
                         ? new Date(s.last_scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })
                         : "—"}
@@ -250,9 +250,9 @@ function StatCard({
     "text-zinc-100";
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
-      <p className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</p>
+      <p className="text-xs uppercase tracking-wider text-zinc-500">{label}</p>
       <p className={`mt-1 text-2xl font-bold ${tone}`}>{value}</p>
-      <p className="mt-1 text-[11px] text-zinc-500">{sub}</p>
+      <p className="mt-1 text-xs text-zinc-400">{sub}</p>
     </div>
   );
 }

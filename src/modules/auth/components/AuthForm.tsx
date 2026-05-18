@@ -179,7 +179,9 @@ function Field({
         name={name}
         type={type}
         required={required}
-        className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+        // text-base (16px) prevents iOS Safari from auto-zooming the
+        // viewport when the input receives focus on phones.
+        className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-base text-zinc-100 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
       />
       {hint && <p className="mt-1 text-xs text-zinc-500">{hint}</p>}
     </div>
