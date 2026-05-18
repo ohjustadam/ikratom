@@ -288,11 +288,15 @@ export default async function StatePage({ params }: Props) {
   };
   let stateOperators: StateOperator[] = [];
   try {
+    // Cap to 500 — well under Supabase's .in() limit, well above any
+    // realistic per-state active kratom-bill count. Defensive against
+    // future data growth and pathological backfill bugs.
     const { data: stateBillsForOps } = await supabase
       .from("bills")
       .select("id")
       .eq("state", codeUpper)
-      .eq("active", true);
+      .eq("active", true)
+      .limit(500);
     const billIds = (stateBillsForOps ?? []).map((b) => b.id as string);
     if (billIds.length > 0) {
       const [sponsorsRes, membersRes] = await Promise.all([
