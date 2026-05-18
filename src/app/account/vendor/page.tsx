@@ -67,7 +67,7 @@ export default async function VendorPage() {
           </p>
           <p className="mt-3 text-xs text-zinc-500">
             Need to update your business info or step down as vendor?{" "}
-            <a href="mailto:ohjustadam@proton.me" className="text-emerald-400 hover:underline">
+            <a href="mailto:support@ikratom.org" className="text-emerald-400 hover:underline">
               Email the owner
             </a>
             .

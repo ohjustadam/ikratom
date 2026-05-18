@@ -106,6 +106,11 @@ export async function logCampaignAction(input: {
   const { campaignId, legislatorIds, method, subject, body, isNonResident } = input;
   if (!campaignId || legislatorIds.length === 0) return { error: "Missing inputs." };
 
+  // Read-only mode gate (admins bypass).
+  const { assertNotReadOnly } = await import("@/lib/read-only-mode");
+  const ro = await assertNotReadOnly();
+  if (ro) return { error: ro };
+
   const supabase = await createClient();
   const {
     data: { user },

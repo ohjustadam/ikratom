@@ -170,7 +170,7 @@ export default async function EmbedDemoPage({
             <span>
               Future ask: we&apos;ll add a partner dashboard so you can see
               click-throughs + sent emails attributed to your shop. For now,
-              email <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-300">ohjustadam@proton.me</code>
+              email <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-300">support@ikratom.org</code>
               {" "}for stats on your domain.
             </span>
           </li>
@@ -219,8 +219,8 @@ export default async function EmbedDemoPage({
 
       <p className="text-center text-xs text-zinc-500">
         Questions? Email{" "}
-        <a href="mailto:ohjustadam@proton.me" className="text-emerald-400 hover:underline">
-          ohjustadam@proton.me
+        <a href="mailto:support@ikratom.org" className="text-emerald-400 hover:underline">
+          support@ikratom.org
         </a>
       </p>
     </div>

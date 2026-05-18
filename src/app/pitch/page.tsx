@@ -340,7 +340,7 @@ export default function PitchPage() {
           <li>🧑‍💻 <strong className="text-emerald-300">A second engineer</strong> — to take any specialty surface (medical recruitment, v2 personalization, native mobile push). One operator + Claude built this; the second human doubles output.</li>
         </ul>
         <p className="mt-8 text-xs text-zinc-500">
-          ohjustadam@proton.me · github.com/ohjustadam · this page: ikratom.org/pitch
+          support@ikratom.org · github.com/ohjustadam/ikratom · this page: ikratom.org/pitch
         </p>
       </Slide>
     </div>

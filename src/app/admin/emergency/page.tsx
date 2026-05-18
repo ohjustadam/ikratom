@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
 import { getEmergencyConfig } from "@/modules/admin/emergency-actions";
 import { EmergencyForm } from "./EmergencyForm";
+import { ReadOnlyForm } from "./ReadOnlyForm";
 
 export const metadata = { title: "Emergency mode" };
 
@@ -43,6 +44,10 @@ export default async function EmergencyPage() {
       </div>
 
       <EmergencyForm initial={config} />
+
+      <hr className="my-8 border-zinc-800" />
+
+      <ReadOnlyForm initial={config} />
     </div>
   );
 }
