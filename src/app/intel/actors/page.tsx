@@ -56,10 +56,28 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
     clients: Set<string>;
   };
   const factionLda = new Map<ActorFaction, FactionLda>();
-  // affiliation lowercase → faction
+  // Normalise affiliation strings → faction map. We aggressively
+  // strip parenthetical disambiguators ("(AKA)", "(founder + primary
+  // funder)") and trailing modifiers ("aligned", "Inc.", "LLC") so
+  // matching is on the canonical org name. We also DROP affiliations
+  // shorter than 6 chars to avoid spurious substring matches against
+  // unrelated lobbying clients.
+  function normalizeOrgName(s: string): string {
+    return s
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, " ")                  // drop ( ... )
+      .replace(/\b(inc|llc|llp|co|corp|consulting|group|associates|strategies|consultants)\.?\b/g, " ")
+      .replace(/[,.]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  const MIN_AFF_LEN = 6;
   const affToFaction = new Map<string, ActorFaction>();
   for (const a of KRATOM_INDUSTRY_ACTORS) {
-    for (const aff of a.affiliations) affToFaction.set(aff.toLowerCase().trim(), a.faction);
+    for (const raw of a.affiliations) {
+      const norm = normalizeOrgName(raw);
+      if (norm.length >= MIN_AFF_LEN) affToFaction.set(norm, a.faction);
+    }
   }
   try {
     const sb = await createClient();
@@ -81,16 +99,19 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
       lobbyists: unknown;
       income: number | null;
     }>) {
-      const client = (f.client_name ?? "").toLowerCase().trim();
-      if (!client) continue;
-      // Match by best containment — affiliation that the client name
-      // contains, OR client name that the affiliation contains.
+      const client = normalizeOrgName(f.client_name ?? "");
+      if (client.length < MIN_AFF_LEN) continue;
+      // Match: exact normalized equality, OR full-word match in either
+      // direction (use \b word boundaries to avoid substring slop like
+      // "hart" matching "hartford"). The shorter side is the needle.
       let matchedFaction: ActorFaction | null = null;
       for (const [aff, faction] of affToFaction.entries()) {
-        if (client === aff || client.includes(aff) || aff.includes(client)) {
-          matchedFaction = faction;
-          break;
-        }
+        if (client === aff) { matchedFaction = faction; break; }
+        const [needle, haystack] = aff.length <= client.length ? [aff, client] : [client, aff];
+        // Word-boundary check — the needle must appear as a full
+        // token (or token sequence) in the haystack.
+        const re = new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+        if (re.test(haystack)) { matchedFaction = faction; break; }
       }
       if (!matchedFaction) continue;
       const agg = factionLda.get(matchedFaction) ?? {
