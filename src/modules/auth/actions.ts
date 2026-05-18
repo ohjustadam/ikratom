@@ -102,15 +102,35 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
 
   // ── Anti-bot ────────────────────────────────────────────────────────
   // Honeypot: real users never see this field. If it's filled, it's a bot.
-  // Return the same shape as success so the bot can't tell it failed.
+  // Return the same shape as success so the bot can't tell it failed —
+  // BUT log the attempt to auth_events so the abuse-signals dashboard
+  // can surface bot patterns over time.
   if (honeypot.trim().length > 0) {
-    console.warn("[signup] honeypot triggered", { ip: await getClientIp() });
+    const ip = await getClientIp();
+    console.warn("[signup] honeypot triggered", { ip });
+    await recordAuthEvent({
+      kind: "signup",
+      status: "cancelled",
+      errorCode: "honeypot_triggered",
+      email: email || null,
+      ip,
+      context: { honeypot_value_length: honeypot.length },
+    });
     return { success: true };
   }
   // Timing trap: humans take >2s to read+fill+submit. Bots POST instantly.
   // Skip when elapsedMs is 0 (e.g. progressive enhancement / no JS).
   if (elapsedMs > 0 && elapsedMs < 2000) {
-    console.warn("[signup] timing trap triggered", { elapsedMs, ip: await getClientIp() });
+    const ip = await getClientIp();
+    console.warn("[signup] timing trap triggered", { elapsedMs, ip });
+    await recordAuthEvent({
+      kind: "signup",
+      status: "cancelled",
+      errorCode: "timing_trap_triggered",
+      email: email || null,
+      ip,
+      context: { elapsed_ms: elapsedMs },
+    });
     return { success: true };
   }
 
