@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getOrGenerateBriefSummary } from "@/modules/brief/summary";
 
 export const metadata = {
   title: "Daily brief — what's moving in kratom policy",
@@ -149,6 +150,34 @@ export default async function BriefPage() {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
 
+  // ── AI day-summary paragraph. Cached per (scope, date) via
+  // daily_brief_summaries table so we hit the LLM at most once per
+  // scope per day. Defensive — if generation fails we render
+  // without the paragraph rather than blocking the whole page.
+  const STATE_NAMES: Record<string, string> = {
+    AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",CT:"Connecticut",
+    DE:"Delaware",DC:"District of Columbia",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",IL:"Illinois",
+    IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",
+    MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",
+    NH:"New Hampshire",NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",
+    OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",
+    SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",
+    WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",
+  };
+  const aiScope = viewerState ?? "national";
+  const aiSummary = await getOrGenerateBriefSummary({
+    scope: aiScope,
+    state_label: viewerState ? STATE_NAMES[viewerState] ?? viewerState : null,
+    alerts_critical: stateAlerts.filter((a) => a.severity === "critical").length,
+    alerts_warn: stateAlerts.filter((a) => a.severity === "alert").length,
+    recent_alert_titles: stateAlerts.slice(0, 5).map((a) => a.title),
+    bills_moved: watchedBills.length,
+    recent_bill_lines: watchedBills.slice(0, 5).map((b) =>
+      `${b.state} ${b.bill_number} — ${b.status ?? "—"} (${b.last_action_at ?? "—"})`),
+    active_ops: activeOps.length,
+    active_op_names: activeOps.slice(0, 5).map((op) => op.name.split("—")[0].trim().split("(")[0].trim()),
+  });
+
   const greeting = viewerName?.trim()
     ? `Good morning, ${viewerName.trim().split(" ")[0]}`
     : viewerState
@@ -175,6 +204,22 @@ export default async function BriefPage() {
           </p>
         )}
       </header>
+
+      {/* AI day-summary paragraph */}
+      {aiSummary && (
+        <section className="mb-6 rounded-lg border border-emerald-700/30 bg-gradient-to-br from-emerald-950/30 to-zinc-950/40 p-4">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
+            🧠 Today, in plain English
+          </p>
+          <p className="text-[13px] leading-relaxed text-zinc-100">
+            {aiSummary.summary}
+          </p>
+          <p className="mt-2 text-[9px] text-zinc-600">
+            {aiSummary.cached ? "Cached for today" : "Just generated"}
+            {aiSummary.provider && ` · ${aiSummary.provider}`} · auto-synthesized from the signals below
+          </p>
+        </section>
+      )}
 
       {isEmpty && (
         <p className="rounded-md border border-zinc-800 bg-zinc-950/40 p-6 text-center text-sm text-zinc-400">
