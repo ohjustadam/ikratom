@@ -113,6 +113,43 @@ export default async function IntelHubPage() {
     ? `$${(awardTotal / 1_000).toFixed(0)}k`
     : `$${awardTotal}`;
 
+  // Top 3 most-active operations — clusters by bill activity in the
+  // last 180 days. Single-glance answer to "which operation is the
+  // biggest live threat right now?" Defensive — pre-migration deploys
+  // (before cluster tables) skip silently.
+  type TopOp = { slug: string; name: string; posture: string; bills_recent: number; states_recent: number };
+  let topActiveOps: TopOp[] = [];
+  try {
+    const CUTOFF = new Date(Date.now() - 180 * 86400 * 1000).toISOString().slice(0, 10);
+    const { data: opsMembers } = await sb
+      .from("bill_cluster_members")
+      .select("bill_clusters!inner(slug, name, posture), bills!inner(state, last_action_at, active)")
+      .eq("bills.active", true)
+      .gte("bills.last_action_at", CUTOFF);
+    type Joined = {
+      bill_clusters: { slug: string; name: string; posture: string } | Array<{ slug: string; name: string; posture: string }> | null;
+      bills: { state: string } | Array<{ state: string }> | null;
+    };
+    const norm = <T,>(x: T | T[] | null): T | null => Array.isArray(x) ? x[0] ?? null : x;
+    const acc = new Map<string, TopOp & { state_set: Set<string> }>();
+    for (const m of (opsMembers ?? []) as Joined[]) {
+      const cl = norm(m.bill_clusters);
+      const bl = norm(m.bills);
+      if (!cl || !bl) continue;
+      const cur = acc.get(cl.slug) ?? {
+        slug: cl.slug, name: cl.name, posture: cl.posture,
+        bills_recent: 0, states_recent: 0, state_set: new Set<string>(),
+      };
+      cur.bills_recent += 1;
+      cur.state_set.add(bl.state);
+      acc.set(cl.slug, cur);
+    }
+    topActiveOps = [...acc.values()]
+      .map((x) => ({ ...x, states_recent: x.state_set.size }))
+      .sort((a, b) => b.bills_recent - a.bills_recent)
+      .slice(0, 3);
+  } catch { /* pre-migration */ }
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
       <header className="mb-10">
@@ -140,6 +177,41 @@ export default async function IntelHubPage() {
           <Link href="/intel/rulemaking" className="mt-2 inline-block text-xs font-semibold text-emerald-400 hover:underline">
             Open rulemaking tracker →
           </Link>
+        </section>
+      )}
+
+      {/* Top 3 most-active operations — single-glance threat surface.
+          Bills touched in last 180d per cluster. Click through for
+          full per-cluster intel (sponsors, sister clusters, LDA
+          overlap, donor industries, deciding committees). */}
+      {topActiveOps.length > 0 && (
+        <section className="mb-6 rounded-lg border border-rose-700/40 bg-rose-950/15 p-4">
+          <div className="mb-2 flex flex-wrap items-baseline gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-rose-300">
+              ⚡ Most active operations · last 180 days
+            </h2>
+            <Link href="/intel/operations/network" className="ml-auto text-[10px] text-rose-300 hover:text-rose-200">
+              Full network map →
+            </Link>
+          </div>
+          <ul className="grid gap-2 sm:grid-cols-3">
+            {topActiveOps.map((op) => (
+              <li key={op.slug}>
+                <Link
+                  href={`/intel/operations/${op.slug}`}
+                  className="block rounded border border-rose-700/30 bg-rose-950/10 px-3 py-2 hover:border-rose-500"
+                >
+                  <div className="text-[11px] font-semibold text-rose-100">
+                    {op.name.split("—")[0].trim().split("(")[0].trim()}
+                  </div>
+                  <div className="mt-1 text-[10px] text-zinc-400">
+                    <strong className="font-mono text-zinc-200">{op.bills_recent}</strong> bills ·{" "}
+                    <strong className="font-mono text-zinc-200">{op.states_recent}</strong> state{op.states_recent === 1 ? "" : "s"}
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
