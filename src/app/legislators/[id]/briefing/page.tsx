@@ -195,7 +195,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
 
   // ── "Currently deciding" cross-reference: which active bills in
   // this person's state are in committees they sit on right now?
-  let currentlyDeciding: Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; committee: string; role: string }> = [];
+  let currentlyDeciding: Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; committee: string; role: string; clusters: Array<{ slug: string; name: string }> }> = [];
   try {
     if (committees.length > 0) {
       const { data: stateBills } = await sb
@@ -217,6 +217,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
           kratom_relevance: b.kratom_relevance,
           committee: match.committee_name,
           role: match.role,
+          clusters: [],
         });
       }
       // Dedupe + anti-first
@@ -229,6 +230,31 @@ export default async function BriefingPage({ params }: { params: Params }) {
           return 0;
         })
         .slice(0, 15);
+
+      // Enrich with cluster membership — surfaces "this legislator is
+      // on the committee deciding a KCPA bill right now" inline.
+      const decidingBillIds = currentlyDeciding.map((d) => d.id);
+      if (decidingBillIds.length > 0) {
+        try {
+          const { data: cmRows } = await sb
+            .from("bill_cluster_members")
+            .select("bill_id, bill_clusters!inner(slug, name)")
+            .in("bill_id", decidingBillIds);
+          type CJ = { slug: string; name: string };
+          const clustersByBill = new Map<string, CJ[]>();
+          for (const m of (cmRows ?? []) as Array<{
+            bill_id: string; bill_clusters: CJ | CJ[] | null;
+          }>) {
+            const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+            if (!c) continue;
+            if (!clustersByBill.has(m.bill_id)) clustersByBill.set(m.bill_id, []);
+            clustersByBill.get(m.bill_id)!.push(c);
+          }
+          for (const d of currentlyDeciding) {
+            d.clusters = clustersByBill.get(d.id) ?? [];
+          }
+        } catch { /* pre-migration */ }
+      }
     }
   } catch {
     // Pre-migration deploy — silent fallback.
@@ -845,6 +871,19 @@ export default async function BriefingPage({ params }: { params: Params }) {
                   <p className="mt-1 text-xs text-zinc-100">
                     {d.title?.slice(0, 110) ?? "(untitled)"}
                   </p>
+                  {d.clusters.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1 text-[10px]">
+                      <span className="text-zinc-500">Part of operation:</span>
+                      {d.clusters.map((c) => (
+                        <span
+                          key={c.slug}
+                          className="rounded border border-red-700/40 bg-red-950/15 px-1.5 py-0.5 text-red-200"
+                        >
+                          🕸 {c.name.split("—")[0].trim().split("(")[0].trim()}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </Link>
               </li>
             ))}
