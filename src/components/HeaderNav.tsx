@@ -74,6 +74,7 @@ const GROUPS: NavGroup[] = [
   {
     label: "Community",
     items: [
+      { href: "/coalitions", label: "🤝 Coalitions", description: "Multi-advocate teams with invite codes. Private by default — coordinate around a state or bill." },
       { href: "/forum", label: "Forum", description: "State-by-state advocate discussion." },
       { href: "/communities", label: "Communities", description: "Topic-focused groups: vets, shop owners, etc." },
       { href: "/stories", label: "📖 Story bank", description: "Real kratom-advocate stories. The most persuasive thing legislators read." },
