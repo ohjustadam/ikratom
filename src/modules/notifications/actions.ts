@@ -10,6 +10,7 @@ export type NotificationPrefs = {
   in_app: boolean;
   email: boolean;
   digest: "instant" | "daily" | "weekly" | "off";
+  daily_brief_push: boolean;
 };
 
 export async function getNotificationPrefs() {
@@ -48,6 +49,7 @@ export async function updateNotificationPrefs(formData: FormData) {
     in_app: formData.get("in_app") === "on",
     email: formData.get("email") === "on",
     digest,
+    daily_brief_push: formData.get("daily_brief_push") === "on",
     updated_at: new Date().toISOString(),
   };
 
