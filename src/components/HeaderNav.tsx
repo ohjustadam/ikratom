@@ -50,6 +50,7 @@ const GROUPS: NavGroup[] = [
       { href: "/intel", label: "◉ Intel hub", description: "Where the influence actually flows — lobbying, courts, rulemaking, money, actors." },
       { href: "/intel/threat-matrix", label: "🎯 Threat matrix", description: "Every legislator ranked into action tiers (opponent / flippable / champion). One targeting view." },
       { href: "/intel/operations", label: "🕸 Coordinated operations", description: "Model legislation pushed across states. Every detected operation named + traced." },
+      { href: "/intel/operations/network", label: "🕸 Operations network map", description: "The coordination graph: multi-cluster operators, hybrid-tactic bills, federal lobbyist firms, state index." },
       { href: "/intel/donations", label: "🧮 Donor leaderboard", description: "Federal legislators ranked by substance-policy-adjacent industry contributions." },
       { href: "/intel/lobbying", label: "📜 Lobbying filings", description: "Senate LDA disclosures mentioning kratom. AKA, GKC, BEA, retained DC firms." },
       { href: "/intel/cases", label: "⚖ Court litigation", description: "Industry lawsuits, state-ban challenges. CourtListener + RECAP." },

@@ -231,6 +231,13 @@ export default async function IntelHubPage() {
           highlight
         />
         <Card
+          href="/intel/operations/network"
+          emoji="🕸"
+          title="Operations network map — the coordination graph"
+          body="Multi-cluster legislators (the most-coordinated individual operators), cross-cluster bills (hybrid tactics), federal lobbyist concentration, state coordination index, industry-actor registry. Five views of the network in one dashboard."
+          highlight
+        />
+        <Card
           href="/intel/operations"
           emoji="🕸"
           title="Coordinated operations — model legislation, named + traced"
