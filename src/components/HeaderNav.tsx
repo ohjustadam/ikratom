@@ -25,6 +25,7 @@ const GROUPS: NavGroup[] = [
   {
     label: "Action",
     items: [
+      { href: "/brief", label: "☕ Daily brief", description: "Today's roll-up for your state: alerts, watched-bill movements, active operations, one-click actions." },
       { href: "/pulse", label: "Pulse", description: "Live alerts: hostile bills, BoP rules, breaking news." },
       { href: "/campaigns", label: "Campaigns", description: "One-click letters to your reps." },
       { href: "/calls", label: "📞 Call your reps", description: "Phone-tree tracker with achievement badges. Calls beat emails 10:1 for impact." },
