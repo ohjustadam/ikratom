@@ -87,6 +87,13 @@ export default async function OperationsIntelPage() {
     states: Set<string>;
   };
   const sponsorAggByCluster = new Map<string, SponsorAgg>();
+  // Per-cluster donor industry rollups across federal sponsors with
+  // matched OpenFEC data. Populated alongside the stance walk below.
+  type DonorAgg = {
+    by_industry: Map<string, { amount: number; label: string; advocate_flag: boolean; recipients: number }>;
+    donor_sponsor_count: number;
+  };
+  const donorAggByCluster = new Map<string, DonorAgg>();
   for (const [clusterId, ms] of membersByCluster.entries()) {
     sponsorAggByCluster.set(clusterId, { total: 0, by_stance: {}, states: new Set() });
     for (const m of ms) {
@@ -136,7 +143,6 @@ export default async function OperationsIntelPage() {
         const clusters = clustersByBill.get(s.bill_id) ?? new Set();
         const stance = stanceByLeg.get(s.legislator_id) ?? "unknown";
         for (const cid of clusters) {
-          const seenKey = `${cid}:${s.legislator_id}`;
           if (seenLegPerCluster.has(cid) && seenLegPerCluster.get(cid)!.has(s.legislator_id)) continue;
           if (!seenLegPerCluster.has(cid)) seenLegPerCluster.set(cid, new Set());
           seenLegPerCluster.get(cid)!.add(s.legislator_id);
@@ -144,6 +150,57 @@ export default async function OperationsIntelPage() {
           if (!agg) continue;
           agg.total += 1;
           agg.by_stance[stance] = (agg.by_stance[stance] ?? 0) + 1;
+        }
+      }
+
+      // ── Per-cluster donor industry aggregation
+      // Follow the money: for the federal sponsors backing each
+      // operation, sum the substance-policy-adjacent industry
+      // contributions. Reveals "Schedule I criminalization is backed
+      // by sponsors who collectively received $X from addiction
+      // treatment + $Y from pharma." State legislators don't have
+      // OpenFEC donor data so the federal subset surfaces here when
+      // the cluster has federal sponsors.
+      if (sponsorLegIds.length > 0) {
+        const { data: donors } = await sb
+          .from("legislator_donors")
+          .select("legislator_id, top_industries")
+          .in("legislator_id", sponsorLegIds)
+          .eq("resolved_status", "matched");
+        type DonorRow = {
+          legislator_id: string;
+          top_industries: Array<{ industry: string; label?: string; advocate_flag?: boolean; amount: number }> | null;
+        };
+        const donorByLeg = new Map<string, DonorRow["top_industries"]>();
+        for (const d of (donors ?? []) as DonorRow[]) {
+          donorByLeg.set(d.legislator_id, d.top_industries ?? []);
+        }
+        const seenDonorPerCluster = new Map<string, Set<string>>();
+        for (const s of (sps ?? []) as Array<{ bill_id: string; legislator_id: string }>) {
+          if (!donorByLeg.has(s.legislator_id)) continue;
+          const clusters = clustersByBill.get(s.bill_id) ?? new Set();
+          for (const cid of clusters) {
+            if (seenDonorPerCluster.has(cid) && seenDonorPerCluster.get(cid)!.has(s.legislator_id)) continue;
+            if (!seenDonorPerCluster.has(cid)) seenDonorPerCluster.set(cid, new Set());
+            seenDonorPerCluster.get(cid)!.add(s.legislator_id);
+            const inds = donorByLeg.get(s.legislator_id) ?? [];
+            const agg = donorAggByCluster.get(cid) ?? {
+              by_industry: new Map<string, { amount: number; label: string; advocate_flag: boolean; recipients: number }>(),
+              donor_sponsor_count: 0,
+            };
+            agg.donor_sponsor_count += 1;
+            for (const ind of inds ?? []) {
+              if (!ind.industry || typeof ind.amount !== "number") continue;
+              const cur = agg.by_industry.get(ind.industry) ?? {
+                amount: 0, label: ind.label ?? ind.industry,
+                advocate_flag: !!ind.advocate_flag, recipients: 0,
+              };
+              cur.amount += ind.amount;
+              cur.recipients += 1;
+              agg.by_industry.set(ind.industry, cur);
+            }
+            donorAggByCluster.set(cid, agg);
+          }
         }
       }
     }
@@ -253,6 +310,59 @@ export default async function OperationsIntelPage() {
                           </span>
                         ))}
                     </div>
+                  </div>
+                );
+              })()}
+
+              {/* Per-cluster donor overlap — follow the money one
+                  layer deeper. Sums substance-policy-adjacent industry
+                  contributions across federal sponsors of bills in
+                  this cluster. State legislators don't have OpenFEC
+                  donor data so this surfaces only when the cluster
+                  includes federal sponsors. ⚠ on the seven
+                  advocate-flagged industries. */}
+              {(() => {
+                const da = donorAggByCluster.get(c.id);
+                if (!da || da.donor_sponsor_count === 0) return null;
+                const rows = [...da.by_industry.entries()]
+                  .map(([id, x]) => ({ industry: id, ...x }))
+                  .filter((r) => r.amount >= 1_000)
+                  .sort((a, b) => b.amount - a.amount)
+                  .slice(0, 8);
+                if (rows.length === 0) return null;
+                const flaggedTotal = rows
+                  .filter((r) => r.advocate_flag)
+                  .reduce((sum, r) => sum + r.amount, 0);
+                return (
+                  <div className="mt-3 rounded border border-amber-700/30 bg-amber-950/10 p-2.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+                      💰 Industry money behind this operation
+                    </p>
+                    <p className="mt-1 text-[10px] text-zinc-400">
+                      Across {da.donor_sponsor_count} federal sponsor{da.donor_sponsor_count === 1 ? "" : "s"} with matched OpenFEC data
+                      {flaggedTotal > 0 && (
+                        <> · <strong className="text-red-300">${flaggedTotal.toLocaleString()}</strong> from substance-policy-adjacent industries (⚠)</>
+                      )}
+                    </p>
+                    <ul className="mt-1.5 space-y-0.5">
+                      {rows.map((r) => (
+                        <li
+                          key={r.industry}
+                          className={`flex flex-wrap items-baseline gap-x-2 rounded px-2 py-0.5 text-[11px] ${
+                            r.advocate_flag ? "border border-red-700/40 bg-red-950/15 text-red-100" : "text-zinc-300"
+                          }`}
+                        >
+                          {r.advocate_flag && <span className="text-[10px] font-bold text-red-300">⚠</span>}
+                          <span className={r.advocate_flag ? "font-semibold" : ""}>{r.label}</span>
+                          <span className="text-[10px] text-zinc-500">
+                            ({r.recipients} sponsor{r.recipients === 1 ? "" : "s"})
+                          </span>
+                          <span className="ml-auto font-mono tabular-nums">
+                            ${r.amount.toLocaleString()}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 );
               })()}
