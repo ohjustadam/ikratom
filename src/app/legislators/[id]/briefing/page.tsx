@@ -240,6 +240,35 @@ export default async function BriefingPage({ params }: { params: Params }) {
   const has_anti_sponsorship = sponsorships.some((s) => s.kratom_relevance === "anti");
   const has_pro_sponsorship = sponsorships.some((s) => s.kratom_relevance === "pro");
 
+  // ── Coordinated operations involvement. For every bill this
+  // legislator primary-sponsors, look up cluster membership. The
+  // result is the set of distinct coordinated operations they're
+  // running bills for. Multi-cluster involvement is the most damning
+  // network-coordination signal — visible on /intel/operations/network
+  // but it should also surface here on each individual's briefing.
+  type ClusterInvolvement = { slug: string; name: string; posture: string; bills: number };
+  const clusterInvolvement: ClusterInvolvement[] = [];
+  if (primary.length > 0) {
+    try {
+      const { data: clusterMembers } = await sb
+        .from("bill_cluster_members")
+        .select("bill_id, bill_clusters!inner(slug, name, posture)")
+        .in("bill_id", primary.map((p) => p.bill_id));
+      type ClusterJoined = { slug: string; name: string; posture: string };
+      const agg = new Map<string, ClusterInvolvement>();
+      for (const m of (clusterMembers ?? []) as Array<{
+        bill_id: string; bill_clusters: ClusterJoined | ClusterJoined[] | null;
+      }>) {
+        const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+        if (!c) continue;
+        const cur = agg.get(c.slug) ?? { slug: c.slug, name: c.name, posture: c.posture, bills: 0 };
+        cur.bills += 1;
+        agg.set(c.slug, cur);
+      }
+      clusterInvolvement.push(...[...agg.values()].sort((a, b) => b.bills - a.bills));
+    } catch { /* pre-migration */ }
+  }
+
   // ── Voting record (Phase 3 D1). Flatten the joined response into
   // a clean shape. votingRaw.data may be null on pre-migration deploys
   // (table doesn't exist yet) — wrap defensively.
@@ -817,6 +846,33 @@ export default async function BriefingPage({ params }: { params: Params }) {
                     {d.title?.slice(0, 110) ?? "(untitled)"}
                   </p>
                 </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* ── Coordinated operations involvement ─────────────────── */}
+      {clusterInvolvement.length > 0 && (
+        <section className="mb-6 rounded-lg border border-red-700/30 bg-red-950/10 p-5">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-red-300">
+            🕸 Coordinated operations involvement
+          </h2>
+          <p className="text-[11px] text-zinc-400">
+            {clusterInvolvement.length === 1
+              ? `Primary-sponsors bills in 1 detected coordinated operation.`
+              : `Primary-sponsors bills in ${clusterInvolvement.length} distinct coordinated operations — a multi-cluster operator on the network map.`}
+          </p>
+          <ul className="mt-2 space-y-1 text-[11px]">
+            {clusterInvolvement.map((c) => (
+              <li key={c.slug} className="flex items-baseline gap-x-2 rounded border border-red-700/20 bg-red-950/5 px-2 py-1">
+                <Link href={`/intel/operations/${c.slug}`} className="font-semibold text-red-100 hover:underline">
+                  {c.name.split("—")[0].trim().split("(")[0].trim()}
+                </Link>
+                <span className="text-[10px] text-zinc-500">[{c.posture}]</span>
+                <span className="ml-auto font-mono text-zinc-300">
+                  <strong>{c.bills}</strong> bill{c.bills === 1 ? "" : "s"}
+                </span>
               </li>
             ))}
           </ul>
