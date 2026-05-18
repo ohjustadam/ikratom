@@ -5,6 +5,7 @@ import {
   ROLE_LABEL,
   type ActorFaction,
 } from "@/lib/kratom-industry-actors";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
   title: "Industry actors — kratom policy intel",
@@ -33,6 +34,28 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
     ? KRATOM_INDUSTRY_ACTORS.filter((a) => a.faction === factionFilter)
     : KRATOM_INDUSTRY_ACTORS;
 
+  // 990 finances for orgs we track in nonprofit_990_filings. Defensive
+  // so pre-migration deploys silently skip the section.
+  type FilingRow = {
+    ein: string; org_name: string; tax_year: number;
+    total_revenue: number | null; total_expenses: number | null;
+    officer_compensation: number | null;
+    total_assets_eoy: number | null;
+    source_url: string | null; pdf_url: string | null;
+  };
+  const latestByEin = new Map<string, FilingRow>();
+  try {
+    const sb = await createClient();
+    const { data } = await sb
+      .from("nonprofit_990_filings")
+      .select("ein, org_name, tax_year, total_revenue, total_expenses, officer_compensation, total_assets_eoy, source_url, pdf_url")
+      .order("tax_year", { ascending: false });
+    for (const r of (data ?? []) as FilingRow[]) {
+      if (!latestByEin.has(r.ein)) latestByEin.set(r.ein, r);
+    }
+  } catch { /* table not yet migrated */ }
+  const fmt$ = (n: number | null) => n == null ? "—" : `$${n.toLocaleString()}`;
+
   const factionCounts: Record<string, number> = {};
   for (const a of KRATOM_INDUSTRY_ACTORS) {
     factionCounts[a.faction] = (factionCounts[a.faction] ?? 0) + 1;
@@ -58,6 +81,56 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
           (the targets) for the full operations picture.
         </p>
       </header>
+
+      {/* 990 finances — surfaces topline revenue/expenses/officer
+          comp for the orgs we track in nonprofit_990_filings. The
+          501(c)(4) "dark money" gap means we don't know donors, but
+          we DO know how much money flowed through and how much went
+          to officers. Source: ProPublica Nonprofit Explorer. */}
+      {latestByEin.size > 0 && (
+        <section className="mb-8 rounded-lg border border-amber-700/40 bg-amber-950/10 p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+            💰 Latest Form 990 finances (IRS-filed)
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Most recent tax year filed per org. Source: ProPublica Nonprofit Explorer (free public API). 501(c)(4)s aren&apos;t required to disclose donors but DO disclose total revenue, expenses, and key-employee compensation.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead className="text-[10px] uppercase tracking-wider text-zinc-500">
+                <tr className="border-b border-zinc-800">
+                  <th className="py-1 text-left">Org</th>
+                  <th className="py-1 text-right">Tax year</th>
+                  <th className="py-1 text-right">Revenue</th>
+                  <th className="py-1 text-right">Expenses</th>
+                  <th className="py-1 text-right">Officer comp</th>
+                  <th className="py-1 text-right">Assets EOY</th>
+                  <th className="py-1 text-left"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...latestByEin.values()].map((r) => (
+                  <tr key={r.ein} className="border-b border-zinc-900">
+                    <td className="py-1 text-zinc-200">{r.org_name}</td>
+                    <td className="py-1 text-right font-mono text-zinc-400">{r.tax_year}</td>
+                    <td className="py-1 text-right font-mono">{fmt$(r.total_revenue)}</td>
+                    <td className="py-1 text-right font-mono">{fmt$(r.total_expenses)}</td>
+                    <td className="py-1 text-right font-mono">{fmt$(r.officer_compensation)}</td>
+                    <td className="py-1 text-right font-mono">{fmt$(r.total_assets_eoy)}</td>
+                    <td className="py-1 text-right">
+                      {r.source_url && (
+                        <a href={r.source_url} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">
+                          ProPublica ↗
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Faction filter pills */}
       <nav className="mb-6 flex flex-wrap gap-2 text-xs">
