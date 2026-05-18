@@ -297,8 +297,15 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
             </span>
           )}
           <Link
+            href={`/campaigns/operation/${c.slug}`}
+            className="ml-auto rounded bg-emerald-500 px-2.5 py-1 font-semibold text-zinc-950 hover:bg-emerald-400"
+            title="One-click coordinated response across every active bill in this operation"
+          >
+            ⚡ Respond to this op
+          </Link>
+          <Link
             href={`/intel/operations/${c.slug}/dossier`}
-            className="ml-auto rounded border border-emerald-700/40 bg-emerald-950/15 px-2.5 py-1 font-semibold text-emerald-300 hover:bg-emerald-950/30"
+            className="rounded border border-emerald-700/40 bg-emerald-950/15 px-2.5 py-1 font-semibold text-emerald-300 hover:bg-emerald-950/30"
             title="Printable citation-ready 1-page report on this operation"
           >
             📄 Print dossier
