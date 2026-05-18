@@ -206,6 +206,34 @@ export default async function OperationsNetworkPage() {
     .sort((a, b) => b.filings - a.filings)
     .slice(0, 20);
 
+  // ── 3c. Cluster co-occurrence matrix — pairs of clusters that
+  // share the most bills. Reveals which tactical combinations get
+  // bundled together (e.g. KCPA scaffolding + Synthetic-only carve-out
+  // = the advocate-friendly hybrid; Schedule I + Age-21 = full
+  // criminalization-plus-restriction).
+  const clusterPairCount = new Map<string, number>();
+  for (const clusterSet of billToClusters.values()) {
+    const slugs = [...clusterSet];
+    for (let i = 0; i < slugs.length; i++) {
+      for (let j = i + 1; j < slugs.length; j++) {
+        const key = [slugs[i], slugs[j]].sort().join("||");
+        clusterPairCount.set(key, (clusterPairCount.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  type ClusterPair = { a: ClusterMembershipSummary; b: ClusterMembershipSummary; count: number };
+  const topPairs: ClusterPair[] = [...clusterPairCount.entries()]
+    .map(([key, count]) => {
+      const [aSlug, bSlug] = key.split("||");
+      const a = clusterMeta.get(aSlug);
+      const b = clusterMeta.get(bSlug);
+      if (!a || !b) return null;
+      return { a, b, count };
+    })
+    .filter((x): x is ClusterPair => x !== null)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
   // ── 4. State coordination index (operations active per state)
   type StateCoordRow = { state: string; cluster_count: number; bill_count: number };
   const stateClusterMap = new Map<string, Set<string>>();
@@ -420,6 +448,37 @@ export default async function OperationsNetworkPage() {
                 <p className="mt-0.5 text-[10px] text-zinc-500">
                   Clients: {[...p.clients].slice(0, 4).join(" · ")}{p.clients.size > 4 ? ` + ${p.clients.size - 4} more` : ""}
                 </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 3c. Cluster co-occurrence */}
+      {topPairs.length > 0 && (
+        <section className="mb-8 rounded-lg border border-violet-700/30 bg-violet-950/10 p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-violet-300">
+            🔗 Cluster co-occurrence · tactical bundling
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Which operations get bundled into the same bills. High counts mean drafters
+            routinely combine these tactics — useful for reading intent (e.g. KCPA scaffolding +
+            Synthetic-only carve-out = advocate-aligned hybrid; Schedule I + Age-21 =
+            criminalization plus age restriction layered together).
+          </p>
+          <ul className="mt-3 space-y-1 text-[11px]">
+            {topPairs.map((p, i) => (
+              <li key={i} className="flex flex-wrap items-baseline gap-x-2 rounded border border-violet-700/20 bg-violet-950/5 px-2 py-1">
+                <Link href={`/intel/operations/${p.a.slug}`} className="font-semibold text-violet-100 hover:underline">
+                  {p.a.name.split("—")[0].trim().split("(")[0].trim()}
+                </Link>
+                <span className="text-zinc-500">×</span>
+                <Link href={`/intel/operations/${p.b.slug}`} className="font-semibold text-violet-100 hover:underline">
+                  {p.b.name.split("—")[0].trim().split("(")[0].trim()}
+                </Link>
+                <span className="ml-auto font-mono text-zinc-300">
+                  <strong>{p.count}</strong> shared bill{p.count === 1 ? "" : "s"}
+                </span>
               </li>
             ))}
           </ul>
