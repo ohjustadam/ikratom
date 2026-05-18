@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getOrGenerateBriefSummary } from "@/modules/brief/summary";
+import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
 
 export const metadata = {
   title: "Daily brief — what's moving in kratom policy",
@@ -78,6 +79,7 @@ export default async function BriefPage() {
     id: string; state: string; bill_number: string; title: string | null;
     status: string | null; last_action: string | null; last_action_at: string | null;
     kratom_relevance: string | null;
+    current_committee_name: string | null; active: boolean | null;
   };
   let watchedBills: WatchedBill[] = [];
   if (user) {
@@ -90,7 +92,7 @@ export default async function BriefPage() {
       if (billIds.length > 0) {
         const { data } = await sb
           .from("bills")
-          .select("id, state, bill_number, title, status, last_action, last_action_at, kratom_relevance")
+          .select("id, state, bill_number, title, status, last_action, last_action_at, kratom_relevance, current_committee_name, active")
           .in("id", billIds)
           .gte("last_action_at", cutoff7.slice(0, 10))
           .order("last_action_at", { ascending: false });
@@ -318,6 +320,25 @@ export default async function BriefPage() {
                       <span className="rounded bg-emerald-950/40 px-1.5 py-0.5 text-[10px] text-emerald-300">Pro</span>
                     )}
                     {b.status && <span className="text-[10px] text-zinc-500">[{b.status}]</span>}
+                    {(() => {
+                      const m = computeBillMomentum({
+                        last_action_at: b.last_action_at,
+                        status: b.status,
+                        current_committee_name: b.current_committee_name,
+                        sponsor_count: 0,
+                        cluster_count: 0,
+                        recent_news_mentions: 0,
+                        active: b.active !== false,
+                      });
+                      return (
+                        <span
+                          className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${MOMENTUM_TONE[m.label]}`}
+                          title={m.rationale}
+                        >
+                          {MOMENTUM_LABEL[m.label]}
+                        </span>
+                      );
+                    })()}
                     {b.last_action_at && (
                       <span className="ml-auto text-[10px] text-zinc-500">{b.last_action_at}</span>
                     )}
