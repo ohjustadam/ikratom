@@ -266,6 +266,11 @@ export default async function AdminPage() {
             body="Every cron + scraper + DB trigger in one view. Surfaces when GH Actions / Vercel / Postgres triggers stop firing. Catches silent outages before intel goes stale."
           />
           <AdminCard
+            href="/admin/abuse-signals"
+            title="🚨 Abuse signals"
+            body="Adversarial-pattern dashboard: honeypot triggers, timing-trap triggers, failed-login concentrations per IP, signup-abuse rings, top error codes. Use to triage active waves before flipping read-only mode."
+          />
+          <AdminCard
             href="/admin/intel-health"
             title="Intel Health"
             body="Pipeline observability — per-source freshness, recent failures."
