@@ -104,6 +104,25 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
   }
   const statesSorted = [...billsByState.entries()].sort((a, b) => b[1].length - a[1].length);
 
+  // Currently-deciding committees — bills in this cluster that are
+  // sitting in a committee RIGHT NOW. The live decision-points per
+  // operation: where advocacy can swing the outcome this week.
+  // Grouped by (state, committee_name) since the same committee name
+  // can appear in multiple states (e.g. "Health Committee").
+  type DecidingRow = { state: string; committee: string; bills: Array<{ id: string; bill_number: string; title: string | null }> };
+  const decidingMap = new Map<string, DecidingRow>();
+  for (const e of billsInCluster) {
+    const cmt = e.bill.current_committee_name?.trim();
+    if (!cmt) continue;
+    const key = `${e.bill.state}::${cmt}`;
+    const row = decidingMap.get(key) ?? { state: e.bill.state, committee: cmt, bills: [] };
+    row.bills.push({ id: e.bill.id, bill_number: e.bill.bill_number, title: e.bill.title });
+    decidingMap.set(key, row);
+  }
+  const decidingRows = [...decidingMap.values()].sort((a, b) =>
+    b.bills.length - a.bills.length || a.state.localeCompare(b.state),
+  );
+
   // Sister clusters — other clusters that share bills with this one.
   // Reveals the tactical bundling specific to this operation
   // (e.g. KCPA bills are also Age-21 bills 38% of the time).
@@ -500,6 +519,50 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
                 <span className="ml-auto font-mono tabular-nums">${r.amount.toLocaleString()}</span>
               </li>
             ))}
+          </ul>
+        </section>
+      )}
+
+      {/* Currently-deciding committees — bills sitting in committee
+          right now. Live decision points where advocacy can swing
+          the outcome this week. */}
+      {decidingRows.length > 0 && (
+        <section className="mb-6 rounded-lg border border-amber-700/40 bg-amber-950/10 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+            ⚡ Currently deciding · {decidingRows.length} live committee{decidingRows.length === 1 ? "" : "s"}
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Bills in this operation that are sitting in a committee right now. These are the
+            live decision points — committee chairs and members can swing the outcome before
+            the bill ever reaches the floor.
+          </p>
+          <ul className="mt-2 space-y-1 text-[11px]">
+            {decidingRows.slice(0, 12).map((r, i) => (
+              <li key={i} className="rounded border border-amber-700/30 bg-amber-950/5 px-2 py-1">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-mono font-bold text-amber-200">{r.state}</span>
+                  <span className="font-semibold text-zinc-100">{r.committee}</span>
+                  <span className="ml-auto font-mono text-[10px] text-zinc-400">
+                    {r.bills.length} bill{r.bills.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-zinc-500">
+                  {r.bills.slice(0, 6).map((b) => (
+                    <Link key={b.id} href={`/bills/${b.id}`} className="font-mono hover:text-emerald-400">
+                      {b.bill_number}
+                    </Link>
+                  ))}
+                  {r.bills.length > 6 && (
+                    <span>+ {r.bills.length - 6} more</span>
+                  )}
+                </div>
+              </li>
+            ))}
+            {decidingRows.length > 12 && (
+              <li className="pt-1 text-[10px] text-zinc-500">
+                + {decidingRows.length - 12} more committees with bills from this operation.
+              </li>
+            )}
           </ul>
         </section>
       )}
