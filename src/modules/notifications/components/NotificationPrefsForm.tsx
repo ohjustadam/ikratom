@@ -46,6 +46,9 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
           <Check name="email" defaultChecked={initial?.email ?? false} disabled>
             Email <span className="ml-1 text-xs text-zinc-500">(coming with email integration)</span>
           </Check>
+          <Check name="daily_brief_push" defaultChecked={initial?.daily_brief_push ?? false}>
+            ☕ Daily brief push <span className="ml-1 text-xs text-zinc-500">(once-a-day summary, requires push enabled in browser)</span>
+          </Check>
         </div>
       </div>
 
