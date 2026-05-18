@@ -41,7 +41,7 @@ export default async function OperationsNetworkPage() {
     ldasRes,
   ] = await Promise.all([
     sb.from("bill_cluster_members")
-      .select("cluster_id, bill_id, bill_clusters!inner(slug, name, posture), bills!inner(id, state, bill_number, title, active)")
+      .select("cluster_id, bill_id, bill_clusters!inner(slug, name, posture), bills!inner(id, state, bill_number, title, active, last_action_at, created_at)")
       .eq("bills.active", true),
     sb.from("bill_sponsors")
       .select("bill_id, legislator_id, classification")
@@ -55,7 +55,7 @@ export default async function OperationsNetworkPage() {
       .eq("is_kratom_relevant", true),
   ]);
 
-  type BillJoined = { id: string; state: string; bill_number: string; title: string | null; active: boolean };
+  type BillJoined = { id: string; state: string; bill_number: string; title: string | null; active: boolean; last_action_at: string | null; created_at: string };
   type ClusterJoined = { slug: string; name: string; posture: string };
   type MemberRow = {
     cluster_id: string;
@@ -234,6 +234,63 @@ export default async function OperationsNetworkPage() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
+  // ── 3d. Operation propagation timeline — for each cluster, the
+  // chronological order states first introduced bills matching its
+  // pattern. Reveals the model-legislation travel route: which state
+  // seeded the operation and which states copied next. Uses each
+  // bill's earliest available timestamp (last_action_at, falling
+  // back to created_at) as a proxy for introduction date.
+  type PropagationStep = { state: string; date: string; bill_id: string; bill_number: string };
+  type ClusterPropagation = { slug: string; name: string; steps: PropagationStep[] };
+  const clusterFirstSeen = new Map<string, Map<string, { date: string; bill_id: string; bill_number: string }>>();
+  for (const m of members) {
+    const b = normalize(m.bills);
+    const c = normalize(m.bill_clusters);
+    if (!b || !c) continue;
+    const dateStr = b.last_action_at ?? b.created_at?.slice(0, 10);
+    if (!dateStr) continue;
+    if (!clusterFirstSeen.has(c.slug)) clusterFirstSeen.set(c.slug, new Map());
+    const stateMap = clusterFirstSeen.get(c.slug)!;
+    const prev = stateMap.get(b.state);
+    if (!prev || dateStr < prev.date) {
+      stateMap.set(b.state, { date: dateStr, bill_id: b.id, bill_number: b.bill_number });
+    }
+  }
+  const propagations: ClusterPropagation[] = [...clusterFirstSeen.entries()]
+    .map(([slug, stateMap]) => {
+      const meta = clusterMeta.get(slug);
+      if (!meta) return null;
+      const steps: PropagationStep[] = [...stateMap.entries()]
+        .map(([state, v]) => ({ state, ...v }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      return { slug, name: meta.name, steps };
+    })
+    .filter((x): x is ClusterPropagation => x !== null && x.steps.length >= 3)
+    .sort((a, b) => b.steps.length - a.steps.length);
+
+  // ── 3e. Recently-active operations — clusters with bills last
+  // touched in the past 180 days. Distinguishes "alive operation"
+  // from "historical pattern in corpus".
+  const HORIZON_DAYS = 180;
+  const horizon = new Date(Date.now() - HORIZON_DAYS * 86400 * 1000).toISOString().slice(0, 10);
+  type RecentOp = { slug: string; name: string; bills_recent: number; states_recent: Set<string>; latest_date: string };
+  const recentByCluster = new Map<string, RecentOp>();
+  for (const m of members) {
+    const b = normalize(m.bills);
+    const c = normalize(m.bill_clusters);
+    if (!b || !c) continue;
+    const dateStr = b.last_action_at ?? b.created_at?.slice(0, 10);
+    if (!dateStr || dateStr < horizon) continue;
+    const agg = recentByCluster.get(c.slug) ?? {
+      slug: c.slug, name: c.name, bills_recent: 0, states_recent: new Set<string>(), latest_date: "",
+    };
+    agg.bills_recent += 1;
+    agg.states_recent.add(b.state);
+    if (dateStr > agg.latest_date) agg.latest_date = dateStr;
+    recentByCluster.set(c.slug, agg);
+  }
+  const recentOps = [...recentByCluster.values()].sort((a, b) => b.bills_recent - a.bills_recent);
+
   // ── 4. State coordination index (operations active per state)
   type StateCoordRow = { state: string; cluster_count: number; bill_count: number };
   const stateClusterMap = new Map<string, Set<string>>();
@@ -281,7 +338,7 @@ export default async function OperationsNetworkPage() {
           are most-coordinated, and where the industry actors land in the registry.
         </p>
         <p className="mt-2 max-w-3xl text-[11px] text-zinc-500">
-          {cosponsorlessCount} multi-cluster operators · {crossClusterBills.length} cross-cluster bills · {topRegistrants.length} federal lobbyist firms · {stateCoord.length} states with operation activity · {totalLegs.toLocaleString()} active legislators in the corpus.
+          {cosponsorlessCount} multi-cluster operators · {crossClusterBills.length} cross-cluster bills · {topRegistrants.length} federal lobbyist firms · {propagations.length} operations w/ traced propagation · {recentOps.length} active in last {HORIZON_DAYS}d · {stateCoord.length} states with operation activity · {totalLegs.toLocaleString()} active legislators.
         </p>
       </header>
 
@@ -479,6 +536,77 @@ export default async function OperationsNetworkPage() {
                 <span className="ml-auto font-mono text-zinc-300">
                   <strong>{p.count}</strong> shared bill{p.count === 1 ? "" : "s"}
                 </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 3d. Operation propagation timeline */}
+      {propagations.length > 0 && (
+        <section className="mb-8 rounded-lg border border-sky-700/30 bg-sky-950/10 p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-sky-300">
+            🛰 Operation propagation · state-by-state travel
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            For each operation, the chronological order states first introduced a matching bill.
+            First state ≈ seed; later states copied the model. Date shown is the earliest action
+            recorded for the bill in that state — a proxy for when the operation arrived.
+          </p>
+          <ul className="mt-3 space-y-3 text-[11px]">
+            {propagations.slice(0, 8).map((p) => {
+              const head = p.steps.slice(0, 8);
+              const remainder = p.steps.length - head.length;
+              return (
+                <li key={p.slug} className="rounded border border-sky-700/20 bg-sky-950/5 px-3 py-2">
+                  <Link href={`/intel/operations/${p.slug}`} className="font-semibold text-sky-100 hover:underline">
+                    {p.name.split("—")[0].trim()}
+                  </Link>
+                  <span className="ml-2 text-zinc-500">{p.steps.length} states total</span>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-[10px]">
+                    {head.map((s, i) => (
+                      <span key={s.state} className="inline-flex items-center gap-1">
+                        {i > 0 && <span className="text-zinc-600">→</span>}
+                        <span className="rounded bg-sky-900/40 px-1.5 py-0.5 text-sky-100">
+                          {s.state}
+                        </span>
+                        <span className="text-zinc-500">{s.date.slice(0, 7)}</span>
+                      </span>
+                    ))}
+                    {remainder > 0 && (
+                      <span className="text-zinc-500">+ {remainder} more</span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* 3e. Recently-active operations */}
+      {recentOps.length > 0 && (
+        <section className="mb-8 rounded-lg border border-rose-700/30 bg-rose-950/10 p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-rose-300">
+            ⚡ Active operations · last {HORIZON_DAYS} days
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Operations with bill activity in the past six months. Live threat surface — these are
+            running campaigns, not historical patterns in the corpus.
+          </p>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {recentOps.map((op) => (
+              <li key={op.slug} className="rounded border border-rose-700/20 bg-rose-950/5 px-3 py-2 text-[11px]">
+                <Link href={`/intel/operations/${op.slug}`} className="font-semibold text-rose-100 hover:underline">
+                  {op.name.split("—")[0].trim()}
+                </Link>
+                <div className="mt-1 flex items-center gap-3 text-zinc-300">
+                  <span><strong className="font-mono">{op.bills_recent}</strong> bills</span>
+                  <span><strong className="font-mono">{op.states_recent.size}</strong> states</span>
+                  <span className="ml-auto font-mono text-[10px] text-zinc-500">
+                    latest {op.latest_date.slice(0, 10)}
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
