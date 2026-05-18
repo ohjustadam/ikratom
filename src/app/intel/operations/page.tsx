@@ -76,6 +76,27 @@ export default async function OperationsIntelPage() {
     }).filter(Boolean),
   ).size;
 
+  // Per-cluster "active in last 180d" computation. Cross-references
+  // each cluster's bills' last_action_at against the cutoff. Surfaces
+  // which operations are running RIGHT NOW vs historical patterns.
+  const RECENCY_DAYS = 180;
+  const cutoff = new Date(Date.now() - RECENCY_DAYS * 86400 * 1000).toISOString().slice(0, 10);
+  type Recency = { bills_recent: number; latest_date: string };
+  const recencyByCluster = new Map<string, Recency>();
+  for (const [clusterId, ms] of membersByCluster.entries()) {
+    let billsRecent = 0;
+    let latest = "";
+    for (const m of ms) {
+      const d = m.bill.last_action_at;
+      if (!d) continue;
+      if (d >= cutoff) billsRecent += 1;
+      if (d > latest) latest = d;
+    }
+    if (billsRecent > 0 || latest) {
+      recencyByCluster.set(clusterId, { bills_recent: billsRecent, latest_date: latest });
+    }
+  }
+
   // Sponsor-stance distribution per cluster. Pulls primary sponsors
   // across all clustered bills + their drafted stance (when available),
   // then aggregates per cluster: how many champion / sympathetic /
@@ -275,6 +296,26 @@ export default async function OperationsIntelPage() {
                   <strong className="font-mono tabular-nums">{c.state_count}</strong> states
                 </span>
               </div>
+
+              {(() => {
+                const r = recencyByCluster.get(c.id);
+                if (!r) return null;
+                if (r.bills_recent > 0) {
+                  return (
+                    <div className="mt-2 inline-flex items-center gap-1 rounded border border-rose-700/40 bg-rose-950/15 px-2 py-0.5 text-[10px] font-semibold text-rose-300">
+                      ⚡ Active · {r.bills_recent} bill{r.bills_recent === 1 ? "" : "s"} touched in last {RECENCY_DAYS}d
+                    </div>
+                  );
+                }
+                if (r.latest_date) {
+                  return (
+                    <div className="mt-2 inline-flex items-center gap-1 rounded border border-zinc-800 bg-zinc-950/40 px-2 py-0.5 text-[10px] text-zinc-500">
+                      Historical · latest activity {r.latest_date.slice(0, 7)}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               {c.summary_md && (
                 <p className="mt-3 text-sm leading-relaxed">
