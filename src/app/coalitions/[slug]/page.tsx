@@ -80,6 +80,37 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
     members = rows.map((r) => ({ ...r, full_name: nameByUser.get(r.user_id) ?? null }));
   }
 
+  // Coalition contact log — aggregate team activity. Privacy: never
+  // expose per-user attribution. RPCs guard by membership; aggregates
+  // only. Defensive against pre-migration deploys.
+  type ActivitySummary = {
+    total_sends: number;
+    active_members: number;
+    legislators_contacted: number;
+    campaigns_used: number;
+  };
+  type TopLegRow = {
+    legislator_id: string;
+    full_name: string;
+    state: string;
+    role: string;
+    send_count: number;
+    distinct_senders: number;
+  };
+  let activitySummary: ActivitySummary | null = null;
+  let topLegislators: TopLegRow[] = [];
+  if (viewerRole) {
+    try {
+      const [sumRes, legsRes] = await Promise.all([
+        sb.rpc("coalition_activity_summary", { p_coalition_id: c.id, p_days: 14 }),
+        sb.rpc("coalition_top_legislators", { p_coalition_id: c.id, p_days: 14, p_limit: 8 }),
+      ]);
+      const sumRows = sumRes.data as ActivitySummary[] | null;
+      if (sumRows && sumRows.length > 0) activitySummary = sumRows[0];
+      topLegislators = (legsRes.data as TopLegRow[] | null) ?? [];
+    } catch { /* pre-migration */ }
+  }
+
   // For coalitions scoped to a state, pull a tiny slice of state intel
   // so the page is useful at-a-glance — number of recent alerts +
   // active operations. Defensive; pre-cluster-migration deploys skip.
@@ -187,6 +218,61 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
               </Link>
             </li>
           </ul>
+        </section>
+      )}
+
+      {/* Team activity — aggregate only, no per-user attribution. */}
+      {viewerRole && activitySummary && activitySummary.total_sends > 0 && (
+        <section className="mb-6 rounded-lg border border-emerald-700/30 bg-emerald-950/10 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+            🤝 Team activity · last 14 days
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Aggregate stats only — individual sends aren&apos;t attributed to specific members.
+            Privacy first.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2 text-center">
+              <p className="text-2xl font-bold text-emerald-300">{activitySummary.total_sends}</p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-500">total sends</p>
+            </div>
+            <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2 text-center">
+              <p className="text-2xl font-bold text-emerald-300">{activitySummary.active_members}</p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-500">members active</p>
+            </div>
+            <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2 text-center">
+              <p className="text-2xl font-bold text-emerald-300">{activitySummary.legislators_contacted}</p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-500">legislators contacted</p>
+            </div>
+            <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2 text-center">
+              <p className="text-2xl font-bold text-emerald-300">{activitySummary.campaigns_used}</p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-500">campaigns used</p>
+            </div>
+          </div>
+
+          {topLegislators.length > 0 && (
+            <>
+              <h3 className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                Most-contacted legislators
+              </h3>
+              <ul className="mt-2 space-y-1 text-[11px]">
+                {topLegislators.map((l) => (
+                  <li key={l.legislator_id} className="flex flex-wrap items-baseline gap-x-2 rounded border border-zinc-800 bg-zinc-950/40 px-2 py-1">
+                    <Link href={`/legislators/${l.legislator_id}/briefing`} className="font-semibold text-zinc-100 hover:underline">
+                      {l.full_name}
+                    </Link>
+                    <span className="font-mono text-[10px] text-zinc-500">{l.state}</span>
+                    <span className="rounded bg-zinc-900/60 px-1 py-0.5 font-mono text-[9px] uppercase text-zinc-400">
+                      {l.role.replace(/_/g, " ")}
+                    </span>
+                    <span className="ml-auto font-mono text-[10px] text-zinc-400">
+                      <strong className="text-emerald-300">{l.send_count}</strong> send{l.send_count === 1 ? "" : "s"} · <strong>{l.distinct_senders}</strong> member{l.distinct_senders === 1 ? "" : "s"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </section>
       )}
 
