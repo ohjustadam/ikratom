@@ -261,6 +261,11 @@ export default async function AdminPage() {
             />
           )}
           <AdminCard
+            href="/admin/automation"
+            title="⚙ Automation health"
+            body="Every cron + scraper + DB trigger in one view. Surfaces when GH Actions / Vercel / Postgres triggers stop firing. Catches silent outages before intel goes stale."
+          />
+          <AdminCard
             href="/admin/intel-health"
             title="Intel Health"
             body="Pipeline observability — per-source freshness, recent failures."
