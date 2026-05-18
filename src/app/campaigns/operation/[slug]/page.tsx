@@ -123,6 +123,87 @@ export default async function OperationResponsePage({
     for (const l of (legs ?? []) as LegInfo[]) legById.set(l.id, l);
   }
 
+  // Committee-chair targeting — for each bill in committee right now,
+  // find the committee chair in that state. Chairs decide whether the
+  // bill ever gets scheduled for a hearing; emailing them is way
+  // higher leverage than emailing rank-and-file. We do a coarse
+  // substring match between bills.current_committee_name and
+  // legislator_committees.committee_name (same state) where role=chair.
+  type ChairTarget = {
+    bill: BillJoined;
+    chair_id: string;
+    full_name: string;
+    state: string;
+    email: string | null;
+    phone: string | null;
+    title: string | null;
+    role: string;
+    committee_name: string;
+  };
+  const chairTargets: ChairTarget[] = [];
+  const billsInCommittee = bills.filter((b) => b.current_committee_name && b.current_committee_name.trim().length > 0);
+  if (billsInCommittee.length > 0) {
+    const statesInCommittee = [...new Set(billsInCommittee.map((b) => b.state))];
+    const { data: chairRows } = await sb
+      .from("legislator_committees")
+      .select("legislator_id, committee_name, role, chamber, legislators!inner(id, full_name, state, role, title, email, phone, active)")
+      .eq("role", "chair")
+      .in("legislators.state", statesInCommittee)
+      .eq("legislators.active", true);
+    type ChairJoined = {
+      legislator_id: string;
+      committee_name: string;
+      role: string;
+      chamber: string | null;
+      legislators: { id: string; full_name: string; state: string; role: string; title: string | null; email: string | null; phone: string | null; active: boolean }
+                | Array<{ id: string; full_name: string; state: string; role: string; title: string | null; email: string | null; phone: string | null; active: boolean }>
+                | null;
+    };
+    // Build a map: state → list of chair rows
+    const chairsByState = new Map<string, ChairJoined[]>();
+    for (const cr of (chairRows ?? []) as ChairJoined[]) {
+      const leg = Array.isArray(cr.legislators) ? cr.legislators[0] : cr.legislators;
+      if (!leg) continue;
+      if (!chairsByState.has(leg.state)) chairsByState.set(leg.state, []);
+      chairsByState.get(leg.state)!.push(cr);
+    }
+    // For each bill in committee, find the chair whose committee_name
+    // best matches the bill's current_committee_name (case-insensitive
+    // substring either direction). Deduplicate so the same chair isn't
+    // listed twice if they chair multiple committees.
+    const seenChair = new Set<string>(); // key: bill_id::chair_id
+    for (const b of billsInCommittee) {
+      const cmt = (b.current_committee_name ?? "").toLowerCase().trim();
+      const candidates = chairsByState.get(b.state) ?? [];
+      for (const cr of candidates) {
+        const crCmt = cr.committee_name.toLowerCase().trim();
+        if (!crCmt) continue;
+        const matches =
+          cmt === crCmt ||
+          cmt.includes(crCmt) ||
+          crCmt.includes(cmt);
+        if (!matches) continue;
+        const leg = Array.isArray(cr.legislators) ? cr.legislators[0] : cr.legislators;
+        if (!leg) continue;
+        const key = `${b.id}::${leg.id}`;
+        if (seenChair.has(key)) continue;
+        seenChair.add(key);
+        if (!leg.email) continue; // no email = can't action
+        chairTargets.push({
+          bill: b,
+          chair_id: leg.id,
+          full_name: leg.full_name,
+          state: leg.state,
+          email: leg.email,
+          phone: leg.phone,
+          title: leg.title,
+          role: leg.role,
+          committee_name: cr.committee_name,
+        });
+      }
+    }
+  }
+
   // Per-bill stance signal on the primary sponsor — helps the advocate
   // calibrate the message tone (e.g. hostile sponsor = firm oppose).
   const stanceByLeg = new Map<string, string>();
@@ -197,6 +278,28 @@ export default async function OperationResponsePage({
     visibleRows = actionable;
   }
 
+  // Filter chairs the same way as the regular action rows
+  const visibleBillIds = new Set(visibleRows.map((r) => r.bill.id));
+  const visibleChairs = chairTargets.filter((ct) => visibleBillIds.has(ct.bill.id));
+
+  // Compose a chair-specific mailto template — chairs face a different
+  // ask than sponsors. For restrictive ops: ask the chair to NOT
+  // schedule the bill (or to schedule + vote it down). For protective
+  // ops: ask the chair to schedule + advance.
+  function buildChairMailto(ct: ChairTarget): string {
+    const isRestrictive = c.posture === "restrictive";
+    const ask = isRestrictive
+      ? `decline to schedule ${ct.bill.state} ${ct.bill.bill_number} for a hearing, or — if it is scheduled — to allow time for full public comment from kratom consumers, shop owners, veterans, and medical professionals in your district before any vote.`
+      : `schedule ${ct.bill.state} ${ct.bill.bill_number} for a hearing as soon as possible. This bill protects consumer access to a substance many constituents rely on for chronic pain, anxiety, and opioid recovery.`;
+    const greeting = ct.title ? `${ct.title} ${ct.full_name.split(" ").slice(-1).join(" ")}` : ct.full_name;
+    const intro = viewerProfile?.full_name
+      ? `My name is ${viewerProfile.full_name}${viewerProfile.city ? `, a constituent in ${viewerProfile.city}` : ", a constituent"}.`
+      : `I am a constituent writing about a bill in your committee.`;
+    const body = `${intro}\n\nYou chair the ${ct.committee_name}, which currently holds ${ct.bill.state} ${ct.bill.bill_number}${ct.bill.title ? ` — "${ct.bill.title.slice(0, 100)}"` : ""}. As chair, you decide whether this bill moves forward.\n\nI am writing to respectfully ask you to ${ask}\n\nThank you for your time and your consideration of the people you represent.`;
+    const subject = `Re: ${ct.bill.state} ${ct.bill.bill_number} — request from a constituent`;
+    return `mailto:${ct.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(`Dear ${greeting},\n\n${body}`)}`;
+  }
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="text-xs">
@@ -224,6 +327,65 @@ export default async function OperationResponsePage({
           )}
         </p>
       </header>
+
+      {/* Target the chairs — committee chairs holding cluster bills.
+          Higher leverage than rank-and-file sponsors because chairs
+          decide whether a bill ever gets scheduled. */}
+      {visibleChairs.length > 0 && (
+        <section className="mb-6 rounded-lg border-2 border-amber-700/50 bg-amber-950/15 p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300">
+            🎯 High-leverage target · {visibleChairs.length} committee chair{visibleChairs.length === 1 ? "" : "s"}
+          </p>
+          <p className="mt-1 text-[11px] text-zinc-300">
+            These legislators chair the committees currently holding bills in this operation.
+            Chairs decide whether a bill gets scheduled, amended, or quietly killed in drawer — emailing
+            them is typically the highest-leverage action available.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {visibleChairs.map((ct) => (
+              <li key={`${ct.bill.id}::${ct.chair_id}`} className="rounded-md border border-amber-700/40 bg-amber-950/10 p-3 text-[11px]">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-950">
+                    Chair
+                  </span>
+                  <Link href={`/legislators/${ct.chair_id}/briefing`} className="font-semibold text-amber-100 hover:underline">
+                    {ct.title ? `${ct.title} ` : ""}{ct.full_name}
+                  </Link>
+                  <span className="font-mono text-[10px] text-zinc-500">{ct.state}</span>
+                  <span className="text-[10px] text-zinc-500">
+                    chairs <strong className="text-zinc-300">{ct.committee_name}</strong>
+                  </span>
+                </div>
+                <p className="mt-1 text-[10px] text-zinc-400">
+                  Holds <Link href={`/bills/${ct.bill.id}`} className="font-mono hover:text-emerald-400">{ct.bill.state} {ct.bill.bill_number}</Link>
+                  {ct.bill.title && <> — {ct.bill.title.slice(0, 80)}{ct.bill.title.length > 80 ? "…" : ""}</>}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <a
+                    href={buildChairMailto(ct)}
+                    className="rounded-md bg-amber-500 px-3 py-1 text-[11px] font-semibold text-zinc-950 hover:bg-amber-400"
+                  >
+                    📨 Email chair
+                  </a>
+                  {ct.phone && (
+                    <a
+                      href={`tel:${ct.phone.replace(/[^0-9+]/g, "")}`}
+                      className="rounded-md border border-amber-700/40 bg-zinc-950/40 px-3 py-1 text-[11px] text-amber-200 hover:bg-amber-950/30"
+                    >
+                      📞 {ct.phone}
+                    </a>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-[10px] text-zinc-500">
+            Chair contact templates are scoped to the chair&apos;s decision-power (scheduling), not policy
+            position. Sponsor-targeted templates below — these complement, not replace, the bill-by-bill
+            response.
+          </p>
+        </section>
+      )}
 
       <OperationResponseClient
         cluster={{ slug: c.slug, name: c.name, posture: c.posture }}
