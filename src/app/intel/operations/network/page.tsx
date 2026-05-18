@@ -33,13 +33,11 @@ export default async function OperationsNetworkPage() {
   const sb = await createClient();
 
   // ── Pull everything we need
-  const [
-    membersRes,
-    sponsorsRes,
-    legsRes,
-    clustersRes,
-    ldasRes,
-  ] = await Promise.all([
+  // Use Promise.allSettled so a single query failure (network blip,
+  // RLS denial, pre-migration deploy) degrades that ONE section
+  // instead of 500-ing the whole intel page. Each section already
+  // handles empty arrays gracefully — degradation is per-layer.
+  const settled = await Promise.allSettled([
     sb.from("bill_cluster_members")
       .select("cluster_id, bill_id, bill_clusters!inner(slug, name, posture), bills!inner(id, state, bill_number, title, active, last_action_at, created_at)")
       .eq("bills.active", true),
@@ -56,6 +54,20 @@ export default async function OperationsNetworkPage() {
       .select("registrant_name, client_name, lobbyists, income, filing_year, dt_posted")
       .eq("is_kratom_relevant", true),
   ]);
+  // Unwrap each settled result into the same {data} shape downstream
+  // code expects. Failures → {data: []} so iteration stays safe.
+  type AnyRes<T> = { data: T[] | null };
+  const safe = <T,>(idx: number): AnyRes<T> => {
+    const r = settled[idx];
+    if (r.status === "fulfilled") return r.value as AnyRes<T>;
+    return { data: [] };
+  };
+  const membersRes = safe<unknown>(0);
+  const sponsorsRes = safe<unknown>(1);
+  const legsRes = safe<unknown>(2);
+  // clustersRes is unused downstream — left in place for telemetry.
+  void safe<unknown>(3);
+  const ldasRes = safe<unknown>(4);
 
   type BillJoined = { id: string; state: string; bill_number: string; title: string | null; active: boolean; last_action_at: string | null; created_at: string };
   type ClusterJoined = { slug: string; name: string; posture: string };
