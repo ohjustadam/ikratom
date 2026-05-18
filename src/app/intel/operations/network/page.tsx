@@ -43,9 +43,11 @@ export default async function OperationsNetworkPage() {
     sb.from("bill_cluster_members")
       .select("cluster_id, bill_id, bill_clusters!inner(slug, name, posture), bills!inner(id, state, bill_number, title, active, last_action_at, created_at)")
       .eq("bills.active", true),
+    // Pull BOTH primary + cosponsor so we can build the co-sponsorship
+    // graph (sec 2b). Primary-only filtering happens client-side where
+    // it's needed.
     sb.from("bill_sponsors")
-      .select("bill_id, legislator_id, classification")
-      .eq("classification", "primary"),
+      .select("bill_id, legislator_id, classification"),
     sb.from("legislators")
       .select("id, full_name, state, role, district, party, active")
       .eq("active", true),
@@ -99,7 +101,8 @@ export default async function OperationsNetworkPage() {
   crossClusterBills.sort((a, b) => b.clusters.length - a.clusters.length);
 
   // ── 2. Multi-cluster sponsors (primary sponsor in bills across ≥ 2 clusters)
-  const sponsors = (sponsorsRes.data ?? []) as Array<{ bill_id: string; legislator_id: string | null }>;
+  const sponsorsAll = (sponsorsRes.data ?? []) as Array<{ bill_id: string; legislator_id: string | null; classification: string | null }>;
+  const sponsors = sponsorsAll.filter((s) => s.classification === "primary");
   const legToClusters = new Map<string, Set<string>>();
   const legToBills = new Map<string, Set<string>>();
   const legToStates = new Map<string, Set<string>>();
@@ -150,6 +153,53 @@ export default async function OperationsNetworkPage() {
   multiClusterOps.sort((a, b) =>
     b.clusters.length - a.clusters.length || b.bill_count - a.bill_count,
   );
+
+  // ── 2b. Co-sponsorship pair graph — pairs of legislators who appear
+  // together on multiple cluster-membered bills (in any role: primary
+  // or cosponsor). Reveals the tight inner circles — legislators who
+  // back each other's coordinated bills. The actual relationship graph
+  // beneath the multi-cluster operator list.
+  const billToLegs = new Map<string, Set<string>>();
+  for (const s of sponsorsAll) {
+    if (!s.legislator_id) continue;
+    if (!billToClusters.has(s.bill_id)) continue; // only cluster-membered bills
+    if (!billToLegs.has(s.bill_id)) billToLegs.set(s.bill_id, new Set());
+    billToLegs.get(s.bill_id)!.add(s.legislator_id);
+  }
+  const pairCount = new Map<string, { count: number; bills: Set<string>; clusters: Set<string> }>();
+  for (const [billId, legSet] of billToLegs.entries()) {
+    if (legSet.size < 2) continue;
+    const legs = [...legSet].sort();
+    const billClusters = billToClusters.get(billId) ?? new Set<string>();
+    for (let i = 0; i < legs.length; i++) {
+      for (let j = i + 1; j < legs.length; j++) {
+        const key = `${legs[i]}::${legs[j]}`;
+        const agg = pairCount.get(key) ?? { count: 0, bills: new Set<string>(), clusters: new Set<string>() };
+        agg.count += 1;
+        agg.bills.add(billId);
+        for (const c of billClusters) agg.clusters.add(c);
+        pairCount.set(key, agg);
+      }
+    }
+  }
+  type CoSponsorPair = {
+    a: LegRow;
+    b: LegRow;
+    bills: number;
+    clusters: number;
+  };
+  const topCoPairs: CoSponsorPair[] = [...pairCount.entries()]
+    .filter(([, v]) => v.count >= 2)
+    .map(([key, v]) => {
+      const [aId, bId] = key.split("::");
+      const a = legById.get(aId);
+      const b = legById.get(bId);
+      if (!a || !b) return null;
+      return { a, b, bills: v.bills.size, clusters: v.clusters.size };
+    })
+    .filter((x): x is CoSponsorPair => x !== null)
+    .sort((x, y) => y.bills - x.bills || y.clusters - x.clusters)
+    .slice(0, 15);
 
   // ── 3. Federal lobbyist concentration
   type LdaRow = { registrant_name: string | null; client_name: string | null; lobbyists: unknown; income: number | null; filing_year: number | null };
@@ -338,7 +388,7 @@ export default async function OperationsNetworkPage() {
           are most-coordinated, and where the industry actors land in the registry.
         </p>
         <p className="mt-2 max-w-3xl text-[11px] text-zinc-500">
-          {cosponsorlessCount} multi-cluster operators · {crossClusterBills.length} cross-cluster bills · {topRegistrants.length} federal lobbyist firms · {propagations.length} operations w/ traced propagation · {recentOps.length} active in last {HORIZON_DAYS}d · {stateCoord.length} states with operation activity · {totalLegs.toLocaleString()} active legislators.
+          {cosponsorlessCount} multi-cluster operators · {topCoPairs.length} co-sponsorship pairs · {crossClusterBills.length} cross-cluster bills · {topRegistrants.length} federal lobbyist firms · {propagations.length} operations w/ traced propagation · {recentOps.length} active in last {HORIZON_DAYS}d · {stateCoord.length} states with operation activity.
         </p>
       </header>
 
@@ -394,6 +444,40 @@ export default async function OperationsNetworkPage() {
           )}
         </ul>
       </section>
+
+      {/* 2b. Co-sponsorship pair graph */}
+      {topCoPairs.length > 0 && (
+        <section className="mb-8 rounded-lg border border-orange-700/40 bg-orange-950/10 p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-orange-300">
+            🤝 Co-sponsorship pairs · inner-circle relationships ({topCoPairs.length})
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Legislator pairs appearing together (in any role) on ≥ 2 cluster-membered bills. The
+            actual relationship graph beneath the operator list — these are the working
+            partnerships moving coordinated kratom policy.
+          </p>
+          <ul className="mt-3 space-y-1">
+            {topCoPairs.map((p, i) => (
+              <li key={i} className="rounded border border-orange-700/30 bg-orange-950/5 px-2.5 py-1.5 text-[11px]">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <Link href={`/legislators/${p.a.id}/briefing`} className="font-semibold text-orange-100 hover:underline">
+                    {p.a.full_name}
+                  </Link>
+                  <span className="font-mono text-[9px] text-zinc-500">({p.a.state})</span>
+                  <span className="text-zinc-500">+</span>
+                  <Link href={`/legislators/${p.b.id}/briefing`} className="font-semibold text-orange-100 hover:underline">
+                    {p.b.full_name}
+                  </Link>
+                  <span className="font-mono text-[9px] text-zinc-500">({p.b.state})</span>
+                  <span className="ml-auto font-mono text-[10px] text-zinc-300">
+                    <strong>{p.bills}</strong> shared bill{p.bills === 1 ? "" : "s"} · <strong>{p.clusters}</strong> cluster{p.clusters === 1 ? "" : "s"}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* 2. Cross-cluster bills */}
       <section className="mb-8 rounded-lg border border-violet-700/40 bg-violet-950/15 p-5">
