@@ -669,6 +669,60 @@ export default async function BillDetailPage({
     billClusterMemberships = [];
   }
 
+  // Scientific basis — research papers cross-referenced to this bill.
+  // Populated by scripts/align-bills-to-research.mjs. Each row tags
+  // alignment direction (aligned / contradictory / context) so the
+  // page can show "this bill ignores X published studies" type framing.
+  type ResearchAlignment = {
+    paper_id: string;
+    relevance_score: number;
+    match_reason: string;
+    alignment: "aligned" | "contradictory" | "context";
+    title: string;
+    journal: string | null;
+    publication_year: number | null;
+    pubmed_id: string | null;
+    doi: string | null;
+    ai_evidence_strength: string | null;
+    ai_key_findings_md: string | null;
+  };
+  let researchAlignments: ResearchAlignment[] = [];
+  try {
+    const { data: alignmentRows } = await supabase
+      .from("bill_research_alignment")
+      .select("paper_id, relevance_score, match_reason, alignment, research_papers!inner(title, journal, publication_year, pubmed_id, doi, ai_evidence_strength, ai_key_findings_md)")
+      .eq("bill_id", bill.id)
+      .order("relevance_score", { ascending: false })
+      .limit(6);
+    type Row = {
+      paper_id: string; relevance_score: number; match_reason: string;
+      alignment: "aligned" | "contradictory" | "context";
+      research_papers: { title: string; journal: string | null; publication_year: number | null; pubmed_id: string | null; doi: string | null; ai_evidence_strength: string | null; ai_key_findings_md: string | null }
+                     | Array<{ title: string; journal: string | null; publication_year: number | null; pubmed_id: string | null; doi: string | null; ai_evidence_strength: string | null; ai_key_findings_md: string | null }>
+                     | null;
+    };
+    for (const r of (alignmentRows ?? []) as Row[]) {
+      const p = Array.isArray(r.research_papers) ? r.research_papers[0] : r.research_papers;
+      if (!p) continue;
+      researchAlignments.push({
+        paper_id: r.paper_id,
+        relevance_score: r.relevance_score,
+        match_reason: r.match_reason,
+        alignment: r.alignment,
+        title: p.title,
+        journal: p.journal,
+        publication_year: p.publication_year,
+        pubmed_id: p.pubmed_id,
+        doi: p.doi,
+        ai_evidence_strength: p.ai_evidence_strength,
+        ai_key_findings_md: p.ai_key_findings_md,
+      });
+    }
+  } catch {
+    // Pre-migration (before 0154) — silent empty.
+    researchAlignments = [];
+  }
+
   // Staleness assessment
   const lastActionMs = bill.last_action_at ? new Date(bill.last_action_at).getTime() : null;
   const daysSinceAction = lastActionMs
@@ -1450,6 +1504,78 @@ export default async function BillDetailPage({
                         </p>
                       )}
                     </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {/* Scientific basis — cross-referenced research from our library.
+            Auto-aligned via cluster→topic mapping + keyword overlap.
+            Tagged: aligned (paper supports the bill's premise) /
+            contradictory (paper refutes) / context (relevant background). */}
+        {researchAlignments.length > 0 && (
+          <div className="mt-4 rounded-md border border-sky-700/40 bg-sky-950/15 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-sky-300">
+              🔬 Scientific basis · {researchAlignments.length} research paper{researchAlignments.length === 1 ? "" : "s"} cross-referenced
+            </p>
+            <p className="mt-1 text-[10px] text-zinc-500">
+              Papers from our peer-reviewed library that bear on this bill&apos;s premise. Auto-matched via cluster topic + keyword overlap; admin can override.
+            </p>
+            {(() => {
+              const aligned = researchAlignments.filter((r) => r.alignment === "aligned").length;
+              const contradictory = researchAlignments.filter((r) => r.alignment === "contradictory").length;
+              const context = researchAlignments.filter((r) => r.alignment === "context").length;
+              return (
+                <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                  {aligned > 0 && <span className="rounded bg-emerald-950/40 px-1.5 py-0.5 text-emerald-300">✓ {aligned} aligned</span>}
+                  {contradictory > 0 && <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-300">✗ {contradictory} contradictory</span>}
+                  {context > 0 && <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">○ {context} context</span>}
+                </div>
+              );
+            })()}
+            <ul className="mt-2 space-y-1.5">
+              {researchAlignments.map((r) => {
+                const alignTone =
+                  r.alignment === "aligned" ? "border-emerald-700/30 bg-emerald-950/5"
+                  : r.alignment === "contradictory" ? "border-red-700/30 bg-red-950/5"
+                  : "border-zinc-800 bg-zinc-900/40";
+                const alignEmoji =
+                  r.alignment === "aligned" ? "✓"
+                  : r.alignment === "contradictory" ? "✗"
+                  : "○";
+                const sourceUrl = r.pubmed_id
+                  ? `https://pubmed.ncbi.nlm.nih.gov/${r.pubmed_id}/`
+                  : r.doi ? `https://doi.org/${r.doi}` : null;
+                return (
+                  <li key={r.paper_id} className={`rounded border px-2.5 py-1.5 text-[11px] ${alignTone}`}>
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-zinc-500">{alignEmoji}</span>
+                      <span className="font-semibold text-zinc-100">
+                        {sourceUrl ? (
+                          <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                            {r.title}
+                          </a>
+                        ) : r.title}
+                      </span>
+                      {r.publication_year && (
+                        <span className="font-mono text-[10px] text-zinc-500">({r.publication_year})</span>
+                      )}
+                      {r.ai_evidence_strength && (
+                        <span className="rounded bg-zinc-900/60 px-1 py-0.5 font-mono text-[9px] uppercase text-zinc-400">
+                          {r.ai_evidence_strength}
+                        </span>
+                      )}
+                    </div>
+                    {r.journal && (
+                      <p className="text-[10px] italic text-zinc-500">{r.journal}</p>
+                    )}
+                    {r.ai_key_findings_md && (
+                      <p className="mt-0.5 line-clamp-2 text-[10px] text-zinc-400">
+                        {r.ai_key_findings_md.slice(0, 200)}{r.ai_key_findings_md.length > 200 ? "…" : ""}
+                      </p>
+                    )}
                   </li>
                 );
               })}

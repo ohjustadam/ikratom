@@ -149,6 +149,24 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
     sisters.push(...[...sisterMap.values()].sort((a, b) => b.shared - a.shared));
   }
 
+  // Research alignment aggregate — how does the science line up
+  // against this cluster's bills? Counts of aligned / contradictory
+  // / context papers across all cluster-membered bills.
+  type ResearchTally = { aligned: number; contradictory: number; context: number; total: number };
+  const researchTally: ResearchTally = { aligned: 0, contradictory: 0, context: 0, total: 0 };
+  if (billIdsForSister.length > 0) {
+    try {
+      const { data: alignmentRows } = await sb
+        .from("bill_research_alignment")
+        .select("alignment")
+        .in("bill_id", billIdsForSister);
+      for (const r of (alignmentRows ?? []) as Array<{ alignment: "aligned" | "contradictory" | "context" }>) {
+        researchTally[r.alignment] += 1;
+        researchTally.total += 1;
+      }
+    } catch { /* pre-migration */ }
+  }
+
   // Primary sponsors of bills in this cluster + their stance + donor industries
   const billIds = billsInCluster.map((e) => e.bill.id);
   let sponsorStanceDist: Record<string, number> = {};
@@ -336,6 +354,39 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
               </code>
             ))}
           </div>
+        </section>
+      )}
+
+      {/* Research alignment — how does the published science line up
+          against this operation's bills? */}
+      {researchTally.total > 0 && (
+        <section className="mb-6 rounded-lg border border-sky-700/40 bg-sky-950/15 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-sky-300">
+            🔬 Research alignment · {researchTally.total} paper-bill cross-references
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Across all bills in this operation, our cross-referenced research library shows:
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+            {researchTally.aligned > 0 && (
+              <span className="rounded border border-emerald-700/40 bg-emerald-950/15 px-2 py-1 text-emerald-200">
+                ✓ <strong>{researchTally.aligned}</strong> papers support the bills&apos; premise
+              </span>
+            )}
+            {researchTally.contradictory > 0 && (
+              <span className="rounded border border-red-700/40 bg-red-950/15 px-2 py-1 text-red-200">
+                ✗ <strong>{researchTally.contradictory}</strong> papers contradict the bills&apos; premise
+              </span>
+            )}
+            {researchTally.context > 0 && (
+              <span className="rounded border border-zinc-800 bg-zinc-900/40 px-2 py-1 text-zinc-300">
+                ○ <strong>{researchTally.context}</strong> relevant context
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-[10px] text-zinc-500">
+            Per-bill papers + full reasoning visible on each bill&apos;s detail page. Alignment direction is heuristic (cluster→topic mapping + AI evaluation); admin override available per row.
+          </p>
         </section>
       )}
 
