@@ -165,9 +165,16 @@ export default async function ThreatMatrixPage({
   // to bill_cluster_members. Shows how many distinct coordinated
   // operations each legislator is running bills for. Multi-cluster
   // operators are the most damning signal in the network map.
-  const clusterMembersRaw = await sb
-    .from("bill_cluster_members")
-    .select("bill_id, bill_clusters!inner(slug)");
+  // Defensive: if the cluster tables don't exist yet (pre-migration
+  // deploy) or the join fails, the page should still render with
+  // the rest of the threat signals — degraded gracefully.
+  let clusterMembersRaw: { data: Array<{ bill_id: string; bill_clusters: unknown }> | null } = { data: null };
+  try {
+    const res = await sb
+      .from("bill_cluster_members")
+      .select("bill_id, bill_clusters!inner(slug)");
+    clusterMembersRaw = res as typeof clusterMembersRaw;
+  } catch { /* leave clusterMembersRaw.data null */ }
 
   // Build a synthetic raw wrapper so existing code that reads
   // `committeesRaw.data` works without further refactor.

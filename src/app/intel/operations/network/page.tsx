@@ -167,8 +167,16 @@ export default async function OperationsNetworkPage() {
     billToLegs.get(s.bill_id)!.add(s.legislator_id);
   }
   const pairCount = new Map<string, { count: number; bills: Set<string>; clusters: Set<string> }>();
+  // Outlier bills with absurd sponsor counts (omnibus-style with 50+
+  // cosponsors) would generate thousands of weakly-coupled pairs each
+  // and dilute the signal. Cap each bill's pair-emission at MAX_LEGS
+  // (the most-actively-coordinated set tends to be the primary +
+  // first-cosponsors anyway). 25 covers every realistic kratom bill;
+  // anything beyond is omnibus signaling rather than coordination.
+  const MAX_LEGS_PER_BILL = 25;
   for (const [billId, legSet] of billToLegs.entries()) {
     if (legSet.size < 2) continue;
+    if (legSet.size > MAX_LEGS_PER_BILL) continue;
     const legs = [...legSet].sort();
     const billClusters = billToClusters.get(billId) ?? new Set<string>();
     for (let i = 0; i < legs.length; i++) {
