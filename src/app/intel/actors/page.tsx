@@ -44,16 +44,74 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
     source_url: string | null; pdf_url: string | null;
   };
   const latestByEin = new Map<string, FilingRow>();
+  // Federal LDA aggregates per faction — joins kratom-relevant lobbying
+  // filings to the actor registry via affiliation-name substring match.
+  // Surfaces "how much federal lobbying does each faction have running."
+  type FactionLda = {
+    faction: ActorFaction;
+    filings: number;
+    firms: Set<string>;
+    lobbyists: Set<string>;
+    income: number;
+    clients: Set<string>;
+  };
+  const factionLda = new Map<ActorFaction, FactionLda>();
+  // affiliation lowercase → faction
+  const affToFaction = new Map<string, ActorFaction>();
+  for (const a of KRATOM_INDUSTRY_ACTORS) {
+    for (const aff of a.affiliations) affToFaction.set(aff.toLowerCase().trim(), a.faction);
+  }
   try {
     const sb = await createClient();
-    const { data } = await sb
-      .from("nonprofit_990_filings")
-      .select("ein, org_name, tax_year, total_revenue, total_expenses, officer_compensation, total_assets_eoy, source_url, pdf_url")
-      .order("tax_year", { ascending: false });
-    for (const r of (data ?? []) as FilingRow[]) {
+    const [filingsRes, financesRes] = await Promise.all([
+      sb.from("lobbying_filings")
+        .select("registrant_name, client_name, lobbyists, income")
+        .eq("is_kratom_relevant", true),
+      sb.from("nonprofit_990_filings")
+        .select("ein, org_name, tax_year, total_revenue, total_expenses, officer_compensation, total_assets_eoy, source_url, pdf_url")
+        .order("tax_year", { ascending: false }),
+    ]);
+    for (const r of (financesRes.data ?? []) as FilingRow[]) {
       if (!latestByEin.has(r.ein)) latestByEin.set(r.ein, r);
     }
+    type LdaJsonbLobbyist = { first_name?: string | null; last_name?: string | null };
+    for (const f of (filingsRes.data ?? []) as Array<{
+      registrant_name: string | null;
+      client_name: string | null;
+      lobbyists: unknown;
+      income: number | null;
+    }>) {
+      const client = (f.client_name ?? "").toLowerCase().trim();
+      if (!client) continue;
+      // Match by best containment — affiliation that the client name
+      // contains, OR client name that the affiliation contains.
+      let matchedFaction: ActorFaction | null = null;
+      for (const [aff, faction] of affToFaction.entries()) {
+        if (client === aff || client.includes(aff) || aff.includes(client)) {
+          matchedFaction = faction;
+          break;
+        }
+      }
+      if (!matchedFaction) continue;
+      const agg = factionLda.get(matchedFaction) ?? {
+        faction: matchedFaction, filings: 0, firms: new Set(),
+        lobbyists: new Set(), income: 0, clients: new Set(),
+      };
+      agg.filings += 1;
+      if (f.registrant_name) agg.firms.add(f.registrant_name);
+      if (f.client_name) agg.clients.add(f.client_name);
+      agg.income += Number(f.income) || 0;
+      const arr = Array.isArray(f.lobbyists) ? (f.lobbyists as LdaJsonbLobbyist[]) : [];
+      for (const lob of arr) {
+        const last = lob?.last_name?.trim();
+        if (!last) continue;
+        const name = (lob.first_name ? `${lob.first_name} ${last}` : last).toUpperCase();
+        agg.lobbyists.add(name);
+      }
+      factionLda.set(matchedFaction, agg);
+    }
   } catch { /* table not yet migrated */ }
+  const factionLdaSorted = [...factionLda.values()].sort((a, b) => b.filings - a.filings);
   const fmt$ = (n: number | null) => n == null ? "—" : `$${n.toLocaleString()}`;
 
   const factionCounts: Record<string, number> = {};
@@ -126,6 +184,63 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* Federal LDA activity per faction — surfaces how much
+          federal lobbying each faction has running, computed by
+          joining affiliations to lobbying_filings.client_name. */}
+      {factionLdaSorted.length > 0 && (
+        <section className="mb-8 rounded-lg border border-emerald-700/30 bg-emerald-950/10 p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+            🎯 Federal lobbying per faction
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Senate LDA kratom-relevant filings grouped by which faction the disclosed client
+            belongs to. Connects the actor registry to the dollar-flow data — who&apos;s actually
+            paying federal lobbyists right now, by camp.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead className="text-[10px] uppercase tracking-wider text-zinc-500">
+                <tr className="border-b border-zinc-800">
+                  <th className="py-1 text-left">Faction</th>
+                  <th className="py-1 text-right">Filings</th>
+                  <th className="py-1 text-right">Firms</th>
+                  <th className="py-1 text-right">Lobbyists</th>
+                  <th className="py-1 text-right">Disclosed income</th>
+                  <th className="py-1 text-left">Clients</th>
+                </tr>
+              </thead>
+              <tbody>
+                {factionLdaSorted.map((f) => {
+                  const meta = FACTION_META[f.faction];
+                  return (
+                    <tr key={f.faction} className="border-b border-zinc-900 align-top">
+                      <td className="py-1.5 pr-2">
+                        <Link
+                          href={`/intel/actors?faction=${f.faction}`}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${meta?.tone}`}
+                        >
+                          {meta?.emoji} {meta?.label ?? f.faction}
+                        </Link>
+                      </td>
+                      <td className="py-1.5 text-right font-mono">{f.filings}</td>
+                      <td className="py-1.5 text-right font-mono">{f.firms.size}</td>
+                      <td className="py-1.5 text-right font-mono">{f.lobbyists.size}</td>
+                      <td className="py-1.5 text-right font-mono text-amber-200">
+                        ${f.income.toLocaleString()}
+                      </td>
+                      <td className="py-1.5 text-zinc-400 text-[10px]">
+                        {[...f.clients].slice(0, 3).join(" · ")}
+                        {f.clients.size > 3 ? ` · +${f.clients.size - 3}` : ""}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
