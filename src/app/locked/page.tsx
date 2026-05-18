@@ -56,7 +56,7 @@ export default async function LockedPage() {
 
       <p className="mt-6 text-xs text-zinc-500">
         Think this is a mistake?{" "}
-        <a href="mailto:ohjustadam@proton.me" className="text-emerald-400 hover:underline">
+        <a href="mailto:support@ikratom.org" className="text-emerald-400 hover:underline">
           Email support
         </a>
         {" "}with your username and what you were doing when this happened.

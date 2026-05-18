@@ -65,7 +65,7 @@ export default async function SubmitResearchPage() {
           </p>
           <p className="mt-2 text-sm text-zinc-400">
             Want to help curate? Email{" "}
-            <a href="mailto:ohjustadam@proton.me" className="text-emerald-400 hover:underline">
+            <a href="mailto:support@ikratom.org" className="text-emerald-400 hover:underline">
               the owner
             </a>{" "}
             with your background (medical / academic / industry / journalism) and we&apos;ll get you set up.

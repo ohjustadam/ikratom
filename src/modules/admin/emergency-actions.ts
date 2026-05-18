@@ -20,13 +20,17 @@ export type EmergencyConfig = {
   ctaHref: string | null;
   severity: "info" | "urgent" | "critical";
   updatedAt: string | null;
+  // Read-only-mode flag — separate from emergency banner. When true,
+  // app refuses non-admin mutations.
+  readOnlyMode: boolean;
+  readOnlyReason: string | null;
 };
 
 export async function getEmergencyConfig(): Promise<EmergencyConfig> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("site_config")
-    .select("emergency_mode, emergency_title, emergency_body, emergency_cta_label, emergency_cta_href, emergency_severity, updated_at")
+    .select("emergency_mode, emergency_title, emergency_body, emergency_cta_label, emergency_cta_href, emergency_severity, updated_at, read_only_mode, read_only_reason")
     .eq("id", true)
     .maybeSingle();
   type Row = {
@@ -37,6 +41,8 @@ export async function getEmergencyConfig(): Promise<EmergencyConfig> {
     emergency_cta_href: string | null;
     emergency_severity: "info" | "urgent" | "critical";
     updated_at: string | null;
+    read_only_mode: boolean | null;
+    read_only_reason: string | null;
   };
   const row = (data as Row | null) ?? {
     emergency_mode: false,
@@ -46,6 +52,8 @@ export async function getEmergencyConfig(): Promise<EmergencyConfig> {
     emergency_cta_href: null,
     emergency_severity: "urgent" as const,
     updated_at: null,
+    read_only_mode: false,
+    read_only_reason: null,
   };
   return {
     emergencyMode: row.emergency_mode,
@@ -55,7 +63,41 @@ export async function getEmergencyConfig(): Promise<EmergencyConfig> {
     ctaHref: row.emergency_cta_href,
     severity: row.emergency_severity,
     updatedAt: row.updated_at,
+    readOnlyMode: !!row.read_only_mode,
+    readOnlyReason: row.read_only_reason ?? null,
   };
+}
+
+export async function updateReadOnlyMode(input: {
+  enabled: boolean;
+  reason?: string;
+}) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("site_config")
+    .update({
+      read_only_mode: input.enabled,
+      read_only_reason: input.reason?.trim().slice(0, 280) || null,
+      updated_at: new Date().toISOString(),
+      updated_by: ctx.userId,
+    })
+    .eq("id", true);
+  if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: input.enabled ? "read_only_mode_enabled" : "read_only_mode_disabled",
+    targetType: "user",
+    targetId: ctx.userId,
+    details: { reason: input.reason ?? null },
+  });
+
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function updateEmergencyConfig(input: {

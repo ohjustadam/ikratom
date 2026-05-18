@@ -101,7 +101,7 @@ export default async function CommunitiesPage() {
         <h2 className="text-lg font-bold text-emerald-300">Know a community we should list?</h2>
         <p className="mt-2 text-sm text-zinc-300">
           We curate this page manually to keep it actually useful (no spam vendors, no dead Discord servers).
-          Send a suggestion to <a href="mailto:ohjustadam@proton.me" className="text-emerald-400 hover:underline">ohjustadam@proton.me</a>.
+          Send a suggestion to <a href="mailto:support@ikratom.org" className="text-emerald-400 hover:underline">support@ikratom.org</a>.
         </p>
       </section>
     </div>

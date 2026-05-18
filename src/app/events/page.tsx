@@ -111,8 +111,8 @@ export default async function EventsPage({
           <h2 className="mt-3 text-lg font-semibold">No upcoming events posted</h2>
           <p className="mt-2 text-sm text-zinc-400">
             Know about a town hall? Email{" "}
-            <a href="mailto:ohjustadam@proton.me" className="text-emerald-400 hover:underline">
-              ohjustadam@proton.me
+            <a href="mailto:support@ikratom.org" className="text-emerald-400 hover:underline">
+              support@ikratom.org
             </a>{" "}
             with the details.
           </p>

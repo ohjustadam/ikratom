@@ -1,0 +1,77 @@
+name: CI
+
+# Pull-request CI gate. Catches:
+#   - TypeScript errors
+#   - Test failures
+#   - Build failures (Next.js production build)
+#   - High/critical npm CVEs in dependencies
+#
+# Runs on every PR + on pushes to main (to catch the rare squash-merge
+# that introduced a regression). Uses ubuntu-latest + Node 22 to match
+# Vercel's runtime. ~2 minutes per run.
+#
+# Free on public repos (unlimited Actions minutes).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+      - name: Verify (typecheck + tests)
+        run: npm run verify
+
+  build:
+    name: Next.js build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+      - name: Build
+        # Build needs env vars at compile time; provide minimal stubs.
+        # Real values come from Vercel at deploy time.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+          APP_URL: https://www.ikratom.org
+        run: npm run build
+
+  audit:
+    name: npm audit (high+)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install deps (with lockfile)
+        run: npm ci --no-audit --no-fund
+      - name: Audit (fail on high+ CVE)
+        # `--audit-level=high` filters out moderate/low advisories.
+        # Production-relevant only via --omit=dev — devDependency CVEs
+        # don't ship to runtime.
+        run: npm audit --audit-level=high --omit=dev

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { assertNotReadOnly } from "@/lib/read-only-mode";
 
 const VALID_TAGS = [
   "pain", "recovery", "mental_health", "energy", "medical_pro",
@@ -19,6 +20,10 @@ export async function submitStory(input: {
   state?: string | null;
   tags: string[];
 }) {
+  // Read-only-mode brake (admins bypass internally).
+  const ro = await assertNotReadOnly();
+  if (ro) return { error: ro };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in to submit a story." };

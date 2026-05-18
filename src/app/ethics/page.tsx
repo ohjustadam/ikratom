@@ -78,7 +78,7 @@ export default function EthicsPage() {
           </li>
           <li>
             <strong className="text-emerald-300">Transparency.</strong>{" "}
-            Every editorial decision is documented. The <Link href="/takeback" className="underline hover:text-emerald-400">takeback intel</Link> for each banned state names its sources. The <Link href="/banned" className="underline hover:text-emerald-400">banned tracker</Link> filters to verified full-state bans — not 7-OH-only laws or age regulations — and we explain that filter in plain text on the page. Disagree with a call? <Link href="mailto:ohjustadam@proton.me" className="underline hover:text-emerald-400">Email us</Link>; we&apos;ll show our work.
+            Every editorial decision is documented. The <Link href="/takeback" className="underline hover:text-emerald-400">takeback intel</Link> for each banned state names its sources. The <Link href="/banned" className="underline hover:text-emerald-400">banned tracker</Link> filters to verified full-state bans — not 7-OH-only laws or age regulations — and we explain that filter in plain text on the page. Disagree with a call? <Link href="mailto:support@ikratom.org" className="underline hover:text-emerald-400">Email us</Link>; we&apos;ll show our work.
           </li>
           <li>
             <strong className="text-emerald-300">Action.</strong>{" "}
@@ -130,7 +130,7 @@ export default function EthicsPage() {
             Public correction: <Link href="/intel/submit" className="text-emerald-400 hover:underline">submit an intel tip</Link> from the bill page in question
           </li>
           <li>
-            Private channel: <a href="mailto:ohjustadam@proton.me" className="text-emerald-400 hover:underline">ohjustadam@proton.me</a>
+            Private channel: <a href="mailto:support@ikratom.org" className="text-emerald-400 hover:underline">support@ikratom.org</a>
           </li>
           <li>
             For research-library corrections: leader advocates can <Link href="/research/submit" className="text-emerald-400 hover:underline">add or update papers directly</Link>

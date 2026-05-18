@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { assertNotReadOnly } from "@/lib/read-only-mode";
 
 /**
  * Coalition server actions.
@@ -46,6 +47,9 @@ export async function createCoalition(input: {
   state?: string | null;
   is_public?: boolean;
 }): Promise<CreateCoalitionResult> {
+  const ro = await assertNotReadOnly();
+  if (ro) return { ok: false, error: ro };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Sign in required" };
