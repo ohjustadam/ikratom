@@ -33,6 +33,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { complete } from "@/lib/ai/router";
+import { lookupByDoi, extractDoi, isAbstractPlaceholder } from "@/lib/research-doi-lookup";
 
 function admin() {
   return createServiceClient(
@@ -57,14 +58,16 @@ export async function autofillResearchPaperAbstract(paperId: string): Promise<Au
   const db = admin();
   const { data: paper, error: fetchErr } = await db
     .from("research_papers")
-    .select("id, title, abstract, full_text_url, pdf_url, admin_notes_md")
+    .select("id, title, abstract, full_text_url, pdf_url, admin_notes_md, doi, pubmed_id")
     .eq("id", paperId)
     .maybeSingle();
   if (fetchErr || !paper) return { ok: false, error: "Paper not found." };
 
   // Refuse to overwrite a non-trivial existing abstract — original is sacred.
+  // But IGNORE placeholder strings ("Abstract was not provided..."), which
+  // get saved erroneously by some publisher OG-description extractions.
   const existing = (paper.abstract ?? "").trim();
-  if (existing.length > 200) {
+  if (existing.length > 200 && !isAbstractPlaceholder(existing)) {
     return {
       ok: false,
       error: `Paper already has a ${existing.length}-char abstract. Clear it manually first if you want to refill (the original abstract is preserved by policy).`,
@@ -73,6 +76,45 @@ export async function autofillResearchPaperAbstract(paperId: string): Promise<Au
 
   const url = paper.full_text_url ?? paper.pdf_url;
   if (!url) return { ok: false, error: "Paper has no URL to fetch from." };
+
+  // ── First try: DOI lookup. CrossRef / OpenAlex / PubMed often have
+  // the abstract even when the publisher's landing page is a paywall
+  // or SPA. Cheap, accurate, no AI tokens.
+  const candidateDoi = paper.doi ?? extractDoi(url);
+  if (candidateDoi) {
+    try {
+      const dl = await lookupByDoi(candidateDoi);
+      if (dl.abstract && !isAbstractPlaceholder(dl.abstract)) {
+        const provenance = `Abstract from ${dl.abstract_source} via DOI ${candidateDoi} on ${new Date().toISOString().slice(0, 10)} by ${ctx.email ?? ctx.userId}`;
+        const newNotes = paper.admin_notes_md ? `${paper.admin_notes_md}\n\n${provenance}` : provenance;
+        const { error: updErr } = await db
+          .from("research_papers")
+          .update({
+            abstract: dl.abstract.slice(0, MAX_ABSTRACT_LEN),
+            admin_notes_md: newNotes,
+            // Backfill PMID + DOI when we discovered them
+            ...(paper.doi ? {} : { doi: dl.doi }),
+            ...(paper.pubmed_id ? {} : { pubmed_id: dl.pmid }),
+          })
+          .eq("id", paperId);
+        if (!updErr) {
+          try {
+            await recordAdminAction({
+              action: "research.abstract_autofill",
+              details: { paper_id: paperId, provider: dl.abstract_source, chars: dl.abstract.length, source: "doi_lookup" },
+            });
+          } catch { /* non-fatal */ }
+          return { ok: true, abstract: dl.abstract, provider: dl.abstract_source!, chars: dl.abstract.length };
+        }
+      }
+      // If DOI lookup didn't find an abstract, record what we tried so
+      // the error message is informative.
+      if (dl.sources_tried.length > 0) {
+        // Continue to AI fallback; the user-facing error will combine
+        // both attempts if AI also fails.
+      }
+    } catch { /* fall through */ }
+  }
 
   // Fetch the page server-side. We can hit paywalled sites that browsers
   // can't reach because we're not subject to their referrer/cookie policies.
@@ -114,7 +156,11 @@ export async function autofillResearchPaperAbstract(paperId: string): Promise<Au
 
   const extracted = result.text.trim().slice(0, MAX_ABSTRACT_LEN);
   if (extracted === "NO_ABSTRACT_FOUND" || extracted.length < 50) {
-    return { ok: false, error: "AI couldn't locate or summarize an abstract on the source page." };
+    const triedDoi = candidateDoi ? " · DOI lookup (CrossRef/OpenAlex/PubMed) also empty" : "";
+    return {
+      ok: false,
+      error: `No abstract on the source page${triedDoi}. This paper may genuinely have no public abstract (e.g. 'ahead-of-print' release with title-only metadata). Paste manually if you have one.`,
+    };
   }
 
   // Write back. Append a provenance line to admin_notes_md so future
