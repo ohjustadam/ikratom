@@ -4,17 +4,23 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const HAS_DB = !!(URL && SERVICE);
 
 describe.skipIf(!HAS_DB)("check_rate_limit RPC", () => {
-  const admin = createClient(URL!, SERVICE!, { auth: { persistSession: false } });
+  // Lazy-init the client. `describe.skipIf` skips the `it()` callbacks but
+  // STILL executes the describe-body factory, so the previous top-level
+  // createClient() crashed in environments without env vars (CI on a public
+  // repo, where we deliberately don't expose DB secrets).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let admin: SupabaseClient<any, "public", "public", any, any>;
   const key = `test-rl-${Date.now()}`;
 
   beforeAll(async () => {
+    admin = createClient(URL!, SERVICE!, { auth: { persistSession: false } });
     // Clean any prior state
     await admin.from("rate_limits").delete().eq("key", key);
   });
