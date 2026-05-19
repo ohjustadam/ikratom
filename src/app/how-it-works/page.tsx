@@ -2,8 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import { InviteFriends } from "@/components/InviteFriends";
 import { getMyInviteSummary, buildInviteUrl } from "@/modules/invite/actions";
 import { AnnotatedScreenshot, type Pin } from "@/components/AnnotatedScreenshot";
+import { getContent } from "@/lib/editable-content";
 
 export const metadata = { title: "How iKratom works" };
+export const dynamic = "force-dynamic";
 
 /**
  * Public tour — annotated screenshots, ethics, what's good vs bad practice.
@@ -11,16 +13,22 @@ export const metadata = { title: "How iKratom works" };
  */
 export default async function HowItWorksPage() {
   const supabase = await createClient();
-  const [{ count: campaigns }, { count: bills }, { count: actions }, { count: stories }] = await Promise.all([
+  const [{ count: campaigns }, { count: bills }, { count: actions }, { count: stories }, intro] = await Promise.all([
     supabase.from("campaigns").select("id", { count: "exact", head: true }).eq("active", true),
     supabase.from("bills").select("id", { count: "exact", head: true }).eq("active", true),
     supabase.from("campaign_actions").select("id", { count: "exact", head: true }),
     supabase.from("kratom_stories").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
+    // Admin-editable intro paragraph — overridable from /admin/content/how-it-works.intro.
+    getContent(
+      "how-it-works.intro",
+      "iKratom is a war room for kratom advocacy — built to make showing up easy enough that you actually do it.",
+    ),
   ]);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
       <Hero
+        intro={intro}
         campaigns={campaigns ?? 0}
         bills={bills ?? 0}
         actions={actions ?? 0}
@@ -38,7 +46,7 @@ export default async function HowItWorksPage() {
   );
 }
 
-function Hero({ campaigns, bills, actions, stories }: { campaigns: number; bills: number; actions: number; stories: number }) {
+function Hero({ intro, campaigns, bills, actions, stories }: { intro: string; campaigns: number; bills: number; actions: number; stories: number }) {
   return (
     <header className="mb-12 text-center">
       <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
@@ -48,8 +56,7 @@ function Hero({ campaigns, bills, actions, stories }: { campaigns: number; bills
         Hours of advocacy work, compressed into <span className="text-emerald-400">two minutes a day</span>.
       </h1>
       <p className="mx-auto mt-4 max-w-2xl text-lg text-zinc-400">
-        iKratom is a war room for kratom advocacy — built to make showing up easy
-        enough that you actually do it.
+        {intro}
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3 text-xs text-zinc-500">
         <span className="rounded-full bg-zinc-900 px-3 py-1">{campaigns.toLocaleString()} active campaigns</span>
