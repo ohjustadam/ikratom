@@ -7,6 +7,7 @@ import { HeaderNav } from "@/components/HeaderNav";
 import { HeaderShare } from "@/components/HeaderShare";
 import { CookieBanner } from "@/components/CookieBanner";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
+import { GlobalAnnouncement } from "@/components/GlobalAnnouncement";
 import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
@@ -137,6 +138,10 @@ export default async function RootLayout({
             alreadyAcknowledged={leaderAcknowledged}
           />
         )}
+
+        {/* Site-wide soft announcement (editable from /admin/content) — renders
+            only when admin sets global.announcement content. */}
+        <GlobalAnnouncement />
 
         {/* Site-wide emergency banner — renders only when admin toggles emergency_mode on */}
         <EmergencyBanner />

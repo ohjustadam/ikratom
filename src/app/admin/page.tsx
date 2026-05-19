@@ -130,6 +130,19 @@ export default async function AdminPage() {
         <p className="mt-2 text-sm text-zinc-400">
           Signed in as <span className="font-mono text-zinc-200">{ctx.email}</span>
         </p>
+        {adminOnly && (
+          <p className="mt-3">
+            <a
+              href="/admin/ops"
+              className="inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
+            >
+              ◉ Open daily operator cockpit
+            </a>
+            <span className="ml-2 text-[11px] text-zinc-500">
+              One-screen morning view: cron / abuse / moderation / activity.
+            </span>
+          </p>
+        )}
       </header>
 
       {/* ── P0 Inbox + Emergency mode ────────────────────────────── */}
@@ -260,6 +273,12 @@ export default async function AdminPage() {
               body="Bills where AI fact-check disagrees with our DB. Empty right now."
             />
           )}
+          <AdminCard
+            href="/admin/content"
+            title="✏ Edit site copy"
+            body="In-site editor for page text. Edit /support intro, /ethics text, the global announcement bar, more — from any device, no deploy. Cache invalidates within a minute. Every edit is audit-logged."
+            accent
+          />
           <AdminCard
             href="/admin/automation"
             title="⚙ Automation health"

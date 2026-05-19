@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { getContent } from "@/lib/editable-content";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Support iKratom — keep the advocate's toolbelt free + independent",
@@ -120,8 +123,23 @@ const ROADMAP: Array<{ goal: string; cost: string; description: string }> = [
   },
 ];
 
-export default function SupportPage() {
+export default async function SupportPage() {
   const annualTotal = 500 * 12;
+
+  // Admin-editable intro paragraph. The fallback below is the
+  // source of truth for what visitors see when no override is set.
+  // Edit live at /admin/content/support.intro from any device.
+  const intro = await getContent(
+    "support.intro",
+    "iKratom is a free, nonpartisan, ad-free advocacy platform. No paywall. No \"premium\" intel. No industry sponsorship. Every feature stays open to every advocate — forever.",
+  );
+  // Donation-channel CTA — admin updates this when Open Collective
+  // / GitHub Sponsors goes live.
+  const ctaBanner = await getContent(
+    "support.cta_banner",
+    "Open Collective + GitHub Sponsors planned · transparent ledger · no industry money accepted",
+  );
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <header className="mb-10">
@@ -132,9 +150,7 @@ export default function SupportPage() {
           Keep the advocate&apos;s toolbelt free + independent.
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-relaxed text-zinc-300">
-          iKratom is a free, nonpartisan, ad-free advocacy platform. No paywall. No
-          &quot;premium&quot; intel. No industry sponsorship. Every feature stays open to every
-          advocate — forever.
+          {intro}
         </p>
         <p className="mt-3 max-w-2xl text-sm text-zinc-400">
           That posture only works if a lot of small donors keep the lights on. The breakdown
@@ -179,7 +195,7 @@ export default function SupportPage() {
       <section className="mb-12 rounded-lg border-2 border-emerald-500 bg-emerald-950/20 p-6 text-center">
         <p className="text-xs uppercase tracking-wider text-emerald-300">Donations are launching soon</p>
         <p className="mt-2 text-lg font-semibold text-emerald-100">
-          Open Collective + GitHub Sponsors planned · transparent ledger · no industry money accepted
+          {ctaBanner}
         </p>
         <p className="mt-3 text-sm text-zinc-300">
           Watch this page — or{" "}
