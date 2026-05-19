@@ -44,8 +44,16 @@ const REVERIFY_AGE_DAYS = 90;
 const MAX_LOCALITIES_PER_RUN = 30; // soft cap to stay under Gemini quota
 
 export async function GET(request: NextRequest) {
+  // Defense-in-depth: refuse to run if the secret is unset in env.
+  // Otherwise an empty-string CRON_SECRET would make the header check
+  // pass on `Bearer ` (literal space-then-empty) — narrow window but
+  // worth eliminating.
+  const secret = process.env.CRON_SECRET;
+  if (!secret || secret.length < 16) {
+    return NextResponse.json({ error: "cron secret not configured" }, { status: 500 });
+  }
   const auth = request.headers.get("authorization");
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

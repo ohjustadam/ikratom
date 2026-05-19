@@ -14,7 +14,7 @@ This is **separate** from Iron Gate (the marketplace at `C:\claude\marketplace\`
 - **Recruitment angle.** Shop owners and medical professionals are first-class users — features should make it easy for them to opt in to advocacy.
 
 ## Roles
-- **Owner** — `profiles.is_owner = true`. Currently `ohjustadam@proton.me`. Highest privilege. Can promote/demote admins. Only one.
+- **Owner** — `profiles.is_owner = true`. Highest privilege. Can promote/demote admins. Exactly one. The owner email is stored in environment config (`OWNER_EMAIL`), not committed to the repo.
 - **Admin** — `profiles.is_admin = true`. Can moderate users, manage campaigns/legislators/bills/states/forum.
 - **User** — default. Can read public data, manage own profile, take campaign actions.
 

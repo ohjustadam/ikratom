@@ -30,7 +30,7 @@ External APIs and SDKs we will integrate as we expand the platform.
    - User support email: yours
    - Developer contact: yours
    - Scopes: add `https://www.googleapis.com/auth/gmail.send`
-   - Test users: add `ohjustadam@proton.me` (and any other accounts you want to test with)
+   - Test users: add your own developer account email (and any other accounts you want to test with)
 4. **APIs & Services → Credentials → + Create Credentials → OAuth client ID**:
    - Application type: **Web application**
    - Name: `iKratom Gmail OAuth`
