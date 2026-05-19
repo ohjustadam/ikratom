@@ -280,6 +280,17 @@ export default async function AdminPage() {
             accent
           />
           <AdminCard
+            href="/admin/console"
+            title="🛢 Console (nuclear option)"
+            body="Direct SQL + manual cron triggers + cache invalidation. Owner-only for writes. Every action audit-logged. Use when no other admin page can fix what's broken — typically from a phone at 2am."
+            accent
+          />
+          <AdminCard
+            href="/admin/diagnostics"
+            title="🩺 Diagnostics"
+            body="Test every integration from a single screen: Supabase reachability, each Discord webhook, AI providers, push notifications to self, OAuth callbacks, env-var sanity. Isolates 'is iKratom broken or is the third-party down?'"
+          />
+          <AdminCard
             href="/admin/automation"
             title="⚙ Automation health"
             body="Every cron + scraper + DB trigger in one view. Surfaces when GH Actions / Vercel / Postgres triggers stop firing. Catches silent outages before intel goes stale."
