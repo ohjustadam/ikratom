@@ -34,6 +34,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/banned`, lastModified: now, changeFrequency: "daily", priority: 0.9 },
     { url: `${base}/takeback`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
     { url: `${base}/people`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
+    // Intel hub + cluster-coordination surfaces. These are the "smart
+    // brain" pages — searches for "kratom lobbying" / "coordinated
+    // kratom bills" / "kratom donor network" land here.
+    { url: `${base}/intel`, lastModified: now, changeFrequency: "daily", priority: 0.8 },
+    { url: `${base}/intel/operations`, lastModified: now, changeFrequency: "daily", priority: 0.8 },
+    { url: `${base}/intel/operations/network`, lastModified: now, changeFrequency: "daily", priority: 0.75 },
+    { url: `${base}/intel/threat-matrix`, lastModified: now, changeFrequency: "daily", priority: 0.75 },
+    { url: `${base}/intel/donations`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${base}/intel/lobbying`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${base}/intel/actors`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${base}/intel/rulemaking`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${base}/intel/cases`, lastModified: now, changeFrequency: "weekly", priority: 0.65 },
+    { url: `${base}/intel/awards`, lastModified: now, changeFrequency: "weekly", priority: 0.65 },
+    { url: `${base}/intel/votes`, lastModified: now, changeFrequency: "weekly", priority: 0.65 },
+    // Recent surfaces (May 2026): brief + now (action surfaces),
+    // coalitions (multi-advocate teams), support (donation page),
+    // research (peer-reviewed library), stories (real-person bank).
+    { url: `${base}/brief`, lastModified: now, changeFrequency: "hourly", priority: 0.7 },
+    { url: `${base}/now`, lastModified: now, changeFrequency: "hourly", priority: 0.6 },
+    { url: `${base}/coalitions`, lastModified: now, changeFrequency: "daily", priority: 0.55 },
+    { url: `${base}/support`, lastModified: now, changeFrequency: "weekly", priority: 0.5 },
+    { url: `${base}/research`, lastModified: now, changeFrequency: "daily", priority: 0.65 },
+    { url: `${base}/stories`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
     // 50 + DC per-state landing pages (high SEO value — search for "kratom Texas" etc.)
     ...["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN",
         "IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH",

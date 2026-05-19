@@ -61,17 +61,29 @@ export default async function NowPage() {
 
   // 1. Watched bills with recent movement
   let watchedMovementCount = 0;
+  // Pull the single top-mover so we can name it in the CTA — more
+  // visceral than a bare count.
+  type WatchedTop = {
+    id: string; state: string; bill_number: string; status: string | null;
+    last_action_at: string | null; current_committee_name: string | null;
+    active: boolean | null;
+  };
+  let topWatched: WatchedTop | null = null;
   if (user) {
     try {
       const { data: subs } = await sb.from("bill_subscriptions").select("bill_id").eq("user_id", user.id);
       const billIds = (subs ?? []).map((s: { bill_id: string }) => s.bill_id);
       if (billIds.length > 0) {
-        const { count } = await sb
+        const { data, count } = await sb
           .from("bills")
-          .select("id", { count: "exact", head: true })
+          .select("id, state, bill_number, status, last_action_at, current_committee_name, active", { count: "exact" })
           .in("id", billIds)
-          .gte("last_action_at", cutoff7Date);
+          .gte("last_action_at", cutoff7Date)
+          .order("last_action_at", { ascending: false })
+          .limit(1);
         watchedMovementCount = count ?? 0;
+        const row = (data ?? [])[0] as WatchedTop | undefined;
+        topWatched = row ?? null;
       }
     } catch { /* defensive */ }
   }
@@ -137,11 +149,29 @@ export default async function NowPage() {
   // Decision cascade — first match becomes the primary CTA
   let primary: PrimaryCTA;
   if (watchedMovementCount > 0) {
+    // Name the top mover + its momentum if we have one — gives the
+    // CTA real specificity ("HB 1234 is advancing fast" vs "3 bills moved").
+    let subtitle = "Open your brief to see what changed";
+    let href: string = "/brief";
+    if (topWatched) {
+      const { computeBillMomentum, MOMENTUM_LABEL } = await import("@/lib/bill-momentum");
+      const m = computeBillMomentum({
+        last_action_at: topWatched.last_action_at,
+        status: topWatched.status,
+        current_committee_name: topWatched.current_committee_name,
+        sponsor_count: 0,
+        cluster_count: 0,
+        recent_news_mentions: 0,
+        active: topWatched.active !== false,
+      });
+      subtitle = `${topWatched.state} ${topWatched.bill_number} · ${MOMENTUM_LABEL[m.label]}`;
+      href = `/bills/${topWatched.id}`;
+    }
     primary = {
-      href: "/brief",
+      href,
       emoji: "📋",
       title: `${watchedMovementCount} of your watched bill${watchedMovementCount === 1 ? "" : "s"} just moved`,
-      subtitle: "Open your brief to see what changed",
+      subtitle,
       tone: "emerald",
     };
   } else if (topAlert) {

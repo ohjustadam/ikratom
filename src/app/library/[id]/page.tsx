@@ -109,6 +109,8 @@ export default async function LibraryItemPage({
         <img
           src={item.cover_image_url}
           alt={item.title}
+          loading="lazy"
+          decoding="async"
           className="mb-6 max-h-96 w-full rounded-lg border border-zinc-800 object-cover"
         />
       )}
