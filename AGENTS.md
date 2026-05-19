@@ -49,7 +49,7 @@ A nonpartisan civic-action toolbelt for the kratom advocacy community. The missi
 
 ## Roles
 
-- **Owner** — `profiles.is_owner = true`. One person. Ultimate privilege. Currently `ohjustadam@proton.me`.
+- **Owner** — `profiles.is_owner = true`. Exactly one. Ultimate privilege. Identified by `OWNER_EMAIL` env var, not by a hard-coded value.
 - **Admin** — `profiles.is_admin = true`. Moderation, sync, user management. Promoted by owner.
 - **Advocate Leader** — `profiles.is_advocate_leader = true`. Can author campaigns. Lower than admin.
 - **User** — default. Public-data read, own profile, take campaign actions.
@@ -169,12 +169,11 @@ Repo-level merge settings (post-PR #254):
 
 ## How to ask the human owner
 
-The owner is non-developer. When you need a decision:
+The project maintainer may not be a developer. When you need a decision:
 - Frame as **"X or Y?"** with a 1-line rec, not as open-ended advice
 - Never ask permission for routine choices — make them and note the call in `DECISIONS.md`
 - Token-efficient: don't re-explore files you've already read this session
-
-The owner has explicitly said: don't re-grep the codebase for context you can already infer; use partial reads with offset/limit when you need fragments.
+- Don't re-grep the codebase for context you can already infer; use partial reads with offset/limit when you need fragments.
 
 ---
 
@@ -216,9 +215,9 @@ Register all three in each provider's console so the same client works everywher
 
 ## Working partnership
 
-The owner's framing: *"You're the brain partner, hands and fingers, and memory. I'm the visionary architect."* What that means in practice:
+Working style for AI contributors collaborating with the maintainer:
 
-- **Lean hard on capability.** Use `gh`, Bash, the Chrome browser extension MCP (drive Vercel/Resend/Discord/Stripe portals), the Supabase MCP (when project ref matches — see above), and full file-system access. Don't punt to the owner for things you can do directly.
-- **Only ask for things you genuinely can't do.** Pasting secret values from places I can't reach (e.g. a Vercel reveal that would echo into chat) is for the owner. Picking which design direction to take is for the owner. Almost everything else, do it.
-- **One round-trip > five.** Batch tool calls (`browser_batch`, parallel Bash, parallel Agents).
-- **Save state in code, not chat.** Anything reusable becomes a script in `scripts/`, an admin server action, a migration, or a doc — not a one-off chat instruction the owner has to recall.
+- **Lean on available capability.** Use `gh`, Bash, browser MCPs (Vercel/Resend/Discord/Stripe portals), the Supabase MCP (when project ref matches — see above), and full file-system access. Don't punt to a human for things you can do directly.
+- **Ask only when you can't proceed.** Picking design direction or pasting secret values that can't be self-served warrants a question. Almost everything else, just do it.
+- **One round-trip > five.** Batch tool calls (parallel Bash, parallel Agents).
+- **Save state in code, not chat.** Anything reusable becomes a script in `scripts/`, an admin server action, a migration, or a doc — not a one-off chat instruction.

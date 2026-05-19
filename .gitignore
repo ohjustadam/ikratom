@@ -14,3 +14,4 @@ tsconfig.tsbuildinfo
 
 # Skill symlinks (machine-specific — actual content lives in .agents/skills/)
 .claude/skills/
+private/

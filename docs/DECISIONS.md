@@ -123,21 +123,14 @@ If we summed raw mute durations, a single "forever" mute (5 years) would dominat
 
 ---
 
-## Token efficiency rules (with the human owner)
+## Token efficiency rules for AI contributors
 
-The owner explicitly told us:
 - Don't re-grep the codebase to refresh context already in this session
 - Use partial reads with offset/limit when only a fragment is needed
 - Lean commit messages over verbose ones
 - No re-exploration just to be thorough
 
 Treat AGENTS.md as the cold-start brief. Treat this DECISIONS.md as "what we already know." Don't search for context that's already documented.
-
----
-
-## Vendor-account model (to be picked from VENDOR_ACCOUNTS.md)
-
-Three options modeled. Owner has chosen **Option A** (single account, dual signature) as of 2026-05-07. Implementation tracked in PR #12.
 
 ---
 
