@@ -178,6 +178,17 @@ export function extractResearchMetaFromHtml(html: string): ExtractedResearchMeta
     extractOne(html, /property=["']og:description["']/i, 4000) ??
     extractOne(html, /name=["']description["']/i, 4000);
 
+  // Filter placeholder strings publishers serve when no abstract exists
+  // (Ovid: "Abstract was not provided for this article."). These would
+  // otherwise be saved as the abstract — defeating downstream enrichment.
+  const PLACEHOLDER_RES = [
+    /abstract\s+(?:was\s+)?not\s+(?:provided|available)/i,
+    /no\s+abstract\s+(?:available|provided)/i,
+  ];
+  if (abstract && PLACEHOLDER_RES.some((re) => re.test(abstract!))) {
+    abstract = null;
+  }
+
   // OG / description tags commonly truncate at 200-500 chars. If we got
   // something short, flag for AI enrichment downstream. Most legit
   // abstracts are 1000-2500 chars; <600 is a strong "truncated" signal.

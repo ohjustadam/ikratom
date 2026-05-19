@@ -13,6 +13,7 @@ import {
   stripTrackingParams,
 } from "@/lib/research-metadata";
 import { enrichAbstractFromUrl } from "@/lib/research-enrich-ai";
+import { lookupByDoi, extractDoi } from "@/lib/research-doi-lookup";
 
 /**
  * Server action: leader-advocate / admin submits a research-paper URL.
@@ -244,16 +245,51 @@ export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult>
     // Best-effort — failure leaves title=URL + abstract=null, admin can edit
   }
 
-  // AI enrichment: when the captured abstract is missing or looks
-  // truncated, ask the AI router (free-tier Groq → Gemini → Ollama) to
-  // extract the verbatim abstract from the page. Falls back silently
-  // if the AI can't find one.
+  // Enrichment chain when the page-scrape abstract is missing or
+  // truncated. Order:
+  //   1. DOI-based lookup (CrossRef → OpenAlex → PubMed) — accurate,
+  //      structured, no AI cost. Best source when available.
+  //   2. AI-extracted abstract from the page HTML — fallback when no
+  //      DOI is available OR DOI sources have no abstract either.
+  //
+  // Also harvests structured metadata (authors, journal, pmid, year)
+  // from DOI lookup even when the abstract specifically comes from
+  // another source.
   let enrichmentNote = "";
-  if ((!abstract || abstractLikelyTruncated) && html) {
-    const enriched = await enrichAbstractFromUrl({ url, title });
-    if (enriched.ok && enriched.chars > (abstract?.length ?? 0)) {
-      abstract = enriched.abstract;
-      enrichmentNote = ` AI-extracted abstract via ${enriched.provider} (${enriched.chars} chars; original meta only had ${abstractLikelyTruncated ? "truncated og:description" : "no abstract"}).`;
+  let pmid: string | null = null;
+  if (!abstract || abstractLikelyTruncated) {
+    // Try to discover a DOI: prefer the one extracted from page meta,
+    // fall back to scanning the submitted URL itself.
+    const candidateDoi = doi ?? extractDoi(url) ?? extractDoi(html);
+    if (candidateDoi) {
+      try {
+        const dl = await lookupByDoi(candidateDoi);
+        if (dl.abstract && dl.abstract.length > (abstract?.length ?? 0)) {
+          abstract = dl.abstract;
+          enrichmentNote = ` Abstract from ${dl.abstract_source} via DOI ${candidateDoi}.`;
+        }
+        // Backfill structured fields from DOI lookup when page-scrape missed them
+        if (!authors.length && dl.authors.length) authors = dl.authors;
+        if (!journal && dl.journal) journal = dl.journal;
+        if (!publicationYear && dl.publicationYear) publicationYear = dl.publicationYear;
+        if (!publicationDate && dl.publicationDate) publicationDate = dl.publicationDate;
+        if (!doi && candidateDoi) doi = candidateDoi;
+        if (dl.pmid) pmid = dl.pmid;
+        // If DOI lookup found nothing useful, append context so the admin
+        // notes show what we tried.
+        if (!dl.abstract) {
+          enrichmentNote += ` Tried DOI sources [${dl.sources_tried.join(", ") || "none reachable"}] — no abstract on file.`;
+        }
+      } catch { /* fall through to AI */ }
+    }
+
+    // Still no abstract? Last resort: AI page-scrape.
+    if ((!abstract || (abstractLikelyTruncated && abstract.length < 600)) && html) {
+      const enriched = await enrichAbstractFromUrl({ url, title });
+      if (enriched.ok && enriched.chars > (abstract?.length ?? 0)) {
+        abstract = enriched.abstract;
+        enrichmentNote += ` AI-extracted abstract via ${enriched.provider} (${enriched.chars} chars).`;
+      }
     }
   }
 
@@ -261,6 +297,19 @@ export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult>
   title = title.slice(0, 500);
   abstract = abstract ? abstract.slice(0, 8000) : null;
   authors = authors.slice(0, 50);
+
+  // Defensively check: if a paper with the same DOI or PMID already
+  // exists, return that row instead of inserting a duplicate. Saves
+  // the admin a manual dedup later.
+  if (doi || pmid) {
+    const dedupeQ = admin.from("research_papers").select("id").limit(1);
+    const filterCol = doi ? "doi" : "pubmed_id";
+    const filterVal = doi ?? pmid!;
+    const { data: existing } = await dedupeQ.eq(filterCol, filterVal);
+    if (existing && existing.length > 0) {
+      return { ok: true, paperId: (existing[0] as { id: string }).id, isDuplicate: true };
+    }
+  }
 
   const { data: inserted, error: insErr } = await admin
     .from("research_papers")
@@ -270,6 +319,7 @@ export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult>
       authors,
       journal,
       doi,
+      pubmed_id: pmid,
       publication_year: publicationYear,
       publication_date: publicationDate,
       full_text_url: url,
