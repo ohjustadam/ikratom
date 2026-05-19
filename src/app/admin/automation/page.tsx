@@ -2,6 +2,16 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import {
+  CRON_REGISTRY,
+  totalExpectedRunsPerDay,
+  blockedRunsPerDay,
+  vercelRunsPerDay,
+  ghBlockedCount,
+  vercelCount,
+  dbTriggerCount,
+  type CronEntry,
+} from "@/lib/cron-registry";
 
 export const metadata = { title: "Automation health" };
 export const dynamic = "force-dynamic";
@@ -318,6 +328,208 @@ export default async function AutomationDashboard() {
         </ul>
       </section>
 
+      {/* ── Impact projection: how big is the gap right now ────── */}
+      {(() => {
+        const totalPerDay = totalExpectedRunsPerDay();
+        const blockedPerDay = blockedRunsPerDay();
+        const vercelPerDay = vercelRunsPerDay();
+        // Find oldest gh-* source last run, treat that as the gap start.
+        // Floor at 0 in case there are no GH crons.
+        let gapStartMs = Number.POSITIVE_INFINITY;
+        for (const c of CRON_REGISTRY) {
+          if (!c.system.startsWith("gh-") || !c.source) continue;
+          const r = rows.find((x) => x.source === c.source);
+          if (r?.last_at) {
+            const t = new Date(r.last_at).getTime();
+            if (t < gapStartMs) gapStartMs = t;
+          }
+        }
+        const ghStaleSources = rows.filter((r) => {
+          const reg = CRON_REGISTRY.find((c) => c.source === r.source);
+          return reg?.system.startsWith("gh-") && (r.fresh === "silent" || r.fresh === "stale");
+        });
+        // Estimate days blocked from the most-recent gh-* run (heuristic —
+        // we want the answer, not perfect precision).
+        let mostRecentGhRun = 0;
+        for (const r of rows) {
+          const reg = CRON_REGISTRY.find((c) => c.source === r.source);
+          if (!reg?.system.startsWith("gh-") || !r.last_at) continue;
+          const t = new Date(r.last_at).getTime();
+          if (t > mostRecentGhRun) mostRecentGhRun = t;
+        }
+        const daysBlocked = mostRecentGhRun > 0
+          ? Math.max(0, (Date.now() - mostRecentGhRun) / 86_400_000 - 1)
+          : 0;
+        const missedSoFar = Math.round(blockedPerDay * daysBlocked);
+        return (
+          <section className="mb-8">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-300">
+              📊 Impact projection
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <ImpactCard
+                tone="zinc"
+                label="Total automations"
+                value={CRON_REGISTRY.length.toString()}
+                sub={`${vercelCount()} Vercel · ${ghBlockedCount()} GH Actions · ${dbTriggerCount()} DB trigger`}
+              />
+              <ImpactCard
+                tone="emerald"
+                label="Running normally"
+                value={Math.round(vercelPerDay).toString()}
+                sub={`runs/day via Vercel — unaffected by billing`}
+              />
+              <ImpactCard
+                tone={ghStaleSources.length > 0 ? "red" : "emerald"}
+                label="Currently blocked"
+                value={Math.round(blockedPerDay).toString()}
+                sub={`runs/day blocked by GH Actions billing`}
+              />
+              <ImpactCard
+                tone={missedSoFar > 100 ? "red" : "zinc"}
+                label="Missed since gap started"
+                value={missedSoFar.toLocaleString()}
+                sub={`~${daysBlocked.toFixed(1)}d at ${Math.round(blockedPerDay)} runs/day`}
+              />
+            </div>
+            <p className="mt-3 rounded-md border border-amber-700/40 bg-amber-950/15 p-3 text-[11px] text-amber-200">
+              <strong>Once the repo goes public</strong> (GitHub Actions = unlimited free minutes for public repos):
+              all <strong>{Math.round(blockedPerDay)} runs/day</strong> resume immediately.
+              That&apos;s <strong>{Math.round(totalPerDay).toLocaleString()} total firings/day</strong> across the
+              platform. The dropoff visible in the heatmap below disappears within hours.
+            </p>
+          </section>
+        );
+      })()}
+
+      {/* ── 14-day calendar heatmap ────────────────────────────── */}
+      <section className="mb-8">
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-300">
+          🗓 14-day run heatmap
+        </h2>
+        <p className="mb-3 text-[11px] text-zinc-400">
+          Total cron firings per day across all sources. The cliff is the billing block start.
+        </p>
+        {(() => {
+          // Bucket recentRunsAll by date (YYYY-MM-DD).
+          type DayRow = { date: string; count: number };
+          const byDay = new Map<string, number>();
+          for (const r of (recentRunsAll ?? []) as Array<{ finished_at: string }>) {
+            if (!r.finished_at) continue;
+            const day = r.finished_at.slice(0, 10);
+            byDay.set(day, (byDay.get(day) ?? 0) + 1);
+          }
+          const days: DayRow[] = [];
+          for (let i = 13; i >= 0; i--) {
+            const d = new Date(Date.now() - i * 86400 * 1000).toISOString().slice(0, 10);
+            days.push({ date: d, count: byDay.get(d) ?? 0 });
+          }
+          const max = Math.max(1, ...days.map((d) => d.count));
+          return (
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-[10px] text-zinc-200">
+              <div className="flex items-end gap-1 overflow-x-auto pb-2">
+                {days.map((d) => {
+                  const pct = d.count / max;
+                  // 5-step ramp: empty (zinc-900), low (red-900), med (amber-700),
+                  // high (emerald-600), full (emerald-500).
+                  const tone =
+                    d.count === 0 ? "bg-zinc-900 border-red-800/40"
+                    : pct < 0.15 ? "bg-red-900/60"
+                    : pct < 0.4 ? "bg-amber-800/70"
+                    : pct < 0.7 ? "bg-emerald-700/80"
+                    : "bg-emerald-500";
+                  const height = Math.max(8, Math.round(pct * 80));
+                  return (
+                    <div key={d.date} className="flex min-w-[52px] flex-col items-center gap-1">
+                      <div className="text-[9px] text-zinc-500">{d.count}</div>
+                      <div
+                        className={`w-full rounded-t border-t ${tone}`}
+                        style={{ height: `${height}px` }}
+                        title={`${d.date}: ${d.count} runs`}
+                      />
+                      <div className="text-[9px] text-zinc-500">{d.date.slice(5)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center gap-3 text-[10px] text-zinc-500">
+                <span className="flex items-center gap-1"><span className="h-2 w-3 rounded bg-zinc-900 border border-red-800/40" /> empty</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-3 rounded bg-red-900/60" /> low</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-3 rounded bg-amber-800/70" /> med</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-3 rounded bg-emerald-700/80" /> high</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-3 rounded bg-emerald-500" /> full</span>
+              </div>
+            </div>
+          );
+        })()}
+      </section>
+
+      {/* ── Terminal-style cron registry list ──────────────────── */}
+      <section className="mb-8">
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-300">
+          🖥 All automations ({CRON_REGISTRY.length}) — scroll
+        </h2>
+        <p className="mb-2 text-[11px] text-zinc-400">
+          Every scheduled job + its last actual run + status. ● = recent run, ◌ = silent / never ran.
+        </p>
+        <div
+          className="overflow-y-auto rounded-lg border border-zinc-800 bg-black p-3 font-mono text-[10.5px] leading-[1.5]"
+          style={{ maxHeight: "420px" }}
+        >
+          {(() => {
+            const now = Date.now();
+            const sysTone: Record<CronEntry["system"], string> = {
+              "vercel": "text-emerald-300",
+              "gh-hourly": "text-amber-300",
+              "gh-daily": "text-amber-300",
+              "gh-weekly": "text-amber-300",
+              "db-trigger": "text-violet-300",
+            };
+            // Sort: gh-blocked first (most-urgent), then by system, then by source.
+            const ordered = [...CRON_REGISTRY].sort((a, b) => {
+              const aBlocked = a.system.startsWith("gh-") ? 0 : 1;
+              const bBlocked = b.system.startsWith("gh-") ? 0 : 1;
+              if (aBlocked !== bBlocked) return aBlocked - bBlocked;
+              return (a.source ?? "").localeCompare(b.source ?? "");
+            });
+            return ordered.map((c) => {
+              const r = c.source ? rows.find((x) => x.source === c.source) : null;
+              let dot = "◌";
+              let dotCls = "text-zinc-600";
+              let timeStr = "never";
+              let healthCls = "text-zinc-500";
+              if (r?.last_at) {
+                const ageH = (now - new Date(r.last_at).getTime()) / 3_600_000;
+                timeStr = ageH < 1 ? `${(ageH * 60).toFixed(0)}m`
+                  : ageH < 48 ? `${ageH.toFixed(1)}h`
+                  : `${(ageH / 24).toFixed(1)}d`;
+                if (r.fresh === "fresh") { dot = "●"; dotCls = "text-emerald-400"; healthCls = "text-emerald-300"; }
+                else if (r.fresh === "warn") { dot = "●"; dotCls = "text-amber-400"; healthCls = "text-amber-300"; }
+                else if (r.fresh === "stale") { dot = "●"; dotCls = "text-amber-500"; healthCls = "text-amber-400"; }
+                else if (r.fresh === "silent") { dot = "◌"; dotCls = "text-red-500"; healthCls = "text-red-400"; }
+              } else if (c.system === "db-trigger") {
+                dot = "▷"; dotCls = "text-violet-400"; timeStr = "realtime"; healthCls = "text-violet-300";
+              }
+              const sysLabel = c.system.padEnd(11);
+              const cadenceLabel = c.cadence.padEnd(13);
+              return (
+                <div key={`${c.system}-${c.source ?? c.label}`} className="hover:bg-zinc-950/50">
+                  <span className={dotCls}>{dot}</span>{" "}
+                  <span className={sysTone[c.system]}>{sysLabel}</span>
+                  <span className="text-zinc-500">{cadenceLabel}</span>
+                  <span className="text-zinc-200">{(c.source ?? c.label).padEnd(36)}</span>
+                  <span className={healthCls}>last: {timeStr.padEnd(8)}</span>
+                  <span className="text-zinc-600">  {c.runs_per_day < 1 ? c.runs_per_day.toFixed(2) : c.runs_per_day}×/d</span>
+                </div>
+              );
+            });
+          })()}
+        </div>
+        <p className="mt-2 text-[10px] text-zinc-500">
+          Color = system: <span className="text-emerald-300">Vercel</span> · <span className="text-amber-300">GitHub Actions</span> · <span className="text-violet-300">DB trigger</span>. Dot color = recency: <span className="text-emerald-400">●</span> fresh · <span className="text-amber-400">●</span> warn/stale · <span className="text-red-500">◌</span> silent.
+        </p>
+      </section>
+
       {/* Per-source freshness table */}
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-300">
@@ -409,6 +621,35 @@ export default async function AutomationDashboard() {
           <Link href="/admin/data-quality" className="text-emerald-400 hover:underline">/admin/data-quality</Link> (cross-table sanity checks)
         </p>
       </footer>
+    </div>
+  );
+}
+
+function ImpactCard({
+  tone, label, value, sub,
+}: {
+  tone: "red" | "amber" | "emerald" | "zinc";
+  label: string;
+  value: string;
+  sub: string;
+}) {
+  const toneCls = {
+    red: "border-red-700/40 bg-red-950/15",
+    amber: "border-amber-700/40 bg-amber-950/15",
+    emerald: "border-emerald-700/30 bg-emerald-950/10",
+    zinc: "border-zinc-800 bg-zinc-950/40",
+  }[tone];
+  const valueCls = {
+    red: "text-red-300",
+    amber: "text-amber-300",
+    emerald: "text-emerald-300",
+    zinc: "text-zinc-200",
+  }[tone];
+  return (
+    <div className={`rounded-lg border ${toneCls} p-3`}>
+      <p className="text-[10px] uppercase tracking-wider text-zinc-400">{label}</p>
+      <p className={`mt-1 text-3xl font-bold ${valueCls}`}>{value}</p>
+      <p className="mt-1 text-[10px] text-zinc-500">{sub}</p>
     </div>
   );
 }
