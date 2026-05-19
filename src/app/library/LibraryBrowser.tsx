@@ -103,7 +103,7 @@ export function LibraryBrowser({ items }: { items: Item[] }) {
               >
                 {i.cover_image_url && (
                   <div className="aspect-video w-full overflow-hidden bg-zinc-900">
-                    <img src={i.cover_image_url} alt={i.title} className="h-full w-full object-cover" />
+                    <img src={i.cover_image_url} alt={i.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   </div>
                 )}
                 <div className="p-4">

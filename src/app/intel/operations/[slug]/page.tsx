@@ -96,6 +96,27 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
     billsInCluster.push({ bill: b, reason: m.match_reason, confidence: m.confidence });
   }
 
+  // Momentum per bill — computed once, used by both the distribution
+  // panel and the per-bill chips below. No sponsor/news data at this
+  // join level, so the heuristic leans on recency + status + cluster
+  // membership (which we know is ≥1 since these bills are clustered).
+  const { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } = await import("@/lib/bill-momentum");
+  const momentumByBillId = new Map<string, ReturnType<typeof computeBillMomentum>>();
+  const momentumDist = { "advancing-fast": 0, active: 0, watch: 0, "likely-stalled": 0, dead: 0 };
+  for (const e of billsInCluster) {
+    const m = computeBillMomentum({
+      last_action_at: e.bill.last_action_at,
+      status: e.bill.status,
+      current_committee_name: e.bill.current_committee_name,
+      sponsor_count: 0,
+      cluster_count: 1,
+      recent_news_mentions: 0,
+      active: e.bill.active !== false,
+    });
+    momentumByBillId.set(e.bill.id, m);
+    momentumDist[m.label] += 1;
+  }
+
   // Group by state
   const billsByState = new Map<string, Array<{ bill: BillJoined; reason: string | null; confidence: number }>>();
   for (const e of billsInCluster) {
@@ -648,6 +669,44 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
         </section>
       )}
 
+      {/* Momentum distribution across cluster bills */}
+      {billsInCluster.length > 0 && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+            📊 Momentum distribution
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            How {billsInCluster.length} bills in this operation are pacing right now. Heuristic
+            (recency + status + cluster membership) — not a guarantee, but a fast read.
+          </p>
+          <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-zinc-900">
+            {(["advancing-fast", "active", "watch", "likely-stalled", "dead"] as const).map((label) => {
+              const n = momentumDist[label];
+              if (n === 0) return null;
+              const pct = (n / billsInCluster.length) * 100;
+              const color =
+                label === "advancing-fast" ? "bg-red-500" :
+                label === "active" ? "bg-amber-500" :
+                label === "watch" ? "bg-zinc-500" :
+                label === "likely-stalled" ? "bg-emerald-700" :
+                "bg-zinc-800";
+              return <div key={label} className={color} style={{ width: `${pct}%` }} title={`${MOMENTUM_LABEL[label]}: ${n} (${pct.toFixed(0)}%)`} />;
+            })}
+          </div>
+          <ul className="mt-3 flex flex-wrap gap-2 text-[10px]">
+            {(["advancing-fast", "active", "watch", "likely-stalled", "dead"] as const).map((label) => {
+              const n = momentumDist[label];
+              if (n === 0) return null;
+              return (
+                <li key={label} className={`rounded border px-1.5 py-0.5 ${MOMENTUM_TONE[label]}`}>
+                  {MOMENTUM_LABEL[label]} · {n}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {/* States + bills */}
       {statesSorted.length > 0 && (
         <section className="mb-6">
@@ -661,8 +720,10 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
                   {state} · {entries.length} bill{entries.length === 1 ? "" : "s"}
                 </p>
                 <ul className="mt-1 space-y-0.5">
-                  {entries.map((e) => (
-                    <li key={e.bill.id}>
+                  {entries.map((e) => {
+                    const m = momentumByBillId.get(e.bill.id);
+                    return (
+                    <li key={e.bill.id} className="flex flex-wrap items-baseline gap-x-1.5">
                       <Link href={`/bills/${e.bill.id}`} className="hover:text-emerald-400 hover:underline">
                         <span className="font-mono text-zinc-300">{e.bill.bill_number}</span>
                         {e.bill.title && (
@@ -671,11 +732,20 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
                           </span>
                         )}
                       </Link>
+                      {m && (
+                        <span
+                          className={`rounded border px-1 py-px text-[9px] ${MOMENTUM_TONE[m.label]}`}
+                          title={m.rationale}
+                        >
+                          {MOMENTUM_LABEL[m.label]}
+                        </span>
+                      )}
                       {e.bill.status && (
                         <span className="ml-1 text-[10px] text-zinc-500">[{e.bill.status}]</span>
                       )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </div>
             ))}
