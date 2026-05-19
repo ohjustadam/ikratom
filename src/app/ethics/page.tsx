@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getContent } from "@/lib/editable-content";
 
 export const metadata = {
   title: "Code of Ethics — what we stand for + how we operate",
@@ -28,7 +29,13 @@ export const metadata = {
  *   - One quiet zinc treatment for the negations
  *   - No CTAs in the middle (a manifesto is read, not bounced through)
  */
-export default function EthicsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function EthicsPage() {
+  const intro = await getContent(
+    "ethics.intro",
+    "iKratom is a nonpartisan kratom-advocacy platform. We aren't aligned with the AKA, the GKC, Botanic Tonics, the FDA, the DEA, a state legislator, or any organization. We have allies in all those camps. We have critics in all those camps too. This page is how we explain — and prove — what nonpartisan actually means for the choices we make.",
+  );
   return (
     <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 lg:px-8">
       <Link href="/" className="text-xs text-zinc-500 hover:text-emerald-400">
@@ -44,7 +51,7 @@ export default function EthicsPage() {
           <span className="text-zinc-400">How we operate.</span>
         </h1>
         <p className="mt-5 text-base leading-relaxed text-zinc-300">
-          iKratom is a nonpartisan kratom-advocacy platform. We aren&apos;t aligned with the AKA, the GKC, Botanic Tonics, the FDA, the DEA, a state legislator, or any organization. We have allies in all those camps. We have critics in all those camps too. This page is how we explain — and prove — what nonpartisan actually means for the choices we make.
+          {intro}
         </p>
       </header>
 
