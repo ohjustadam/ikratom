@@ -252,3 +252,19 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/correlate-news-to-bills.mjs
+      - name: Check cron staleness (self-monitoring)
+        # Self-monitoring observability. Compares cron-registry expected
+        # cadences against scraper_runs.finished_at. If any source is past
+        # 3× expected interval, pushes a web-push alert to the owner —
+        # once per silent period, tracked in cron_staleness_alerts. When
+        # a previously-silent source recovers, the row clears + an audit
+        # log entry records the recovery. Sources that have never written
+        # telemetry are skipped (grace period). The platform pages itself
+        # — admin doesn't have to remember to check /admin/automation.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node scripts/check-cron-staleness.mjs
