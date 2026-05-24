@@ -38,8 +38,11 @@ const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:noreply@ikratom.org";
 const APP_URL = process.env.APP_URL || "https://www.ikratom.org";
 
 if (!VAPID_PUB || !VAPID_PRIV) {
-  console.error("VAPID env vars not set — refusing to run.");
-  process.exit(1);
+  // Missing VAPID is "we can't push today," not a workflow failure.
+  // Exit 0 so the GH Actions job stays green; staleness alert covers
+  // the case where this script gets skipped for too many days.
+  console.log("VAPID env vars not set in this env — skipping push delivery (exit 0).");
+  process.exit(0);
 }
 webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUB, VAPID_PRIV);
 

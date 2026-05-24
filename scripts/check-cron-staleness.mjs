@@ -158,6 +158,13 @@ if (newlySilent.length > 0 && !DRY) {
         link: "/admin/automation",
         tag: "cron-staleness",
       };
+      // VAPID may not be configured in every CI context. Skip the push
+      // (don't crash the whole job) — the staleness row was already
+      // written, so the admin will still see it on /admin/automation.
+      if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+        console.log("  (VAPID not configured in this env — push skipped; row still recorded)");
+        break;
+      }
       const require = createRequire(import.meta.url);
       const webpush = require("web-push");
       webpush.setVapidDetails(
