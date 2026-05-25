@@ -634,8 +634,16 @@ console.log(`Providers available: ${availableProviders().join(", ")}`);
 
 let ok = 0, fail = 0;
 for (let i = 0; i < bills.length; i++) {
-  const result = await processBill(bills[i]);
-  if (result) ok++; else fail++;
+  // Wrap processBill in try/catch so ONE bill's transient error
+  // (OpenStates 429, AI provider hiccup, network blip) doesn't tank
+  // the whole job — every other bill still gets processed.
+  try {
+    const result = await processBill(bills[i]);
+    if (result) ok++; else fail++;
+  } catch (e) {
+    fail++;
+    console.log(`  ✗ ${bills[i].state} ${bills[i].bill_number} crashed: ${e.message?.slice(0, 120)}`);
+  }
   // Polite delay between bills so we don't burst the same provider's
   // TPM cap when the rotation cycles back. 2s × 62 bills = ~2 extra
   // minutes total, negligible against rate-limit retries.
