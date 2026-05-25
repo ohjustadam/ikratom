@@ -35,7 +35,7 @@ Forum, library, news, AI personalization, medical recruitment, multi-state — *
 - Tailwind CSS v4 for styling
 - Supabase for database, auth, RLS
 - Free legislative APIs: LegiScan (bills), OpenStates (legislators), Google Civic Information (address → reps)
-- Anthropic API (later — AI personalization is flagged off in v1)
+- AI: **free-tier providers only** (Groq / Gemini Flash / Ollama / Cerebras). The router (`src/lib/ai/router.ts`) explicitly disables `claude` and no path may add code that depends on a paid AI API. This is platform policy, not a guideline.
 
 ## Folder Structure
 ```
