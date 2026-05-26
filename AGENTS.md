@@ -221,3 +221,21 @@ Working style for AI contributors collaborating with the maintainer:
 - **Ask only when you can't proceed.** Picking design direction or pasting secret values that can't be self-served warrants a question. Almost everything else, just do it.
 - **One round-trip > five.** Batch tool calls (parallel Bash, parallel Agents).
 - **Save state in code, not chat.** Anything reusable becomes a script in `scripts/`, an admin server action, a migration, or a doc — not a one-off chat instruction.
+
+---
+
+## Token discipline (post-premium-Claude)
+
+The maintainer no longer has premium Claude access. Per-session conversation cost is the only AI cost surface (the platform itself is free-tier-only — see CLAUDE.md). Operate under these norms:
+
+- **Don't re-read** files already in this session's context. Re-derive from what you already know.
+- **Use partial reads** (`offset`/`limit`) for files >300 lines. Never read a file twice in the same session.
+- **Explore agents for multi-file reads** — cheaper than chained Read calls. One agent, one focused question.
+- **Batch tool calls.** One message = one logical step with all parallel tool calls in it. Don't ping back and forth.
+- **PR bodies: 1–2 sentences.** The commit message already has the detail. The PR body is a headline, not a recap.
+- **Chat: lead with the answer.** Skip preamble, recap, "great question," and post-commit summaries. The user knows what they just asked.
+- **Skip preview verification** for route/script changes with no UI surface. Verify only when a human would actually look at it in a browser.
+- **Defer non-essential builds.** Flag as "v2" instead of building speculatively. Surface area is not the goal anymore; sustainability is.
+- **Default cadence: lean autonomous.** A "continue" run = one focused PR, not a multi-PR batch. If a second PR's truly needed, name it and stop — let the user say go.
+
+If the maintainer points you at `private/CONVERSATION_DISCIPLINE.md`, it's because you've drifted from these norms. Re-read this section.
