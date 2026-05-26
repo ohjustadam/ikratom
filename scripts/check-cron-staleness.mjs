@@ -163,29 +163,29 @@ if (newlySilent.length > 0 && !DRY) {
       // written, so the admin will still see it on /admin/automation.
       if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
         console.log("  (VAPID not configured in this env — push skipped; row still recorded)");
-        break;
-      }
-      const require = createRequire(import.meta.url);
-      const webpush = require("web-push");
-      webpush.setVapidDetails(
-        process.env.VAPID_SUBJECT || "mailto:support@ikratom.org",
-        process.env.VAPID_PUBLIC_KEY,
-        process.env.VAPID_PRIVATE_KEY,
-      );
-      let pushedCount = 0;
-      for (const s of subs) {
-        try {
-          await webpush.sendNotification(
-            { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-            JSON.stringify(payload),
-            { TTL: 60 * 60 * 6 },
-          );
-          pushedCount++;
-        } catch (e) {
-          console.log(`  push failed for one endpoint: ${e.message?.slice(0, 60)}`);
+      } else {
+        const require = createRequire(import.meta.url);
+        const webpush = require("web-push");
+        webpush.setVapidDetails(
+          process.env.VAPID_SUBJECT || "mailto:support@ikratom.org",
+          process.env.VAPID_PUBLIC_KEY,
+          process.env.VAPID_PRIVATE_KEY,
+        );
+        let pushedCount = 0;
+        for (const s of subs) {
+          try {
+            await webpush.sendNotification(
+              { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+              JSON.stringify(payload),
+              { TTL: 60 * 60 * 6 },
+            );
+            pushedCount++;
+          } catch (e) {
+            console.log(`  push failed for one endpoint: ${e.message?.slice(0, 60)}`);
+          }
         }
+        console.log(`  Pushed staleness alert to owner via ${pushedCount}/${subs.length} subscription(s)`);
       }
-      console.log(`  Pushed staleness alert to owner via ${pushedCount}/${subs.length} subscription(s)`);
     } else {
       console.log("  (no push subscriptions for owner — push skipped; row was still recorded)");
     }
