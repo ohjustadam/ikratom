@@ -148,6 +148,29 @@ export default async function BriefPage() {
     openCampaigns = (data ?? []) as OpenCampaign[];
   } catch { /* defensive */ }
 
+  // ── Fresh news — published in last 36 hours, classified as
+  // kratom-relevant. Filtered on `published_at` (NOT scraped_at)
+  // so 6-month-old articles surfaced by Google News RSS today
+  // don't pollute the briefing. State-scoped for signed-in users,
+  // national for everyone else.
+  type NewsItem = {
+    id: string; title: string; url: string; source_name: string | null;
+    state: string | null; published_at: string; summary: string | null;
+  };
+  let freshNews: NewsItem[] = [];
+  const cutoff36hDate = new Date(Date.now() - 36 * 3600 * 1000).toISOString().slice(0, 10);
+  try {
+    let nq = sb.from("news_items")
+      .select("id, title, url, source_name, state, published_at, summary")
+      .gte("published_at", cutoff36hDate)
+      .not("policy_classified_at", "is", null)
+      .order("published_at", { ascending: false })
+      .limit(15);
+    if (viewerState) nq = nq.or(`state.eq.${viewerState},state.is.null,state.eq.FED`);
+    const { data } = await nq;
+    freshNews = (data ?? []) as NewsItem[];
+  } catch { /* defensive */ }
+
   const today = new Date().toLocaleDateString(undefined, {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
@@ -190,7 +213,8 @@ export default async function BriefPage() {
     stateAlerts.length === 0 &&
     watchedBills.length === 0 &&
     activeOps.length === 0 &&
-    openCampaigns.length === 0;
+    openCampaigns.length === 0 &&
+    freshNews.length === 0;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -297,6 +321,50 @@ export default async function BriefPage() {
           </ul>
           <p className="mt-2 text-[10px] text-zinc-500">
             Full alert feed at <Link href="/pulse" className="text-emerald-400 hover:underline">/pulse</Link>.
+          </p>
+        </section>
+      )}
+
+      {/* News briefing — published in last 36h, filtered by published_at
+          so old articles re-surfaced by Google News don't pollute the
+          briefing. The tap-target for the daily push notification. */}
+      {freshNews.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-300">
+            🗞 Today&apos;s news briefing · {freshNews.length} fresh article{freshNews.length === 1 ? "" : "s"}
+          </h2>
+          <ul className="space-y-2">
+            {freshNews.map((n) => {
+              const pubDate = new Date(n.published_at);
+              const hoursAgo = Math.floor((Date.now() - pubDate.getTime()) / 3600000);
+              const ago = hoursAgo < 1 ? "just now" : hoursAgo < 24 ? `${hoursAgo}h ago` : `${Math.floor(hoursAgo / 24)}d ago`;
+              return (
+                <li key={n.id}>
+                  <a
+                    href={n.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2 hover:border-emerald-500"
+                  >
+                    <p className="text-[13px] font-semibold text-zinc-100">
+                      {n.title}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[10px] text-zinc-500">
+                      {n.state && (
+                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono uppercase text-zinc-400">
+                          {n.state}
+                        </span>
+                      )}
+                      {n.source_name && <span>{n.source_name}</span>}
+                      <span>· {ago}</span>
+                    </div>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-2 text-[10px] text-zinc-500">
+            Filtered to articles published in last 36h (not just newly indexed). Full archive at <Link href="/news" className="text-emerald-400 hover:underline">/news</Link>.
           </p>
         </section>
       )}
