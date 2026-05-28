@@ -54,6 +54,14 @@ async function getDigestForUser(userId, userState) {
   const cutoff7 = isoDaysAgo(7);
   const cutoff7Date = cutoff7.slice(0, 10);
   const cutoff30Date = isoDaysAgo(30).slice(0, 10);
+  // News freshness window: only PUBLISHED in last 36h. The 36h
+  // window (vs strict 24h) accommodates time-zone variance + late-
+  // night publishing so a user on the West Coast doesn't miss
+  // articles published at 1am UTC that landed in our nightly sweep.
+  // CRITICAL: filter by `published_at`, NOT `scraped_at` — Google
+  // News RSS regularly surfaces 6-month-old articles whose URL was
+  // newly re-indexed. Those would otherwise pollute the briefing.
+  const cutoff36hPubDate = isoDaysAgo(1.5).slice(0, 10);
 
   // State alerts (critical + alert)
   let alertsQuery = sb.from("policy_alerts")
@@ -65,6 +73,17 @@ async function getDigestForUser(userId, userState) {
   const { data: alerts } = await alertsQuery;
   const alertCount = (alerts ?? []).length;
   const criticalCount = (alerts ?? []).filter((a) => a.severity === "critical").length;
+
+  // Fresh news — published in last 36h, classified as kratom-relevant,
+  // matching user's state OR national/federal. Caps at 50 to keep the
+  // count meaningful (anything past that = "lots").
+  let newsQuery = sb.from("news_items")
+    .select("id", { count: "exact", head: true })
+    .gte("published_at", cutoff36hPubDate)
+    .not("policy_classified_at", "is", null);
+  if (userState) newsQuery = newsQuery.or(`state.eq.${userState},state.is.null,state.eq.FED`);
+  const { count: rawNewsCount } = await newsQuery;
+  const newsCount = Math.min(50, rawNewsCount ?? 0);
 
   // Watched bills with movement
   let watchedCount = 0;
@@ -101,27 +120,28 @@ async function getDigestForUser(userId, userState) {
     activeOpsCount = slugs.size;
   } catch { /* defensive */ }
 
-  return { alertCount, criticalCount, watchedCount, activeOpsCount };
+  return { alertCount, criticalCount, watchedCount, activeOpsCount, newsCount };
 }
 
 function buildPayload(digest, userState) {
   const lines = [];
   if (digest.criticalCount > 0) lines.push(`🚨 ${digest.criticalCount} critical alert${digest.criticalCount === 1 ? "" : "s"}`);
   if (digest.alertCount > digest.criticalCount) lines.push(`⚠️ ${digest.alertCount - digest.criticalCount} alert${digest.alertCount - digest.criticalCount === 1 ? "" : "s"}`);
+  if (digest.newsCount > 0) lines.push(`🗞 ${digest.newsCount}${digest.newsCount === 50 ? "+" : ""} new article${digest.newsCount === 1 ? "" : "s"}`);
   if (digest.watchedCount > 0) lines.push(`📋 ${digest.watchedCount} watched bill${digest.watchedCount === 1 ? "" : "s"} moved`);
   if (digest.activeOpsCount > 0) lines.push(`🕸 ${digest.activeOpsCount} active operation${digest.activeOpsCount === 1 ? "" : "s"}`);
 
   if (lines.length === 0) {
     return {
       title: `Today in ${userState ?? "kratom policy"}: quiet`,
-      body: `No alerts, no tracked-bill movement. Good time to onboard a new advocate.`,
+      body: `No alerts, no tracked-bill movement, no fresh news. Good time to onboard a new advocate.`,
       link: `${APP_URL}/brief`,
       tag: "daily-brief",
     };
   }
   return {
     title: `Today in ${userState ?? "kratom policy"}`,
-    body: lines.join(" · "),
+    body: lines.join(" · ") + " — tap to read",
     link: `${APP_URL}/brief`,
     tag: "daily-brief",
   };
