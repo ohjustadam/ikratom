@@ -10,7 +10,7 @@ import { getCreatorContext } from "@/modules/admin/actions";
 // Joins to bills via the (post-#326) news_items.bill_id linkage so the
 // /news card can show "→ NY S 8925" with a click-through to the bill.
 const NEWS_FIELDS =
-  "id, state, title, summary, url, source_name, published_at, " +
+  "id, state, title, summary, url, source_name, published_at, scraped_at, " +
   "kratom_topic, ai_relevance_score, duplicate_count, " +
   "bill_id, bills(bill_number, state)";
 
@@ -24,6 +24,7 @@ export type NewsListItem = {
   url: string;
   source_name: string | null;
   published_at: string | null;
+  scraped_at: string | null;
   kratom_topic: string | null;
   ai_relevance_score: number | null;
   duplicate_count: number | null;

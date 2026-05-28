@@ -6,7 +6,9 @@ import { PageShareWithAttribution } from "@/components/PageShareWithAttribution"
 export const metadata = { title: "Kratom news" };
 
 export default async function NewsPage() {
-  const items = await listAllRecentNews(100);
+  // Bigger fetch so client-side pagination has room. Filtering + sorting
+  // is cheap at 200 rows; the bottleneck is the DB roundtrip.
+  const items = await listAllRecentNews(250);
 
   // User's state (for highlight)
   const supabase = await createClient();
