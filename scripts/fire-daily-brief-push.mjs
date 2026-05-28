@@ -206,9 +206,31 @@ async function fireForUser(userId, userState) {
   return { sent, dropped };
 }
 
+async function pruneLocalhostSubs() {
+  // Prune push_subscriptions registered against localhost or 127.0.0.1.
+  // These were created during local dev — they receive pushes but the
+  // click navigates to an unreachable origin (ERR_CONNECTION_REFUSED).
+  // Legacy rows with origin=null are left alone (we can't prove they
+  // were dev-only).
+  if (DRY) return;
+  const { data, error } = await sb
+    .from("push_subscriptions")
+    .delete()
+    .or("origin.ilike.%localhost%,origin.ilike.%127.0.0.1%")
+    .select("id, origin");
+  if (error) {
+    console.warn(`  prune-localhost-subs: ${error.message?.slice(0, 80)}`);
+    return;
+  }
+  if (data && data.length > 0) {
+    console.log(`  pruned ${data.length} localhost-origin push sub(s)`);
+  }
+}
+
 async function main() {
   const t0 = Date.now();
   console.log(`Daily brief push${DRY ? " (DRY RUN)" : ""}…`);
+  await pruneLocalhostSubs();
 
   // Find opted-in users
   let optInQuery = sb.from("notification_preferences")

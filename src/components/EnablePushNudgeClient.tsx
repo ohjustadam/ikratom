@@ -93,6 +93,7 @@ export function EnablePushNudgeClient({
           p256dh: json.keys.p256dh,
           auth: json.keys.auth,
           userAgent: navigator.userAgent,
+          origin: window.location.origin,
         });
         if ("error" in r) setError(r.error ?? "Failed to save subscription");
         else setSubscribed(true);

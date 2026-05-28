@@ -22,6 +22,10 @@ export async function savePushSubscription(input: {
   p256dh: string;
   auth: string;
   userAgent?: string;
+  // window.location.origin at subscribe time. Used to detect + prune
+  // subscriptions registered against localhost during dev, which fail
+  // when the click handler navigates to a now-unreachable origin.
+  origin?: string;
 }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -50,6 +54,7 @@ export async function savePushSubscription(input: {
         p256dh: input.p256dh,
         auth: input.auth,
         user_agent: input.userAgent?.slice(0, 500) ?? null,
+        origin: input.origin?.slice(0, 200) ?? null,
       },
       { onConflict: "user_id,endpoint" },
     );
