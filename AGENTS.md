@@ -2,7 +2,7 @@
 
 You are working on **iKratom**, a nonpartisan kratom advocacy platform. This file is the cold-start brief: read it once and you have enough context to be useful without wasting tokens grepping.
 
-**START HERE if you're a new session:** read `ROADMAP.md` for current priorities + open work. It supersedes anything below this line if there's a conflict.
+**START HERE if you're a new session:** read `private/V2_KICKOFF.md` — single source of truth for what's left before app-store submission and v2 work. It supersedes `ROADMAP.md` and anything below this line if there's a conflict.
 
 **Sister docs (read on demand):**
 - `CLAUDE.md` — product rules, scope, conventions (this file extends it)
