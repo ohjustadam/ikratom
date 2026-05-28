@@ -131,22 +131,24 @@ function buildPayload(digest, userState) {
   if (digest.watchedCount > 0) lines.push(`📋 ${digest.watchedCount} watched bill${digest.watchedCount === 1 ? "" : "s"} moved`);
   if (digest.activeOpsCount > 0) lines.push(`🕸 ${digest.activeOpsCount} active operation${digest.activeOpsCount === 1 ? "" : "s"}`);
 
+  // Absolute prod URL — devs can have service workers registered against
+  // localhost from prior local testing; a relative link resolves against
+  // the SW origin, which may not be prod. Hardcoding the canonical prod
+  // origin ensures the click always lands on the live site regardless of
+  // which SW handled the push.
+  const link = "https://www.ikratom.org/brief";
   if (lines.length === 0) {
     return {
       title: `Today in ${userState ?? "kratom policy"}: quiet`,
       body: `No alerts, no tracked-bill movement, no fresh news. Good time to onboard a new advocate.`,
-      // Relative path — the service worker resolves against its
-      // registered origin (always prod). Avoids the failure mode where
-      // a manual local run bakes APP_URL=http://localhost:3001 into
-      // the push payload, sending broken links to real devices.
-      link: "/brief",
+      link,
       tag: "daily-brief",
     };
   }
   return {
     title: `Today in ${userState ?? "kratom policy"}`,
     body: lines.join(" · ") + " — tap to read",
-    link: `${APP_URL}/brief`,
+    link,
     tag: "daily-brief",
   };
 }
