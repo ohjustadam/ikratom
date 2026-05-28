@@ -674,6 +674,20 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
+      # OpenStates daily bill sweep — the ONLY path that refreshes
+      # last_action/last_action_at for bills with no legiscan_bill_id
+      # (which is ALL NY bills as of 2026-05-28 + most non-LegiScan
+      # states). Without this, NY bills go stale forever — confirmed
+      # 2026-05-28 when S8925A sat at a Jan 16 action while the actual
+      # state was "advanced to third reading" on May 26. continue-on-
+      # error so an OpenStates quota exhaustion doesn't tank the rest.
+      - name: OpenStates daily bill sweep (refreshes last_action_at for non-LegiScan bills)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+        run: node scripts/sync-bills.mjs
       - name: LegiScan full sweep (all active anti + pro bills)
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
