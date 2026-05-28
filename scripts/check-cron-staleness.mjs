@@ -42,6 +42,7 @@ const REGISTRY = [
       "promote_alert_to_bill","extract_local_meta","seed_bill_officials",
       "auto_post_bills_to_forum","sync_bills_legiscan_priority","post_bill_alerts_to_discord",
       "push_bill_actions_to_actors","resolve_news_urls","verify_news_body",
+      "fanout_bill_reminders",
      ].map((source) => ({ source, interval_hours: 4, system: "gh-hourly", cadence: "every-30min" })),
 
   // daily
