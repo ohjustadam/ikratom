@@ -56,15 +56,21 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: "any",
       },
       {
-        // Maskable for Android adaptive icons. Re-uses the 512 PNG
-        // until we have a properly padded version — the centered logo
-        // already sits within the safe zone, just no explicit
-        // maskable badge. Bubblewrap will warn during APK gen if
-        // padding is wrong; we can fix when we get there.
-        src: "/ikratom-icon-512.png",
+        // Properly padded maskable variant: logo at ~76% of canvas
+        // on theme-colored background, so Android can crop into a
+        // squircle/circle without clipping the mark.
+        src: "/ikratom-icon-512-maskable.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
+      },
+      {
+        // 1024 for Apple App Store (required minimum) + sharper
+        // hi-dpi rendering on tablets.
+        src: "/ikratom-icon-1024.png",
+        sizes: "1024x1024",
+        type: "image/png",
+        purpose: "any",
       },
       {
         src: "/apple-icon",
