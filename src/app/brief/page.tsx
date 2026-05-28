@@ -74,6 +74,22 @@ export default async function BriefPage() {
     stateAlerts = (data ?? []) as Alert[];
   } catch { /* defensive */ }
 
+  // ── 1b. National + other-state alerts (so home-state isn't a silo).
+  // Same 7-day window, excludes the user's own state when set.
+  let nationalAlerts: Alert[] = [];
+  try {
+    let q = sb.from("policy_alerts")
+      .select("id, kind, severity, title, locality, created_at, source_url")
+      .in("severity", ["critical", "alert"])
+      .eq("moderation_status", "approved")
+      .gte("created_at", cutoff7)
+      .order("created_at", { ascending: false })
+      .limit(12);
+    if (viewerState) q = q.neq("locality", viewerState);
+    const { data } = await q;
+    nationalAlerts = (data ?? []) as Alert[];
+  } catch { /* defensive */ }
+
   // ── 2. Watched-bill movements (status changes in last 7 days)
   type WatchedBill = {
     id: string; state: string; bill_number: string; title: string | null;
@@ -171,6 +187,21 @@ export default async function BriefPage() {
     freshNews = (data ?? []) as NewsItem[];
   } catch { /* defensive */ }
 
+  // Cross-state news — same 36h window, items NOT in the home-state
+  // bucket. Renders in the "Across the country" section below.
+  let nationalNews: NewsItem[] = [];
+  try {
+    let nq = sb.from("news_items")
+      .select("id, title, url, source_name, state, published_at, summary")
+      .gte("published_at", cutoff36hDate)
+      .not("policy_classified_at", "is", null)
+      .order("published_at", { ascending: false })
+      .limit(15);
+    if (viewerState) nq = nq.not("state", "in", `(${viewerState})`);
+    const { data } = await nq;
+    nationalNews = (data ?? []) as NewsItem[];
+  } catch { /* defensive */ }
+
   const today = new Date().toLocaleDateString(undefined, {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
@@ -214,7 +245,9 @@ export default async function BriefPage() {
     watchedBills.length === 0 &&
     activeOps.length === 0 &&
     openCampaigns.length === 0 &&
-    freshNews.length === 0;
+    freshNews.length === 0 &&
+    nationalAlerts.length === 0 &&
+    nationalNews.length === 0;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -452,6 +485,60 @@ export default async function BriefPage() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {/* 5. Across the country — never let the home-state filter silo
+            the user. Alerts + news from everywhere else, lightly styled. */}
+      {(nationalAlerts.length > 0 || nationalNews.length > 0) && (
+        <section className="mb-8 rounded-lg border border-zinc-800/70 bg-zinc-950/30 p-4">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-300">
+            🌎 Across the country
+          </h2>
+          {nationalAlerts.length > 0 && (
+            <>
+              <p className="mb-2 text-[11px] font-semibold text-zinc-400">Other-state alerts · last {ALERT_HORIZON}d</p>
+              <ul className="mb-3 space-y-1">
+                {nationalAlerts.map((a) => (
+                  <li key={a.id} className="flex items-start gap-2 text-[11px]">
+                    <span className="mt-0.5 rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
+                      {a.locality || "FED"}
+                    </span>
+                    <span className={a.severity === "critical" ? "text-red-300" : "text-amber-200"}>
+                      {a.severity === "critical" ? "🚨" : "⚠️"}
+                    </span>
+                    <Link href={a.source_url ?? `/alerts/${a.id}`} className="flex-1 text-zinc-200 hover:text-emerald-300">
+                      {a.title}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {nationalNews.length > 0 && (
+            <>
+              <p className="mb-2 text-[11px] font-semibold text-zinc-400">News from other states · last 36h</p>
+              <ul className="space-y-1">
+                {nationalNews.map((n) => {
+                  const hoursAgo = Math.floor((Date.now() - new Date(n.published_at).getTime()) / 3_600_000);
+                  const ago = hoursAgo < 1 ? "just now" : hoursAgo < 24 ? `${hoursAgo}h ago` : `${Math.floor(hoursAgo / 24)}d ago`;
+                  return (
+                    <li key={n.id} className="flex items-baseline gap-2 text-[11px]">
+                      {n.state && (
+                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
+                          {n.state}
+                        </span>
+                      )}
+                      <a href={n.url} target="_blank" rel="noopener noreferrer" className="flex-1 text-zinc-200 hover:text-emerald-300">
+                        {n.title}
+                      </a>
+                      <span className="text-[10px] text-zinc-500">{ago}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
         </section>
       )}
 
