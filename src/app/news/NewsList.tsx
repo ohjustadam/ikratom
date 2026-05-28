@@ -378,7 +378,7 @@ function LinkedBillFooter({ item }: { item: NewsItem }) {
 function CardItem({ item, compact = false }: { item: NewsItem; compact?: boolean }) {
   return (
     <li className="rounded-lg border border-zinc-800 bg-zinc-950/40 transition hover:border-emerald-700/50">
-      <a href={item.url} target="_blank" rel="noopener noreferrer" className="block p-4">
+      <a href={`/news/${item.id}`} className="block p-4">
         <ItemMeta item={item} />
         <h3 className={`mt-2 font-semibold leading-tight ${compact ? "text-[14px]" : ""}`}>{item.title}</h3>
         {!compact && item.summary && <p className="mt-2 text-sm text-zinc-400">{item.summary}</p>}
@@ -391,7 +391,7 @@ function CardItem({ item, compact = false }: { item: NewsItem; compact?: boolean
 function CompactRow({ item }: { item: NewsItem }) {
   return (
     <li>
-      <a href={item.url} target="_blank" rel="noopener noreferrer" className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5 transition hover:bg-zinc-900/40">
+      <a href={`/news/${item.id}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5 transition hover:bg-zinc-900/40">
         <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
           {item.state ?? "FED"}
         </span>
@@ -406,9 +406,7 @@ function CompactRow({ item }: { item: NewsItem }) {
 function HeroItem({ item }: { item: NewsItem }) {
   return (
     <a
-      href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
+      href={`/news/${item.id}`}
       className="block rounded-xl border border-emerald-700/30 bg-gradient-to-br from-emerald-950/30 via-zinc-950/40 to-zinc-950/60 p-6 transition hover:border-emerald-500"
     >
       <ItemMeta item={item} />
