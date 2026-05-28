@@ -284,6 +284,25 @@ export default async function BriefPage() {
   audioParts.push("That's the brief. Tap a card to dive deeper, or visit ikratom.org for the full picture.");
   const audioScript = audioParts.join(" ");
 
+  // Check whether a pre-rendered MP3 of today's brief exists. The cron
+  // (scripts/render-daily-brief-audio.mjs) renders it once per day with
+  // Edge TTS's Christopher Neural voice — far better than the browser-
+  // native SpeechSynthesis fallback, especially on Windows where neural
+  // voices may not be installed.
+  const todayKey = new Date().toISOString().slice(0, 10);
+  let audioUrl: string | null = null;
+  try {
+    const { data: files } = await sb.storage
+      .from("daily-brief-audio")
+      .list(todayKey, { limit: 1, search: "national.mp3" });
+    if (files && files.length > 0) {
+      const { data: pub } = sb.storage
+        .from("daily-brief-audio")
+        .getPublicUrl(`${todayKey}/national.mp3`);
+      audioUrl = pub.publicUrl;
+    }
+  } catch { /* bucket may not exist on legacy deploys — fall back to SpeechSynthesis */ }
+
   const isEmpty =
     stateAlerts.length === 0 &&
     watchedBills.length === 0 &&
@@ -301,7 +320,7 @@ export default async function BriefPage() {
         </p>
         <div className="mt-2 flex flex-wrap items-baseline justify-between gap-3">
           <h1 className="text-3xl font-bold sm:text-4xl">{greeting}</h1>
-          <BriefAudioButton script={audioScript} />
+          <BriefAudioButton script={audioScript} audioUrl={audioUrl} />
         </div>
         <p className="mt-2 text-sm text-zinc-400">{today}</p>
         {!user && (

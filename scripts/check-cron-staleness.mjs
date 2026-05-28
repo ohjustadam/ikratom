@@ -63,6 +63,7 @@ const REGISTRY = [
       "align_bills_to_research",
       "openstates","detect_bill_clusters",
       "fire_daily_brief_push",
+      "render_daily_brief_audio",
      ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
 
   // weekly

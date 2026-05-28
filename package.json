@@ -55,6 +55,7 @@
     "libsodium-wrappers": "^0.8.4",
     "marked": "^18.0.3",
     "mermaid": "^11.15.0",
+    "msedge-tts": "^2.0.5",
     "next": "^16.2.6",
     "pdf-parse": "^2.4.5",
     "playwright-chromium": "^1.59.1",
@@ -70,7 +71,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/libsodium-wrappers": "^0.7.14",
     "@types/node": "^20",
-    "@types/react": "^19",
+    "@types/react": "19.2.15",
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.1.5",
     "d3-geo": "^3.1.1",
@@ -78,7 +79,7 @@
     "eslint-config-next": "16.2.3",
     "md-to-pdf": "^5.2.5",
     "tailwindcss": "^4",
-    "typescript": "^5",
+    "typescript": "5.9.3",
     "vitest": "^4.1.5"
   }
 }
