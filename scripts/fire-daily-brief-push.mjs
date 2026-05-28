@@ -135,7 +135,11 @@ function buildPayload(digest, userState) {
     return {
       title: `Today in ${userState ?? "kratom policy"}: quiet`,
       body: `No alerts, no tracked-bill movement, no fresh news. Good time to onboard a new advocate.`,
-      link: `${APP_URL}/brief`,
+      // Relative path — the service worker resolves against its
+      // registered origin (always prod). Avoids the failure mode where
+      // a manual local run bakes APP_URL=http://localhost:3001 into
+      // the push payload, sending broken links to real devices.
+      link: "/brief",
       tag: "daily-brief",
     };
   }
