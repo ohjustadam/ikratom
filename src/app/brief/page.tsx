@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getOrGenerateBriefSummary } from "@/modules/brief/summary";
 import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
+import BriefAudioButton from "./BriefAudioButton";
 
 export const metadata = {
   title: "Daily brief — what's moving in kratom policy",
@@ -197,7 +198,7 @@ export default async function BriefPage() {
       .not("policy_classified_at", "is", null)
       .order("published_at", { ascending: false })
       .limit(15);
-    if (viewerState) nq = nq.not("state", "in", `(${viewerState})`);
+    if (viewerState) nq = nq.neq("state", viewerState);
     const { data } = await nq;
     nationalNews = (data ?? []) as NewsItem[];
   } catch { /* defensive */ }
@@ -240,6 +241,25 @@ export default async function BriefPage() {
     ? `Today in ${viewerState}`
     : "Today across the platform";
 
+  // Build the read-aloud script. Pure-text — no markdown, no emoji-
+  // heavy sections, sentence-cased so SpeechSynthesis sounds natural.
+  const stateName = viewerState ? STATE_NAMES[viewerState] ?? viewerState : null;
+  const audioParts: string[] = [];
+  audioParts.push(`${greeting}. Here's your iKratom daily brief for ${today}.`);
+  if (aiSummary?.summary) audioParts.push(aiSummary.summary);
+  if (stateAlerts.length > 0) {
+    audioParts.push(`${stateAlerts.length} active alert${stateAlerts.length === 1 ? "" : "s"}${stateName ? ` in ${stateName}` : ""}.`);
+    for (const a of stateAlerts.slice(0, 3)) audioParts.push(a.title.replace(/[—–]/g, "-"));
+  }
+  if (freshNews.length > 0) {
+    audioParts.push(`Today's headlines${stateName ? ` for ${stateName}` : ""}: ${freshNews.slice(0, 5).map((n) => n.title).join(". ")}.`);
+  }
+  if (nationalAlerts.length > 0) {
+    audioParts.push(`Across the country: ${nationalAlerts.slice(0, 3).map((a) => `${a.locality || "federal"}, ${a.title}`).join(". ")}.`);
+  }
+  audioParts.push("That's the brief. Tap a card to dive deeper, or visit ikratom.org for the full picture.");
+  const audioScript = audioParts.join(" ");
+
   const isEmpty =
     stateAlerts.length === 0 &&
     watchedBills.length === 0 &&
@@ -255,7 +275,10 @@ export default async function BriefPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
           ◉ Daily brief
         </p>
-        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">{greeting}</h1>
+        <div className="mt-2 flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="text-3xl font-bold sm:text-4xl">{greeting}</h1>
+          <BriefAudioButton script={audioScript} />
+        </div>
         <p className="mt-2 text-sm text-zinc-400">{today}</p>
         {!user && (
           <p className="mt-3 rounded-md border border-amber-700/40 bg-amber-950/10 p-3 text-[11px] text-amber-200">
@@ -335,19 +358,24 @@ export default async function BriefPage() {
             {stateAlerts.map((a) => {
               const daysAgo = Math.floor((Date.now() - new Date(a.created_at).getTime()) / 86_400_000);
               return (
-                <li key={a.id} className={`rounded border px-3 py-2 text-[11px] ${
-                  a.severity === "critical"
-                    ? "border-red-700/40 bg-red-950/10 text-red-100"
-                    : "border-amber-700/30 bg-amber-950/10 text-amber-100"
-                }`}>
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span>{a.severity === "critical" ? "🚨" : "⚠️"}</span>
-                    <span className="font-mono text-[9px] uppercase text-zinc-400">{a.locality}</span>
-                    <span className="font-semibold">{a.title}</span>
-                    <span className="ml-auto text-[10px] text-zinc-500">
-                      {daysAgo === 0 ? "today" : daysAgo === 1 ? "1d ago" : `${daysAgo}d ago`}
-                    </span>
-                  </div>
+                <li key={a.id}>
+                  <Link
+                    href={`/alerts/${a.id}`}
+                    className={`block rounded border px-3 py-2 text-[11px] transition hover:border-emerald-500 ${
+                      a.severity === "critical"
+                        ? "border-red-700/40 bg-red-950/10 text-red-100"
+                        : "border-amber-700/30 bg-amber-950/10 text-amber-100"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span>{a.severity === "critical" ? "🚨" : "⚠️"}</span>
+                      <span className="font-mono text-[9px] uppercase text-zinc-400">{a.locality}</span>
+                      <span className="font-semibold">{a.title}</span>
+                      <span className="ml-auto text-[10px] text-zinc-500">
+                        {daysAgo === 0 ? "today" : daysAgo === 1 ? "1d ago" : `${daysAgo}d ago`}
+                      </span>
+                    </div>
+                  </Link>
                 </li>
               );
             })}
@@ -507,7 +535,7 @@ export default async function BriefPage() {
                     <span className={a.severity === "critical" ? "text-red-300" : "text-amber-200"}>
                       {a.severity === "critical" ? "🚨" : "⚠️"}
                     </span>
-                    <Link href={a.source_url ?? `/alerts/${a.id}`} className="flex-1 text-zinc-200 hover:text-emerald-300">
+                    <Link href={`/alerts/${a.id}`} className="flex-1 text-zinc-200 hover:text-emerald-300">
                       {a.title}
                     </Link>
                   </li>
