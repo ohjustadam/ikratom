@@ -162,6 +162,20 @@ async function fireForUser(userId, userState) {
   const digest = await getDigestForUser(userId, userState);
   const payload = buildPayload(digest, userState);
 
+  // Drop a row in the in-app notifications table so the brief shows
+  // up in /notifications even after the OS-level push is dismissed.
+  // push-critical-alerts already does this; the brief was the only
+  // push that never left a history trail.
+  if (!DRY) {
+    await sb.from("notifications").insert({
+      user_id: userId,
+      kind: "daily_brief",
+      title: payload.title,
+      body: payload.body,
+      link: payload.link,
+    });
+  }
+
   let sent = 0, dropped = 0;
   for (const s of subscriptions) {
     if (DRY) {
