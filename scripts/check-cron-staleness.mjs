@@ -43,6 +43,7 @@ const REGISTRY = [
       "auto_post_bills_to_forum","sync_bills_legiscan_priority","post_bill_alerts_to_discord",
       "push_bill_actions_to_actors","resolve_news_urls","verify_news_body",
       "fanout_bill_reminders",
+      "dedupe_news_by_title",
      ].map((source) => ({ source, interval_hours: 4, system: "gh-hourly", cadence: "every-30min" })),
 
   // daily
