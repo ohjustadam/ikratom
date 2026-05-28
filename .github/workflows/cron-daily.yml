@@ -830,6 +830,17 @@ jobs:
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           APP_URL: ${{ secrets.APP_URL }}
         run: node scripts/fire-daily-brief-push.mjs
+      # Pre-render today's brief as an MP3 with Edge TTS (Christopher
+      # Neural). The /brief page picks this up automatically via the
+      # daily-brief-audio storage bucket; clients with no neural voice
+      # installed (Windows base install, older mobile OSes) get the
+      # high-quality audio anyway.
+      - name: Render daily brief audio (Edge TTS Neural)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/render-daily-brief-audio.mjs
 
   enrich-bill-journey:
     # Regenerate the 4-paragraph journey narrative + 200-300 word
