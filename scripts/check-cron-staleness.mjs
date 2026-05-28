@@ -45,17 +45,21 @@ const REGISTRY = [
      ].map((source) => ({ source, interval_hours: 4, system: "gh-hourly", cadence: "every-30min" })),
 
   // daily
+  // NOTE: `source` values here must match the EXACT string each script
+  // writes to scraper_runs.source — NOT the workflow step name. Many
+  // scripts use the upstream API name (e.g. "openstates", "usaspending")
+  // rather than the cron-step verb. Mismatches show up as "never
+  // observed" false-positives in /admin/automation.
   ...["verify_bill_status_ai","auto_resolve_sync_discrepancies","sync_legislator_donors",
-      "classify_donor_industries","sync_bill_sponsors","sync_federal_trades","sync_lda_kratom",
-      "scrape_bop_findings","parse_bop_pdfs","classify_bop_findings_ai","sync_federal_awards",
-      "sync_federal_rulemaking","sync_courtlistener_cases","scrape_utah_lobbyist_registry",
-      "generate_state_briefing","audit_briefings_self_critique","intel_coverage_matrix",
-      "daily_data_quality","sync_committees_openstates","draft_legislator_stance",
-      "discover_municipal_meetings","recheck_watchlist_meetings","fire_meeting_reminders",
+      "sync_bill_sponsors","sync_lda_kratom",
+      "usaspending","regulations.gov","courtlistener",
+      "senate_stock_watcher","house_stock_watcher",
+      "generate_state_briefing",
+      "sync_committees_openstates","draft_legislator_stance",
+      "discover_municipal_meetings","fire_meeting_reminders",
       "scan_legistar_tenants","scan_granicus_tenants","sync_research_pubmed",
-      "evaluate_research_papers","align_bills_to_research","legiscan_wide_pass",
-      "openstates_vote_sync","backfill_current_committee","index_legislator_news_mentions",
-      "ai_correlate_news_to_bills","detect_bill_clusters","re_enrich_stale_bill_journeys",
+      "align_bills_to_research",
+      "openstates","detect_bill_clusters",
       "fire_daily_brief_push",
      ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
 
