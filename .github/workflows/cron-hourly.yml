@@ -252,6 +252,18 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/correlate-news-to-bills.mjs
+      - name: Dedupe news by title (exact-syndication case)
+        # Google News RSS re-surfaces the same article under multiple
+        # per-state queries — same title, different per-query URL, so
+        # the upsert-by-url dedupe at scrape time doesn't catch them.
+        # This script normalizes titles and marks duplicates so the
+        # /news and /brief filters collapse them. Embedding-based dedupe
+        # (dedupe-news.mjs) is still the gold path for paraphrased
+        # near-duplicates — owner runs it from a machine with Ollama.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/dedupe-news-by-title.mjs
       - name: Check cron staleness (self-monitoring)
         # Self-monitoring observability. Compares cron-registry expected
         # cadences against scraper_runs.finished_at. If any source is past
