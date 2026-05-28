@@ -88,7 +88,15 @@ export default async function BriefPage() {
       .limit(12);
     if (viewerState) q = q.neq("locality", viewerState);
     const { data } = await q;
-    nationalAlerts = (data ?? []) as Alert[];
+    // Dedupe by title — the news-driven alert pipeline can create
+    // multiple policy_alert rows for the same syndicated article.
+    const seen = new Set<string>();
+    nationalAlerts = ((data ?? []) as Alert[]).filter((a) => {
+      const key = (a.title ?? "").trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   } catch { /* defensive */ }
 
   // ── 2. Watched-bill movements (status changes in last 7 days)
@@ -185,7 +193,14 @@ export default async function BriefPage() {
       .limit(15);
     if (viewerState) nq = nq.or(`state.eq.${viewerState},state.is.null,state.eq.FED`);
     const { data } = await nq;
-    freshNews = (data ?? []) as NewsItem[];
+    // Same dedupe-by-url as nationalNews below.
+    const seen = new Set<string>();
+    freshNews = ((data ?? []) as NewsItem[]).filter((n) => {
+      const key = (n.url || n.title).trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   } catch { /* defensive */ }
 
   // Cross-state news — same 36h window, items NOT in the home-state
@@ -200,7 +215,16 @@ export default async function BriefPage() {
       .limit(15);
     if (viewerState) nq = nq.neq("state", viewerState);
     const { data } = await nq;
-    nationalNews = (data ?? []) as NewsItem[];
+    // Dedupe by canonical url — Google News RSS surfaces the same
+    // article under multiple per-state queries, producing exact-dupe
+    // rows in news_items. Keep the first occurrence per URL.
+    const seen = new Set<string>();
+    nationalNews = ((data ?? []) as NewsItem[]).filter((n) => {
+      const key = (n.url || n.title).trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   } catch { /* defensive */ }
 
   const today = new Date().toLocaleDateString(undefined, {
