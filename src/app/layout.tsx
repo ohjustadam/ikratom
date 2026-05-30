@@ -5,6 +5,7 @@ import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
 import { MobileAuthPill } from "@/modules/auth/components/MobileAuthPill";
 import { HeaderNav } from "@/components/HeaderNav";
 import { HeaderShare } from "@/components/HeaderShare";
+import { InstallAppButton } from "@/components/InstallAppButton";
 import { CookieBanner } from "@/components/CookieBanner";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { GlobalAnnouncement } from "@/components/GlobalAnnouncement";
