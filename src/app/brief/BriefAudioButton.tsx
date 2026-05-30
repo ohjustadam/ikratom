@@ -84,18 +84,24 @@ export default function BriefAudioButton({ script, audioUrl, audioDateLabel }: P
         </div>
         <audio
           ref={audioRef}
-          src={audioUrl}
           controls
-          preload="metadata"
+          // preload="auto" forces the full file download on mount.
+          // preload="metadata" leaves Chrome unable to determine duration
+          // for msedge-tts MP3s (no Xing VBR header), keeping the controls
+          // greyed out indefinitely. Full file is only ~600KB.
+          preload="auto"
           className="w-full rounded-md border border-emerald-700/40 bg-emerald-950/20"
           onLoadStart={() => setAudioState("loading")}
           onLoadedMetadata={() => setAudioState("ready")}
-          onCanPlay={() => setAudioState((s) => (s === "loading" ? "ready" : s))}
+          onLoadedData={() => setAudioState("ready")}
+          onCanPlay={() => setAudioState("ready")}
+          onCanPlayThrough={() => setAudioState("ready")}
           onPlay={() => setAudioState("playing")}
           onPause={() => setAudioState((s) => (s === "playing" ? "ready" : s))}
           onEnded={() => setAudioState("ended")}
           onError={() => setAudioState("error")}
         >
+          <source src={audioUrl} type="audio/mpeg" />
           Your browser doesn&apos;t support audio playback. <a href={audioUrl}>Download the MP3</a>.
         </audio>
         <p className="text-[10px] text-zinc-500">
