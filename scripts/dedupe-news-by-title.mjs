@@ -48,11 +48,57 @@ const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
 
 console.log(`Dedupe-news-by-title${DRY ? " [DRY]" : ""} — scanning canonicals from last ${WINDOW_DAYS}d…`);
 
+// Self-healing pass: undo over-aggressive merges where canonical and
+// duplicate have DIFFERENT source_names. Earlier title-only grouping
+// erased legit multi-source coverage. Idempotent — re-runs after the
+// new (title+source) grouping is in place find nothing to undo.
+if (!DRY) {
+  // Paginate dupes — Supabase caps at 1000 rows per query.
+  const allDupes = [];
+  let offset = 0;
+  while (true) {
+    const { data } = await sb
+      .from("news_items")
+      .select("id, source_name, duplicate_of")
+      .not("duplicate_of", "is", null)
+      .eq("active", true)
+      .range(offset, offset + 999);
+    if (!data?.length) break;
+    allDupes.push(...data);
+    if (data.length < 1000) break;
+    offset += 1000;
+  }
+  if (allDupes.length > 0) {
+    const canonicalIds = [...new Set(allDupes.map((d) => d.duplicate_of))];
+    // Fetch canonicals in chunks — long .in() lists hit URL-length caps.
+    const canSrc = new Map();
+    for (let i = 0; i < canonicalIds.length; i += 200) {
+      const chunk = canonicalIds.slice(i, i + 200);
+      const { data } = await sb.from("news_items").select("id, source_name").in("id", chunk);
+      for (const c of data ?? []) canSrc.set(c.id, (c.source_name ?? "").toLowerCase().trim());
+    }
+    const wrong = allDupes
+      .filter((d) => {
+        const ds = (d.source_name ?? "").toLowerCase().trim();
+        const cs = canSrc.get(d.duplicate_of);
+        return cs !== undefined && ds !== cs;
+      })
+      .map((d) => d.id);
+    if (wrong.length > 0) {
+      for (let i = 0; i < wrong.length; i += 200) {
+        const chunk = wrong.slice(i, i + 200);
+        await sb.from("news_items").update({ duplicate_of: null }).in("id", chunk);
+      }
+      console.log(`  un-merged ${wrong.length} rows previously collapsed across different sources`);
+    }
+  }
+}
+
 // Pull canonicals in batches — at 50k news items per year, the 30d
 // window should be well under 10k. Pull all in one query.
 const { data: rows, error } = await sb
   .from("news_items")
-  .select("id, title, state, published_at, scraped_at")
+  .select("id, title, source_name, state, published_at, scraped_at")
   .eq("active", true)
   .is("duplicate_of", null)
   .gte("scraped_at", since)
@@ -74,11 +120,20 @@ function normalize(title) {
     .trim();
 }
 
-// Build groups
+// Build groups keyed by (normalized_title, source_name). Owner reported
+// the previous title-only grouping was over-merging: two reporters at
+// different outlets covering the same news event commonly write the
+// SAME headline (it's how news works), but those are distinct articles
+// with distinct angles/quotes/embedded media. Merging only when title
+// AND source match catches the Google-News-RSS-syndication case (one
+// canonical article re-surfaced under multiple state queries) without
+// erasing genuine multi-source coverage.
 const groups = new Map();
 for (const r of rows) {
-  const key = normalize(r.title);
-  if (!key) continue;
+  const titleKey = normalize(r.title);
+  if (!titleKey) continue;
+  const sourceKey = (r.source_name ?? "").toLowerCase().trim();
+  const key = `${titleKey}::${sourceKey}`;
   if (!groups.has(key)) groups.set(key, []);
   groups.get(key).push(r);
 }
