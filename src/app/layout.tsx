@@ -5,6 +5,7 @@ import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
 import { MobileAuthPill } from "@/modules/auth/components/MobileAuthPill";
 import { HeaderNav } from "@/components/HeaderNav";
 import { HeaderShare } from "@/components/HeaderShare";
+import { InstallAppButton } from "@/components/InstallAppButton";
 import { CookieBanner } from "@/components/CookieBanner";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { GlobalAnnouncement } from "@/components/GlobalAnnouncement";
@@ -177,6 +178,7 @@ export default async function RootLayout({
                 🔎<span className="sr-only">Search</span>
               </a>
               <span className="mx-1 h-5 w-px bg-zinc-800" aria-hidden />
+              <InstallAppButton variant="desktop" />
               <HeaderShare />
               <HeaderAuth />
             </nav>
@@ -186,6 +188,7 @@ export default async function RootLayout({
                 Sign in / Dashboard without opening the menu, since
                 that's the most-common destination. */}
             <div className="flex items-center gap-2 md:hidden">
+              <InstallAppButton variant="mobile" />
               <MobileAuthPill />
               <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} isLeader={isLeader} />
             </div>
