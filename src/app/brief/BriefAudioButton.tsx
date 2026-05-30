@@ -9,6 +9,9 @@ type Props = {
    *  is the preferred playback path — far better quality than any
    *  client-side TTS, and consistent across OSes. */
   audioUrl?: string | null;
+  /** When the MP3 is from a prior day (today's render missed), surfaces
+   *  the staleness so users understand. e.g. "1d ago" / "3d ago". */
+  audioDateLabel?: string | null;
 };
 
 type VoiceQuality = "neural" | "standard" | "unavailable";
@@ -23,7 +26,7 @@ function detectQuality(): VoiceQuality {
   return hasNeural ? "neural" : "standard";
 }
 
-export default function BriefAudioButton({ script, audioUrl }: Props) {
+export default function BriefAudioButton({ script, audioUrl, audioDateLabel }: Props) {
   // ── MP3 path (preferred) ────────────────────────────────────────────
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [mp3Playing, setMp3Playing] = useState(false);
@@ -66,8 +69,8 @@ export default function BriefAudioButton({ script, audioUrl }: Props) {
         >
           {mp3Playing ? "⏸ Pause" : "▶ Listen"}
         </button>
-        <span className="text-[10px] text-emerald-400/70" title="Pre-rendered neural-voice MP3 (Edge TTS)">
-          🎙 NPR voice
+        <span className="text-[10px] text-emerald-400/70" title="Pre-rendered neural-voice MP3 (Edge TTS Christopher Neural)">
+          🎙 NPR voice{audioDateLabel ? ` · ${audioDateLabel}` : ""}
         </span>
         <audio
           ref={audioRef}

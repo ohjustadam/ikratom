@@ -1450,7 +1450,7 @@ export default async function BillDetailPage({
       {/* Bill text + sources */}
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-          Read the actual bill text
+          Official bill versions &amp; sources
         </h2>
         <div className="mt-3 space-y-2">
           {detail?.versions && detail.versions.length > 0 ? (
