@@ -15,6 +15,7 @@ type Props = {
 };
 
 type VoiceQuality = "neural" | "standard" | "unavailable";
+type AudioState = "idle" | "loading" | "ready" | "playing" | "ended" | "error";
 
 function detectQuality(): VoiceQuality {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return "unavailable";
@@ -27,14 +28,14 @@ function detectQuality(): VoiceQuality {
 }
 
 export default function BriefAudioButton({ script, audioUrl, audioDateLabel }: Props) {
-  // ── MP3 path (preferred) ────────────────────────────────────────────
+  // ── MP3 path (preferred) — uses native <audio controls> ─────────────
+  const [audioState, setAudioState] = useState<AudioState>(audioUrl ? "loading" : "idle");
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [mp3Playing, setMp3Playing] = useState(false);
 
   // ── SpeechSynthesis fallback (when no MP3) ──────────────────────────
-  const [available, setAvailable] = useState(false);
+  const [ssAvailable, setSsAvailable] = useState(false);
   const [quality, setQuality] = useState<VoiceQuality>("unavailable");
-  const [playing, setPlaying] = useState(false);
+  const [ssPlaying, setSsPlaying] = useState(false);
   const [showQualityNote, setShowQualityNote] = useState(false);
   const utterRef = useRef<SpeechSynthesisUtterance | null>(null);
 
@@ -42,7 +43,7 @@ export default function BriefAudioButton({ script, audioUrl, audioDateLabel }: P
     if (audioUrl) return; // MP3 path — no SpeechSynthesis needed
     const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
     if (!synth) return;
-    setAvailable(true);
+    setSsAvailable(true);
     const recheck = () => setQuality(detectQuality());
     recheck();
     synth.addEventListener?.("voiceschanged", recheck);
@@ -54,44 +55,64 @@ export default function BriefAudioButton({ script, audioUrl, audioDateLabel }: P
 
   // ── MP3 render path ─────────────────────────────────────────────────
   if (audioUrl) {
-    const toggleMp3 = () => {
-      const el = audioRef.current;
-      if (!el) return;
-      if (mp3Playing) { el.pause(); return; }
-      el.play().catch(() => setMp3Playing(false));
+    const statusLabel: Record<AudioState, string> = {
+      idle: "Tap play to start",
+      loading: "Loading audio…",
+      ready: "Ready · tap play",
+      playing: "Playing today's brief",
+      ended: "Brief finished",
+      error: "Audio failed to load — try refresh",
+    };
+    const statusTone: Record<AudioState, string> = {
+      idle: "text-zinc-400",
+      loading: "text-zinc-400",
+      ready: "text-emerald-300",
+      playing: "text-emerald-400",
+      ended: "text-zinc-500",
+      error: "text-red-400",
     };
     return (
-      <div className="inline-flex items-center gap-2">
-        <button
-          onClick={toggleMp3}
-          className="inline-flex items-center gap-1.5 rounded-md border border-emerald-700/40 bg-emerald-950/30 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 transition hover:border-emerald-500 hover:bg-emerald-900/40"
-          aria-label={mp3Playing ? "Pause the brief" : "Play today's brief"}
-        >
-          {mp3Playing ? "⏸ Pause" : "▶ Listen"}
-        </button>
-        <span className="text-[10px] text-emerald-400/70" title="Pre-rendered neural-voice MP3 (Edge TTS Christopher Neural)">
-          🎙 NPR voice{audioDateLabel ? ` · ${audioDateLabel}` : ""}
-        </span>
+      <div className="flex w-full flex-col gap-1 sm:max-w-md">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider">
+          <span className="font-semibold text-emerald-400">🎙 Daily brief audio</span>
+          <span className={`${statusTone[audioState]} font-medium`}>· {statusLabel[audioState]}</span>
+          {audioDateLabel && (
+            <span className="text-amber-400" title="Today's render not yet generated; serving most recent">
+              · {audioDateLabel}
+            </span>
+          )}
+        </div>
         <audio
           ref={audioRef}
           src={audioUrl}
+          controls
           preload="metadata"
-          onPlay={() => setMp3Playing(true)}
-          onPause={() => setMp3Playing(false)}
-          onEnded={() => setMp3Playing(false)}
-        />
+          className="w-full rounded-md border border-emerald-700/40 bg-emerald-950/20"
+          onLoadStart={() => setAudioState("loading")}
+          onLoadedMetadata={() => setAudioState("ready")}
+          onCanPlay={() => setAudioState((s) => (s === "loading" ? "ready" : s))}
+          onPlay={() => setAudioState("playing")}
+          onPause={() => setAudioState((s) => (s === "playing" ? "ready" : s))}
+          onEnded={() => setAudioState("ended")}
+          onError={() => setAudioState("error")}
+        >
+          Your browser doesn&apos;t support audio playback. <a href={audioUrl}>Download the MP3</a>.
+        </audio>
+        <p className="text-[10px] text-zinc-500">
+          Pre-rendered with Microsoft Edge TTS · Christopher Neural · ~1-2 min
+        </p>
       </div>
     );
   }
 
   // ── SpeechSynthesis fallback ────────────────────────────────────────
-  if (!available) return null;
+  if (!ssAvailable) return null;
 
-  const toggle = () => {
+  const toggleSs = () => {
     const synth = window.speechSynthesis;
-    if (playing) {
+    if (ssPlaying) {
       synth.cancel();
-      setPlaying(false);
+      setSsPlaying(false);
       return;
     }
     const u = new SpeechSynthesisUtterance(script);
@@ -103,21 +124,21 @@ export default function BriefAudioButton({ script, audioUrl, audioDateLabel }: P
       /Aria|Christopher|Jenny|Natural|Online|Neural/i.test(v.name) && v.lang.startsWith("en"),
     ) ?? voices.find((v) => v.lang.startsWith("en"));
     if (preferred) u.voice = preferred;
-    u.onend = () => setPlaying(false);
-    u.onerror = () => setPlaying(false);
+    u.onend = () => setSsPlaying(false);
+    u.onerror = () => setSsPlaying(false);
     utterRef.current = u;
     synth.speak(u);
-    setPlaying(true);
+    setSsPlaying(true);
   };
 
   return (
     <div className="relative inline-flex items-center gap-2">
       <button
-        onClick={toggle}
+        onClick={toggleSs}
         className="inline-flex items-center gap-1.5 rounded-md border border-emerald-700/40 bg-emerald-950/30 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 transition hover:border-emerald-500 hover:bg-emerald-900/40"
-        aria-label={playing ? "Stop reading the brief" : "Listen to today's brief"}
+        aria-label={ssPlaying ? "Stop reading the brief" : "Listen to today's brief"}
       >
-        {playing ? "⏸ Stop" : "▶ Listen"}
+        {ssPlaying ? "⏸ Stop" : "▶ Listen"}
       </button>
       {quality === "standard" && (
         <button
