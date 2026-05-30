@@ -284,24 +284,26 @@ export default async function BriefPage() {
   audioParts.push("That's the brief. Tap a card to dive deeper, or visit ikratom.org for the full picture.");
   const audioScript = audioParts.join(" ");
 
-  // Check whether a pre-rendered MP3 of today's brief exists. The cron
-  // (scripts/render-daily-brief-audio.mjs) renders it once per day with
-  // Edge TTS's Christopher Neural voice — far better than the browser-
-  // native SpeechSynthesis fallback, especially on Windows where neural
-  // voices may not be installed.
-  const todayKey = new Date().toISOString().slice(0, 10);
+  // Pre-rendered MP3 lookup. Walk back up to 7 days so a missed daily
+  // render doesn't leave users on robot-voice fallback indefinitely.
+  // Using a direct HEAD fetch (not sb.storage.list) because the public
+  // bucket only has SELECT-on-object RLS, not LIST — list() returns
+  // empty under the user's auth even when objects are publicly readable.
+  const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   let audioUrl: string | null = null;
-  try {
-    const { data: files } = await sb.storage
-      .from("daily-brief-audio")
-      .list(todayKey, { limit: 1, search: "national.mp3" });
-    if (files && files.length > 0) {
-      const { data: pub } = sb.storage
-        .from("daily-brief-audio")
-        .getPublicUrl(`${todayKey}/national.mp3`);
-      audioUrl = pub.publicUrl;
-    }
-  } catch { /* bucket may not exist on legacy deploys — fall back to SpeechSynthesis */ }
+  let audioDateLabel: string | null = null;
+  for (let daysBack = 0; daysBack < 7; daysBack++) {
+    const key = new Date(Date.now() - daysBack * 86400_000).toISOString().slice(0, 10);
+    const url = `${SB_URL}/storage/v1/object/public/daily-brief-audio/${key}/national.mp3`;
+    try {
+      const res = await fetch(url, { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(2500) });
+      if (res.ok) {
+        audioUrl = url;
+        audioDateLabel = daysBack === 0 ? null : `${daysBack}d ago`;
+        break;
+      }
+    } catch { /* network hiccup — try next day */ }
+  }
 
   const isEmpty =
     stateAlerts.length === 0 &&
@@ -320,7 +322,7 @@ export default async function BriefPage() {
         </p>
         <div className="mt-2 flex flex-wrap items-baseline justify-between gap-3">
           <h1 className="text-3xl font-bold sm:text-4xl">{greeting}</h1>
-          <BriefAudioButton script={audioScript} audioUrl={audioUrl} />
+          <BriefAudioButton script={audioScript} audioUrl={audioUrl} audioDateLabel={audioDateLabel} />
         </div>
         <p className="mt-2 text-sm text-zinc-400">{today}</p>
         {!user && (

@@ -266,7 +266,7 @@ export default async function AlertDetailPage({ params }: Props) {
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
             Details
           </h2>
-          <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
+          <div className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-200">
             {a.body}
           </div>
         </section>
