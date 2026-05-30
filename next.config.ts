@@ -25,6 +25,12 @@ const csp = [
   // because Sentry uses *.ingest.sentry.io / *.ingest.us.sentry.io tied to
   // your project) + PostHog (us.i.posthog.com / us-assets.i.posthog.com).
   `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com`.trim(),
+  // Audio/video: same-origin + our Supabase project (where rendered
+  // daily-brief MP3s live) + blob: so any future fetch-to-blob fallback
+  // continues to work. Missing this directive caused Chrome to block
+  // every <audio> with "Media load rejected by URL safety check"
+  // because CSP fell back to default-src 'self'.
+  `media-src 'self' ${SUPABASE_HTTPS} blob:`.trim(),
   `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com`.trim(),
   // No <iframe> may embed our pages
   "frame-ancestors 'none'",
