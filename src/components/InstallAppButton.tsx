@@ -74,15 +74,27 @@ export function InstallAppButton({
 
   if (installed) return null;
 
-  async function click() {
-    if (deferred) {
-      await deferred.prompt();
-      const choice = await deferred.userChoice;
-      if (choice.outcome === "accepted") setInstalled(true);
-      setDeferred(null);
-      return;
-    }
+  // Always open our themed modal first. If beforeinstallprompt was
+  // captured, the modal exposes a "Install now" button that triggers
+  // Chrome's native dialog. Letting Chrome auto-open its dialog from
+  // the toolbar click works in theory, but the native dialog anchors
+  // to the address-bar install icon — if that icon is off-screen
+  // (multi-monitor, window positioned too high), the dialog clips and
+  // becomes unusable. Going through our modal guarantees the user has
+  // visible context + a manual fallback path.
+  function click() {
     setShowHelp(true);
+  }
+
+  async function triggerNativePrompt() {
+    if (!deferred) return;
+    await deferred.prompt();
+    const choice = await deferred.userChoice;
+    if (choice.outcome === "accepted") {
+      setInstalled(true);
+      setShowHelp(false);
+    }
+    setDeferred(null);
   }
 
   const compactClass =
@@ -134,7 +146,25 @@ export function InstallAppButton({
               </div>
             </div>
 
-            {mode === "ios-safari" ? (
+            {mode === "android-chrome" ? (
+              <div className="space-y-3 text-[13px] text-zinc-200">
+                <p>One tap installs iKratom as a real app on this device.</p>
+                <button
+                  type="button"
+                  onClick={triggerNativePrompt}
+                  className="w-full rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
+                >
+                  Install iKratom
+                </button>
+                <p className="text-[11px] text-zinc-500">
+                  If the install dialog appears clipped or off-screen (multi-monitor or window-position quirk),
+                  use the install icon{" "}
+                  <span className="inline-block rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-100">⊕</span>{" "}
+                  in your address bar instead, or Chrome ⋮ menu →{" "}
+                  <strong>Cast, save, and share → Install iKratom</strong>.
+                </p>
+              </div>
+            ) : mode === "ios-safari" ? (
               <ol className="space-y-2 text-[13px] text-zinc-200">
                 <li>
                   <strong className="text-emerald-300">1.</strong> Tap the share button{" "}
