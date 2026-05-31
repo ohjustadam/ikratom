@@ -239,3 +239,17 @@ The maintainer no longer has premium Claude access. Per-session conversation cos
 - **Default cadence: lean autonomous.** A "continue" run = one focused PR, not a multi-PR batch. If a second PR's truly needed, name it and stop — let the user say go.
 
 If the maintainer points you at `private/CONVERSATION_DISCIPLINE.md`, it's because you've drifted from these norms. Re-read this section.
+
+---
+
+## Standing rules (carry across EVERY session — non-negotiable)
+
+These were established over many sessions. They are not per-task; they always apply.
+
+1. **Public anonymity.** In ANY surface other users can see (lounge, forum, comments, activity feeds, public profiles, DM pickers, leaderboards), render identity ONLY via `publicHandle()` from `src/lib/public-handle.ts` → `@username`. **Never** render `full_name` or `email` in a public surface. `full_name` is for private/legitimate use only (campaign mailto sender name, the user's own dashboard). Cross-user profile reads go through `get_public_profile`/`get_public_profiles` (SECURITY DEFINER, public-safe columns) — never a direct `profiles` select of another user. When adding any new public surface, wire it through `publicHandle` from the start.
+2. **Free-tier AI only.** Groq / Gemini Flash / Ollama / Cerebras. The router disables `claude`. No code path may depend on a paid AI API. Platform policy, not a guideline.
+3. **No production DB writes from the chat agent without an explicit owner ask.** The auto-mode classifier blocks this and it's correct. Reads/diagnostics are fine; mutations (including "helpful" backfills or toggles) need the owner to say so.
+4. **Public repo hygiene.** The GitHub repo is PUBLIC. Never commit secrets, service-role keys, `.env*` (only `.env.local.example`), or anyone's personal info. Keep owner PII out of tracked code — prefer a role address (e.g. `contact@ikratom.org`) over a personal email in User-Agent strings / NOTICE / docs. `private/` is gitignored — working notes, plans, and anything sensitive live there.
+5. **Keep the brief current.** Update `private/V2_KICKOFF.md` whenever you ship something or learn something material, so the next session starts with perfect context and never re-does done work. It is the single source of truth.
+6. **Self-monitoring + self-healing by default.** New cron sources get registered in `check-cron-staleness.mjs`. Scripts self-heal transient errors (retry, skip-bad-item) and write `scraper_runs` telemetry. If something can't be auto-fixed, surface it (push/alert) and note it in V2_KICKOFF — don't let it fail silently.
+7. **One focused PR per task. Verify with `npx tsc --noEmit`. Squash-merge. Migrations via `npm run db:push`** (next number tracked in V2_KICKOFF).
