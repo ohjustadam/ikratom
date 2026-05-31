@@ -44,6 +44,8 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
     title: string;
     summary: string | null;
     body_extract_excerpt: string | null;
+    body_paragraphs: string[] | null;
+    media_urls: Array<{ type: string; url: string; embed_url?: string; video_id?: string; lead?: boolean }> | null;
     url: string;
     resolved_url: string | null;
     source_name: string | null;
@@ -62,7 +64,7 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
   const { data: rawArticle } = await sb
     .from("news_items")
     .select(
-      "id, state, title, summary, body_extract_excerpt, url, resolved_url, " +
+      "id, state, title, summary, body_extract_excerpt, body_paragraphs, media_urls, url, resolved_url, " +
       "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
       "duplicate_count, policy_alert_id, bill_id, " +
       "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
@@ -102,6 +104,16 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
     ? Math.floor((scrapedAt.getTime() - publishedAt.getTime()) / 86_400_000)
     : 0;
   const externalUrl = article.resolved_url ?? article.url;
+
+  // Media split for in-app rendering. Videos embed via the publisher's
+  // own player URL (CSP frame-src already allows youtube-nocookie +
+  // vimeo); images load from their CDN (img-src https: allowed).
+  const media = Array.isArray(article.media_urls) ? article.media_urls : [];
+  const videos = media.filter((m) => (m.type === "youtube" || m.type === "vimeo") && m.embed_url);
+  const images = media.filter((m) => m.type === "image" && m.url);
+  const leadImage = images.find((m) => m.lead) ?? images[0] ?? null;
+  const galleryImages = images.filter((m) => m !== leadImage).slice(0, 4);
+  const paragraphs = Array.isArray(article.body_paragraphs) ? article.body_paragraphs : [];
 
   const TOPIC_COLORS: Record<string, string> = {
     legislation: "bg-emerald-950/40 text-emerald-300",
@@ -174,7 +186,60 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
         </section>
       )}
 
-      {article.body_extract_excerpt && (
+      {/* Lead image */}
+      {leadImage && (
+        <figure className="mb-6 overflow-hidden rounded-lg border border-zinc-800">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={leadImage.url}
+            alt={article.title}
+            className="w-full object-cover"
+            loading="lazy"
+          />
+          {article.source_name && (
+            <figcaption className="bg-zinc-950/60 px-3 py-1 text-[10px] text-zinc-500">
+              Image: {article.source_name}
+            </figcaption>
+          )}
+        </figure>
+      )}
+
+      {/* Embedded video(s) — watch in-app */}
+      {videos.length > 0 && (
+        <section className="mb-6 space-y-4">
+          {videos.map((v) => (
+            <div key={v.embed_url} className="overflow-hidden rounded-lg border border-zinc-800">
+              <div className="relative aspect-video">
+                <iframe
+                  src={v.embed_url}
+                  title="Embedded video"
+                  className="absolute inset-0 h-full w-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allowFullScreen
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* Fair-use lead excerpt — paragraphs preferred, fallback to the
+          short kratom-verification excerpt. Plain text only (rendered as
+          React <p> — no publisher HTML), capped, with link-out below. */}
+      {paragraphs.length > 0 ? (
+        <section className="mb-6">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+            From the article
+          </p>
+          <div className="space-y-3 text-[15px] leading-relaxed text-zinc-200">
+            {paragraphs.map((p, i) => (
+              <p key={i}>{p}</p>
+            ))}
+          </div>
+        </section>
+      ) : article.body_extract_excerpt ? (
         <section className="mb-6">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
             Excerpt from the article
@@ -182,6 +247,22 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
           <blockquote className="border-l-2 border-zinc-700 pl-4 text-sm leading-relaxed text-zinc-300">
             {article.body_extract_excerpt}
           </blockquote>
+        </section>
+      ) : null}
+
+      {/* Image gallery (non-lead) */}
+      {galleryImages.length > 0 && (
+        <section className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {galleryImages.map((img) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={img.url}
+              src={img.url}
+              alt=""
+              className="h-32 w-full rounded border border-zinc-800 object-cover"
+              loading="lazy"
+            />
+          ))}
         </section>
       )}
 

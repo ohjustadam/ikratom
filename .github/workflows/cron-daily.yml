@@ -299,6 +299,17 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/verify-news-body.mjs --limit 200
+      - name: Extract in-app article excerpt + embedded media
+        # Mines the resolved publisher HTML for a fair-use lead excerpt
+        # (capped paragraphs) + embedded media (YouTube/Vimeo players,
+        # article images) so /news/[id] renders the story in-app and
+        # users can read/watch without leaving. continue-on-error so a
+        # flaky publisher fetch doesn't fail the daily run.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/extract-news-content.mjs --limit 80
 
   sync-usaspending-kratom:
     # Federal awards (grants + contracts) from USAspending.gov.
