@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
-import { listMeetingsForReview } from "@/modules/admin/meetings-actions";
+import { listMeetingsForReview, getMeetingAutoApprovePolicy } from "@/modules/admin/meetings-actions";
 import { MeetingRow } from "./MeetingRow";
+import { AutoApprovePolicyPanel } from "./AutoApprovePolicyPanel";
 
 export const metadata = { title: "Municipal meeting moderation" };
 export const dynamic = "force-dynamic";
@@ -9,7 +10,10 @@ export const dynamic = "force-dynamic";
 export default async function AdminMeetingsPage() {
   const ctx = await getAdminContext();
   if (!ctx.ok) redirect("/dashboard");
-  const meetings = await listMeetingsForReview();
+  const [meetings, autoApprovePolicy] = await Promise.all([
+    listMeetingsForReview(),
+    getMeetingAutoApprovePolicy(),
+  ]);
 
   const pending = meetings.filter((m) => m.moderation_status === "pending_review");
   const approved = meetings.filter((m) => m.moderation_status === "approved");
@@ -27,6 +31,8 @@ export default async function AdminMeetingsPage() {
           Gemini grounded search; admin verifies before users see them.
         </p>
       </header>
+
+      <AutoApprovePolicyPanel initial={autoApprovePolicy} />
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-400">
