@@ -21,8 +21,8 @@ jobs:
   draft-patch-note:
     runs-on: ubuntu-latest
     permissions:
-      # Direct-commit-to-main only — no PR creation (see commit step).
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,24 +49,29 @@ jobs:
           TITLE=$(grep -m1 '^title:' "$NEW" | sed -E 's/title: "(.*)"/\1/')
           echo "patch_title=$TITLE" >> "$GITHUB_OUTPUT"
 
-      - name: Commit draft directly to main
+      - name: Open PR with draft + enable auto-merge
         if: steps.gen.outputs.should_pr == 'true'
-        # Was: open a PR + enable auto-merge. That required the repo
-        # setting "Allow GitHub Actions to create and approve pull
-        # requests", which is off — so every run failed with
-        # "GitHub Actions is not permitted to create or approve pull
-        # requests". Since the draft only ever touches
-        # src/content/patch-notes/*.md (markdown, no code/migrations)
-        # and was set to auto-merge anyway, a PR added no review value.
-        # Committing straight to main removes the dependency on that
-        # setting entirely — the workflow can no longer fail on perms.
-        # The `contents: write` permission (declared above) is all this
-        # needs. Owner can still edit/revert the markdown after the fact.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # main has a branch ruleset requiring all changes go through a
+        # PR, so the bot can't push straight to main — it must open a
+        # PR. For `gh pr create` to work with GITHUB_TOKEN, the repo
+        # setting Settings → Actions → General → "Allow GitHub Actions
+        # to create and approve pull requests" must be ON. If this step
+        # fails with "GitHub Actions is not permitted to create or
+        # approve pull requests", that setting is off — flip it once.
+        # The PR only touches src/content/patch-notes/*.md, so auto-
+        # merge lands it as soon as Vercel preview passes.
         run: |
+          BR="auto-patch-note-$(date -u +%Y%m%d)"
           git config user.name "ikratom-bot"
           git config user.email "noreply@ikratom.org"
+          git checkout -b "$BR"
           git add "${{ steps.gen.outputs.patch_file }}"
           git commit -m "docs: ${{ steps.gen.outputs.patch_title }} (auto-draft)"
-          # Rebase-pull in case main advanced while the job ran, then push.
-          git pull --rebase --autostash origin main || true
-          git push origin HEAD:main
+          git push -u origin "$BR"
+          PR_URL=$(gh pr create \
+            --title "docs: ${{ steps.gen.outputs.patch_title }} (auto-draft)" \
+            --body "Auto-generated patch-note draft covering the last 24 hours. Markdown-only (\`src/content/patch-notes/*.md\`). Auto-merge enabled — squash-merges once Vercel preview passes. 🤖 .github/workflows/auto-patch-notes.yml" \
+            --label "patch-notes,auto-draft")
+          gh pr merge "$PR_URL" --auto --squash --delete-branch
