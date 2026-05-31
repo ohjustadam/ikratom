@@ -159,6 +159,22 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/seed-bill-officials.mjs --all-municipal
+      - name: Extract officials from news alerts + make them actionable
+        # Runs AFTER auto-campaign-from-alert (so campaigns exist) and
+        # seed-bill-officials. For each unprocessed action-required news
+        # alert: AI-extract the precise city/county jurisdiction, seed
+        # that locality's full official slate via Gemini grounding (also
+        # growing our nationwide officials DB), then retarget the alert's
+        # auto-campaign onto those local officials so the alert is
+        # one-click actionable against the right people. Free-tier AI
+        # only; self-heals on Gemini quota (leaves unprocessed to retry).
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        run: node scripts/extract-news-officials.mjs --limit 25
       - name: Auto-post active anti/pro bills to state forums
         # Posts a system thread to /forum/<state> for any active anti- or
         # pro-kratom bill that doesn't already have a forum thread. Caps
