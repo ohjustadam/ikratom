@@ -45,6 +45,7 @@ const REGISTRY = [
       "fanout_bill_reminders",
       "dedupe_news_by_title",
       "extract_news_officials",
+      "extract_news_events",
      ].map((source) => ({ source, interval_hours: 4, system: "gh-hourly", cadence: "every-30min" })),
 
   // daily
