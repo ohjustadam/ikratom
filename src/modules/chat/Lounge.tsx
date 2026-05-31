@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { publicHandle } from "@/lib/public-handle";
 import { createClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { postChatMessage, deleteChatMessage, type ChatMessage } from "./actions";
@@ -82,12 +83,12 @@ export function Lounge({
           if (m.user_id && !(m.user_id in authorMap)) {
             supabase
               .rpc("get_public_profile", { p_id: m.user_id })
-              .then((res: { data: { id: string; full_name: string | null; is_admin: boolean | null }[] | null }) => {
+              .then((res: { data: { id: string; username: string | null; state: string | null; is_admin: boolean | null }[] | null }) => {
                 const row = res.data?.[0];
                 if (cancelled || !row) return;
                 setAuthorMap((cur) => ({
                   ...cur,
-                  [row.id]: { name: row.full_name ?? "(no name)", isAdmin: !!row.is_admin },
+                  [row.id]: { name: publicHandle(row), isAdmin: !!row.is_admin },
                 }));
               });
           }

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { publicHandle, handleInitials } from "@/lib/public-handle";
 import { createClient } from "@/lib/supabase/server";
 
 export async function generateMetadata({
@@ -10,7 +11,9 @@ export async function generateMetadata({
   const supabase = await createClient();
   const { data } = await supabase.rpc("get_public_profile", { p_id: id });
   const profile = data?.[0];
-  return { title: profile?.full_name ? `${profile.full_name}` : "Profile" };
+  // Title uses the public handle — never the real name (leaks in the
+  // browser tab + SEO/OpenGraph otherwise).
+  return { title: profile?.username ? `@${profile.username}` : "Profile" };
 }
 
 export default async function PublicProfilePage({
@@ -43,9 +46,9 @@ export default async function PublicProfilePage({
   const { data: { user: viewer } } = await supabase.auth.getUser();
   const isSelf = viewer?.id === id;
 
-  const display = profile.full_name || "Member";
-  const initials = display
-    .split(/\s+/).map((p: string) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+  // Public profile shows the handle only — never the real name.
+  const display = publicHandle(profile);
+  const initials = handleInitials(display);
 
   // Role priority: Owner > Admin > Leader > Shop > Medical
   const badges: { label: string; cls: string }[] = [];

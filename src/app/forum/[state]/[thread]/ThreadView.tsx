@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { publicHandle } from "@/lib/public-handle";
 import { useRouter } from "next/navigation";
 import { createPost, toggleReaction } from "@/modules/forum/actions";
 import type { PostRow, ThreadRow } from "@/modules/forum/types";
@@ -60,10 +61,8 @@ export function ThreadView({
           // Fetch author display name lazily
           if (newPost.author_id && !authorNamesLocal[newPost.author_id]) {
             const { data } = await supabase.rpc("get_public_profile", { p_id: newPost.author_id });
-            const name = data?.[0]?.full_name;
-            if (name) {
-              setAuthorNamesLocal((prev) => ({ ...prev, [newPost.author_id!]: name }));
-            }
+            const name = publicHandle(data?.[0]);
+            setAuthorNamesLocal((prev) => ({ ...prev, [newPost.author_id!]: name }));
           }
         },
       )

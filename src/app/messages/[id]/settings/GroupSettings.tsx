@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { publicHandle } from "@/lib/public-handle";
 import { useRouter } from "next/navigation";
 import { addGroupMember, getMyConversationKeyData, removeGroupMember, updateGroup } from "@/modules/dm/group-actions";
 import { searchUsers } from "@/modules/dm/actions";
@@ -8,8 +9,7 @@ import { getOrCreateKeypair, encryptSessionKeyForRecipient, decryptSessionKeyFor
 
 type Member = {
   user_id: string;
-  full_name: string | null;
-  email: string | null;
+  username: string | null;
   state: string | null;
   role: string;
   key_changed: boolean;
@@ -40,7 +40,7 @@ export function GroupSettings({
   // Add-member state
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Array<{
-    id: string; full_name: string | null; email: string | null; state: string | null; public_key: string | null;
+    id: string; username: string | null; state: string | null; public_key: string | null;
   }>>([]);
   const [searching, startSearchTransition] = useTransition();
   const [adding, setAdding] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export function GroupSettings({
     });
   }
 
-  async function addMember(newMember: { id: string; full_name: string | null; email: string | null; public_key: string | null }) {
+  async function addMember(newMember: { id: string; username: string | null; public_key: string | null }) {
     if (!newMember.public_key) {
       setAddError("That user hasn't set up encryption yet (they need to open Messages first).");
       return;
@@ -129,7 +129,7 @@ export function GroupSettings({
   function remove(memberId: string) {
     const member = members.find((m) => m.user_id === memberId);
     if (!member) return;
-    if (!confirm(`Remove ${member.full_name ?? member.email} from the group?`)) return;
+    if (!confirm(`Remove ${publicHandle(member)} from the group?`)) return;
     startTransition(async () => {
       const r = await removeGroupMember({ conversationId, memberId });
       if ("error" in r && r.error) {
@@ -193,7 +193,7 @@ export function GroupSettings({
         </h2>
         <ul className="divide-y divide-zinc-900">
           {members.map((m) => {
-            const display = m.full_name ?? m.email ?? "Member";
+            const display = publicHandle(m);
             const isMe = m.user_id === myUserId;
             return (
               <li key={m.user_id} className="flex items-center justify-between py-2">
@@ -237,7 +237,7 @@ export function GroupSettings({
             ➕ Add member
           </h2>
           <p className="mb-3 text-xs text-zinc-400">
-            Search by name or email. They need to have opened Messages at least once
+            Search by @username. They need to have opened Messages at least once
             (sets up their encryption key). New members can only read messages sent
             after they join — past messages stay private to current members.
           </p>
@@ -246,7 +246,7 @@ export function GroupSettings({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } }}
-              placeholder="Name or email…"
+              placeholder="@username…"
               className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
             />
             <button
@@ -267,7 +267,7 @@ export function GroupSettings({
           {searchResults.length > 0 && (
             <ul className="mt-3 divide-y divide-zinc-900 rounded-md border border-zinc-800 bg-zinc-950/60">
               {searchResults.map((u) => {
-                const display = u.full_name ?? u.email ?? "User";
+                const display = publicHandle(u);
                 return (
                   <li key={u.id} className="flex items-center justify-between gap-2 px-3 py-2">
                     <div className="min-w-0 flex-1">
