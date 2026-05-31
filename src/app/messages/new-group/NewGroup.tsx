@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { publicHandle } from "@/lib/public-handle";
 import { useRouter } from "next/navigation";
 import { getOrCreateKeypair, makeSessionKey } from "@/lib/crypto/e2e";
 import { searchUsers, setPublicKey } from "@/modules/dm/actions";
@@ -8,8 +9,7 @@ import { createGroupConversation } from "@/modules/dm/group-actions";
 
 type Person = {
   id: string;
-  full_name: string | null;
-  email: string | null;
+  username: string | null;
   state: string | null;
   public_key: string | null;
 };
@@ -75,7 +75,7 @@ export function NewGroup({ myUserId }: { myUserId: string }) {
         const pubkeysByMember: Record<string, string> = { [myUserId]: myKp.publicKey };
         for (const p of picked) {
           if (!p.public_key) {
-            setError(`${p.full_name ?? p.email} hasn't set up encryption — skip them or have them open Messages first.`);
+            setError(`${publicHandle(p)} hasn't set up encryption — skip them or have them open Messages first.`);
             return;
           }
           pubkeysByMember[p.id] = p.public_key;
@@ -136,7 +136,7 @@ export function NewGroup({ myUserId }: { myUserId: string }) {
           <ul className="flex flex-wrap gap-2">
             {picked.map((p) => (
               <li key={p.id} className="flex items-center gap-2 rounded-full bg-emerald-950/30 px-3 py-1 text-xs">
-                <span className="text-emerald-300">{p.full_name ?? p.email}</span>
+                <span className="text-emerald-300">{publicHandle(p)}</span>
                 <button
                   onClick={() => remove(p.id)}
                   className="text-zinc-500 hover:text-red-400"
@@ -153,7 +153,7 @@ export function NewGroup({ myUserId }: { myUserId: string }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name or email…"
+            placeholder="Search by @username…"
             className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
           />
           <button
@@ -174,7 +174,7 @@ export function NewGroup({ myUserId }: { myUserId: string }) {
                   className="flex w-full items-center justify-between rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-left text-sm hover:border-emerald-500"
                 >
                   <span>
-                    <span className="font-medium">{p.full_name ?? p.email}</span>
+                    <span className="font-medium">{publicHandle(p)}</span>
                     {p.state && <span className="ml-2 text-xs text-zinc-500">{p.state}</span>}
                   </span>
                   <span className="text-xs text-emerald-400">+ Add</span>

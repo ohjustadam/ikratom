@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { publicHandle } from "@/lib/public-handle";
 import { createClient } from "@/lib/supabase/server";
 import { TAG_COLORS, TAG_LABELS, type ForumTag } from "@/modules/forum/types";
 import { ThreadView } from "./ThreadView";
@@ -64,14 +65,17 @@ export default async function ThreadPage({
   if (thread.author_id) userIds.add(thread.author_id);
   for (const p of posts ?? []) if (p.author_id) userIds.add(p.author_id);
 
-  const { data: authorRows } = await supabase
-    .from("profiles")
-    .select("id, full_name")
-    .in("id", Array.from(userIds));
+  // get_public_profiles (SECURITY DEFINER) — profiles RLS is self/admin
+  // only, so a direct select returns blanks for other authors. RPC
+  // exposes public-safe columns; render @username via publicHandle.
+  const idArr = Array.from(userIds);
+  const { data: authorRows } = idArr.length
+    ? await supabase.rpc("get_public_profiles", { p_ids: idArr })
+    : { data: [] as { id: string; username: string | null; state: string | null }[] };
 
   const authorNames: Record<string, string> = {};
-  for (const r of authorRows ?? []) {
-    authorNames[r.id] = r.full_name ?? "Member";
+  for (const r of (authorRows ?? []) as { id: string; username: string | null; state: string | null }[]) {
+    authorNames[r.id] = publicHandle(r);
   }
 
   // Current user info for actions

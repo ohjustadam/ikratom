@@ -14,8 +14,7 @@ import {
 
 type Person = {
   id: string;
-  full_name: string | null;
-  email: string | null;
+  username: string | null;
   state: string | null;
   public_key: string | null;
 };
@@ -105,7 +104,7 @@ export function NewConversation({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name or email…"
+          placeholder="Search by @username…"
           className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
         />
         <button
@@ -132,17 +131,14 @@ export function NewConversation({
                 disabled={creating || !p.public_key}
                 className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 text-left hover:border-emerald-700/50 disabled:opacity-50"
               >
-                <Avatar name={p.full_name || p.email || ""} />
+                <Avatar name={p.username || "?"} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">{p.full_name || p.email}</span>
+                    <span className="font-medium">{p.username ? `@${p.username}` : "Member"}</span>
                     {p.state && (
                       <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-400">{p.state}</span>
                     )}
                   </div>
-                  {p.email && p.full_name && (
-                    <p className="text-xs text-zinc-500">{p.email}</p>
-                  )}
                   {!p.public_key && (
                     <p className="text-xs text-amber-400">
                       Hasn&apos;t set up encryption — can&apos;t message yet

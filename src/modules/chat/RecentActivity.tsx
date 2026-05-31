@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { publicHandle } from "@/lib/public-handle";
 
 /**
  * "What's happening" ticker for the forum index. Last few events across
@@ -55,9 +56,12 @@ export async function RecentActivity({ limit = 6 }: { limit?: number }) {
   for (const t of threads ?? []) if (t.author_id) authorIds.add(t.author_id);
   for (const p of posts ?? []) if (p.author_id) authorIds.add(p.author_id);
   const { data: profileRows } = authorIds.size
-    ? await supabase.from("profiles").select("id, full_name").in("id", Array.from(authorIds))
-    : { data: [] as { id: string; full_name: string | null }[] };
-  const nameById = new Map((profileRows ?? []).map((p) => [p.id, p.full_name ?? "(no name)"]));
+    ? await supabase.rpc("get_public_profiles", { p_ids: Array.from(authorIds) })
+    : { data: [] as { id: string; username: string | null; state: string | null }[] };
+  const nameById = new Map(
+    ((profileRows ?? []) as { id: string; username: string | null; state: string | null }[])
+      .map((p) => [p.id, publicHandle(p)]),
+  );
 
   const events: Event[] = [];
   for (const t of threads ?? []) {

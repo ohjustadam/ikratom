@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { getOrCreateKeypair } from "@/lib/crypto/e2e";
 import { setPublicKey } from "@/modules/dm/actions";
+import { publicHandle } from "@/lib/public-handle";
 
 type Conv = {
   id: string;
   last_message_at: string;
-  others: { id: string; full_name: string | null; email: string | null; state: string | null }[];
+  others: { id: string; username: string | null; state: string | null }[];
   is_group: boolean;
   name: string | null;
   unread: number;
@@ -69,7 +70,7 @@ export function MessagesInbox({
           {conversations.map((c) => {
             const display = c.is_group
               ? c.name ?? "Unnamed group"
-              : (c.others[0]?.full_name || c.others[0]?.email || "Unknown member");
+              : publicHandle(c.others[0]);
             const subtitle = c.is_group
               ? `${c.others.length + 1} members`
               : c.others[0]?.state ?? "";

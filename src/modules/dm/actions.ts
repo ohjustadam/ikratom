@@ -38,20 +38,31 @@ export async function getPublicKeys(userIds: string[]) {
 }
 
 /**
- * Search users by email or name (for "start a conversation" pickers).
- * Returns minimal profile info — never email body or address.
+ * Search users by USERNAME only (for "start a conversation" pickers).
+ *
+ * Public-anonymity rule: you find someone by the handle they chose to
+ * make public — never by their real name or email. This prevents
+ * member-discovery / de-anonymization through the DM picker. Returns
+ * only the handle + state + public_key (needed for E2E encryption) —
+ * never full_name or email.
  */
 export async function searchUsers(query: string, limit = 10) {
-  const q = query.trim();
+  const q = query.trim().replace(/^@/, "").toLowerCase();
   if (q.length < 2) return [];
+  // Must be signed in to search at all.
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, state, public_key")
-    .or(`full_name.ilike.%${q}%,email.ilike.%${q}%`)
-    .not("public_key", "is", null)
-    .limit(limit);
-  return data ?? [];
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+  // SECURITY DEFINER RPC — returns only id/username/state/public_key
+  // (no full_name, no email) and excludes the caller. profiles RLS is
+  // self/admin-only, so this is the only path to look someone up.
+  const { data } = await supabase.rpc("search_users_by_username", { p_q: q, p_limit: limit });
+  return (data ?? []) as Array<{
+    id: string;
+    username: string | null;
+    state: string | null;
+    public_key: string | null;
+  }>;
 }
 
 /**
@@ -199,11 +210,17 @@ export async function listConversations() {
     .neq("user_id", user.id);
 
   const otherUserIds = Array.from(new Set((otherParts ?? []).map((p) => p.user_id)));
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, state, public_key")
-    .in("id", otherUserIds);
-  const profileById = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
+  // get_public_profiles (SECURITY DEFINER): public-safe columns only
+  // (username/state/public_key) — never full_name/email, even between
+  // people already in a conversation. profiles RLS would block a direct
+  // select of other users anyway.
+  const { data: profiles } = otherUserIds.length
+    ? await supabase.rpc("get_public_profiles", { p_ids: otherUserIds })
+    : { data: [] as { id: string; username: string | null; state: string | null; public_key: string | null }[] };
+  const profileById = Object.fromEntries(
+    ((profiles ?? []) as { id: string; username: string | null; state: string | null; public_key: string | null }[])
+      .map((p) => [p.id, { id: p.id, username: p.username, state: p.state, public_key: p.public_key }]),
+  );
 
   const otherByConv: Record<string, string[]> = {};
   for (const op of otherParts ?? []) {
@@ -261,10 +278,11 @@ export async function getConversation(conversationId: string) {
     .eq("conversation_id", conversationId);
 
   const otherIds = (parts ?? []).filter((p) => p.user_id !== user.id).map((p) => p.user_id);
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, state, public_key")
-    .in("id", otherIds);
+  const { data: rawOthers } = otherIds.length
+    ? await supabase.rpc("get_public_profiles", { p_ids: otherIds })
+    : { data: [] as { id: string; username: string | null; state: string | null; public_key: string | null }[] };
+  const profiles = ((rawOthers ?? []) as { id: string; username: string | null; state: string | null; public_key: string | null }[])
+    .map((p) => ({ id: p.id, username: p.username, state: p.state, public_key: p.public_key }));
 
   const { data: messages } = await supabase
     .from("dm_messages")

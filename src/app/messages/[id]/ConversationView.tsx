@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { publicHandle } from "@/lib/public-handle";
 import { useRouter } from "next/navigation";
 import {
   decryptMessage,
@@ -23,8 +24,7 @@ type MessageRow = {
 
 type Person = {
   id: string;
-  full_name: string | null;
-  email: string | null;
+  username: string | null;
   state: string | null;
   public_key: string | null;
 };
@@ -36,8 +36,7 @@ type DecryptedMessage = MessageRow & {
 
 type GroupMember = {
   user_id: string;
-  full_name: string | null;
-  email: string | null;
+  username: string | null;
   state: string | null;
   role: string;
   key_changed: boolean;
@@ -74,7 +73,7 @@ export function ConversationView({
   const other = others[0];
   const display = isGroup
     ? (groupName ?? "Unnamed group")
-    : (other?.full_name || other?.email || "Member");
+    : publicHandle(other);
   const subtitleCount = isGroup
     ? `${(groupMembers?.length ?? others.length + 1)} members`
     : null;
@@ -276,7 +275,7 @@ export function ConversationView({
       {isGroup && groupMembers && groupMembers.some((m) => m.key_changed) && (
         <div className="mb-3 rounded-md border border-amber-900/40 bg-amber-950/20 p-3 text-xs text-amber-200">
           <strong className="text-amber-300">⚠ Some members&apos; keys changed</strong> —{" "}
-          {groupMembers.filter((m) => m.key_changed).map((m) => m.full_name || m.email).join(", ")}.
+          {groupMembers.filter((m) => m.key_changed).map((m) => publicHandle(m)).join(", ")}.
           They likely got new devices. Verify before sharing sensitive info.
         </div>
       )}

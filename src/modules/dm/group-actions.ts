@@ -286,11 +286,14 @@ export async function getGroupDetails(conversationId: string) {
   if (!parts) return null;
 
   const userIds = parts.map((p) => p.user_id);
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, state, public_key")
-    .in("id", userIds);
-  const profilesById = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
+  // get_public_profiles (SECURITY DEFINER): public-safe columns only.
+  const { data: profiles } = userIds.length
+    ? await supabase.rpc("get_public_profiles", { p_ids: userIds })
+    : { data: [] as { id: string; username: string | null; state: string | null; public_key: string | null }[] };
+  const profilesById = Object.fromEntries(
+    ((profiles ?? []) as { id: string; username: string | null; state: string | null; public_key: string | null }[])
+      .map((p) => [p.id, p]),
+  );
 
   // Detect key changes
   const members = parts.map((p) => {
@@ -298,8 +301,7 @@ export async function getGroupDetails(conversationId: string) {
     const keyChanged = !!(p.pubkey_at_join && prof?.public_key && p.pubkey_at_join !== prof.public_key);
     return {
       user_id: p.user_id,
-      full_name: prof?.full_name ?? null,
-      email: prof?.email ?? null,
+      username: prof?.username ?? null,
       state: prof?.state ?? null,
       role: p.role,
       joined_at: p.joined_at,

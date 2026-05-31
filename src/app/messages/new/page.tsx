@@ -19,8 +19,7 @@ export default async function NewMessagePage({
   // look up that user's public profile so the form can pre-pick them.
   let prefilled: {
     id: string;
-    full_name: string | null;
-    email: string | null;
+    username: string | null;
     state: string | null;
     public_key: string | null;
   } | null = null;
@@ -31,8 +30,7 @@ export default async function NewMessagePage({
     if (p) {
       prefilled = {
         id: p.id,
-        full_name: p.full_name,
-        email: null,
+        username: p.username,
         state: p.state,
         public_key: p.public_key,
       };
@@ -47,7 +45,7 @@ export default async function NewMessagePage({
       <header className="mt-2 mb-6">
         <h1 className="text-3xl font-bold">New conversation</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Search by name or email. Conversations are end-to-end encrypted — only you and the
+          Search by @username. Conversations are end-to-end encrypted — only you and the
           recipient can read them.
         </p>
       </header>

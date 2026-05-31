@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { publicHandle } from "@/lib/public-handle";
 import { USMap } from "@/components/USMap";
 import { Lounge } from "@/modules/chat/Lounge";
 import { RecentActivity } from "@/modules/chat/RecentActivity";
@@ -50,11 +51,11 @@ export default async function ForumIndexPage() {
   if (user) {
     const { data: prof } = await supabase
       .from("profiles")
-      .select("state, full_name, is_admin")
+      .select("state, username, is_admin")
       .eq("id", user.id)
       .single();
     userState = prof?.state ?? null;
-    me = { id: user.id, name: prof?.full_name ?? user.email ?? "user" };
+    me = { id: user.id, name: publicHandle(prof) };
     isAdmin = !!prof?.is_admin;
   }
 
@@ -69,10 +70,10 @@ export default async function ForumIndexPage() {
   const chatAuthorIds = Array.from(new Set(initialChat.map((m) => m.user_id)));
   const { data: chatAuthorRows } = chatAuthorIds.length
     ? await supabase.rpc("get_public_profiles", { p_ids: chatAuthorIds })
-    : { data: [] as { id: string; full_name: string | null; is_admin: boolean | null }[] };
+    : { data: [] as { id: string; username: string | null; state: string | null; is_admin: boolean | null }[] };
   const chatAuthors: Record<string, { name: string; isAdmin: boolean }> = {};
-  for (const a of (chatAuthorRows ?? []) as { id: string; full_name: string | null; is_admin: boolean | null }[]) {
-    chatAuthors[a.id] = { name: a.full_name ?? "(no name)", isAdmin: !!a.is_admin };
+  for (const a of (chatAuthorRows ?? []) as { id: string; username: string | null; state: string | null; is_admin: boolean | null }[]) {
+    chatAuthors[a.id] = { name: publicHandle(a), isAdmin: !!a.is_admin };
   }
 
   return (
