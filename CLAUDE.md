@@ -12,6 +12,7 @@ This is **separate** from Iron Gate (the marketplace at `C:\claude\marketplace\`
 - **Free-tier only for v1.** Use mailto: for legislator emails (opens user's mail client) — no transactional email service. No paid APIs.
 - **Real data only.** Bill status, legislator contact info, news — must be scraped/synced, never manually maintained beyond seed.
 - **Recruitment angle.** Shop owners and medical professionals are first-class users — features should make it easy for them to opt in to advocacy.
+- **Public anonymity.** Users appear by `@username` only in every public surface (chat, forum, activity, profiles, DM). Never expose real name or email between users — render via `publicHandle()` (`src/lib/public-handle.ts`). Users act as themselves privately (campaign sends use real name); publicly they stay anonymous by default.
 
 ## Roles
 - **Owner** — `profiles.is_owner = true`. Highest privilege. Can promote/demote admins. Exactly one. The owner email is stored in environment config (`OWNER_EMAIL`), not committed to the repo.
