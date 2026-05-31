@@ -175,6 +175,22 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
         run: node scripts/extract-news-officials.mjs --limit 25
+      - name: Extract future civic events from news → calendar
+        # Mines already-scraped news articles for future-dated civic
+        # events (council votes, hearings, comment deadlines, ban
+        # effective dates) and seeds them into municipal_meetings as
+        # pending_review. Complements discover-municipal-meetings (web
+        # grounding search) by catching dates stated in news we already
+        # have. Uses the cheap multi-provider router (no grounding) —
+        # the date is in the article text. Admin approves before they
+        # hit the public calendar / fire reminders.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        run: node scripts/extract-news-events.mjs --limit 25
       - name: Auto-post active anti/pro bills to state forums
         # Posts a system thread to /forum/<state> for any active anti- or
         # pro-kratom bill that doesn't already have a forum thread. Caps
