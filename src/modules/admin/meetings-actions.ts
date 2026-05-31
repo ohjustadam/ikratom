@@ -25,6 +25,71 @@ export async function listMeetingsForReview() {
   return data ?? [];
 }
 
+// ── Auto-approval policy (site_config singleton) ───────────────────────
+// Lets admins make AI-extracted meetings hit the calendar without a
+// manual click, gated by a confidence threshold + source requirement.
+// scripts/auto-approve-meetings.mjs reads these values hourly.
+export type MeetingAutoApprovePolicy = {
+  enabled: boolean;
+  minConfidence: number;
+  requireSource: boolean;
+};
+
+export async function getMeetingAutoApprovePolicy(): Promise<MeetingAutoApprovePolicy> {
+  const sb = await createClient();
+  const { data } = await sb
+    .from("site_config")
+    .select("meeting_auto_approve_enabled, meeting_auto_approve_min_confidence, meeting_auto_approve_require_source")
+    .eq("id", true)
+    .maybeSingle();
+  const row = (data as {
+    meeting_auto_approve_enabled: boolean | null;
+    meeting_auto_approve_min_confidence: number | null;
+    meeting_auto_approve_require_source: boolean | null;
+  } | null);
+  return {
+    enabled: row?.meeting_auto_approve_enabled ?? true,
+    minConfidence: Number(row?.meeting_auto_approve_min_confidence ?? 0.85),
+    requireSource: row?.meeting_auto_approve_require_source ?? true,
+  };
+}
+
+export async function setMeetingAutoApprovePolicy(input: {
+  enabled: boolean;
+  minConfidence: number;
+  requireSource: boolean;
+}) {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admin only." };
+
+  // Clamp confidence to a sane band so a fat-fingered value can't either
+  // auto-approve everything (0) or nothing (>1).
+  const conf = Math.max(0.5, Math.min(1, Number(input.minConfidence) || 0.85));
+
+  const sb = await createClient();
+  const { error } = await sb
+    .from("site_config")
+    .update({
+      meeting_auto_approve_enabled: !!input.enabled,
+      meeting_auto_approve_min_confidence: conf,
+      meeting_auto_approve_require_source: !!input.requireSource,
+      updated_at: new Date().toISOString(),
+      updated_by: ctx.userId,
+    })
+    .eq("id", true);
+  if (error) return { error: error.message };
+
+  await recordAdminAction({
+    action: "meeting_auto_approve_policy_updated",
+    targetType: "user",
+    targetId: ctx.userId,
+    details: { enabled: !!input.enabled, minConfidence: conf, requireSource: !!input.requireSource },
+  });
+
+  revalidatePath("/admin/meetings");
+  return { ok: true };
+}
+
 /**
  * Broadcast a meeting NOW — fires push notifications to all users in
  * the meeting's state + creates a critical-severity policy_alert that
