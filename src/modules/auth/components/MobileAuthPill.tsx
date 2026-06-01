@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { getCachedUser } from "@/lib/supabase/server";
 
 /**
  * Always-visible auth pill in the mobile header. When signed out:
@@ -6,13 +6,11 @@ import { createClient } from "@/lib/supabase/server";
  * the hamburger so users can reach the most-common destination in one
  * tap without ever opening the drawer.
  *
- * Server component — same auth read pattern as HeaderAuth.
+ * Server component — uses the request-cached user (shares the single
+ * auth round-trip with the layout + HeaderAuth).
  */
 export async function MobileAuthPill() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
 
   if (!user) {
     return (

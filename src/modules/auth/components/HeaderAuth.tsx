@@ -1,14 +1,12 @@
-import { createClient } from "@/lib/supabase/server";
+import { getCachedAuthProfile } from "@/lib/supabase/server";
 import { SignOutButton } from "./SignOutButton";
 import { HeaderBell } from "@/modules/notifications/components/HeaderBell";
 import { MessagesIcon } from "@/modules/dm/components/MessagesIcon";
 import { HeaderAvatar } from "./HeaderAvatar";
 
 export async function HeaderAuth() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Request-cached: reuses the layout's single auth round-trip + profile read.
+  const { user, profile } = await getCachedAuthProfile();
 
   if (!user) {
     return (
@@ -21,12 +19,6 @@ export async function HeaderAuth() {
     );
   }
 
-  // Single profile read — pull everything HeaderAuth needs in one trip
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader, username, full_name, avatar_url")
-    .eq("id", user.id)
-    .single();
   const isAdmin = !!(profile?.is_admin || profile?.is_owner);
   const isLeader = isAdmin || !!profile?.is_advocate_leader;
 
