@@ -5,10 +5,11 @@ import { MessagesIcon } from "@/modules/dm/components/MessagesIcon";
 import { HeaderAvatar } from "./HeaderAvatar";
 
 export async function HeaderAuth() {
-  // Request-cached: reuses the layout's single auth round-trip + profile read.
-  const { user, profile } = await getCachedAuthProfile();
+  // Request-cached: local JWT verify (getClaims) + a shared profile read,
+  // deduped with the root layout. No auth-server round-trip.
+  const { userId, profile } = await getCachedAuthProfile();
 
-  if (!user) {
+  if (!userId) {
     return (
       <a
         href="/login"
