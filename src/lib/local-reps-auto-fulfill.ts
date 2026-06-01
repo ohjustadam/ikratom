@@ -71,7 +71,7 @@ export async function autoFulfillLocality(input: {
 
   // 1. Suggest via Gemini-with-search
   const city = localityNorm.replace(/,\s*[A-Z]{2}$/, "");
-  const suggestion = await suggestLocalOfficials({ city, state: input.state });
+  const suggestion = await suggestLocalOfficials({ city, state: input.state, caller: "auto-fulfill-locality" });
   if ("error" in suggestion) {
     result.error = suggestion.error;
     return result;
@@ -222,7 +222,7 @@ export async function reVerifyLocality(input: {
   const localityNorm = normalizeLocality(input.locality, input.state) ?? input.locality;
 
   const city = localityNorm.replace(/,\s*[A-Z]{2}$/, "");
-  const suggestion = await suggestLocalOfficials({ city, state: input.state });
+  const suggestion = await suggestLocalOfficials({ city, state: input.state, caller: "reverify-locality" });
   if ("error" in suggestion) {
     return { locality: localityNorm, retired: [], added: 0, unchanged: 0, error: suggestion.error };
   }

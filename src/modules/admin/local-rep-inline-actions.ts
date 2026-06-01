@@ -25,6 +25,7 @@
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { suggestLocalOfficials, type SuggestedOfficial } from "@/lib/ai/suggest-officials";
+import { friendlyGroundingError } from "@/lib/ai/grounding-errors";
 import { verifyOfficialAgainstSource } from "@/lib/local-reps-verify";
 import { normalizeLocality } from "@/lib/locality";
 import { recordAdminAction } from "@/lib/audit";
@@ -67,8 +68,14 @@ export async function previewSuggestions(input: {
   const localityNorm = normalizeLocality(input.locality, stateRaw) ?? input.locality;
   const city = localityNorm.replace(/,\s*[A-Z]{2}$/, "");
 
-  const suggestion = await suggestLocalOfficials({ city, state: stateRaw });
-  if ("error" in suggestion) return { ok: false, error: suggestion.error };
+  const suggestion = await suggestLocalOfficials({ city, state: stateRaw, caller: "admin-inline-suggest" });
+  if ("error" in suggestion) {
+    // Replace raw "Gemini 429: ..." with a friendly classified message
+    // (quota-exhausted → "retry tomorrow", network blip → "try again",
+    // etc.). The raw string already got logged into ai_jobs inside
+    // suggestLocalOfficials.
+    return { ok: false, error: friendlyGroundingError(suggestion.error) };
+  }
 
   const db = admin();
   const { data: existing } = await db

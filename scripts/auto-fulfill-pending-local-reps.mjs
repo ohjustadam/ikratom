@@ -13,6 +13,12 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import {
+  assertGroundingBudget,
+  GroundingQuotaError,
+  recordGroundingCall,
+  classifyGroundingError,
+} from "./lib/grounding-budget.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -67,6 +73,13 @@ async function suggest(city, state) {
   const userPrompt = isCounty
     ? `Find the current ${city} ${state} commissioners and county executive (or judge-executive). Search the official county government website first.`
     : `Find the current Mayor and ALL City Council members for ${city}, ${state}. Search the official city government website (.gov / .us) first.`;
+  try {
+    await assertGroundingBudget(sb);
+  } catch (e) {
+    if (e instanceof GroundingQuotaError) return { error: e.message, quotaExhausted: true };
+    throw e;
+  }
+  const startedAt = Date.now();
   const r = await fetch(`${GEMINI_API}?key=${process.env.GEMINI_API_KEY}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -78,23 +91,36 @@ async function suggest(city, state) {
     }),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!r.ok) return { error: `gemini ${r.status}: ${(await r.text()).slice(0, 200)}` };
+  if (!r.ok) {
+    const errBody = (await r.text()).slice(0, 200);
+    const msg = `gemini ${r.status}: ${errBody}`;
+    await recordGroundingCall(sb, { caller: "auto-fulfill-pending-cli", status: "failure", error: msg, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+    return { error: msg };
+  }
   const data = await r.json();
   const cand = data.candidates?.[0];
-  if (!cand) return { error: "no candidates" };
+  if (!cand) {
+    await recordGroundingCall(sb, { caller: "auto-fulfill-pending-cli", status: "failure", error: "no candidates", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+    return { error: "no candidates" };
+  }
   const finalText = (cand.content?.parts ?? []).map((p) => p.text ?? "").join("\n");
   const m = finalText.match(/<result>([\s\S]*?)<\/result>/);
-  if (!m) return { error: `no <result> block. Got: ${finalText.slice(0, 200)}` };
+  if (!m) {
+    await recordGroundingCall(sb, { caller: "auto-fulfill-pending-cli", status: "failure", error: "no <result> block", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+    return { error: `no <result> block. Got: ${finalText.slice(0, 200)}` };
+  }
   try {
     const parsed = JSON.parse(m[1].trim());
     const grounding = cand.groundingMetadata?.groundingChunks ?? [];
     const groundingUrls = grounding.map((c) => c.web?.uri).filter(Boolean);
+    await recordGroundingCall(sb, { caller: "auto-fulfill-pending-cli", status: "success", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt, metadata: { officials_returned: (parsed.officials ?? []).length } });
     return {
       ok: true,
       officials: parsed.officials ?? [],
       sources: Array.from(new Set([...(parsed.sources ?? []), ...groundingUrls])),
     };
   } catch (e) {
+    await recordGroundingCall(sb, { caller: "auto-fulfill-pending-cli", status: "failure", error: `json: ${e.message}`, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
     return { error: `json: ${e.message}` };
   }
 }
@@ -144,7 +170,17 @@ for (const req of pending ?? []) {
   console.log(`\n--- ${req.locality} (${req.level}) ---`);
   const city = req.locality.replace(/,\s*[A-Z]{2}$/, "");
   const sug = await suggest(city, req.state);
-  if (sug.error) { console.log(`  ✗ suggest error: ${sug.error.slice(0, 100)}`); continue; }
+  if (sug.error) {
+    console.log(`  ✗ suggest error: ${sug.error.slice(0, 100)}`);
+    // If today's grounded quota is gone there is no point continuing
+    // — every subsequent request will fail the same way. Exit cleanly
+    // so the next scheduled run picks up where we left off.
+    if (sug.quotaExhausted || classifyGroundingError(sug.error) === "quota_exhausted") {
+      console.log("  ⚠ grounded quota exhausted — stopping, will resume tomorrow (UTC)");
+      break;
+    }
+    continue;
+  }
   console.log(`  suggested ${sug.officials.length} officials`);
 
   const { data: existing } = await sb.from("legislators").select("full_name").eq("level", req.level).eq("locality", req.locality).eq("active", true);

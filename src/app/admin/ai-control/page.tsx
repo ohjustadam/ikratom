@@ -5,6 +5,7 @@ import {
   getAiStats24h,
   getProviderAvailability,
   getEmailQuotaStatus,
+  getGroundingQuotaStatus,
   getEnvPresence,
   type AiJobRow,
   type AiStatRow,
@@ -31,11 +32,12 @@ export default async function AiControlPage() {
   const ctx = await getAdminContext();
   if (!ctx.ok) redirect("/dashboard");
 
-  const [jobsResp, statsResp, providerResp, emailQuotaResp, envResp] = await Promise.all([
+  const [jobsResp, statsResp, providerResp, emailQuotaResp, groundingResp, envResp] = await Promise.all([
     listRecentAiJobs(100),
     getAiStats24h(),
     getProviderAvailability(),
     getEmailQuotaStatus(),
+    getGroundingQuotaStatus(),
     getEnvPresence(),
   ]);
 
@@ -43,6 +45,7 @@ export default async function AiControlPage() {
   const stats: AiStatRow[] = "rows" in statsResp ? statsResp.rows ?? [] : [];
   const aiAvailable = "available" in providerResp ? providerResp.available ?? [] : [];
   const emailQuota = "status" in emailQuotaResp ? emailQuotaResp.status : null;
+  const groundingQuota = "status" in groundingResp ? groundingResp.status : null;
   const envGroups: EnvPresenceGroup[] = "groups" in envResp ? envResp.groups : [];
 
   // Aggregate cost across all 24h
@@ -162,6 +165,25 @@ export default async function AiControlPage() {
         <Stat label="Failures" value={totalFail24h.toString()} tone={totalFail24h > 0 ? "warn" : "good"} />
         <Stat label="24h cost (est)" value={`$${totalCost24h.toFixed(4)}`} />
       </section>
+
+      {/* Gemini grounding quota — the only AI sub-budget we can run out
+          of mid-day. Local-officials seeding (extract-news-officials,
+          seed-bill-officials, /admin/local-rep-requests, reverify cron)
+          all share this single ~500/day free-tier pool. The cap below is
+          a soft ceiling (site_config.gemini_grounded_daily_cap, default
+          400) that leaves headroom for ad-hoc admin clicks. When the
+          bar turns red, the cron will retry tomorrow — no action needed. */}
+      {groundingQuota && (
+        <section className="mb-6">
+          <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <span>Gemini grounding quota — today (UTC)</span>
+            <span className="font-normal normal-case tracking-normal text-zinc-600">
+              — local-officials seeding pool
+            </span>
+          </h2>
+          <GroundingQuotaPanel status={groundingQuota} />
+        </section>
+      )}
 
       {/* Email quota gauges */}
       {emailQuota && (
@@ -338,6 +360,37 @@ export default async function AiControlPage() {
         Email scaling: <code className="text-zinc-500">docs/EMAIL_SCALING.md</code> ·
         Prompt library: <code className="text-zinc-500">docs/PROMPTS/</code>
       </p>
+    </div>
+  );
+}
+
+function GroundingQuotaPanel({
+  status,
+}: {
+  status: { usedToday: number; cap: number; remaining: number; exhausted: boolean };
+}) {
+  const pct = status.cap > 0 ? Math.min(100, (status.usedToday / status.cap) * 100) : 0;
+  const tone =
+    status.exhausted ? "bg-red-500" : pct > 80 ? "bg-amber-500" : "bg-emerald-500";
+  return (
+    <div className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="font-mono font-semibold text-zinc-200">gemini-2.5-flash · google_search</span>
+        <span className={status.exhausted ? "text-red-400" : "text-zinc-500"}>
+          {status.usedToday} / {status.cap}
+        </span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-900">
+        <div className={`h-full transition-all ${tone}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-zinc-600">
+        <span>{status.remaining} remaining today</span>
+        <span>
+          {status.exhausted
+            ? "exhausted — cron will retry tomorrow (UTC)"
+            : "free-tier ceiling ≈ 500/project/day"}
+        </span>
+      </div>
     </div>
   );
 }
