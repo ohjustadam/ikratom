@@ -51,6 +51,30 @@ export const getCachedUser = cache(async () => {
   return user;
 });
 
+/**
+ * Request-scoped cached `auth.getClaims()` — LOCAL JWT verification.
+ *
+ * The project uses asymmetric JWT signing keys (ES256 — confirmed via
+ * the `/auth/v1/.well-known/jwks.json` endpoint), so getClaims() verifies
+ * the access-token signature locally against the cached JWKS with NO
+ * per-call network round-trip — unlike getUser(), which always round-
+ * trips to the Auth server. Returns the JWT claims (`claims.sub` = user
+ * id, `claims.email`, `claims.role`, …) or null when signed out.
+ *
+ * TRADEOFF (why this is the chrome helper, not the universal one):
+ * claims are trusted until the token expires (~1h). A session revoked or
+ * banned server-side keeps verifying until its access token refreshes.
+ * That's fine for always-rendered chrome (presence + id → profile-role
+ * lookup). For flows where IMMEDIATE revocation matters — admin
+ * mutations, account/security pages — use getCachedUser()/getUser(),
+ * which revalidate against the Auth server live.
+ */
+export const getCachedClaims = cache(async () => {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  return data?.claims ?? null;
+});
+
 export type CachedAuthProfile = {
   id: string;
   is_admin: boolean | null;
@@ -64,23 +88,30 @@ export type CachedAuthProfile = {
 };
 
 /**
- * Request-scoped cached user + the profile columns the always-rendered
- * chrome (root layout, HeaderAuth) needs. Reuses getCachedUser so the
- * auth round-trip is shared, and dedupes the `profiles` row read across
- * layout + header into one DB trip. Returns nulls when signed out.
+ * Request-scoped cached user-id + the profile columns the always-rendered
+ * chrome (root layout, HeaderAuth) needs. Uses getCachedClaims (LOCAL
+ * JWT verify, no auth round-trip) for the id, then dedupes the `profiles`
+ * row read across layout + header into one DB trip. Returns nulls when
+ * signed out.
+ *
+ * Returns `userId` (from the verified JWT) rather than the full Supabase
+ * `User` object — the chrome only needs the id + profile roles, and
+ * skipping getUser() is the whole point. Callers that need the full,
+ * live-revalidated user object should use getCachedUser()/getUser().
  */
 export const getCachedAuthProfile = cache(
-  async (): Promise<{ user: Awaited<ReturnType<typeof getCachedUser>>; profile: CachedAuthProfile | null }> => {
-    const user = await getCachedUser();
-    if (!user) return { user: null, profile: null };
+  async (): Promise<{ userId: string | null; profile: CachedAuthProfile | null }> => {
+    const claims = await getCachedClaims();
+    const userId = typeof claims?.sub === "string" ? claims.sub : null;
+    if (!userId) return { userId: null, profile: null };
     const supabase = await createClient();
     const { data: profile } = await supabase
       .from("profiles")
       .select(
         "id, is_admin, is_owner, is_advocate_leader, leader_tour_pending, leader_acknowledged_at, username, full_name, avatar_url",
       )
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
-    return { user, profile: (profile as CachedAuthProfile | null) ?? null };
+    return { userId, profile: (profile as CachedAuthProfile | null) ?? null };
   },
 );

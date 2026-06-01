@@ -1,4 +1,4 @@
-import { getCachedUser } from "@/lib/supabase/server";
+import { getCachedClaims } from "@/lib/supabase/server";
 
 /**
  * Always-visible auth pill in the mobile header. When signed out:
@@ -6,13 +6,13 @@ import { getCachedUser } from "@/lib/supabase/server";
  * the hamburger so users can reach the most-common destination in one
  * tap without ever opening the drawer.
  *
- * Server component — uses the request-cached user (shares the single
- * auth round-trip with the layout + HeaderAuth).
+ * Server component — presence check via the request-cached claims
+ * (local JWT verify, no auth round-trip; shared with layout + HeaderAuth).
  */
 export async function MobileAuthPill() {
-  const user = await getCachedUser();
+  const claims = await getCachedClaims();
 
-  if (!user) {
+  if (!claims) {
     return (
       <a
         href="/login"
