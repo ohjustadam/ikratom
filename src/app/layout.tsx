@@ -19,7 +19,7 @@ import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
 import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { readLocale } from "@/modules/auth/actions-locale";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedAuthProfile } from "@/lib/supabase/server";
 import "./globals.css";
 
 const geist = Geist({
@@ -103,18 +103,15 @@ export default async function RootLayout({
   let leaderTourPending = false;
   let leaderAcknowledged = true; // assume true so we don't flash a banner for non-leaders
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("is_admin, is_owner, is_advocate_leader, leader_tour_pending, leader_acknowledged_at")
-        .eq("id", user.id)
-        .single();
-      isAdmin = !!(profile?.is_admin || profile?.is_owner);
-      isLeader = !!(isAdmin || profile?.is_advocate_leader);
-      leaderTourPending = isLeader && !!profile?.leader_tour_pending;
-      leaderAcknowledged = !isLeader || !!profile?.leader_acknowledged_at;
+    // Request-cached: shares the single auth round-trip + profile read
+    // with HeaderAuth (see getCachedAuthProfile). Was a per-render
+    // getUser() + profile select; now deduped across the chrome.
+    const { profile } = await getCachedAuthProfile();
+    if (profile) {
+      isAdmin = !!(profile.is_admin || profile.is_owner);
+      isLeader = !!(isAdmin || profile.is_advocate_leader);
+      leaderTourPending = isLeader && !!profile.leader_tour_pending;
+      leaderAcknowledged = !isLeader || !!profile.leader_acknowledged_at;
     }
   } catch {
     // non-fatal — drawer just hides admin / leader section
