@@ -2,11 +2,22 @@
  * AI-assisted local-official suggestions via Google Gemini with Search grounding.
  * Server-only — never import in client components (uses GEMINI_API_KEY).
  *
- * FREE TIER: 1M tokens/day, 15 requests/min. A typical city lookup uses ~5–10K
- * tokens, so ~100+ queries/day on free tier.
+ * Quota reality: Gemini Flash with `google_search` grounding is capped well
+ * below the non-grounded 1M-token/day allotment — ~500 grounded queries/
+ * project/day on free tier. The Sunday weekly cron + ad-hoc admin clicks
+ * burned through that in one tick before migration 0169. The
+ * grounding-budget guard now hard-stops at site_config.gemini_grounded_
+ * daily_cap (default 400) before each call.
  *
  * Always requires human review — never auto-inserts.
  */
+
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import {
+  assertGroundingBudget,
+  GroundingQuotaError,
+  recordGroundingCall,
+} from "./grounding-budget";
 
 const MODEL = "gemini-2.5-flash";
 const API = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -32,7 +43,13 @@ export type SuggestedOfficial = {
 
 export type SuggestResult =
   | { ok: true; locality: string; officials: SuggestedOfficial[]; sources: string[] }
-  | { error: string };
+  | {
+      error: string;
+      /** When true, caller should NOT stamp the row as terminally
+       *  processed — the call failed for quota / transient reasons
+       *  and will likely succeed on a future retry. */
+      transient?: boolean;
+    };
 
 const SYSTEM = `You are a research assistant that finds current elected local government officials in US cities and counties.
 
@@ -77,6 +94,9 @@ Rules:
 export async function suggestLocalOfficials(input: {
   city: string;
   state: string;
+  /** Caller label for ai_jobs (e.g. "admin-inline-suggest" or
+   *  "reverify-local-officials"). Defaults to "suggest-officials". */
+  caller?: string;
 }): Promise<SuggestResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -88,11 +108,28 @@ export async function suggestLocalOfficials(input: {
   if (!city) return { error: "City is required." };
   if (!/^[A-Z]{2}$/.test(state)) return { error: "State must be 2-letter code." };
 
+  const sb = createServiceRoleClient();
+  const caller = input.caller ?? "suggest-officials";
+
+  // Budget guard: bail BEFORE hitting Gemini if today's cap is reached.
+  // Cheap (one indexed count + one single-row select) and prevents the
+  // "every admin click returns raw 429" UX. quota_exhausted is marked
+  // transient=true so callers leave their work item open for tomorrow.
+  try {
+    await assertGroundingBudget(sb);
+  } catch (e) {
+    if (e instanceof GroundingQuotaError) {
+      return { error: e.message, transient: true };
+    }
+    throw e;
+  }
+
   const isCounty = /county$/i.test(city);
   const userPrompt = isCounty
     ? `Find the current ${city} ${state} commissioners / supervisors and county executive (or judge-executive). Search the official county government website first.`
     : `Find the current Mayor and ALL City Council members for ${city}, ${state}. Search the official city government website (look for .gov or .us domains) first.`;
 
+  const startedAt = Date.now();
   let res: Response;
   try {
     res = await fetch(`${API}?key=${apiKey}`, {
@@ -110,12 +147,31 @@ export async function suggestLocalOfficials(input: {
       signal: AbortSignal.timeout(60_000),
     });
   } catch (e) {
-    return { error: `Gemini fetch failed: ${(e as Error).message}` };
+    const msg = `Gemini fetch failed: ${(e as Error).message}`;
+    await recordGroundingCall(sb, {
+      caller,
+      status: "failure",
+      error: msg,
+      elapsedMs: Date.now() - startedAt,
+      promptPreview: userPrompt,
+    });
+    return { error: msg, transient: true };
   }
 
   if (!res.ok) {
     const body = await res.text();
-    return { error: `Gemini ${res.status}: ${body.slice(0, 300)}` };
+    const msg = `Gemini ${res.status}: ${body.slice(0, 300)}`;
+    await recordGroundingCall(sb, {
+      caller,
+      status: "failure",
+      error: msg,
+      elapsedMs: Date.now() - startedAt,
+      promptPreview: userPrompt,
+    });
+    // 429 / 5xx are retryable; 4xx other than 429 (bad key, malformed)
+    // generally aren't.
+    const transient = res.status === 429 || res.status >= 500;
+    return { error: msg, transient };
   }
 
   const data = await res.json();
@@ -128,14 +184,30 @@ export async function suggestLocalOfficials(input: {
 
   const m = finalText.match(/<result>([\s\S]*?)<\/result>/);
   if (!m) {
-    return { error: `Model did not return a <result> block. Got: ${finalText.slice(0, 200)}…` };
+    const msg = `Model did not return a <result> block. Got: ${finalText.slice(0, 200)}…`;
+    await recordGroundingCall(sb, {
+      caller,
+      status: "failure",
+      error: msg,
+      elapsedMs: Date.now() - startedAt,
+      promptPreview: userPrompt,
+    });
+    return { error: msg };
   }
 
   let parsed: { officials: SuggestedOfficial[]; sources?: string[] };
   try {
     parsed = JSON.parse(m[1].trim());
   } catch (e) {
-    return { error: `Could not parse JSON: ${(e as Error).message}` };
+    const msg = `Could not parse JSON: ${(e as Error).message}`;
+    await recordGroundingCall(sb, {
+      caller,
+      status: "failure",
+      error: msg,
+      elapsedMs: Date.now() - startedAt,
+      promptPreview: userPrompt,
+    });
+    return { error: msg };
   }
 
   const officials = Array.isArray(parsed.officials) ? parsed.officials : [];
@@ -156,6 +228,14 @@ export async function suggestLocalOfficials(input: {
   for (const o of officials) {
     if (!validRoles.has(o.role)) o.role = "other_local";
   }
+
+  await recordGroundingCall(sb, {
+    caller,
+    status: "success",
+    elapsedMs: Date.now() - startedAt,
+    promptPreview: userPrompt,
+    metadata: { officials_returned: officials.length, sources_count: sources.length },
+  });
 
   return { ok: true, locality: `${city}, ${state}`, officials, sources };
 }

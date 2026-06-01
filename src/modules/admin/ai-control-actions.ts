@@ -4,6 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "./actions";
 import { whichAvailable } from "@/lib/ai/router";
 import { getTodayQuotaStatus } from "@/lib/email/router";
+import { getGroundingBudget, type GroundingBudgetStatus } from "@/lib/ai/grounding-budget";
 
 /**
  * Read-side server actions for /admin/ai-control. All admin-only.
@@ -74,6 +75,21 @@ export async function getEmailQuotaStatus() {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
   const status = await getTodayQuotaStatus();
+  return { status };
+}
+
+/**
+ * Today's grounded-Gemini query count + the configured daily cap.
+ * Backs the "Gemini grounding quota" panel on /admin/ai-control.
+ * See migration 0169 + src/lib/ai/grounding-budget.ts.
+ */
+export async function getGroundingQuotaStatus(): Promise<
+  { status: GroundingBudgetStatus } | { error: string }
+> {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admins only." };
+  const supabase = createServiceRoleClient();
+  const status = await getGroundingBudget(supabase);
   return { status };
 }
 

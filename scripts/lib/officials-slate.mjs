@@ -10,8 +10,14 @@
  *
  * Uses Gemini 2.5 Flash with Google Search grounding (free tier) — no
  * paid API. Validates official websites against known parked-domain
- * squatters before persisting.
+ * squatters before persisting. Per migration 0169, every grounded call
+ * runs through assertGroundingBudget() so the Sunday weekly burst can't
+ * blow the daily ~500 grounded-query free-tier ceiling — once today's
+ * cap is hit, callers get status='skip' with a quota_exhausted error
+ * and the alert/request stays unprocessed for tomorrow's retry.
  */
+
+import { assertGroundingBudget, GroundingQuotaError, recordGroundingCall } from "./grounding-budget.mjs";
 
 const PARKED_DOMAINS = [
   "hugedomains.com", "sedoparking.com", "dan.com", "godaddy.com",
@@ -82,30 +88,49 @@ Rules:
 - Never fabricate emails. If only a contact form is published, put the form URL in website (or contact_form_url for city_general) and leave email null.
 - Output ONLY the <result>...</result> block. No prose before or after.`;
 
-async function suggestOfficials({ city, state, geminiKey }) {
+async function suggestOfficials({ sb, city, state, geminiKey, caller }) {
   const isCounty = /county$/i.test(city);
   const userPrompt = isCounty
     ? `Find the current ${city} ${state} commissioners / supervisors and county executive (or judge-executive). Search the official county government website first.`
     : `Find the current Mayor and ALL City Council members for ${city}, ${state}. Search the official city government website (look for .gov or .us domains) first.`;
 
+  // Budget guard BEFORE the call. Throws GroundingQuotaError if today's
+  // cap is reached; seedLocalitySlate catches and converts to status='skip'.
+  await assertGroundingBudget(sb);
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      systemInstruction: { parts: [{ text: SYSTEM }] },
-      tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const startedAt = Date.now();
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        systemInstruction: { parts: [{ text: SYSTEM }] },
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+      }),
+      signal: AbortSignal.timeout(90_000),
+    });
+  } catch (e) {
+    await recordGroundingCall(sb, { caller, status: "failure", error: `fetch failed: ${e.message}`, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+    throw e;
+  }
+  if (!res.ok) {
+    const errBody = (await res.text()).slice(0, 300);
+    await recordGroundingCall(sb, { caller, status: "failure", error: `Gemini ${res.status}: ${errBody}`, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+    throw new Error(`Gemini ${res.status}: ${errBody}`);
+  }
   const data = await res.json();
   const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("\n");
   const m = text.match(/<result>([\s\S]*?)<\/result>/);
-  if (!m) throw new Error(`Model did not return a <result> block. Got: ${text.slice(0, 200)}`);
+  if (!m) {
+    await recordGroundingCall(sb, { caller, status: "failure", error: "no <result> block", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+    throw new Error(`Model did not return a <result> block. Got: ${text.slice(0, 200)}`);
+  }
   const parsed = JSON.parse(m[1].trim());
+  await recordGroundingCall(sb, { caller, status: "success", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt, metadata: { officials_returned: Array.isArray(parsed.officials) ? parsed.officials.length : 0 } });
   return {
     officials: Array.isArray(parsed.officials) ? parsed.officials : [],
     sources: Array.isArray(parsed.sources) ? parsed.sources : [],
@@ -121,7 +146,7 @@ async function suggestOfficials({ city, state, geminiKey }) {
  *   officialIds = ALL active city/county official IDs for the locality
  *   after the run (existing + newly inserted) — the set to target.
  */
-export async function seedLocalitySlate({ sb, state, locality, geminiKey, refresh = false }) {
+export async function seedLocalitySlate({ sb, state, locality, geminiKey, refresh = false, caller = "officials-slate" }) {
   const city = locality.split(",")[0].trim();
 
   // Already covered?
@@ -137,8 +162,15 @@ export async function seedLocalitySlate({ sb, state, locality, geminiKey, refres
 
   let suggestion;
   try {
-    suggestion = await suggestOfficials({ city, state, geminiKey });
+    suggestion = await suggestOfficials({ sb, city, state, geminiKey, caller });
   } catch (e) {
+    // Quota exhaustion is the common "leave it for tomorrow" case —
+    // surface a clean error string so callers can match on it via
+    // isRetryableGroundingError(). All raw errors are already in
+    // ai_jobs via recordGroundingCall.
+    if (e instanceof GroundingQuotaError) {
+      return { status: "fail", inserted: 0, existing: preIds.length, officialIds: preIds, error: e.message };
+    }
     return { status: "fail", inserted: 0, existing: preIds.length, officialIds: preIds, error: e.message };
   }
   if (suggestion.officials.length === 0) {

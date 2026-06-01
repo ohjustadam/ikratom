@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { reVerifyLocality, autoFulfillLocality } from "@/lib/local-reps-auto-fulfill";
+import { getGroundingBudget } from "@/lib/ai/grounding-budget";
+import { isRetryableGroundingError } from "@/lib/ai/grounding-errors";
 
 /**
  * Periodic re-verification of locally-elected officials.
@@ -31,17 +33,22 @@ import { reVerifyLocality, autoFulfillLocality } from "@/lib/local-reps-auto-ful
  * Triggered via Vercel cron (vercel.json) at a low-volume hour, OR
  * manually via gh workflow run. Verified by CRON_SECRET header.
  *
- * Gemini quota: 1M tokens/day on free tier; a typical locality uses
- * ~5–10K tokens. The 90-day cadence keeps us well under quota even
- * with hundreds of localities.
+ * Gemini quota: ~500 grounded queries/project/day on free tier. The
+ * caps here (5 + 5 + 5 = 15 max grounded calls per day) keep this
+ * cron well under the budget; the budget guard in suggest-officials.ts
+ * + officials-slate.mjs is the hard backstop. Cron now runs DAILY
+ * instead of weekly to spread load — same total weekly throughput, no
+ * Sunday spike that used to blow the quota (V2_KICKOFF §3.A1).
  */
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 300; // 5 min — plenty for ~30 localities at ~5s each
+export const maxDuration = 300; // 5 min — plenty for ~15 localities at ~5s each
 
 const REVERIFY_AGE_DAYS = 90;
-const MAX_LOCALITIES_PER_RUN = 30; // soft cap to stay under Gemini quota
+const MAX_TERM_EXPIRED_PER_RUN = 5; // daily, was 15 weekly
+const MAX_STALE_PER_RUN = 5;         // daily, was 15 weekly
+const MAX_PENDING_PER_RUN = 5;       // daily, was 20 weekly
 
 export async function GET(request: NextRequest) {
   // Defense-in-depth: refuse to run if the secret is unset in env.
@@ -69,7 +76,24 @@ export async function GET(request: NextRequest) {
     pendingFulfilled: 0,
     pendingFailed: 0,
     errors: [] as string[],
+    /** Snapshot of today's grounded-query budget at the start of the
+     *  run. If `exhausted` is true we bail before any Gemini calls so
+     *  the cron doesn't compound an already-blown quota. */
+    quota: null as null | { usedToday: number; cap: number; remaining: number; exhausted: boolean },
   };
+
+  // Budget check up front. If today's cap is already gone (e.g. an
+  // admin clicked AI suggest 400+ times, or the daily scripts already
+  // ran), this cron skips cleanly rather than logging 15 more failures.
+  stats.quota = await getGroundingBudget(admin);
+  if (stats.quota.exhausted) {
+    return NextResponse.json({
+      ok: true,
+      ranAt: new Date().toISOString(),
+      skipped: "grounded-quota-exhausted",
+      stats,
+    });
+  }
 
   // ── Pass 1: term-expired officials ─────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
@@ -86,11 +110,17 @@ export async function GET(request: NextRequest) {
     expiredPairs.set(`${row.state}|${row.locality}|${row.level}`, row);
   }
 
-  for (const [, pair] of [...expiredPairs.entries()].slice(0, MAX_LOCALITIES_PER_RUN / 2)) {
+  for (const [, pair] of [...expiredPairs.entries()].slice(0, MAX_TERM_EXPIRED_PER_RUN)) {
     try {
       const r = await reVerifyLocality(pair);
       stats.termExpiredRetired += r.retired.length;
-      if (r.error) stats.errors.push(`term-expired ${pair.locality}: ${r.error}`);
+      if (r.error) {
+        stats.errors.push(`term-expired ${pair.locality}: ${r.error}`);
+        // Stop the pass early if the upstream error is quota — every
+        // subsequent call will fail the same way and uselessly fill
+        // ai_jobs with quota_exhausted rows.
+        if (isRetryableGroundingError(r.error)) break;
+      }
     } catch (e) {
       stats.errors.push(`term-expired ${pair.locality}: ${(e as Error).message}`);
     }
@@ -109,11 +139,14 @@ export async function GET(request: NextRequest) {
     if (!row.locality || !row.state) continue;
     stalePairs.set(`${row.state}|${row.locality}|${row.level}`, { locality: row.locality, state: row.state, level: row.level });
   }
-  const staleBudget = MAX_LOCALITIES_PER_RUN - expiredPairs.size;
-  for (const [, pair] of [...stalePairs.entries()].slice(0, staleBudget)) {
+  for (const [, pair] of [...stalePairs.entries()].slice(0, MAX_STALE_PER_RUN)) {
     try {
-      await reVerifyLocality(pair);
+      const r = await reVerifyLocality(pair);
       stats.staleLocalitiesReVerified++;
+      if (r.error && isRetryableGroundingError(r.error)) {
+        stats.errors.push(`stale ${pair.locality}: ${r.error}`);
+        break;
+      }
     } catch (e) {
       stats.errors.push(`stale ${pair.locality}: ${(e as Error).message}`);
     }
@@ -124,20 +157,30 @@ export async function GET(request: NextRequest) {
     .from("local_rep_requests")
     .select("state, locality, level")
     .eq("status", "pending")
-    .limit(20);
+    .limit(MAX_PENDING_PER_RUN * 4); // overshoot so dedupe still yields a full batch
   const pendingPairs = new Map<string, { locality: string; state: string; level: "municipal" | "county" }>();
   for (const row of (pending ?? []) as Array<{ locality: string; state: string; level: "municipal" | "county" }>) {
     pendingPairs.set(`${row.state}|${row.locality}|${row.level}`, row);
   }
+  let pendingProcessed = 0;
   for (const [, pair] of pendingPairs) {
+    if (pendingProcessed >= MAX_PENDING_PER_RUN) break;
+    pendingProcessed++;
     try {
       const r = await autoFulfillLocality(pair);
       if (r.inserted > 0) stats.pendingFulfilled++;
       else stats.pendingFailed++;
+      if (r.error && isRetryableGroundingError(r.error)) {
+        stats.errors.push(`pending ${pair.locality}: ${r.error}`);
+        break;
+      }
     } catch (e) {
       stats.errors.push(`pending ${pair.locality}: ${(e as Error).message}`);
     }
   }
+
+  // Refresh quota snapshot so the response shows post-run state.
+  stats.quota = await getGroundingBudget(admin);
 
   return NextResponse.json({
     ok: true,
