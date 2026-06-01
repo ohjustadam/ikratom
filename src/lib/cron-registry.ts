@@ -298,6 +298,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "data-quality",
   },
   {
+    source: "daily_stale_campaign_cleanup",
+    label: "Stale-campaign + alert cleanup",
+    purpose: "Dedup orphan auto-campaigns, retire campaigns/alerts whose bill is dead/enacted",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "data-quality",
+  },
+  {
     source: "sync_committees_openstates",
     label: "Sync committees (OpenStates)",
     purpose: "Sync committee assignments across all 51 states",
