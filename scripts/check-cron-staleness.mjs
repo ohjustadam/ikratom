@@ -65,6 +65,7 @@ const REGISTRY = [
       "scan_legistar_tenants","scan_granicus_tenants","sync_research_pubmed",
       "align_bills_to_research",
       "openstates","detect_bill_clusters",
+      "classify_bill_substance",
       "fire_daily_brief_push",
       "render_daily_brief_audio",
       "extract_news_content",

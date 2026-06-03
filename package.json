@@ -31,6 +31,7 @@
     "ai:smoke": "node --env-file=.env.local scripts/test-ai-providers.mjs",
     "build:briefing-pdf": "node scripts/build-briefing-pdf.mjs",
     "classify:news": "node --env-file=.env.local scripts/classify-news-policy.mjs",
+    "classify:substance": "node --env-file=.env.local scripts/classify-bill-substance.mjs",
     "campaign:from-alert": "node --env-file=.env.local scripts/auto-campaign-from-alert.mjs",
     "seed:bill-officials": "node --env-file=.env.local scripts/seed-bill-officials.mjs",
     "scrape:bop": "node --env-file=.env.local scripts/scrape-bop.mjs",
