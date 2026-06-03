@@ -386,10 +386,14 @@ try {
   // call failed, insert failed). Skips ("already exists", "no locality")
   // are not errors — they're correct no-ops. Empty if literally nothing
   // happened. Success otherwise.
+  // Error ONLY when failures dominate the non-failure outcomes. A few
+  // transient Gemini-grounding 429s (expected on free tier) amid many
+  // clean seeds/skips must NOT paint the whole run red — that false alarm
+  // was burying real outages in /admin/automation noise.
+  const nonFail = ok + skip;
   const status =
-    fail > 0 ? "error" :
+    (fail > 0 && fail >= nonFail) ? "error" :   // failures dominate → real problem
     (ok === 0 && skip === 0) ? "empty" :
-    (ok === 0 && skip > 0) ? "success" :   // all-skipped is a clean noop
     "success";
   await sb.from("scraper_runs").insert({
     source: "seed_bill_officials",
@@ -398,5 +402,8 @@ try {
     status,
     rows_added: ok,
     notes: `${ok} seeded, ${skip} no-op skipped, ${fail} failed`,
+    error_message: fail > 0
+      ? `${fail}/${bills.length} item(s) failed (most likely Gemini grounding quota — grounded officials lookup is free-tier-limited)`
+      : null,
   });
 } catch { /* best-effort */ }

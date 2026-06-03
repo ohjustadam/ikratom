@@ -13,6 +13,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
+import { makeFailGuard } from "./lib/batch-guard.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -102,7 +103,7 @@ async function processBill(bill) {
     console.log(`  ✓ extracted via ${r.provider} in ${r.elapsedMs}ms`);
   } catch (e) {
     console.log(`  ✗ extraction failed: ${e.message?.slice(0, 200)}`);
-    return false;
+    throw e; // real AI error — surface to the loop's circuit breaker
   }
 
   // Strip null / empty entries so the jsonb stays compact
@@ -125,7 +126,7 @@ async function processBill(bill) {
   }).eq("id", bill.id);
   if (error) {
     console.log(`  ✗ DB update failed: ${error.message}`);
-    return false;
+    throw new Error(`DB update failed: ${error.message}`);
   }
   console.log(`  ✓ saved ${Object.keys(clean).length} field(s):`, Object.keys(clean).join(", "));
   return true;
@@ -150,19 +151,31 @@ if (SPECIFIC) {
 if (bills.length === 0) { console.log("Nothing to process."); process.exit(0); }
 console.log(`Processing ${bills.length} local bill(s)…`);
 
-let ok = 0, fail = 0;
+let ok = 0, noop = 0;
+const t0 = Date.now();
+const guard = makeFailGuard();
 for (const b of bills) {
-  if (await processBill(b)) ok++; else fail++;
+  try {
+    if (await processBill(b)) ok++; else noop++;
+    guard.ok();
+  } catch (e) {
+    // real AI/DB error — feed the circuit breaker
+    if (guard.fail(e)) {
+      console.log(`⛔ ${guard.failures} consecutive failures — AI providers exhausted; stopping early to preserve quota.`);
+      break;
+    }
+  }
   await new Promise((r) => setTimeout(r, 1500));
 }
-console.log(`\nDone. ok=${ok}, fail=${fail}`);
+console.log(`\nDone. ok=${ok}, no-op=${noop}, failed=${guard.failures}`);
 try {
   await sb.from("scraper_runs").insert({
     source: "extract_local_meta",
-    started_at: new Date().toISOString(),
+    started_at: new Date(t0).toISOString(),
     finished_at: new Date().toISOString(),
-    status: fail > ok ? "error" : (ok === 0 ? "empty" : "success"),
+    status: guard.status(ok),
     rows_updated: ok,
-    notes: `${ok} bills extracted, ${fail} failed`,
+    notes: `${ok} bills extracted, ${noop} no-op (no structured fields), ${guard.failures} failed`,
+    error_message: guard.note(),
   });
 } catch { /* best-effort */ }

@@ -86,9 +86,15 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
-        # Limit 200 per run = ~7 minutes at 2s polite delay between
-        # items. Cooldown-aware router handles rate limits.
-        run: node scripts/classify-news-policy.mjs --limit 200
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        # --limit 80 (was 200): 200/hr front-loaded the free-tier daily
+        # quota; once exhausted, every later item + later cron fell
+        # through to (absent) Ollama and failed. 80/hr still drains any
+        # realistic backlog across a few ticks, and the script's circuit
+        # breaker (scripts/lib/batch-guard.mjs) stops early if providers die.
+        run: node scripts/classify-news-policy.mjs --limit 80
       - name: Auto-push approved critical alerts to in-state users
         # Runs after the classifier so any newly-approved alerts this
         # hour get pushed in the same cron tick. Whitelist of kinds
@@ -149,6 +155,9 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/extract-local-meta.mjs --all-municipal
       - name: Seed full city-council slate for new municipal bills
         # Gemini Search grounding pulls mayor + ALL council members for
@@ -190,6 +199,9 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/extract-news-events.mjs --limit 25
       - name: Auto-approve high-confidence municipal meetings
         # Applies the admin auto-approval policy (site_config): promotes

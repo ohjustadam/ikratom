@@ -105,6 +105,12 @@ Return ONLY the JSON. No prose, no markdown fences.`;
 // AI routing now flows through the shared scripts/lib/ai-router.mjs
 // (cooldown-aware + JSON repair).
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
+import { makeFailGuard } from "./lib/batch-guard.mjs";
+
+// Circuit breaker: stop early (and record why) when the free-tier AI
+// providers are exhausted, instead of failing every remaining item with
+// an empty error_message.
+const guard = makeFailGuard();
 
 function avail() { return listAvailableProviders(); }
 
@@ -154,6 +160,7 @@ for (const item of items) {
       (item.summary ? `Summary: ${item.summary}` : "");
     const start = null; // router picks internally
     const { provider, result } = await classifyOnce(start, SYSTEM, userPrompt);
+    guard.ok(); // AI call succeeded — reset the failure streak
 
     let isEvent = !!result.is_policy_event;
     let conf = Number.isFinite(result.confidence) ? result.confidence : 0;
@@ -284,6 +291,10 @@ for (const item of items) {
   } catch (e) {
     console.log(`✗ ${e.message?.slice(0, 80)}`);
     failed++;
+    if (guard.fail(e)) {
+      console.log(`⛔ ${guard.failures} consecutive failures — AI providers exhausted; stopping early to preserve quota.`);
+      break;
+    }
   }
   await new Promise((r) => setTimeout(r, 1500)); // polite delay
 }
@@ -296,9 +307,10 @@ try {
     source: "classify_news_policy",
     started_at: new Date(Date.now() - classified * 2000).toISOString(),
     finished_at: new Date().toISOString(),
-    status: failed > classified ? "error" : (classified === 0 ? "empty" : "success"),
+    status: guard.status(classified),
     rows_added: alertsCreated,
     rows_updated: classified,
     notes: `${alertsCreated} alerts, ${skipped} not-event, ${failed} failed`,
+    error_message: guard.note(),
   });
 } catch { /* best-effort */ }

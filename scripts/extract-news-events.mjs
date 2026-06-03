@@ -32,6 +32,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter } from "./lib/ai-router.mjs";
+import { makeFailGuard } from "./lib/batch-guard.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -114,14 +115,20 @@ console.log(`  ${items.length} unprocessed classified article(s)`);
 
 const nowMs = Date.now();
 let processed = 0, inserted = 0, dupes = 0, withEvents = 0, failed = 0;
+const guard = makeFailGuard();
 
 for (const item of items) {
   let ex;
   try {
     ex = await extractEvents(item);
+    guard.ok(); // AI call succeeded — reset the failure streak
   } catch (e) {
     console.log(`  ✗ ${item.id.slice(0, 8)} extract failed (retry next run): ${e.message?.slice(0, 80)}`);
     failed++;
+    if (guard.fail(e)) {
+      console.log(`  ⛔ ${guard.failures} consecutive failures — AI providers exhausted; stopping early to preserve quota.`);
+      break;
+    }
     continue; // don't stamp — retry
   }
   const events = Array.isArray(ex.parsed?.events) ? ex.parsed.events : [];
@@ -184,9 +191,10 @@ if (!DRY) {
       source: "extract_news_events",
       started_at: new Date(t0).toISOString(),
       finished_at: new Date().toISOString(),
-      status: failed > 0 && processed === 0 ? "error" : processed === 0 ? "empty" : "success",
+      status: guard.status(processed),
       rows_added: inserted,
       notes: `processed ${processed} · with-events ${withEvents} · inserted ${inserted} · dupes ${dupes} · failed ${failed}`,
+      error_message: guard.note(),
     });
   } catch { /* best-effort */ }
 }
