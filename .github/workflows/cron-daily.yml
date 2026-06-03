@@ -906,3 +906,35 @@ jobs:
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: node scripts/enrich-bill-journey.mjs --all-stale --limit 30
+
+  classify-bill-substance:
+    # State Mission Control PR1 — dedicated 7-OH / substance classifier.
+    # Reads already-stored bill text (bill_text_versions / summary_long /
+    # summary) and routes through the free-tier AI router to fill the
+    # 5-key substance_targeting map + derive targets_natural_leaf /
+    # targets_synthetic_only. No OpenStates fetch (so it never competes
+    # with the journey pass for the 250/day quota).
+    #
+    # Runs AFTER enrich-bill-journey so any freshly-synced bill_text_versions
+    # are available to classify. Idempotent: only touches bills it doesn't
+    # already own (substance_targeting_source != 'ai-substance-pass-v1'),
+    # capped at --limit per run to spread AI quota across days.
+    needs: enrich-bill-journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Classify bill substance targeting
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: node scripts/classify-bill-substance.mjs --limit 40
