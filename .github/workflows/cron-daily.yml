@@ -938,3 +938,25 @@ jobs:
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: node scripts/classify-bill-substance.mjs --limit 40
+
+  sync-legistar-officials:
+    # FREE, non-grounded local-officials source: the Legistar (Granicus)
+    # webapi exposes authoritative current council/board rosters (the
+    # clerk's own system) with NO key and NO per-day cap. Seeds major-metro
+    # councils so they never spend a scarce Gemini-grounded call, and
+    # closes matching local_rep_requests. Tenants whose Legistar lacks a
+    # membership roster are skipped (grounding still covers those).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Sync local officials from Legistar webapi
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/sync-legistar-officials.mjs
