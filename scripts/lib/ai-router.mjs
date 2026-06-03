@@ -1,9 +1,11 @@
 /**
  * Shared multi-provider AI router for batch scripts.
  *
- * Round-robin across configured cloud providers (Groq → Gemini →
- * Cerebras) with graceful fallback to local Ollama when all cloud
- * providers fail.
+ * Round-robin across configured free cloud providers (Groq, Gemini,
+ * Cerebras, Mistral, Cloudflare Workers AI, GitHub Models, SambaNova,
+ * OpenRouter, NVIDIA NIM — whichever have keys set) with graceful
+ * fallback to local Ollama when all cloud providers fail. Each provider
+ * is env-gated: no key → silently skipped, so adding one is just a key.
  *
  * Hardened compared to the per-script versions:
  *   - JSON repair on truncated responses (Gemini occasionally emits
@@ -32,6 +34,17 @@ const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY;
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY;
 const CLOUDFLARE_AI_TOKEN = process.env.CLOUDFLARE_AI_TOKEN;
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+// Extra free-tier providers — all OpenAI-compatible. Activate by adding
+// the key to .env.local + the matching GitHub Actions secret. Free keys:
+//   GITHUB_MODELS_TOKEN — a GitHub PAT (github.com/settings/tokens, no scopes
+//                         needed for Models); free low-volume tier.
+//   SAMBANOVA_API_KEY   — cloud.sambanova.ai (free tier, very fast Llama 3.3).
+//   OPENROUTER_API_KEY  — openrouter.ai (use ":free" models; US-hosted only).
+//   NVIDIA_API_KEY      — build.nvidia.com (free credits; Llama/Nemotron).
+const GITHUB_MODELS_TOKEN = process.env.GITHUB_MODELS_TOKEN;
+const SAMBANOVA_API_KEY = process.env.SAMBANOVA_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
 // Cooldown tracking. When a provider returns 429 we set a deadline
@@ -46,6 +59,10 @@ function availableProviders() {
   if (CEREBRAS_KEY) out.push("cerebras");
   if (MISTRAL_KEY) out.push("mistral");
   if (CLOUDFLARE_AI_TOKEN && CLOUDFLARE_ACCOUNT_ID) out.push("cloudflare");
+  if (GITHUB_MODELS_TOKEN) out.push("github");
+  if (SAMBANOVA_API_KEY) out.push("sambanova");
+  if (OPENROUTER_API_KEY) out.push("openrouter");
+  if (NVIDIA_API_KEY) out.push("nvidia");
   out.push("ollama");
   return out;
 }
@@ -270,6 +287,57 @@ async function callCloudflare(sys, user, maxTokens) {
   return parseLooseJson(text || "{}");
 }
 
+// Shared OpenAI-compatible chat-completions caller for the extra free
+// providers (GitHub Models, SambaNova, OpenRouter, NVIDIA NIM). They all
+// speak the same /chat/completions shape; only base URL, auth, default
+// model, and any extra headers differ.
+async function callOpenAICompat(name, { url, key, model, extraHeaders = {} }, sys, user, maxTokens, modelOverride) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...extraHeaders },
+    body: JSON.stringify({
+      model: modelOverride || model,
+      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+      temperature: 0.1,
+      max_tokens: maxTokens,
+      response_format: { type: "json_object" },
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (r.status === 429) {
+    startCooldown(name, 60_000);
+    throw new Error(`${name} 429 (cooling down 60s)`);
+  }
+  if (!r.ok) throw new Error(`${name} ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const data = await r.json();
+  return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
+}
+
+const callGithub = (sys, user, maxTokens, modelOverride) => callOpenAICompat("github", {
+  url: "https://models.github.ai/inference/chat/completions",
+  key: GITHUB_MODELS_TOKEN,
+  model: process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o-mini",
+}, sys, user, maxTokens, modelOverride);
+
+const callSambanova = (sys, user, maxTokens, modelOverride) => callOpenAICompat("sambanova", {
+  url: "https://api.sambanova.ai/v1/chat/completions",
+  key: SAMBANOVA_API_KEY,
+  model: process.env.SAMBANOVA_MODEL || "Meta-Llama-3.3-70B-Instruct",
+}, sys, user, maxTokens, modelOverride);
+
+const callOpenrouter = (sys, user, maxTokens, modelOverride) => callOpenAICompat("openrouter", {
+  url: "https://openrouter.ai/api/v1/chat/completions",
+  key: OPENROUTER_API_KEY,
+  model: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free",
+  extraHeaders: { "HTTP-Referer": "https://www.ikratom.org", "X-Title": "iKratom" },
+}, sys, user, maxTokens, modelOverride);
+
+const callNvidia = (sys, user, maxTokens, modelOverride) => callOpenAICompat("nvidia", {
+  url: "https://integrate.api.nvidia.com/v1/chat/completions",
+  key: NVIDIA_API_KEY,
+  model: process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct",
+}, sys, user, maxTokens, modelOverride);
+
 async function callOllama(sys, user) {
   const r = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
@@ -295,6 +363,10 @@ async function callOne(p, sys, user, maxTokens, modelOverride) {
     case "cerebras": return callCerebras(sys, user, maxTokens);
     case "mistral": return callMistral(sys, user, maxTokens);
     case "cloudflare": return callCloudflare(sys, user, maxTokens);
+    case "github": return callGithub(sys, user, maxTokens, modelOverride);
+    case "sambanova": return callSambanova(sys, user, maxTokens, modelOverride);
+    case "openrouter": return callOpenrouter(sys, user, maxTokens, modelOverride);
+    case "nvidia": return callNvidia(sys, user, maxTokens, modelOverride);
     case "ollama": return callOllama(sys, user);
     default: throw new Error(`Unknown provider: ${p}`);
   }
