@@ -17,7 +17,6 @@ import {
   assertGroundingBudget,
   GroundingQuotaError,
   recordGroundingCall,
-  classifyGroundingError,
 } from "./lib/grounding-budget.mjs";
 
 const sb = createClient(
@@ -28,6 +27,14 @@ const sb = createClient(
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_API = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Grounded free-tier capacity refreshes intermittently through the day
+// (successes observed at 02:14, 07:27, 16:05… between bursts of 429s),
+// so a short backoff often lands a call that just got throttled. These
+// are member-requested lookups — worth a couple of retries before we
+// give up and leave the request pending.
+const RETRY_BACKOFFS_MS = [15_000, 40_000];
 
 const SYSTEM = `You are a research assistant that finds current elected local government officials in US cities and counties.
 
@@ -79,23 +86,39 @@ async function suggest(city, state) {
     if (e instanceof GroundingQuotaError) return { error: e.message, quotaExhausted: true };
     throw e;
   }
-  const startedAt = Date.now();
-  const r = await fetch(`${GEMINI_API}?key=${process.env.GEMINI_API_KEY}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      systemInstruction: { parts: [{ text: SYSTEM }] },
-      tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!r.ok) {
+  // Single grounded attempt, retried on transient throttling (429/5xx).
+  let r;
+  for (let attempt = 0; ; attempt++) {
+    const startedAt = Date.now();
+    try {
+      r = await fetch(`${GEMINI_API}?key=${process.env.GEMINI_API_KEY}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+          systemInstruction: { parts: [{ text: SYSTEM }] },
+          tools: [{ google_search: {} }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+        }),
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (e) {
+      const msg = `gemini fetch failed: ${e.message}`;
+      await recordGroundingCall(sb, { caller: "auto-fulfill-pending-cli", status: "failure", error: msg, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+      if (attempt < RETRY_BACKOFFS_MS.length) { console.log(`    ⏳ network error — backoff ${RETRY_BACKOFFS_MS[attempt] / 1000}s then retry`); await sleep(RETRY_BACKOFFS_MS[attempt]); continue; }
+      return { error: msg, transient: true };
+    }
+    if (r.ok) break;
     const errBody = (await r.text()).slice(0, 200);
     const msg = `gemini ${r.status}: ${errBody}`;
     await recordGroundingCall(sb, { caller: "auto-fulfill-pending-cli", status: "failure", error: msg, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
-    return { error: msg };
+    const retryable = r.status === 429 || r.status >= 500;
+    if (retryable && attempt < RETRY_BACKOFFS_MS.length) {
+      console.log(`    ⏳ ${r.status} throttled — backoff ${RETRY_BACKOFFS_MS[attempt] / 1000}s then retry`);
+      await sleep(RETRY_BACKOFFS_MS[attempt]);
+      continue;
+    }
+    return { error: msg, transient: retryable };
   }
   const data = await r.json();
   const cand = data.candidates?.[0];
@@ -163,6 +186,12 @@ console.log(`pending: ${pending?.length ?? 0}`);
 const seen = new Set();
 let totalInserted = 0;
 let totalSkipped = 0;
+// Stop the run only when the daily budget cap is truly hit, or when many
+// localities fail in a row even after per-call retries (providers clearly
+// down) — NOT on the first throttle. One bad locality shouldn't strand
+// every other pending member request behind it.
+let consecutiveFails = 0;
+const FAIL_STREAK_STOP = 4;
 for (const req of pending ?? []) {
   const key = `${req.state}|${req.locality}|${req.level}`;
   if (seen.has(key)) continue;
@@ -172,15 +201,21 @@ for (const req of pending ?? []) {
   const sug = await suggest(city, req.state);
   if (sug.error) {
     console.log(`  ✗ suggest error: ${sug.error.slice(0, 100)}`);
-    // If today's grounded quota is gone there is no point continuing
-    // — every subsequent request will fail the same way. Exit cleanly
-    // so the next scheduled run picks up where we left off.
-    if (sug.quotaExhausted || classifyGroundingError(sug.error) === "quota_exhausted") {
-      console.log("  ⚠ grounded quota exhausted — stopping, will resume tomorrow (UTC)");
+    // Real per-day budget cap from our own guard → no point continuing.
+    if (sug.quotaExhausted) {
+      console.log("  ⚠ grounded daily budget cap reached — stopping, will resume tomorrow (UTC)");
+      break;
+    }
+    // Otherwise it's a transient throttle that survived retries. Count it
+    // toward a streak; only bail if the providers are clearly exhausted.
+    consecutiveFails++;
+    if (consecutiveFails >= FAIL_STREAK_STOP) {
+      console.log(`  ⚠ ${consecutiveFails} localities failed in a row after retries — providers exhausted; stopping, will resume next run`);
       break;
     }
     continue;
   }
+  consecutiveFails = 0; // a success resets the streak
   console.log(`  suggested ${sug.officials.length} officials`);
 
   const { data: existing } = await sb.from("legislators").select("full_name").eq("level", req.level).eq("locality", req.locality).eq("active", true);
