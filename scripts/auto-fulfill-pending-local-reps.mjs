@@ -18,6 +18,8 @@ import {
   GroundingQuotaError,
   recordGroundingCall,
 } from "./lib/grounding-budget.mjs";
+import { LEGISTAR_TENANTS } from "./lib/legistar-tenants.mjs";
+import { fetchLegistarOfficials, webapiClientFor, resolveTenant } from "./lib/legistar-officials.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -198,6 +200,38 @@ for (const req of pending ?? []) {
   seen.add(key);
   console.log(`\n--- ${req.locality} (${req.level}) ---`);
   const city = req.locality.replace(/,\s*[A-Z]{2}$/, "");
+
+  // FREE, authoritative, no grounding: if this locality runs on Legistar
+  // and exposes its roster, seed from the clerk's own system and skip the
+  // scarce grounded call entirely.
+  const tenant = resolveTenant(LEGISTAR_TENANTS, req.state, req.locality);
+  if (tenant) {
+    const lg = await fetchLegistarOfficials({ client: webapiClientFor(tenant), bodyHint: tenant.body, level: req.level, subdomain: tenant.subdomain });
+    if (lg.ok && lg.officials.length > 0) {
+      const { data: existing } = await sb.from("legislators").select("full_name").eq("level", req.level).eq("locality", req.locality).eq("active", true);
+      const have = new Set((existing ?? []).map((r) => r.full_name.toLowerCase()));
+      const rows = lg.officials.filter((o) => !have.has(o.full_name.toLowerCase())).map((o) => ({
+        state: req.state, role: o.role, district: o.district, full_name: o.full_name,
+        party: o.party, email: o.email, phone: o.phone, website: o.website, title: o.title,
+        level: req.level, locality: req.locality,
+        body: req.level === "municipal" ? "city_council" : "county_commission",
+        active: true, term_end_date: o.term_end_date,
+        verified_sources_md: [`- Tier: **verified** (Legistar — official clerk system)`, `- Source: ${o.source_url}`, `- ${o.source_note}`].join("\n"),
+        last_synced_at: new Date().toISOString(),
+      }));
+      if (rows.length > 0) {
+        const { error } = await sb.from("legislators").insert(rows);
+        if (error) console.log(`  ✗ Legistar insert: ${error.message}`); else totalInserted += rows.length;
+      }
+      await sb.from("local_rep_requests").update({ status: "fulfilled", resolved_at: new Date().toISOString() })
+        .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");
+      console.log(`  ✓ Legistar: ${lg.officials.length} on "${lg.body}" — fulfilled WITHOUT grounding (+${rows.length} new)`);
+      consecutiveFails = 0;
+      continue;
+    }
+    if (lg.error) console.log(`  · Legistar has no usable roster (${lg.error.slice(0, 60)}) → falling back to grounding`);
+  }
+
   const sug = await suggest(city, req.state);
   if (sug.error) {
     console.log(`  ✗ suggest error: ${sug.error.slice(0, 100)}`);
