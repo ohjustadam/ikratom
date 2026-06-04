@@ -121,7 +121,16 @@ async function lookupViaCensusAddress(parts: {
     console.error("[civic] Census address non-OK:", res.status);
     return { ...EMPTY };
   }
-  const data = (await res.json()) as CensusResponse;
+  // Census occasionally serves a 200 with an HTML maintenance/error page
+  // instead of JSON — parsing that as JSON throws. Guard so an upstream
+  // outage degrades to "no districts" rather than crashing the lookup.
+  let data: CensusResponse;
+  try {
+    data = JSON.parse(await res.text()) as CensusResponse;
+  } catch {
+    console.error("[civic] Census address returned non-JSON (likely an outage/error page)");
+    return { ...EMPTY };
+  }
   const match = data.result?.addressMatches?.[0];
   if (!match) return { ...EMPTY };
   return extractGeographies(match.geographies ?? {});
