@@ -23,6 +23,7 @@
  *   node --env-file=.env.local scripts/seed-bill-officials.mjs --all-municipal --refresh
  */
 import { createClient } from "@supabase/supabase-js";
+import { geminiKeyCount, pickGeminiKey, markGeminiKeyCooldown } from "./lib/gemini-keys.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -149,31 +150,51 @@ async function suggestOfficials({ city, state }) {
     ? `Find the current ${city} ${state} commissioners / supervisors and county executive (or judge-executive). Search the official county government website first.`
     : `Find the current Mayor and ALL City Council members for ${city}, ${state}. Search the official city government website (look for .gov or .us domains) first.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      systemInstruction: { parts: [{ text: SYSTEM }] },
-      tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = await res.json();
-  const candidate = data.candidates?.[0];
-  const text = (candidate?.content?.parts ?? []).map((p) => p.text ?? "").join("\n");
-  const m = text.match(/<result>([\s\S]*?)<\/result>/);
-  if (!m) throw new Error(`Model did not return a <result> block. Got: ${text.slice(0, 200)}`);
-  const parsed = JSON.parse(m[1].trim());
-  return {
-    officials: Array.isArray(parsed.officials) ? parsed.officials : [],
-    city_general: (parsed.city_general && typeof parsed.city_general === "object")
-      ? parsed.city_general : null,
-    sources: Array.isArray(parsed.sources) ? parsed.sources : [],
-  };
+  // KEY ROTATION: rotate across configured free Gemini keys (each a
+  // separate project with its own grounded quota) on 429/5xx; only throw
+  // once all keys are exhausted. Falls back to GEMINI_KEY if no pool set.
+  const keyCount = Math.max(1, geminiKeyCount());
+  let lastErr = null;
+  for (let attempt = 0; attempt < keyCount; attempt++) {
+    const key = pickGeminiKey() || GEMINI_KEY;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+          systemInstruction: { parts: [{ text: SYSTEM }] },
+          tools: [{ google_search: {} }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+    } catch (e) {
+      lastErr = e;
+      continue; // network blip — next key
+    }
+    if (!res.ok) {
+      if (res.status === 429) markGeminiKeyCooldown(key);
+      lastErr = new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      if (res.status === 429 || res.status >= 500) continue; // rotate
+      throw lastErr; // non-retryable
+    }
+    const data = await res.json();
+    const candidate = data.candidates?.[0];
+    const text = (candidate?.content?.parts ?? []).map((p) => p.text ?? "").join("\n");
+    const m = text.match(/<result>([\s\S]*?)<\/result>/);
+    if (!m) throw new Error(`Model did not return a <result> block. Got: ${text.slice(0, 200)}`);
+    const parsed = JSON.parse(m[1].trim());
+    return {
+      officials: Array.isArray(parsed.officials) ? parsed.officials : [],
+      city_general: (parsed.city_general && typeof parsed.city_general === "object")
+        ? parsed.city_general : null,
+      sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+    };
+  }
+  throw lastErr ?? new Error("Gemini grounded call failed (all keys exhausted)");
 }
 
 // Return values:
