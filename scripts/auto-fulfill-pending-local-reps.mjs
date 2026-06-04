@@ -20,6 +20,7 @@ import {
 } from "./lib/grounding-budget.mjs";
 import { LEGISTAR_TENANTS } from "./lib/legistar-tenants.mjs";
 import { fetchLegistarOfficials, webapiClientFor, resolveTenant } from "./lib/legistar-officials.mjs";
+import { geminiKeyCount, pickGeminiKey, markGeminiKeyCooldown } from "./lib/gemini-keys.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -88,12 +89,20 @@ async function suggest(city, state) {
     if (e instanceof GroundingQuotaError) return { error: e.message, quotaExhausted: true };
     throw e;
   }
-  // Single grounded attempt, retried on transient throttling (429/5xx).
+  // Grounded attempt with KEY ROTATION. Each configured Gemini key is a
+  // separate free-tier project with its own grounded-search quota, so a
+  // 429 on one key rotates immediately to the next free key instead of
+  // burning a time-backoff. Only once every key has been tried and is
+  // cooling down do we fall back to a real time-backoff.
   let r;
-  for (let attempt = 0; ; attempt++) {
-    const startedAt = Date.now();
+  let startedAt = Date.now();
+  const keyCount = Math.max(1, geminiKeyCount());
+  const maxAttempts = keyCount + RETRY_BACKOFFS_MS.length;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const key = pickGeminiKey() || process.env.GEMINI_API_KEY;
+    startedAt = Date.now();
     try {
-      r = await fetch(`${GEMINI_API}?key=${process.env.GEMINI_API_KEY}`, {
+      r = await fetch(`${GEMINI_API}?key=${key}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -107,20 +116,29 @@ async function suggest(city, state) {
     } catch (e) {
       const msg = `gemini fetch failed: ${e.message}`;
       await recordGroundingCall(sb, { caller: "auto-fulfill-pending-cli", status: "failure", error: msg, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
-      if (attempt < RETRY_BACKOFFS_MS.length) { console.log(`    ⏳ network error — backoff ${RETRY_BACKOFFS_MS[attempt] / 1000}s then retry`); await sleep(RETRY_BACKOFFS_MS[attempt]); continue; }
+      if (attempt < maxAttempts - 1) {
+        const bo = RETRY_BACKOFFS_MS[Math.max(0, attempt - keyCount + 1)] ?? 5_000;
+        console.log(`    ⏳ network error — backoff ${bo / 1000}s then retry`);
+        await sleep(bo);
+        continue;
+      }
       return { error: msg, transient: true };
     }
     if (r.ok) break;
     const errBody = (await r.text()).slice(0, 200);
     const msg = `gemini ${r.status}: ${errBody}`;
     await recordGroundingCall(sb, { caller: "auto-fulfill-pending-cli", status: "failure", error: msg, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+    if (r.status === 429) markGeminiKeyCooldown(key);
     const retryable = r.status === 429 || r.status >= 500;
-    if (retryable && attempt < RETRY_BACKOFFS_MS.length) {
-      console.log(`    ⏳ ${r.status} throttled — backoff ${RETRY_BACKOFFS_MS[attempt] / 1000}s then retry`);
-      await sleep(RETRY_BACKOFFS_MS[attempt]);
-      continue;
+    if (!retryable) return { error: msg, transient: false };
+    if (attempt >= maxAttempts - 1) return { error: msg, transient: true };
+    if (attempt < keyCount - 1) {
+      console.log(`    🔁 ${r.status} on key ${attempt + 1}/${keyCount} — rotating to next free key`);
+    } else {
+      const bo = RETRY_BACKOFFS_MS[attempt - keyCount + 1] ?? 40_000;
+      console.log(`    ⏳ all ${keyCount} key(s) throttled — backoff ${bo / 1000}s then retry`);
+      await sleep(bo);
     }
-    return { error: msg, transient: retryable };
   }
   const data = await r.json();
   const cand = data.candidates?.[0];
