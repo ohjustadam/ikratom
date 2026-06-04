@@ -18,6 +18,7 @@
  */
 
 import { assertGroundingBudget, GroundingQuotaError, recordGroundingCall } from "./grounding-budget.mjs";
+import { geminiKeyCount, pickGeminiKey, markGeminiKeyCooldown } from "./gemini-keys.mjs";
 
 const PARKED_DOMAINS = [
   "hugedomains.com", "sedoparking.com", "dan.com", "godaddy.com",
@@ -98,43 +99,60 @@ async function suggestOfficials({ sb, city, state, geminiKey, caller }) {
   // cap is reached; seedLocalitySlate catches and converts to status='skip'.
   await assertGroundingBudget(sb);
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-  const startedAt = Date.now();
-  let res;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-        systemInstruction: { parts: [{ text: SYSTEM }] },
-        tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-      }),
-      signal: AbortSignal.timeout(90_000),
-    });
-  } catch (e) {
-    await recordGroundingCall(sb, { caller, status: "failure", error: `fetch failed: ${e.message}`, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
-    throw e;
+  // KEY ROTATION: each configured Gemini key is a separate free-tier
+  // project with its own grounded-search quota. On a 429/5xx we rotate to
+  // the next free key instead of failing the locality outright, and only
+  // throw once every key has been tried. Falls back to the passed-in
+  // geminiKey when no rotation pool is configured (backward compatible).
+  const keyCount = Math.max(1, geminiKeyCount());
+  let lastErr = null;
+  for (let attempt = 0; attempt < keyCount; attempt++) {
+    const key = pickGeminiKey() || geminiKey;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+    const startedAt = Date.now();
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+          systemInstruction: { parts: [{ text: SYSTEM }] },
+          tools: [{ google_search: {} }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+    } catch (e) {
+      await recordGroundingCall(sb, { caller, status: "failure", error: `fetch failed: ${e.message}`, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+      lastErr = e;
+      continue; // network blip — try the next key
+    }
+    if (!res.ok) {
+      const errBody = (await res.text()).slice(0, 300);
+      await recordGroundingCall(sb, { caller, status: "failure", error: `Gemini ${res.status}: ${errBody}`, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+      if (res.status === 429) markGeminiKeyCooldown(key);
+      lastErr = new Error(`Gemini ${res.status}: ${errBody}`);
+      if (res.status === 429 || res.status >= 500) continue; // rotate to next key
+      throw lastErr; // non-retryable (4xx other than 429)
+    }
+    const data = await res.json();
+    const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("\n");
+    const m = text.match(/<result>([\s\S]*?)<\/result>/);
+    if (!m) {
+      await recordGroundingCall(sb, { caller, status: "failure", error: "no <result> block", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
+      throw new Error(`Model did not return a <result> block. Got: ${text.slice(0, 200)}`);
+    }
+    const parsed = JSON.parse(m[1].trim());
+    await recordGroundingCall(sb, { caller, status: "success", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt, metadata: { officials_returned: Array.isArray(parsed.officials) ? parsed.officials.length : 0 } });
+    return {
+      officials: Array.isArray(parsed.officials) ? parsed.officials : [],
+      sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+    };
   }
-  if (!res.ok) {
-    const errBody = (await res.text()).slice(0, 300);
-    await recordGroundingCall(sb, { caller, status: "failure", error: `Gemini ${res.status}: ${errBody}`, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
-    throw new Error(`Gemini ${res.status}: ${errBody}`);
-  }
-  const data = await res.json();
-  const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("\n");
-  const m = text.match(/<result>([\s\S]*?)<\/result>/);
-  if (!m) {
-    await recordGroundingCall(sb, { caller, status: "failure", error: "no <result> block", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
-    throw new Error(`Model did not return a <result> block. Got: ${text.slice(0, 200)}`);
-  }
-  const parsed = JSON.parse(m[1].trim());
-  await recordGroundingCall(sb, { caller, status: "success", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt, metadata: { officials_returned: Array.isArray(parsed.officials) ? parsed.officials.length : 0 } });
-  return {
-    officials: Array.isArray(parsed.officials) ? parsed.officials : [],
-    sources: Array.isArray(parsed.sources) ? parsed.sources : [],
-  };
+  // All keys exhausted — surface the last error (retains the "Gemini 429"
+  // string so isRetryableGroundingError() still classifies it correctly).
+  throw lastErr ?? new Error("Gemini grounded call failed (all keys exhausted)");
 }
 
 /**
