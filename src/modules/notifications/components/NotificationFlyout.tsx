@@ -213,6 +213,8 @@ function iconForKind(kind: string): string {
     case "meeting":
     case "meeting_reminder":
       return "📅";
+    case "feedback_report":
+      return "💬";
     default:
       return "🔔";
   }

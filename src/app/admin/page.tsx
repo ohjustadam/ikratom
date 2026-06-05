@@ -301,6 +301,11 @@ export default async function AdminPage() {
             body="Adversarial-pattern dashboard: honeypot triggers, timing-trap triggers, failed-login concentrations per IP, signup-abuse rings, top error codes. Use to triage active waves before flipping read-only mode."
           />
           <AdminCard
+            href="/admin/feedback"
+            title="💬 Feedback reports"
+            body="User-submitted feedback + bug reports from the floating widget on every page. Includes optional screenshots, page URL, and browser. Triage open vs resolved."
+          />
+          <AdminCard
             href="/admin/intel-health"
             title="Intel Health"
             body="Pipeline observability — per-source freshness, recent failures."
