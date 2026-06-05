@@ -13,6 +13,7 @@ import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
 import { InstallPrompt } from "@/components/InstallPrompt";
+import FeedbackWidget from "@/components/FeedbackWidget";
 import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
 import { SignInProvider } from "@/components/auth/SignInContext";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
@@ -237,6 +238,7 @@ export default async function RootLayout({
         <MobileTabBar />
         <RegisterSW />
         <InstallPrompt />
+        <FeedbackWidget />
         </SignInProvider>
         </PostHogProvider>
       </body>
