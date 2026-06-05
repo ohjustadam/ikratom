@@ -306,6 +306,11 @@ export default async function AdminPage() {
             body="User-submitted feedback + bug reports from the floating widget on every page. Includes optional screenshots, page URL, and browser. Triage open vs resolved."
           />
           <AdminCard
+            href="/admin/state-status"
+            title="🗺 State status"
+            body="Canonical per-state kratom + 7-OH legality, auto-derived nightly from enacted bills. Confirm/override states flagged for review (statute-only bans, pending-only signals, KCPA edge cases)."
+          />
+          <AdminCard
             href="/admin/intel-health"
             title="Intel Health"
             body="Pipeline observability — per-source freshness, recent failures."
