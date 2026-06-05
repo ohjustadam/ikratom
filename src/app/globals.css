@@ -48,6 +48,12 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist), Arial, Helvetica, sans-serif;
+  /* Global safety net: long unbreakable strings (source URLs, hashes,
+     handles) break to stay inside their container instead of sprawling off
+     the page. break-word only breaks when a word would overflow, so it
+     never affects normal text or intrinsic sizing. Per-component min-w-0 is
+     still needed for some flex items, but this catches the common cases. */
+  overflow-wrap: break-word;
 }
 
 /* Light-mode overrides for the hand-written markdown/briefing CSS, which
