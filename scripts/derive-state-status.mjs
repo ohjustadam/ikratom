@@ -101,10 +101,18 @@ function deriveState(rows) {
       leaf = s.leaf;
       leafFrom = b.bill_number ?? null;
     }
-    if (s.sevenoh && (!sevenoh || RANK[s.sevenoh] > RANK[sevenoh])) {
-      sevenoh = s.sevenoh;
-      sevenohFrom = b.bill_number ?? null;
-      sevenohInferred = s.sevenohInferred;
+    if (s.sevenoh) {
+      // Strongest rank wins; on an equal-rank TIE prefer a DIRECT seven_oh
+      // stance over a synthetic-axis inference, so the "inferred" review flag
+      // is deterministic regardless of bill processing order (it fires only
+      // when no direct stance backs the winning rank).
+      const stronger = !sevenoh || RANK[s.sevenoh] > RANK[sevenoh];
+      const tieUpgrade = sevenoh && RANK[s.sevenoh] === RANK[sevenoh] && sevenohInferred && !s.sevenohInferred;
+      if (stronger || tieUpgrade) {
+        sevenoh = s.sevenoh;
+        sevenohFrom = b.bill_number ?? null;
+        sevenohInferred = s.sevenohInferred;
+      }
     }
   }
   return { leaf, sevenoh, basis, enactedCount: enacted.length, leafFrom, sevenohFrom, sevenohInferred };
@@ -114,7 +122,8 @@ const { data: bills, error } = await sb
   .from("bills")
   .select("state, status, signed_at, effective_date, substance_targeting, targets_natural_leaf, targets_synthetic_only, bill_number")
   .eq("scope", "state")
-  .eq("active", true);
+  .eq("active", true)
+  .order("bill_number", { ascending: true }); // stable order → reproducible evidence bills
 if (error) {
   console.error("Failed to read bills:", error.message);
   process.exit(1);
