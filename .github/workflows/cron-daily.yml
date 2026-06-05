@@ -939,6 +939,28 @@ jobs:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: node scripts/classify-bill-substance.mjs --limit 40
 
+  derive-state-status:
+    # State Mission Control PR2 — recompute canonical per-state leaf + 7-OH
+    # status into state_status from enacted, scope='state' bills + their
+    # substance_targeting. Runs AFTER classify-bill-substance so the latest
+    # substance map is available. No AI calls (reads stored classification).
+    # Idempotent; preserves admin overrides. Flags edge cases needs_review.
+    needs: classify-bill-substance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Derive per-state status
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/derive-state-status.mjs --apply
+
   sync-legistar-officials:
     # FREE, non-grounded local-officials source: the Legistar (Granicus)
     # webapi exposes authoritative current council/board rosters (the
