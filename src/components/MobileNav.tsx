@@ -26,6 +26,7 @@ import { createPortal } from "react-dom";
 
 const PRIMARY_LINKS = [
   { href: "/dashboard", label: "Dashboard", icon: "🎛️" },
+  { href: "/my-district", label: "My district", icon: "🗳️" },
   { href: "/campaigns", label: "Campaigns", icon: "📣" },
   { href: "/calls", label: "Call reps", icon: "📞" },
   { href: "/events", label: "Town halls + hearings", icon: "🎤" },
