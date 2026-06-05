@@ -231,6 +231,17 @@ export default async function RootLayout({
             <p className="mt-2">
               &copy; {new Date().getFullYear()} {siteConfig.name}. The advocate&apos;s toolbelt.
             </p>
+            <p className="mt-3">
+              <a
+                href="https://www.r3dpillai.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-[11px] text-zinc-500 transition-colors hover:border-emerald-700/50 hover:text-emerald-400"
+              >
+                <span aria-hidden>⚡</span>
+                Powered by r3dpillai
+              </a>
+            </p>
           </div>
         </footer>
 
