@@ -11,6 +11,8 @@ import { OnboardingTour } from "@/modules/dashboard/OnboardingTour";
 import { TutorialReplay, WelcomeReplayTour } from "@/modules/dashboard/TutorialReplay";
 import { WelcomeExploreWidget } from "@/modules/dashboard/widgets/WelcomeExploreWidget";
 import { BriefingWidget } from "@/modules/dashboard/widgets/BriefingWidget";
+import { MyDistrictWidget } from "@/modules/dashboard/widgets/MyDistrictWidget";
+import { normalizeLocality } from "@/lib/locality";
 import { ActiveCampaignsWidget } from "@/modules/dashboard/widgets/ActiveCampaignsWidget";
 import { RepCoverageWidget } from "@/modules/dashboard/widgets/RepCoverageWidget";
 import { ScoreboardWidget } from "@/modules/dashboard/widgets/ScoreboardWidget";
@@ -137,6 +139,12 @@ export default async function DashboardPage({
           cta={{ href: "/account", label: "Update address →" }}
         />
       )
+    ) : null,
+    my_district: profile?.state ? (
+      <MyDistrictWidget
+        userState={profile.state}
+        userLocality={normalizeLocality(profile.city ?? null, profile.state)}
+      />
     ) : null,
     active_campaigns: (
       <ActiveCampaignsWidget userState={profile?.state ?? null} />
