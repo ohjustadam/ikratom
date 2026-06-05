@@ -26,6 +26,7 @@ const GROUPS: NavGroup[] = [
     label: "Action",
     items: [
       { href: "/now", label: "👉 Do this now", description: "One screen. One action. The single highest-leverage thing you can do today. Phone-first." },
+      { href: "/my-district", label: "🗳 My District", description: "Your personalized hub: your state's kratom + 7-OH status, your single top action, and your local officials." },
       { href: "/brief", label: "☕ Daily brief", description: "Today's roll-up for your state: alerts, watched-bill movements, active operations, one-click actions." },
       { href: "/pulse", label: "Pulse", description: "Live alerts: hostile bills, BoP rules, breaking news." },
       { href: "/campaigns", label: "Campaigns", description: "One-click letters to your reps." },
