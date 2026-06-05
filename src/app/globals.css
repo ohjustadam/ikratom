@@ -437,6 +437,16 @@ html[data-accent="rose"] {
 }
 
 /*
+ * Custom brand color (Theme Studio): applied as INLINE CSS variables on <html>
+ * — the full --color-emerald-* ramp + --accent — computed in JS by the no-flash
+ * script in layout.tsx and by AppearanceControls. We deliberately do NOT put a
+ * color-mix() rule here: Tailwind v4's Lightning CSS pipeline DROPS any rule
+ * whose value is color-mix(..., var(--accent), ...) (it can't statically derive
+ * a fallback). Inline vars sidestep the compiler entirely and re-skin every
+ * emerald utility via the same var() indirection the presets above use.
+ */
+
+/*
  * War-room / advocate mode — a density/framing axis (owner concept). PR
  * establishes the toggle + the data-mode hook; richer behaviors (denser
  * layouts, urgency-first framing) layer on later. For now a persistent

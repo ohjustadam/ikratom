@@ -87,6 +87,7 @@ export type CachedAuthProfile = {
   avatar_url: string | null;
   ui_theme: string | null;
   ui_accent: string | null;
+  ui_accent_hex: string | null;
   ui_mode: string | null;
 };
 
@@ -116,7 +117,7 @@ export const getCachedAuthProfile = cache(
     // leader checks) never breaks in the deploy-before-db:push window.
     const { data: extended } = await supabase
       .from("profiles")
-      .select(`${CORE}, ui_theme, ui_accent, ui_mode`)
+      .select(`${CORE}, ui_theme, ui_accent, ui_accent_hex, ui_mode`)
       .eq("id", userId)
       .single();
     if (extended) return { userId, profile: extended as CachedAuthProfile };
