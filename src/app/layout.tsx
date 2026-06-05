@@ -14,6 +14,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import FeedbackWidget from "@/components/FeedbackWidget";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
 import { SignInProvider } from "@/components/auth/SignInContext";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
@@ -119,8 +120,15 @@ export default async function RootLayout({
   }
 
   return (
-    <html lang={locale} className={`${geist.variable} h-full antialiased`}>
+    <html lang={locale} className={`${geist.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
+        {/* Set the theme on <html> before paint to avoid a flash of the
+            wrong theme (FOUC). Defaults to dark; honors a saved preference. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem('ikratom-theme');document.documentElement.dataset.theme=(t==='light'||t==='dark')?t:'dark';}catch(e){document.documentElement.dataset.theme='dark';}`,
+          }}
+        />
         <PostHogProvider>
         <SignInProvider>
         {/* Leader-tour banner — visible on every page until a leader
@@ -175,6 +183,7 @@ export default async function RootLayout({
               >
                 🔎<span className="sr-only">Search</span>
               </a>
+              <ThemeToggle />
               <span className="mx-1 h-5 w-px bg-zinc-800" aria-hidden />
               <InstallAppButton variant="desktop" />
               <HeaderShare />
@@ -186,6 +195,7 @@ export default async function RootLayout({
                 Sign in / Dashboard without opening the menu, since
                 that's the most-common destination. */}
             <div className="flex items-center gap-2 md:hidden">
+              <ThemeToggle />
               <InstallAppButton variant="mobile" />
               <MobileAuthPill />
               <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} isLeader={isLeader} />

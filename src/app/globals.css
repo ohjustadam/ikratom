@@ -4,6 +4,37 @@
   --background: #0a0a0a;
   --foreground: #f5f5f5;
   --accent: #10b981;
+  color-scheme: dark;
+}
+
+/*
+ * Light theme. The app is built almost entirely on Tailwind's `zinc-*`
+ * scale (dark by default). Tailwind v4 compiles those utilities to
+ * `var(--color-zinc-NNN)`, so REMAPPING the zinc ramp here flips every
+ * hardcoded zinc utility across the whole app in one move — no per-file
+ * conversion. The ramp is reversed (950↔50) so dark backgrounds become
+ * light surfaces and light text becomes dark. Emerald accents are left
+ * untouched (they read on both). A user-picked brand color would slot in
+ * by overriding --accent here later (the "3rd theme" the toggle is
+ * architected for). The hand-written .md-content / .briefing-md blocks
+ * below use literal hex, so they get explicit light overrides further down.
+ */
+html[data-theme="light"] {
+  color-scheme: light;
+  --background: #fafafa;
+  --foreground: #18181b;
+
+  --color-zinc-50: #09090b;
+  --color-zinc-100: #18181b;
+  --color-zinc-200: #27272a;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #52525b;
+  --color-zinc-500: #71717a;
+  --color-zinc-600: #a1a1aa;
+  --color-zinc-700: #d4d4d8;
+  --color-zinc-800: #e4e4e7;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-950: #fafafa;
 }
 
 @theme inline {
@@ -18,6 +49,50 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist), Arial, Helvetica, sans-serif;
 }
+
+/* Light-mode overrides for the hand-written markdown/briefing CSS, which
+   uses literal hex (so it doesn't flip via the zinc remap above). Dark
+   rules stay as the default; these only apply under [data-theme="light"]. */
+html[data-theme="light"] .md-content strong { color: #18181b; }
+html[data-theme="light"] .md-content code,
+html[data-theme="light"] .md-content pre { background: rgba(0, 0, 0, 0.06); }
+html[data-theme="light"] .md-content blockquote {
+  border-left-color: rgba(0, 0, 0, 0.2);
+  color: #52525b;
+}
+html[data-theme="light"] .md-content hr { border-top-color: rgba(0, 0, 0, 0.12); }
+
+html[data-theme="light"] .briefing-md p,
+html[data-theme="light"] .briefing-md li,
+html[data-theme="light"] .briefing-md blockquote { color: #3f3f46; }
+html[data-theme="light"] .briefing-md h2,
+html[data-theme="light"] .briefing-md h3,
+html[data-theme="light"] .briefing-md strong,
+html[data-theme="light"] .briefing-md em,
+html[data-theme="light"] .briefing-md .cover .meta strong,
+html[data-theme="light"] .briefing-md .callout strong:first-child,
+html[data-theme="light"] .briefing-md .data-bar-value,
+html[data-theme="light"] .briefing-md table.decode th { color: #18181b; }
+html[data-theme="light"] .briefing-md .cover .subtitle,
+html[data-theme="light"] .briefing-md .cover .meta,
+html[data-theme="light"] .briefing-md .data-bar-label,
+html[data-theme="light"] .briefing-md .footer,
+html[data-theme="light"] .briefing-md .hint { color: #52525b; }
+html[data-theme="light"] .briefing-md code { background: rgba(0, 0, 0, 0.06); color: #047857; }
+html[data-theme="light"] .briefing-md .link { color: #047857; }
+html[data-theme="light"] .briefing-md table.decode th,
+html[data-theme="light"] .briefing-md .point .q { background: #e4e4e7; color: #18181b; }
+html[data-theme="light"] .briefing-md .commit,
+html[data-theme="light"] .briefing-md .takeaway,
+html[data-theme="light"] .briefing-md .point .a { background: rgba(0, 0, 0, 0.03); }
+html[data-theme="light"] .briefing-md .commit,
+html[data-theme="light"] .briefing-md .takeaway,
+html[data-theme="light"] .briefing-md .point,
+html[data-theme="light"] .briefing-md table.decode td,
+html[data-theme="light"] .briefing-md hr,
+html[data-theme="light"] .briefing-md .action { border-color: #d4d4d8; }
+html[data-theme="light"] .briefing-md .data-bar-track { background: rgba(0, 0, 0, 0.06); }
+html[data-theme="light"] .briefing-md table.decode tr:nth-child(odd) td { background: rgba(0, 0, 0, 0.03); }
 
 /* Markdown content (forum posts, library items) */
 .md-content { line-height: 1.6; }
