@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { submitFeedback } from "@/modules/feedback/actions";
 
@@ -17,6 +17,47 @@ export default function FeedbackWidget() {
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Accessibility: while open, Escape closes, focus moves into the panel
+  // and is trapped (Tab cycles within), and focus returns to the trigger on
+  // close. Mirrors NotificationFlyout's modal keyboard handling.
+  useEffect(() => {
+    if (!open) return;
+    const focusables = () =>
+      Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(
+          "button, textarea, input, a[href]",
+        ) ?? [],
+      ).filter((el) => !el.hasAttribute("disabled"));
+    focusables()[0]?.focus();
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+      if (e.key === "Tab") {
+        const els = focusables();
+        if (els.length === 0) return;
+        const first = els[0];
+        const last = els[els.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      triggerRef.current?.focus();
+    };
+  }, [open]);
 
   async function send() {
     setError(null);
@@ -59,6 +100,7 @@ export default function FeedbackWidget() {
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => {
           setOpen(true);
@@ -71,16 +113,24 @@ export default function FeedbackWidget() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+        <div
+          className="fixed inset-0 z-50 flex justify-end"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="feedback-panel-title"
+        >
           <button
             type="button"
             aria-label="Close feedback panel"
             onClick={() => setOpen(false)}
             className="absolute inset-0 bg-black/50"
           />
-          <div className="relative z-10 flex h-full w-full max-w-sm flex-col gap-3 overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-5 text-zinc-100 shadow-xl">
+          <div
+            ref={panelRef}
+            className="relative z-10 flex h-full w-full max-w-sm flex-col gap-3 overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-5 text-zinc-100 shadow-xl"
+          >
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">Send feedback</h2>
+              <h2 id="feedback-panel-title" className="text-lg font-bold">Send feedback</h2>
               <button
                 type="button"
                 onClick={() => setOpen(false)}

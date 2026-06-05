@@ -53,3 +53,28 @@ values (
   array['image/jpeg', 'image/png', 'image/webp']
 )
 on conflict (id) do nothing;
+
+-- Defense-in-depth storage.objects policies (mirrors 0145_research_papers
+-- and 0031_attachments). All real I/O is server-side (service-role signed
+-- upload + signed read URLs, which bypass RLS), so these don't change the
+-- working flow — they make the bucket explicitly default-deny + document
+-- intent so a future direct-client path can't accidentally over-expose.
+-- Anonymous submissions upload via a signed token (RLS-exempt) into an
+-- "anon/" folder, so no anon INSERT policy is granted on purpose.
+drop policy if exists "feedback-screenshots_insert_own" on storage.objects;
+create policy "feedback-screenshots_insert_own" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'feedback-screenshots'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "feedback-screenshots_read_admin" on storage.objects;
+create policy "feedback-screenshots_read_admin" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'feedback-screenshots' and public.is_admin(auth.uid()));
+
+drop policy if exists "feedback-screenshots_delete_admin" on storage.objects;
+create policy "feedback-screenshots_delete_admin" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'feedback-screenshots' and public.is_admin(auth.uid()));
