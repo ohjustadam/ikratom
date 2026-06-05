@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { saveUiPrefs } from "@/modules/ui/actions";
 
 /**
  * Dark/light theme toggle. The actual theme is set on <html data-theme>
- * before hydration by the inline ThemeScript in the root layout (no FOUC),
- * and persisted to localStorage. This button just flips + persists it.
- *
- * Persisting to the user's profile (cross-device) is a planned follow-up;
- * localStorage is the source of truth for now.
+ * before hydration by the inline script in the root layout (no FOUC).
+ * Toggling persists to localStorage (every device) AND to the user's
+ * profile (cross-device) — the latter no-ops for anonymous users.
  */
 const STORAGE_KEY = "ikratom-theme";
 
@@ -29,6 +28,8 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       // private mode / storage disabled — toggle still works for the session
     }
     setTheme(next);
+    // Cross-device persistence for signed-in users; no-ops for anon.
+    void saveUiPrefs({ theme: next }).catch(() => {});
   }
 
   const goingTo = theme === "light" ? "dark" : "light";
