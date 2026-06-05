@@ -104,6 +104,12 @@ export default async function RootLayout({
   let isLeader = false;
   let leaderTourPending = false;
   let leaderAcknowledged = true; // assume true so we don't flash a banner for non-leaders
+  // Signed-in users' saved UI prefs, server-rendered onto <html> so they
+  // apply cross-device with no flash. Null for anon → the inline script
+  // falls back to localStorage (or the app defaults).
+  let uiTheme: string | undefined;
+  let uiAccent: string | undefined;
+  let uiMode: string | undefined;
   try {
     // Request-cached: shares the single auth round-trip + profile read
     // with HeaderAuth (see getCachedAuthProfile). Was a per-render
@@ -114,19 +120,32 @@ export default async function RootLayout({
       isLeader = !!(isAdmin || profile.is_advocate_leader);
       leaderTourPending = isLeader && !!profile.leader_tour_pending;
       leaderAcknowledged = !isLeader || !!profile.leader_acknowledged_at;
+      uiTheme = profile.ui_theme ?? undefined;
+      uiAccent = profile.ui_accent ?? undefined;
+      uiMode = profile.ui_mode ?? undefined;
     }
   } catch {
     // non-fatal — drawer just hides admin / leader section
   }
 
   return (
-    <html lang={locale} className={`${geist.variable} h-full antialiased`} suppressHydrationWarning>
+    <html
+      lang={locale}
+      className={`${geist.variable} h-full antialiased`}
+      suppressHydrationWarning
+      data-theme={uiTheme}
+      data-accent={uiAccent}
+      data-mode={uiMode}
+    >
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
-        {/* Set the theme on <html> before paint to avoid a flash of the
-            wrong theme (FOUC). Defaults to dark; honors a saved preference. */}
+        {/* Set theme/accent/mode on <html> before paint to avoid a flash of
+            the wrong UI (FOUC). For signed-in users the server already set
+            the data-* attributes from their profile — respect those and
+            mirror them into localStorage. For anon, read localStorage (or
+            fall back to the app defaults: dark / emerald / normal). */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{var t=localStorage.getItem('ikratom-theme');document.documentElement.dataset.theme=(t==='light'||t==='dark')?t:'dark';}catch(e){document.documentElement.dataset.theme='dark';}`,
+            __html: `(function(){var d=document.documentElement;try{var t=d.dataset.theme;if(t==='light'||t==='dark'){localStorage.setItem('ikratom-theme',t)}else{var s=localStorage.getItem('ikratom-theme');d.dataset.theme=(s==='light'||s==='dark')?s:'dark'}var a=d.dataset.accent;if(a){localStorage.setItem('ikratom-accent',a)}else{var sa=localStorage.getItem('ikratom-accent');if(sa)d.dataset.accent=sa}var m=d.dataset.mode;if(m){localStorage.setItem('ikratom-mode',m)}else{var sm=localStorage.getItem('ikratom-mode');if(sm)d.dataset.mode=sm}}catch(e){if(!d.dataset.theme)d.dataset.theme='dark'}})();`,
           }}
         />
         <PostHogProvider>

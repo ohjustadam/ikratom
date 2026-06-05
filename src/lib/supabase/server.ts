@@ -85,6 +85,9 @@ export type CachedAuthProfile = {
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
+  ui_theme: string | null;
+  ui_accent: string | null;
+  ui_mode: string | null;
 };
 
 /**
@@ -105,13 +108,23 @@ export const getCachedAuthProfile = cache(
     const userId = typeof claims?.sub === "string" ? claims.sub : null;
     if (!userId) return { userId: null, profile: null };
     const supabase = await createClient();
-    const { data: profile } = await supabase
+    const CORE =
+      "id, is_admin, is_owner, is_advocate_leader, leader_tour_pending, leader_acknowledged_at, username, full_name, avatar_url";
+    // Try the extended select (incl. UI prefs). If migration 0172 hasn't
+    // been applied yet, selecting the ui_* columns errors and returns null —
+    // fall back to the CORE columns so the always-rendered chrome (admin /
+    // leader checks) never breaks in the deploy-before-db:push window.
+    const { data: extended } = await supabase
       .from("profiles")
-      .select(
-        "id, is_admin, is_owner, is_advocate_leader, leader_tour_pending, leader_acknowledged_at, username, full_name, avatar_url",
-      )
+      .select(`${CORE}, ui_theme, ui_accent, ui_mode`)
       .eq("id", userId)
       .single();
-    return { userId, profile: (profile as CachedAuthProfile | null) ?? null };
+    if (extended) return { userId, profile: extended as CachedAuthProfile };
+    const { data: core } = await supabase
+      .from("profiles")
+      .select(CORE)
+      .eq("id", userId)
+      .single();
+    return { userId, profile: (core as CachedAuthProfile | null) ?? null };
   },
 );
