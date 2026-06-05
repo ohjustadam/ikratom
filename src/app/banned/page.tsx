@@ -240,7 +240,7 @@ export default async function BannedPage() {
       <section className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 text-[11px] text-zinc-400">
         <p className="font-semibold text-zinc-200">Why this matters even if you don&apos;t live in a banned jurisdiction</p>
         <p className="mt-1">
-          Every local ban becomes precedent the AKA&apos;s opponents shop to the next county. {STATE_NAMES["MS"]}&apos;s 11-county + 25-city pattern started as one small county and spread. The Suffolk County NY resolution currently in committee was modeled in part on Mississippi precedent. If you can spot a friend in any of these jurisdictions, point them at us — they can subscribe to the bill page for status pings + submit local intel.
+          Every local ban becomes precedent that anti-kratom advocates shop to the next county. {STATE_NAMES["MS"]}&apos;s 11-county + 25-city pattern started as one small county and spread. The Suffolk County NY resolution currently in committee was modeled in part on Mississippi precedent. If you can spot a friend in any of these jurisdictions, point them at us — they can subscribe to the bill page for status pings + submit local intel.
         </p>
         <p className="mt-2 text-zinc-500">
           Source for state-level designations: bills marked status=enacted in our DB. Source for local bans: editorial seed from public news + AKA state-action tracker + kratomlords.com legality map. Verify exact ordinance citations from city/county code search before citing publicly.
