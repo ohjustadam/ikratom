@@ -5,6 +5,7 @@ import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
 import { StatusHeader, type StateStatusData } from "./StatusHeader";
+import { resolveBillHrefs } from "@/modules/state-status/evidence";
 import { STATE_NAMES } from "@/lib/state-names";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +68,9 @@ export default async function StatePage({ params }: Props) {
       .maybeSingle();
     stateStatus = (data as StateStatusData | null) ?? null;
   }
+  const statusBillHrefs = stateStatus
+    ? await resolveBillHrefs(codeUpper, [stateStatus.leaf_evidence_bill, stateStatus.sevenoh_evidence_bill])
+    : {};
 
   const now = new Date();
   const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
@@ -509,7 +513,7 @@ export default async function StatePage({ params }: Props) {
 
         {/* Answer-first canonical status (Mission Control). Hidden until the
             derivation has populated state_status for this state. */}
-        <StatusHeader status={stateStatus} />
+        <StatusHeader status={stateStatus} billHrefs={statusBillHrefs} />
 
         {/* Threat-tier snapshot — surfaces the composite-scorer counts
             for this state so users see exactly how much work is to be

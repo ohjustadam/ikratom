@@ -3,6 +3,7 @@ import { getProfile } from "@/modules/auth/actions";
 import { createClient } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { StatusHeader, type StateStatusData } from "@/app/states/[code]/StatusHeader";
+import { resolveBillHrefs } from "@/modules/state-status/evidence";
 import { STATE_NAMES } from "@/lib/state-names";
 import { normalizeLocality } from "@/lib/locality";
 import { rankActions, type RankableBill, type RankableCampaign } from "@/modules/district/rank";
@@ -103,6 +104,9 @@ export default async function MyDistrictPage() {
   ]);
 
   const stateStatus = (statusRes.data as StateStatusData | null) ?? null;
+  const statusBillHrefs = stateStatus
+    ? await resolveBillHrefs(state, [stateStatus.leaf_evidence_bill, stateStatus.sevenoh_evidence_bill])
+    : {};
   const campaigns = (campaignsRes.data as RankableCampaign[] | null) ?? [];
   const meetings = (meetingsRes.data as Meeting[] | null) ?? [];
   const localReps = (repsRes.data as LocalRep[] | null) ?? [];
@@ -134,7 +138,7 @@ export default async function MyDistrictPage() {
       )}
 
       <div className="mt-4">
-        <StatusHeader status={stateStatus} />
+        <StatusHeader status={stateStatus} billHrefs={statusBillHrefs} />
       </div>
 
       {/* Your top action */}

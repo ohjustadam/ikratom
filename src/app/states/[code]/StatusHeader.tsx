@@ -44,7 +44,15 @@ function meta(status: string | null) {
   return STATUS_META[status] ?? { label: status, tone: "zinc" as Tone };
 }
 
-export function StatusHeader({ status }: { status: StateStatusData | null }) {
+export function StatusHeader({
+  status,
+  billHrefs,
+}: {
+  status: StateStatusData | null;
+  /** Optional bill_number → /bills/[id] map so the cited evidence bills
+   *  become clickable for verification (the cross-reference payoff). */
+  billHrefs?: Record<string, string>;
+}) {
   if (!status) return null;
   const leaf = status.admin_leaf_status ?? status.derived_leaf_status;
   const sevenoh = status.admin_7oh_status ?? status.derived_7oh_status;
@@ -56,7 +64,19 @@ export function StatusHeader({ status }: { status: StateStatusData | null }) {
 
   const leafM = meta(leaf);
   const sevenohM = meta(sevenoh);
-  const evidence = [status.leaf_evidence_bill, status.sevenoh_evidence_bill].filter(Boolean);
+  // Distinct evidence bill numbers, rendered as verification links when we
+  // resolved an href for them.
+  const evidence = Array.from(
+    new Set([status.leaf_evidence_bill, status.sevenoh_evidence_bill].filter(Boolean) as string[]),
+  );
+  const billNode = (num: string) => {
+    const href = billHrefs?.[num];
+    return href ? (
+      <a key={num} href={href} className="text-emerald-400 hover:underline">{num}</a>
+    ) : (
+      <span key={num}>{num}</span>
+    );
+  };
 
   return (
     <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
@@ -86,7 +106,18 @@ export function StatusHeader({ status }: { status: StateStatusData | null }) {
       {status.admin_note && <p className="mt-2 text-xs text-zinc-300">{status.admin_note}</p>}
 
       <p className="mt-2 text-[11px] text-zinc-500">
-        {evidence.length > 0 ? <>Basis: {evidence.join(" · ")} (tracked legislation). </> : null}
+        {evidence.length > 0 && (
+          <>
+            Basis:{" "}
+            {evidence.map((num, i) => (
+              <span key={num}>
+                {i > 0 && " · "}
+                {billNode(num)}
+              </span>
+            ))}{" "}
+            (tracked legislation).{" "}
+          </>
+        )}
         Objective legality data; verify against the state statute. Not legal advice.
       </p>
     </div>
