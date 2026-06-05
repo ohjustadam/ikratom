@@ -267,7 +267,7 @@ function Shell({ children, subtitle }: { children: React.ReactNode; subtitle?: s
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:px-8 text-zinc-100">
       <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">🗳 My district</p>
-      <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Your district{subtitle ? "" : ""}</h1>
+      <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Your district</h1>
       {subtitle && <p className="mt-1 text-sm text-zinc-400">{subtitle}</p>}
       {children}
     </div>
