@@ -393,3 +393,57 @@ html[data-theme="light"] .briefing-md table.decode tr:nth-child(odd) td { backgr
   word-break: break-all;
   color: #6ee7b7;
 }
+
+/*
+ * Brand-color presets. The app's accent is Tailwind's emerald-* scale, which
+ * v4 compiles to var(--color-emerald-NNN) — so remapping that ramp under
+ * html[data-accent="X"] re-skins every emerald utility app-wide (same trick
+ * as the zinc light-mode remap). Emerald is the default (no override). Each
+ * preset also sets --accent (used by body/markdown). Works in both themes.
+ */
+html[data-accent="blue"] {
+  --accent: #3b82f6;
+  --color-emerald-50: #eff6ff;  --color-emerald-100: #dbeafe; --color-emerald-200: #bfdbfe;
+  --color-emerald-300: #93c5fd; --color-emerald-400: #60a5fa; --color-emerald-500: #3b82f6;
+  --color-emerald-600: #2563eb; --color-emerald-700: #1d4ed8; --color-emerald-800: #1e40af;
+  --color-emerald-900: #1e3a8a; --color-emerald-950: #172554;
+}
+html[data-accent="violet"] {
+  --accent: #8b5cf6;
+  --color-emerald-50: #f5f3ff;  --color-emerald-100: #ede9fe; --color-emerald-200: #ddd6fe;
+  --color-emerald-300: #c4b5fd; --color-emerald-400: #a78bfa; --color-emerald-500: #8b5cf6;
+  --color-emerald-600: #7c3aed; --color-emerald-700: #6d28d9; --color-emerald-800: #5b21b6;
+  --color-emerald-900: #4c1d95; --color-emerald-950: #2e1065;
+}
+html[data-accent="amber"] {
+  --accent: #f59e0b;
+  --color-emerald-50: #fffbeb;  --color-emerald-100: #fef3c7; --color-emerald-200: #fde68a;
+  --color-emerald-300: #fcd34d; --color-emerald-400: #fbbf24; --color-emerald-500: #f59e0b;
+  --color-emerald-600: #d97706; --color-emerald-700: #b45309; --color-emerald-800: #92400e;
+  --color-emerald-900: #78350f; --color-emerald-950: #451a03;
+}
+html[data-accent="rose"] {
+  --accent: #f43f5e;
+  --color-emerald-50: #fff1f2;  --color-emerald-100: #ffe4e6; --color-emerald-200: #fecdd3;
+  --color-emerald-300: #fda4af; --color-emerald-400: #fb7185; --color-emerald-500: #f43f5e;
+  --color-emerald-600: #e11d48; --color-emerald-700: #be123d; --color-emerald-800: #9f1239;
+  --color-emerald-900: #881337; --color-emerald-950: #4c0519;
+}
+
+/*
+ * War-room / advocate mode — a density/framing axis (owner concept). PR
+ * establishes the toggle + the data-mode hook; richer behaviors (denser
+ * layouts, urgency-first framing) layer on later. For now a persistent
+ * red/amber urgency rule across the top signals the mode is engaged.
+ */
+html[data-mode="war-room"] body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #ef4444, #f59e0b);
+  z-index: 60;
+  pointer-events: none;
+}

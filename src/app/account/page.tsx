@@ -69,6 +69,7 @@ export default async function AccountPage({
             <SideLink href="#identity" emoji="🪪">Identity</SideLink>
             <SideLink href="#security-privacy" emoji="🔒">Security &amp; privacy</SideLink>
             <SideLink href="#notifications" emoji="🔔">Notifications</SideLink>
+            <SideLink href="#appearance" emoji="🎨">Appearance</SideLink>
             <SideLink href="#integrations" emoji="🔌">Integrations</SideLink>
             <SideLink href="#advocacy" emoji="📣">Advocacy tools</SideLink>
             <SideLink href="#growth" emoji="📈">Recognition &amp; growth</SideLink>
@@ -144,6 +145,21 @@ export default async function AccountPage({
               </p>
               <PushSubscribe vapidPublicKey={vapidPublicKey} />
             </div>
+          </Section>
+
+          {/* Appearance */}
+          <Section
+            id="appearance"
+            title="Appearance"
+            intro="Theme, brand color, and war-room mode. Personalize the whole app."
+          >
+            <LinkCard
+              href="/account/appearance"
+              accent
+              title="🎨 Theme & brand color"
+              body="Switch light/dark, pick a brand accent (emerald, blue, violet, amber, rose), and toggle war-room mode. Previews instantly; syncs across your devices."
+              cta="Customize appearance"
+            />
           </Section>
 
           {/* 4. Integrations */}
