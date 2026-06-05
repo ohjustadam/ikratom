@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
+import { StatusHeader, type StateStatusData } from "./StatusHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,22 @@ export default async function StatePage({ params }: Props) {
   if (!stateName) notFound();
 
   const supabase = await createClient();
+
+  // Canonical status (Mission Control). Resilient: maybeSingle() → null when
+  // no row, and a missing table (migration 0173 not applied) sets `error`
+  // (not a throw) so this stays null and the header simply doesn't render.
+  let stateStatus: StateStatusData | null = null;
+  {
+    const { data } = await supabase
+      .from("state_status")
+      .select(
+        "derived_leaf_status, derived_7oh_status, basis, admin_leaf_status, admin_7oh_status, admin_note, confirmed_at, leaf_evidence_bill, sevenoh_evidence_bill",
+      )
+      .eq("state", codeUpper)
+      .maybeSingle();
+    stateStatus = (data as StateStatusData | null) ?? null;
+  }
+
   const now = new Date();
   const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const horizon = new Date(now.getTime() + 90 * 86_400_000).toISOString();
@@ -502,6 +519,10 @@ export default async function StatePage({ params }: Props) {
           municipal meetings, recent alerts, and the campaigns where you can
           take one-click action.
         </p>
+
+        {/* Answer-first canonical status (Mission Control). Hidden until the
+            derivation has populated state_status for this state. */}
+        <StatusHeader status={stateStatus} />
 
         {/* Threat-tier snapshot — surfaces the composite-scorer counts
             for this state so users see exactly how much work is to be
