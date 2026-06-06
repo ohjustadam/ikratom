@@ -23,10 +23,14 @@ export async function generateMetadata({
   const supabase = await createClient();
   const { data } = await supabase
     .from("campaigns")
-    .select("title")
+    .select("title, blurb")
     .eq("slug", slug)
-    .single();
-  return { title: data?.title ?? "Campaign" };
+    .maybeSingle();
+  const title = data?.title ?? "Campaign";
+  const description =
+    data?.blurb ?? "Take one-click action on kratom policy — letters + calls to the right officials.";
+  // og:image is auto-wired from ./opengraph-image.tsx by the App Router.
+  return { title, description, openGraph: { title, description }, twitter: { title, description } };
 }
 
 export default async function CampaignPage({
