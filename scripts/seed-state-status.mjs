@@ -6,11 +6,13 @@
  * surfaces; the unreliable auto-derivation (see fix/data-accuracy) stays
  * internal, feeding the /admin/state-status confirm queue.
  *
- * Ground truth: STATE_MISSION_CONTROL_PLAN §1 (verified 2026-06-01):
- *   9 statewide statutory ban states + RI (reversed its ban → legal).
- * CA is intentionally NOT seeded — the internal docs conflict (banned vs legal
- * market); confirm it via /admin/state-status before publishing. TN omitted —
- * its ban was awaiting the governor's signature (pending, not enacted).
+ * Ground truth cross-referenced 2026-06-06 (gov.ca.gov + AKA/independent 2026
+ * trackers; statute wins on conflict):
+ *   BANNED (9): AL, AR, CA, CT, IN, KS, LA, VT, WI  (CA bans leaf+7-OH; KS ban
+ *     signed Apr 2026, effective Jul 1).
+ *   LEGAL (2): RI (reversed its ban Apr 2026), MI (House-passed ban pending the
+ *     Senate — NOT law; seeded legal with the threat noted).
+ *   TN omitted — its ban was pending the governor's signature (not enacted).
  *
  * Upsert touches only the admin_* columns, preserving derived_* from the cron.
  *
@@ -25,19 +27,37 @@ const NOW = new Date().toISOString();
 const BAN_NOTE =
   "Statewide statutory ban on natural-leaf kratom. Verify against the state statute — objective legality data, not legal advice.";
 
+// Per-state notes where the basis is specific (cross-referenced 2026-06-06).
+const NOTES = {
+  CA: "California prohibits the sale/manufacture of kratom AND 7-OH products statewide (CDPH 2025 consumer warning + enforcement; Gov. Newsom announced 95% compliance, 2026). Verify against state law.",
+  KS: "Kansas ban signed Apr 10, 2026 (Gov. Kelly), effective July 1, 2026 — schedules 7-OH, effectively banning commercial kratom. Verify against the statute.",
+};
+
+// Cross-referenced 2026-06-06 vs gov.ca.gov + AKA/independent 2026 trackers.
+// 9 statewide bans (incl. CA + the newly-enacted KS); MI is NOT banned — its
+// House-passed ban (HB 5537) is pending the Senate, so it's seeded legal with
+// the threat noted (the pending bill still surfaces in the page's "fight"
+// section). TN omitted (was pending the governor's signature).
 const SEED = [
-  ...["AL", "AR", "CT", "IN", "KS", "LA", "MI", "VT", "WI"].map((state) => ({
+  ...["AL", "AR", "CA", "CT", "IN", "KS", "LA", "VT", "WI"].map((state) => ({
     state,
     admin_leaf_status: "banned",
     admin_7oh_status: "banned",
-    admin_note: BAN_NOTE,
+    admin_note: NOTES[state] ?? BAN_NOTE,
   })),
   {
     state: "RI",
     admin_leaf_status: "legal",
     admin_7oh_status: null,
     admin_note:
-      "Rhode Island reversed its kratom ban (2026) — natural-leaf kratom is legal. Verify against current state law.",
+      "Rhode Island reversed its kratom ban (effective Apr 1, 2026) — natural-leaf kratom is legal. Verify against current state law.",
+  },
+  {
+    state: "MI",
+    admin_leaf_status: "legal",
+    admin_7oh_status: null,
+    admin_note:
+      "Kratom is currently legal in Michigan. A House-passed ban (HB 5537, 2026) is pending in the Senate — a live threat to track, not current law.",
   },
 ];
 
@@ -50,7 +70,7 @@ console.log(`Seed ${SEED.length} admin-confirmed state statuses${APPLY ? " [APPL
 for (const r of SEED) console.log(`  ${r.state.padEnd(3)} leaf=${r.admin_leaf_status}  7oh=${r.admin_7oh_status ?? "-"}`);
 
 if (!APPLY) {
-  console.log("\n(dry-run — re-run with --apply to write. CA excluded pending owner confirmation; TN omitted as pending.)");
+  console.log("\n(dry-run — re-run with --apply to write. CA included (confirmed banned); MI seeded legal (House ban pending); TN omitted as pending.)");
   process.exit(0);
 }
 
