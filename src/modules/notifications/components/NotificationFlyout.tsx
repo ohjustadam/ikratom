@@ -28,14 +28,24 @@ type Notification = {
 export function NotificationFlyout({ initialUnreadCount }: { initialUnreadCount: number }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notification[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [unread, setUnread] = useState(initialUnreadCount);
   const [, startTransition] = useTransition();
   const ref = useRef<HTMLDivElement | null>(null);
 
-  // Load on first open (lazy — server hit only when bell is clicked)
+  // Load on first open (lazy — server hit only when bell is clicked).
+  // A rejected server action used to leave items=null forever ("Loading…"
+  // that never resolves); the .catch now surfaces a real error state instead.
   useEffect(() => {
     if (!open || items !== null) return;
-    listNotifications(20).then((rows) => setItems(rows as unknown as Notification[]));
+    setLoadError(false);
+    listNotifications(20)
+      .then((rows) => setItems(rows as unknown as Notification[]))
+      .catch((e) => {
+        console.error("[notifications] failed to load", e);
+        setLoadError(true);
+        setItems([]);
+      });
   }, [open, items]);
 
   // Click-outside to close
@@ -129,6 +139,17 @@ export function NotificationFlyout({ initialUnreadCount }: { initialUnreadCount:
           <div className="max-h-[70vh] overflow-y-auto">
             {items === null ? (
               <p className="px-4 py-6 text-center text-sm text-zinc-500">Loading…</p>
+            ) : loadError ? (
+              <div className="px-4 py-8 text-center">
+                <p className="text-2xl">⚠️</p>
+                <p className="mt-2 text-sm text-zinc-400">Couldn&apos;t load notifications.</p>
+                <button
+                  onClick={() => setItems(null)}
+                  className="mt-2 text-[11px] text-emerald-400 hover:underline"
+                >
+                  Try again
+                </button>
+              </div>
             ) : items.length === 0 ? (
               <div className="px-4 py-8 text-center">
                 <p className="text-2xl">📭</p>
