@@ -1,11 +1,14 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const metadata = {
   title: "All 50 states · iKratom",
   description: "Kratom policy by state — every active bill, upcoming meeting, and recent alert in one place per state.",
 };
-export const dynamic = "force-dynamic";
+// Per-state counts are fully public + identical for everyone → cached across
+// requests (see getStateStats below). No per-request dynamic flag needed; the
+// page is dynamic anyway via the root layout's auth read.
 
 const STATE_NAMES: Record<string, string> = {
   AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",
@@ -29,46 +32,60 @@ const STATE_NAMES: Record<string, string> = {
  * Activity badges show what's hot per state so visitors can find the
  * states with active kratom policy at a glance.
  */
-export default async function StatesIndexPage() {
-  const supabase = await createClient();
-  const now = new Date();
-  const horizon = new Date(now.getTime() + 90 * 86_400_000).toISOString();
-  const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+type StateStats = Record<string, { bills: number; meetings: number; alerts: number }>;
 
-  // Aggregate signals per state — bounded, fast queries
-  const [bills, meetings, alerts] = await Promise.all([
-    supabase.from("bills").select("state").eq("active", true).in("kratom_relevance", ["anti", "pro"]),
-    supabase.from("municipal_meetings").select("state")
-      .eq("moderation_status", "approved")
-      .gte("meeting_at", now.toISOString()).lte("meeting_at", horizon),
-    supabase.from("policy_alerts").select("locality")
-      .eq("moderation_status", "approved")
-      .in("severity", ["critical", "alert"])
-      .gte("created_at", since30d),
-  ]);
+// Public per-state activity counts, cached across requests (10-min revalidate)
+// instead of 3 table scans on every /states view. Service-role client because
+// the data is public and unstable_cache can't use the cookie-bound request
+// client; the cached value is just the small counts map.
+const getStateStats = unstable_cache(
+  async (): Promise<StateStats> => {
+    const supabase = createServiceRoleClient();
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 90 * 86_400_000).toISOString();
+    const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
 
-  const stats: Record<string, { bills: number; meetings: number; alerts: number }> = {};
-  for (const code of Object.keys(STATE_NAMES)) {
-    stats[code] = { bills: 0, meetings: 0, alerts: 0 };
-  }
-  for (const r of bills.data ?? []) {
-    const s = r.state?.toUpperCase();
-    if (s && stats[s]) stats[s].bills++;
-  }
-  for (const r of meetings.data ?? []) {
-    const s = r.state?.toUpperCase();
-    if (s && stats[s]) stats[s].meetings++;
-  }
-  for (const r of alerts.data ?? []) {
-    const loc = r.locality?.trim() ?? "";
-    let code: string | null = null;
-    if (/^[A-Z]{2}$/.test(loc)) code = loc;
-    else {
-      const m = loc.match(/,\s*([A-Z]{2})\s*$/i);
-      if (m) code = m[1].toUpperCase();
+    const [bills, meetings, alerts] = await Promise.all([
+      supabase.from("bills").select("state").eq("active", true).in("kratom_relevance", ["anti", "pro"]),
+      supabase.from("municipal_meetings").select("state")
+        .eq("moderation_status", "approved")
+        .gte("meeting_at", now.toISOString()).lte("meeting_at", horizon),
+      supabase.from("policy_alerts").select("locality")
+        .eq("moderation_status", "approved")
+        .in("severity", ["critical", "alert"])
+        .gte("created_at", since30d),
+    ]);
+
+    const stats: StateStats = {};
+    for (const code of Object.keys(STATE_NAMES)) {
+      stats[code] = { bills: 0, meetings: 0, alerts: 0 };
     }
-    if (code && stats[code]) stats[code].alerts++;
-  }
+    for (const r of bills.data ?? []) {
+      const s = (r.state as string | null)?.toUpperCase();
+      if (s && stats[s]) stats[s].bills++;
+    }
+    for (const r of meetings.data ?? []) {
+      const s = (r.state as string | null)?.toUpperCase();
+      if (s && stats[s]) stats[s].meetings++;
+    }
+    for (const r of alerts.data ?? []) {
+      const loc = (r.locality as string | null)?.trim() ?? "";
+      let code: string | null = null;
+      if (/^[A-Z]{2}$/.test(loc)) code = loc;
+      else {
+        const m = loc.match(/,\s*([A-Z]{2})\s*$/i);
+        if (m) code = m[1].toUpperCase();
+      }
+      if (code && stats[code]) stats[code].alerts++;
+    }
+    return stats;
+  },
+  ["state-index-stats"],
+  { revalidate: 600, tags: ["state-index-stats"] },
+);
+
+export default async function StatesIndexPage() {
+  const stats = await getStateStats();
 
   // Sort: hot states (have any signals) first, alphabetic within
   const codes = Object.keys(STATE_NAMES);
