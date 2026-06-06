@@ -21,6 +21,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
+import { canPushUser, recordPush } from "./lib/push-gate.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -153,13 +154,13 @@ function buildPayload(digest, userState) {
   };
 }
 
-async function fireForUser(userId, userState) {
+async function fireForUser(userId, userState, prefs, nowMs) {
   const { data: subs } = await sb
     .from("push_subscriptions")
     .select("id, endpoint, p256dh, auth")
     .eq("user_id", userId);
   const subscriptions = subs ?? [];
-  if (subscriptions.length === 0) return { sent: 0, dropped: 0 };
+  if (subscriptions.length === 0) return { sent: 0, dropped: 0, held: 0 };
 
   const digest = await getDigestForUser(userId, userState);
   const payload = buildPayload(digest, userState);
@@ -177,6 +178,10 @@ async function fireForUser(userId, userState) {
       link: payload.link,
     });
   }
+
+  // Quiet-hours / DND: the brief still lands in the inbox above; just
+  // don't buzz the device while the user is muted or in their quiet window.
+  if (!canPushUser(prefs, nowMs)) return { sent: 0, dropped: 0, held: subscriptions.length };
 
   let sent = 0, dropped = 0;
   for (const s of subscriptions) {
@@ -203,7 +208,7 @@ async function fireForUser(userId, userState) {
       }
     }
   }
-  return { sent, dropped };
+  return { sent, dropped, held: 0 };
 }
 
 async function pruneLocalhostSubs() {
@@ -232,13 +237,14 @@ async function main() {
   console.log(`Daily brief push${DRY ? " (DRY RUN)" : ""}…`);
   await pruneLocalhostSubs();
 
-  // Find opted-in users
+  // Find opted-in users (pull the quiet-hours/DND gate columns in the same hop)
   let optInQuery = sb.from("notification_preferences")
-    .select("user_id")
+    .select("user_id, dnd_enabled, quiet_hours_start, quiet_hours_end, timezone")
     .eq("daily_brief_push", true);
   if (ONLY_USER) optInQuery = optInQuery.eq("user_id", ONLY_USER);
   const { data: optedIn } = await optInQuery;
   const userIds = (optedIn ?? []).map((r) => r.user_id);
+  const prefsById = new Map((optedIn ?? []).map((r) => [r.user_id, r]));
   console.log(`  ${userIds.length} opted-in user${userIds.length === 1 ? "" : "s"}`);
   if (userIds.length === 0) {
     await tag("empty", 0, 0);
@@ -252,16 +258,23 @@ async function main() {
     .in("id", userIds);
   const stateById = new Map((profiles ?? []).map((p) => [p.id, p.state]));
 
-  let totalSent = 0, totalDropped = 0, totalUsers = 0;
+  let totalSent = 0, totalDropped = 0, totalUsers = 0, totalHeld = 0;
+  const nowMs = Date.now();
+  const pushedIds = [];
   for (const userId of userIds) {
-    const { sent, dropped } = await fireForUser(userId, stateById.get(userId) ?? null);
+    const { sent, dropped, held } = await fireForUser(
+      userId, stateById.get(userId) ?? null, prefsById.get(userId), nowMs,
+    );
     totalSent += sent;
     totalDropped += dropped;
-    if (sent > 0) totalUsers += 1;
-    process.stdout.write(`  ${totalUsers}/${userIds.length} users  ${totalSent} sent  ${totalDropped} dropped\r`);
+    totalHeld += held ?? 0;
+    if (sent > 0) { totalUsers += 1; pushedIds.push(userId); }
+    process.stdout.write(`  ${totalUsers}/${userIds.length} users  ${totalSent} sent  ${totalDropped} dropped  ${totalHeld} held\r`);
   }
   console.log();
-  console.log(`Done in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${totalSent} pushes to ${totalUsers} users, ${totalDropped} stale subs pruned.`);
+  // Stamp last_push_at so the in-app fanout cron's rate-cap accounts for the brief.
+  if (!DRY) await recordPush(sb, pushedIds);
+  console.log(`Done in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${totalSent} pushes to ${totalUsers} users, ${totalDropped} stale subs pruned, ${totalHeld} held (quiet/DND).`);
   await tag(DRY ? "empty" : "success", totalSent, totalDropped);
 }
 

@@ -1,12 +1,23 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { updateNotificationPrefs, type NotificationPrefs } from "../actions";
 
 export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs | null }) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
+  // Capture the device's IANA time zone so the server can evaluate the
+  // local-time quiet-hours window. Falls back to whatever was saved before.
+  const [tz, setTz] = useState(initial?.timezone ?? "");
+  useEffect(() => {
+    try {
+      const z = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (z) setTz(z);
+    } catch {
+      /* leave the saved value */
+    }
+  }, []);
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -50,6 +61,42 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
             ☕ Daily brief push <span className="ml-1 text-xs text-zinc-500">(once-a-day summary, requires push enabled in browser)</span>
           </Check>
         </div>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-100">Quiet hours &amp; Do Not Disturb</h3>
+        <p className="mt-1 text-xs text-zinc-500">
+          We never buzz your device during these hours — notifications still wait
+          for you in the inbox and arrive when the window ends. Uses your
+          device&apos;s time zone{tz ? ` (${tz})` : ""}.
+        </p>
+        <div className="mt-3 space-y-3 text-sm">
+          <Check name="dnd_enabled" defaultChecked={initial?.dnd_enabled ?? false}>
+            🔕 Do Not Disturb — pause all push (your in-app inbox still fills)
+          </Check>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-400">Quiet from</span>
+              <input
+                type="time"
+                name="quiet_hours_start"
+                defaultValue={(initial?.quiet_hours_start ?? "").slice(0, 5)}
+                className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-400">until</span>
+              <input
+                type="time"
+                name="quiet_hours_end"
+                defaultValue={(initial?.quiet_hours_end ?? "").slice(0, 5)}
+                className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              />
+            </label>
+          </div>
+          <p className="text-xs text-zinc-500">Leave both blank for no quiet window. A window like 22:00 → 07:00 wraps overnight.</p>
+        </div>
+        <input type="hidden" name="timezone" value={tz} readOnly />
       </div>
 
       <div>

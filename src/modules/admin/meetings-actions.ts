@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { sendPush, isPushConfigured } from "@/lib/push/send";
+import { canPushUser, type PushGatePrefs } from "@/lib/notifications/push-gate";
 import { flushOpenGraphCache } from "@/lib/og-cache-flush";
 
 const VALID_STATUSES = ["pending_review", "approved", "rejected", "archived"] as const;
@@ -164,25 +165,46 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
 
   // 2. Web push fanout to all subscriptions for these users
   let pushSent = 0;
+  let pushHeld = 0;
   let pushGone: string[] = [];
   if (isPushConfigured() && userIds.length > 0) {
+    // Quiet-hours / DND: hold the buzz for muted users — they still get the
+    // in-app notification + the critical /pulse alert created below.
+    const { data: prefsRows } = await admin
+      .from("notification_preferences")
+      .select("user_id, dnd_enabled, quiet_hours_start, quiet_hours_end, timezone")
+      .in("user_id", userIds);
+    const prefsByUser = new Map<string, PushGatePrefs>();
+    for (const p of (prefsRows ?? []) as Array<PushGatePrefs & { user_id: string }>) {
+      prefsByUser.set(p.user_id, p);
+    }
+    const nowMs = Date.now();
+    const pushedUserIds = new Set<string>();
     const { data: subs } = await admin
       .from("push_subscriptions")
       .select("id, user_id, endpoint, p256dh, auth")
       .in("user_id", userIds)
       .limit(10_000);
     const payload = { title, body, link, tag: `meeting-${meeting.id}` };
-    for (const s of (subs ?? []) as Array<{ id: string; endpoint: string; p256dh: string; auth: string }>) {
+    for (const s of (subs ?? []) as Array<{ id: string; user_id: string; endpoint: string; p256dh: string; auth: string }>) {
+      if (!canPushUser(prefsByUser.get(s.user_id), nowMs)) { pushHeld++; continue; }
       const r = await sendPush(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         payload,
       );
-      if (r.ok) pushSent++;
+      if (r.ok) { pushSent++; pushedUserIds.add(s.user_id); }
       else if ("gone" in r && r.gone) pushGone.push(s.id);
     }
     // Prune dead subscriptions
     if (pushGone.length > 0) {
       await admin.from("push_subscriptions").delete().in("id", pushGone);
+    }
+    // Stamp last_push_at so the fanout cron's rate-cap accounts for this buzz.
+    if (pushedUserIds.size > 0) {
+      await admin
+        .from("notification_preferences")
+        .update({ last_push_at: new Date().toISOString() })
+        .in("user_id", [...pushedUserIds]);
     }
   }
 
@@ -232,6 +254,7 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
       locality: meeting.locality,
       user_count: userIds.length,
       push_sent: pushSent,
+      push_held: pushHeld,
       push_pruned: pushGone.length,
       zoom_url: meeting.zoom_url ?? null,
     },
