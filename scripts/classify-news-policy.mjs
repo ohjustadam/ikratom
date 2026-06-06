@@ -221,7 +221,7 @@ for (const item of items) {
         severity: sev,
         title: (item.title ?? "").slice(0, 240),
         body: result.summary
-          ? `${result.summary}\n\n**Source:** ${item.source_name ?? "(unknown)"} — ${item.url}\n${result.advocate_action ? `\n**Advocate action:** ${result.advocate_action}` : ""}${result.specific_locality ? `\n**Locality:** ${result.specific_locality}` : ""}`
+          ? `${result.summary}\n\n**Source:** ${item.source_name ?? "(unknown)"}${result.advocate_action ? `\n\n**Advocate action:** ${result.advocate_action}` : ""}${result.specific_locality ? `\n**Locality:** ${result.specific_locality}` : ""}`
           : null,
         locality,
         source_url: item.url,
