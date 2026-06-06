@@ -169,7 +169,7 @@ export function DraftResponsePanel({
                 rel="noopener noreferrer"
                 className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200 hover:border-emerald-500"
               >
-                Open agency portal ↗
+                View the source ↗
               </a>
             )}
             <button

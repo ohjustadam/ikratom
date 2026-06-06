@@ -60,7 +60,17 @@ if (!SPECIFIC && !ALL_PENDING) {
 
 // ---------- templates ----------
 function templateForAlert(alert) {
-  const sourceLine = alert.source_url ? `\n\nSource: ${alert.source_url}` : "";
+  // Never paste a Google-News redirect into a letter to an official. Use a real
+  // publisher URL if we have one; otherwise point them at our own (clean) alert
+  // page so the citation always resolves and always looks professional.
+  const cleanUrl =
+    alert.source_url && !/^https?:\/\/(news\.google\.com|(www\.)?google\.com\/url)/i.test(alert.source_url)
+      ? alert.source_url
+      : null;
+  const sourceRef = cleanUrl
+    ? `Source: ${cleanUrl}`
+    : `More detail: https://www.ikratom.org/alerts/${alert.id}`;
+  const sourceLine = `\n\n${sourceRef}`;
   const localityName = alert.locality === "FED" ? "the federal level" :
     alert.locality === "ALL" ? "the national level" :
     alert.locality;
@@ -116,7 +126,7 @@ Whichever direction the Board chooses, I ask that the rule:
 - Cite the evidence underlying that scope
 - Make the rationale and public process publicly available
 
-Source: ${alert.source_url ?? "(see ikratom.org)"}
+${sourceRef}
 Background: https://www.ikratom.org
 
 Sincerely,
@@ -136,7 +146,7 @@ I respectfully request that the agency clarify exactly which products and compou
 
 I take no position in this letter on whether the underlying restriction is correct — I am asking for clarity on what it actually covers, the evidence supporting that scope, and how it was decided.
 
-Source: ${alert.source_url ?? ""}
+${sourceRef}
 
 Sincerely,
 {{full_name}}
@@ -160,7 +170,7 @@ I respectfully ask that any legislation:
 
 I'm not writing to tell you which way to vote. I'm writing to ask that the decision rest on a clear factual record so constituents can evaluate it on its merits.
 
-Source: ${alert.source_url ?? ""}
+${sourceRef}
 
 Sincerely,
 {{full_name}}
