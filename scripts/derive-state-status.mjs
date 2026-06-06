@@ -43,7 +43,10 @@ const sb = createClient(
 );
 
 // Ground truth for ban-state misses (from V2_KICKOFF verification 2026-06-01).
-const BAN_STATES = new Set(["AL", "AR", "CT", "IN", "KS", "LA", "MI", "VT", "WI", "CA"]);
+// The 9 statewide statutory ban states (ground truth verified 2026-06-01).
+// CA removed: it's a legal market (local bans only) — its statewide-ban entry
+// here was polluting the review queue (FULL_AUDIT §4.1).
+const BAN_STATES = new Set(["AL", "AR", "CT", "IN", "KS", "LA", "MI", "VT", "WI"]);
 const BANNED_STANCE = new Set(["bans", "schedules"]);
 const RANK = { banned: 3, restricted: 2, protected: 1 };
 const STATE_RE = /^[A-Z]{2}$/;

@@ -54,11 +54,17 @@ export function StatusHeader({
   billHrefs?: Record<string, string>;
 }) {
   if (!status) return null;
+  const confirmed = !!(status.admin_leaf_status || status.admin_7oh_status || status.confirmed_at);
+  // PUBLISH ONLY ADMIN-CONFIRMED STATUSES. A 2026-06-06 derive dry-run proved
+  // the auto-derivation is unreliable for a legal surface: RI derives "banned"
+  // but reversed its ban (→ legal); FL/IL/MO/etc. derive "banned" off PENDING
+  // bills; IN/CT real bans mis-derive. A wrong "Banned" label on a legal market
+  // is the worst error this surface can make — so unconfirmed auto-derivations
+  // never surface publicly (they still feed the /admin/state-status queue).
+  if (!confirmed) return null;
   const leaf = status.admin_leaf_status ?? status.derived_leaf_status;
   const sevenoh = status.admin_7oh_status ?? status.derived_7oh_status;
   if (!leaf && !sevenoh) return null;
-
-  const confirmed = !!(status.admin_leaf_status || status.admin_7oh_status || status.confirmed_at);
   // Auto-derived from non-enacted bills = a pending threat, not current law.
   const pendingOnly = !confirmed && status.basis === "all-active";
 
