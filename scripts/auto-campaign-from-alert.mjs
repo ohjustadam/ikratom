@@ -39,6 +39,7 @@
  *   node --env-file=.env.local scripts/auto-campaign-from-alert.mjs --all-pending --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
+import { isCampaignWorthyAlert } from "./lib/campaign-eligibility.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -258,6 +259,13 @@ async function processAlert(alert) {
   const ANCHORED_KINDS = new Set(["bop_hearing", "ag_enforcement", "fda_action"]);
   if (!alert.bill_id && !ANCHORED_KINDS.has(alert.kind)) {
     console.log(`  ⏭  no bill_id + kind=${alert.kind} not anchored — skipping (news-only alert)`);
+    return "skip";
+  }
+  // Refined gate (2026-06-06, owner): even anchored agency kinds (fda/dea) must
+  // be a ban/scheduling PUSH — not a recall / lawsuit / enforcement / court /
+  // warning / news. Mirrors the 0178 trigger + scripts/lib/campaign-eligibility.mjs.
+  if (!isCampaignWorthyAlert(alert.kind, alert.title)) {
+    console.log(`  ⏭  kind=${alert.kind} not campaign-worthy (recall/lawsuit/news) — skipping`);
     return "skip";
   }
 
