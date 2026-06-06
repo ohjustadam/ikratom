@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { listNotifications, markNotificationRead, markAllRead } from "../actions";
+import { markNotificationRead, markAllRead } from "../actions";
 
 /**
  * Facebook-style notification flyout. Click bell → panel slides
@@ -39,8 +39,20 @@ export function NotificationFlyout({ initialUnreadCount }: { initialUnreadCount:
   useEffect(() => {
     if (!open || items !== null) return;
     setLoadError(false);
-    listNotifications(20)
-      .then((rows) => setItems(rows as unknown as Notification[]))
+    // Read via a route handler (not the listNotifications server action): a
+    // server action re-renders the calling page, and that render was throwing
+    // (500) — which left the flyout permanently unable to load. A plain GET
+    // is immune to the page render.
+    fetch("/api/notifications?limit=20", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { items?: Notification[]; error?: string }) => {
+        if (d.error) {
+          setLoadError(true);
+          setItems([]);
+        } else {
+          setItems((d.items ?? []) as Notification[]);
+        }
+      })
       .catch((e) => {
         console.error("[notifications] failed to load", e);
         setLoadError(true);
