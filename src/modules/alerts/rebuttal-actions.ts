@@ -77,7 +77,7 @@ TONE: ${input.tone}
 Write the letter the advocate would submit to the relevant agency/legislator.`;
 }
 
-export async function draftAlertResponse(input: {
+async function draftAlertResponseInner(input: {
   alertId: string;
   tone?: "formal" | "personal" | "urgent";
 }): Promise<
@@ -158,10 +158,67 @@ export async function draftAlertResponse(input: {
       || `Comment re: ${alert.title.slice(0, 60)}`;
     const body = (r.data?.body ?? "").slice(0, 4000);
     if (!body || body.length < 80) {
-      return { ok: false, error: "AI returned an unusably short response. Try again or compose manually." };
+      const fb = fallbackDraft(alert, p, tone);
+      return { ok: true, subject: fb.subject, body: fb.body, provider: "template" };
     }
     return { ok: true, subject, body, provider: r.provider };
-  } catch (e) {
-    return { ok: false, error: `Generation failed: ${(e as Error).message?.slice(0, 200)}` };
+  } catch {
+    // AI router exhausted/failed — never leave the user empty-handed. Hand back
+    // a ready-to-edit template so "Draft my response" always produces something.
+    const fb = fallbackDraft(alert, p, tone);
+    return { ok: true, subject: fb.subject, body: fb.body, provider: "template" };
   }
+}
+
+/**
+ * Public entry point — a thin guard so ANY unexpected error (transport, auth,
+ * etc.) becomes a clean result instead of throwing to the route error boundary
+ * (the "@E352" broken page). Delegates to the inner implementation.
+ */
+export async function draftAlertResponse(input: {
+  alertId: string;
+  tone?: "formal" | "personal" | "urgent";
+}): Promise<
+  | { ok: true; subject: string; body: string; provider: string }
+  | { ok: false; error: string }
+> {
+  try {
+    return await draftAlertResponseInner(input);
+  } catch {
+    return { ok: false, error: "Couldn't draft a response right now. Please try again in a moment." };
+  }
+}
+
+/**
+ * Non-AI fallback letter — on-message (natural leaf vs synthetic 7-OH), merged
+ * with the user's profile. The user edits before sending; this guarantees the
+ * feature still works when the free-tier AI router is exhausted.
+ */
+function fallbackDraft(
+  alert: { title: string },
+  p: { full_name?: string | null; state?: string | null; city?: string | null },
+  tone: "formal" | "personal" | "urgent",
+): { subject: string; body: string } {
+  const name = (p.full_name ?? "").trim() || "A concerned constituent";
+  const where = [p.city, p.state].filter(Boolean).join(", ");
+  const opener =
+    tone === "urgent"
+      ? "I am writing with urgency to oppose this action."
+      : tone === "formal"
+        ? "I am writing to formally register my opposition to this action."
+        : "I'm writing as a constituent to share a real concern about this.";
+  const subject = `Opposition: ${alert.title}`.slice(0, 200);
+  const body =
+`To whom it may concern,
+
+${opener} Re: ${alert.title}.
+
+I am a kratom consumer${where ? ` in ${where}` : ""} who uses natural leaf kratom responsibly. Restricting access to natural leaf kratom punishes responsible adults while doing little about the genuinely dangerous, highly concentrated synthetic 7-OH products that actually warrant scrutiny. Please distinguish between the two — regulate the synthetics, but preserve access to natural leaf.
+
+I respectfully urge you to oppose measures that ban or over-restrict natural leaf kratom, and to favor sensible consumer protections instead: age restrictions, honest labeling, and independent lab testing.
+
+Thank you for your time and consideration.
+
+${name}${where ? `\n${where}` : ""}`;
+  return { subject, body };
 }

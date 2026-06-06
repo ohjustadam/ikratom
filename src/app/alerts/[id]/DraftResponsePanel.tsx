@@ -36,14 +36,18 @@ export function DraftResponsePanel({
     setError(null);
     setDraft(null);
     startTransition(async () => {
-      const r = await draftAlertResponse({ alertId, tone });
-      if (!r.ok) {
-        setError(r.error);
-        return;
+      try {
+        const r = await draftAlertResponse({ alertId, tone });
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
+        setDraft({ subject: r.subject, body: r.body, provider: r.provider });
+        setEditedSubject(r.subject);
+        setEditedBody(r.body);
+      } catch {
+        setError("Something went wrong drafting your letter. Please try again.");
       }
-      setDraft({ subject: r.subject, body: r.body, provider: r.provider });
-      setEditedSubject(r.subject);
-      setEditedBody(r.body);
     });
   }
 
