@@ -5,6 +5,7 @@ import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { DraftResponsePanel } from "./DraftResponsePanel";
 import { YourRepDecidingThisBill } from "@/app/bills/[id]/YourRepDecidingThisBill";
+import { bestSourceUrl, publisherFromUrl } from "@/lib/source-link";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,22 @@ export default async function AlertDetailPage({ params }: Props) {
         .eq("id", a.campaign_id)
         .maybeSingle()).data
     : null;
+
+  // Linked news article (if this alert came from the news pipeline). It carries
+  // the clean publisher URL (resolved_url), the headline, and the outlet name —
+  // so we can show a titled source link instead of the bare Google-News redirect
+  // that may be sitting in policy_alerts.source_url.
+  const linkedNews = (await sb
+    .from("news_items")
+    .select("title, source_name, url, resolved_url")
+    .eq("policy_alert_id", a.id)
+    .order("published_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()).data;
+
+  const sourceUrl = bestSourceUrl(linkedNews?.resolved_url, linkedNews?.url, a.source_url);
+  const sourceTitle = linkedNews?.title ?? null;
+  const sourcePublisher = linkedNews?.source_name ?? publisherFromUrl(sourceUrl);
 
   // Linked bill (if attached)
   const linkedBill = a.bill_id
@@ -318,19 +335,30 @@ export default async function AlertDetailPage({ params }: Props) {
         </section>
       )}
 
-      {/* Source */}
-      {a.source_url && (
+      {/* Source — a clean, titled publisher link (never a bare Google-News
+          redirect). Falls back to a text citation if we only have a headline
+          but no resolvable publisher URL. */}
+      {sourceUrl ? (
         <section className="mb-6">
           <a
-            href={a.source_url}
+            href={sourceUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:border-emerald-500"
+            className="inline-flex max-w-full items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:border-emerald-500"
           >
-            📰 Read the original article ↗
+            <span aria-hidden>📰</span>
+            <span className="min-w-0">
+              <span className="block truncate font-medium">{sourceTitle ?? "Read the original article"}</span>
+              {sourcePublisher && <span className="block text-xs text-zinc-500">{sourcePublisher} ↗</span>}
+            </span>
           </a>
         </section>
-      )}
+      ) : sourceTitle ? (
+        <section className="mb-6 text-sm text-zinc-400">
+          <span className="font-medium text-zinc-300">Source:</span> {sourceTitle}
+          {sourcePublisher ? ` — ${sourcePublisher}` : ""}
+        </section>
+      ) : null}
 
       {/* AI rebuttal generator — signed-in only. Mission-critical lever:
           equalizes against astroturf form-letter campaigns by generating
@@ -340,7 +368,7 @@ export default async function AlertDetailPage({ params }: Props) {
           <DraftResponsePanel
             alertId={a.id}
             alertTitle={a.title}
-            sourceUrl={a.source_url ?? null}
+            sourceUrl={sourceUrl}
           />
         </div>
       )}
