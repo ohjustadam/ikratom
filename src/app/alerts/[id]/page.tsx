@@ -267,7 +267,14 @@ export default async function AlertDetailPage({ params }: Props) {
             Details
           </h2>
           <div className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-200">
-            {a.body}
+            {/* Strip the legacy raw "**Source:** name — <google-redirect-url>"
+                line + any bare Google-News URL — it's ugly and the clean source
+                link lives in its own section below. */}
+            {a.body
+              .replace(/\n*\*\*Source:\*\*[^\n]*(?:\n|$)/g, "\n")
+              .replace(/https?:\/\/news\.google\.com\/\S+/g, "")
+              .replace(/\n{3,}/g, "\n\n")
+              .trim()}
           </div>
         </section>
       )}
@@ -320,7 +327,7 @@ export default async function AlertDetailPage({ params }: Props) {
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:border-emerald-500"
           >
-            📎 Open source ↗
+            📰 Read the original article ↗
           </a>
         </section>
       )}
