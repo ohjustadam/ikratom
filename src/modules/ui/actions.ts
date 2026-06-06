@@ -15,9 +15,10 @@ export const UI_MODES = ["normal", "war-room"] as const;
 export async function saveUiPrefs(input: {
   theme?: string;
   accent?: string;
+  accentHex?: string | null;
   mode?: string;
 }): Promise<{ ok: true } | { error: string }> {
-  const update: Record<string, string> = {};
+  const update: Record<string, string | null> = {};
   if (input.theme !== undefined) {
     if (!UI_THEMES.includes(input.theme as (typeof UI_THEMES)[number])) return { error: "Invalid theme." };
     update.ui_theme = input.theme;
@@ -25,6 +26,18 @@ export async function saveUiPrefs(input: {
   if (input.accent !== undefined) {
     if (!UI_ACCENTS.includes(input.accent as (typeof UI_ACCENTS)[number])) return { error: "Invalid accent." };
     update.ui_accent = input.accent;
+  }
+  // Custom full-spectrum brand color (Theme Studio). null/"" clears it → falls
+  // back to the named preset. Validated against the same #RRGGBB shape the DB
+  // CHECK enforces (migration 0174).
+  if (input.accentHex !== undefined) {
+    if (input.accentHex === null || input.accentHex === "") {
+      update.ui_accent_hex = null;
+    } else if (/^#[0-9a-fA-F]{6}$/.test(input.accentHex)) {
+      update.ui_accent_hex = input.accentHex;
+    } else {
+      return { error: "Invalid color." };
+    }
   }
   if (input.mode !== undefined) {
     if (!UI_MODES.includes(input.mode as (typeof UI_MODES)[number])) return { error: "Invalid mode." };
