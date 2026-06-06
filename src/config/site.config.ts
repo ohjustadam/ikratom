@@ -12,6 +12,9 @@ export const siteConfig = {
     news: true,
     medicalRecruitment: false,
     aiPersonalization: false,
+    // Flip on once the daily-brief push delivery + snapshot history ships.
+    // Until then the "MVP brief — coming next" teaser stays hidden from users.
+    briefMvpTeaser: false,
   },
   seedStates: ["OK"],
   legislatorRoles: [

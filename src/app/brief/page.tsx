@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getOrGenerateBriefSummary } from "@/modules/brief/summary";
 import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
 import BriefAudioButton from "./BriefAudioButton";
+import { siteConfig } from "@/config/site.config";
 
 export const metadata = {
   title: "Daily brief — what's moving in kratom policy",
@@ -615,11 +616,13 @@ export default async function BriefPage() {
         </section>
       )}
 
-      <footer className="mt-8 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-[10px] text-zinc-500">
-        <p>
-          <strong className="text-zinc-300">MVP brief.</strong> Live-computed every visit. Push delivery + daily snapshot history coming next — when shipped, you&apos;ll see today&apos;s brief in your phone&apos;s notifications without opening the site.
-        </p>
-      </footer>
+      {siteConfig.features.briefMvpTeaser && (
+        <footer className="mt-8 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-[10px] text-zinc-500">
+          <p>
+            <strong className="text-zinc-300">MVP brief.</strong> Live-computed every visit. Push delivery + daily snapshot history coming next — when shipped, you&apos;ll see today&apos;s brief in your phone&apos;s notifications without opening the site.
+          </p>
+        </footer>
+      )}
     </div>
   );
 }
