@@ -1,5 +1,5 @@
 import { getProfile } from "@/modules/auth/actions";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedUser } from "@/lib/supabase/server";
 import { getUserLegislators } from "@/lib/legislators";
 import { MyRepCard } from "./MyRepCard";
 import { StreakBadge } from "@/components/StreakBadge";
@@ -73,7 +73,7 @@ export default async function DashboardPage({
   let myReps: Awaited<ReturnType<typeof getUserLegislators>> = [];
   let userId: string | null = null;
   const supabaseForReps = await createClient();
-  const { data: { user: userForReps } } = await supabaseForReps.auth.getUser();
+  const userForReps = await getCachedUser();
   userId = userForReps?.id ?? null;
   if (userId && profile?.state) {
     myReps = await getUserLegislators(supabaseForReps, profile);

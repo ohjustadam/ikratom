@@ -1,20 +1,14 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedAuthProfile } from "@/lib/supabase/server";
 
 /**
  * "Add a paper" CTA on /research. Renders only for advocate leaders +
  * admins. Anonymous users see nothing (keeps the page calm).
  */
 export async function ResearchSubmitCta() {
-  const sb = await createClient();
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await sb
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader")
-    .eq("id", user.id)
-    .maybeSingle();
+  // Reuses the chrome's single cached auth+profile read — no extra auth
+  // round-trip, no extra profiles select.
+  const { profile } = await getCachedAuthProfile();
   const isPrivileged = !!(profile?.is_admin || profile?.is_owner || profile?.is_advocate_leader);
   if (!isPrivileged) return null;
 

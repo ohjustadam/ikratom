@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedUser } from "@/lib/supabase/server";
 import { reconcileLayout, type WidgetSlot } from "./widgets/types";
 
 /**
@@ -19,11 +19,9 @@ export type CockpitLayout = {
 };
 
 export async function getCockpitLayout(): Promise<CockpitLayout | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
   if (!user) return null;
+  const supabase = await createClient();
 
   const { data } = await supabase
     .from("user_dashboard_layouts")

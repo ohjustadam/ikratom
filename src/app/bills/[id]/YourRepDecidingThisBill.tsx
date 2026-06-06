@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedClaims } from "@/lib/supabase/server";
 import { getUserLegislators } from "@/lib/legislators";
 import { committeesMatch } from "@/lib/bill-committee";
 
@@ -40,15 +40,17 @@ export async function YourRepDecidingThisBill({
 }) {
   if (!currentCommitteeName) return null;
 
-  const sb = await createClient();
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return null;
+  // Presence + id via getCachedClaims (no auth round-trip; warm from chrome).
+  const claims = await getCachedClaims();
+  const userId = typeof claims?.sub === "string" ? claims.sub : null;
+  if (!userId) return null;
 
+  const sb = await createClient();
   // Pull profile for reps lookup
   const { data: profile } = await sb
     .from("profiles")
     .select("state, congressional_district, state_senate_district, state_house_district, city, county")
-    .eq("id", user.id)
+    .eq("id", userId)
     .single();
   if (!profile?.state) return null;
 

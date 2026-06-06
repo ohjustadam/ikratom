@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedClaims } from "@/lib/supabase/server";
 
 type NudgeContext =
   | "pulse"          // /pulse — live policy feed
@@ -92,10 +92,11 @@ export async function SignUpNudge({
   stateCode?: string | null;
   className?: string;
 }) {
-  // Server-side gate: only render for anonymous users
-  const sb = await createClient();
-  const { data: { user } } = await sb.auth.getUser();
-  if (user) return null;
+  // Server-side gate: only render for anonymous users. Presence-only →
+  // getCachedClaims (LOCAL JWT verify, no auth round-trip; already warm from
+  // the chrome's getCachedAuthProfile). Renders nothing once signed in.
+  const claims = await getCachedClaims();
+  if (claims) return null;
 
   const copy = COPY[context];
   // Personalize the headline when we have a state code in scope

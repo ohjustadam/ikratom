@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { getCachedClaims } from "@/lib/supabase/server";
 import { getPushVapidPublicKey, listMyPushSubscriptions } from "@/modules/auth/actions-push";
 import { EnablePushNudgeClient } from "./EnablePushNudgeClient";
 
@@ -57,9 +57,9 @@ export async function EnablePushNudge({
   stateCode?: string | null;
   className?: string;
 }) {
-  const sb = await createClient();
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return null;
+  // Presence-only → getCachedClaims (no auth round-trip; warm from chrome).
+  const claims = await getCachedClaims();
+  if (!claims) return null;
 
   const vapidPublicKey = await getPushVapidPublicKey();
   if (!vapidPublicKey) return null;
