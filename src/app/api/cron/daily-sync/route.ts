@@ -266,7 +266,9 @@ async function syncNewsScope(scope: "FED" | State, supabase: SupabaseClient): Pr
       if (!res.ok) continue;
       const xml = await res.text();
       for (const item of parseRss(xml)) {
-        if (item.published_at && new Date(item.published_at).getUTCFullYear() < 2026) continue;
+        // Rolling recency guard (current or previous year) so this never
+        // silently drops everything at the new-year boundary.
+        if (item.published_at && new Date(item.published_at).getUTCFullYear() < new Date().getUTCFullYear() - 1) continue;
         if (!items.has(item.url)) items.set(item.url, item);
       }
     } catch { continue; }

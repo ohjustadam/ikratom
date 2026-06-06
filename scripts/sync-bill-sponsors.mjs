@@ -35,8 +35,11 @@ if (!STATE && !ALL) {
 
 const apiKey = process.env.OPENSTATES_API_KEY;
 if (!apiKey) {
-  console.error("Missing OPENSTATES_API_KEY");
-  process.exit(1);
+  // No key here → skip gracefully (exit 0) so the cron job stays green and
+  // the needs: cascade keeps moving. check-cron-staleness catches a prolonged
+  // absence (no scraper_runs telemetry gets written).
+  console.warn("OPENSTATES_API_KEY not set — skipping sponsor sync (exit 0).");
+  process.exit(0);
 }
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;

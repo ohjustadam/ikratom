@@ -26,7 +26,7 @@ const apiKey = process.env.OPENSTATES_API_KEY;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!apiKey) { console.error("Missing OPENSTATES_API_KEY"); process.exit(1); }
+if (!apiKey) { console.warn("OPENSTATES_API_KEY not set — skipping bill sync (exit 0)."); process.exit(0); }
 if (!supabaseUrl || !serviceKey) { console.error("Missing Supabase env"); process.exit(1); }
 
 const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });

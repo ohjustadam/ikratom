@@ -897,6 +897,7 @@ jobs:
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
       - name: Re-enrich stale + cleared bill journeys
+        continue-on-error: true
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -920,6 +921,9 @@ jobs:
     # already own (substance_targeting_source != 'ai-substance-pass-v1'),
     # capped at --limit per run to spread AI quota across days.
     needs: enrich-bill-journey
+    # Run even if the journey pass failed or timed out — independent enough
+    # that the substance classify + downstream derive should still recompute.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -930,6 +934,7 @@ jobs:
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
       - name: Classify bill substance targeting
+        continue-on-error: true
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -946,6 +951,8 @@ jobs:
     # substance map is available. No AI calls (reads stored classification).
     # Idempotent; preserves admin overrides. Flags edge cases needs_review.
     needs: classify-bill-substance
+    # Always recompute even if upstream enrich/classify failed or timed out.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -959,7 +966,9 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/derive-state-status.mjs --apply
+        # DRY-RUN until fix/data-accuracy corrects CA/IN/LA derivation (audit
+        # §4). Re-add --apply there to publish the corrected per-state status.
+        run: node scripts/derive-state-status.mjs
 
   sync-legistar-officials:
     # FREE, non-grounded local-officials source: the Legistar (Granicus)
