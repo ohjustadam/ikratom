@@ -13,7 +13,7 @@ import { getTranslation } from "@/lib/translations";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { BillFullText } from "./BillFullText";
 import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillLocalActionCard";
-import { findSimilarBills } from "@/lib/bill-similarity";
+import { findSimilarBillsCached } from "@/lib/bill-similarity";
 import { IntelTipForm } from "./IntelTipForm";
 import { Markdown } from "@/components/Markdown";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
@@ -225,12 +225,12 @@ export default async function BillDetailPage({
   // N from OTHER states. Wrapped defensively so a pre-migration
   // deploy (before 0131) or a row without an embedding falls back
   // to empty without breaking the page.
-  let similarBills: Awaited<ReturnType<typeof findSimilarBills>> = [];
+  let similarBills: Awaited<ReturnType<typeof findSimilarBillsCached>> = [];
   try {
     // 0.6 floor is empirically tuned: a KCPA-named bill in SC matches
     // its peers in MO/IL/KS/NE at 62-69%. Going to 0.7 misses real
     // matches; going below 0.55 starts surfacing unrelated kratom bills.
-    similarBills = await findSimilarBills(supabase, id, { limit: 5, minSimilarity: 0.6 });
+    similarBills = await findSimilarBillsCached(id, { limit: 5, minSimilarity: 0.6 });
   } catch {
     // Pre-migration deploy or query error — silent fallback.
   }

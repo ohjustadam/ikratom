@@ -16,6 +16,8 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export type EmbeddedBillRow = {
   id: string;
@@ -103,4 +105,34 @@ export async function findSimilarBills(
   }
   scored.sort((a, b) => b.similarity - a.similarity);
   return scored.slice(0, limit);
+}
+
+/**
+ * Cross-request CACHED variant for the public /bills/[id] page.
+ *
+ * Similar-bills for a given bill only change when embeddings are recomputed
+ * (rare, via scripts/compute-bill-embeddings.mjs), so we cache the small
+ * top-N result across requests (revalidate 24h, tag-invalidatable) instead of
+ * re-pulling the ~1.5 MB all-bills embedding payload + recomputing cosine
+ * similarity on EVERY page view. Uses a service-role client (the bills it
+ * reads are public) because unstable_cache can't use the cookie-bound request
+ * client. The cached value is just the tiny SimilarBill[] result, never the
+ * embeddings themselves.
+ */
+export function findSimilarBillsCached(
+  billId: string,
+  opts: { limit?: number; minSimilarity?: number; includeSameState?: boolean } = {},
+): Promise<SimilarBill[]> {
+  const key = [
+    "similar-bills",
+    billId,
+    String(opts.limit ?? 5),
+    String(opts.minSimilarity ?? 0.6),
+    String(opts.includeSameState ?? false),
+  ];
+  return unstable_cache(
+    () => findSimilarBills(createServiceRoleClient(), billId, opts),
+    key,
+    { revalidate: 86400, tags: [`similar-bills:${billId}`] },
+  )();
 }
