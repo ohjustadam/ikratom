@@ -26,9 +26,18 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "edge";
 export const dynamic = "force-static";
 
-// Build the public URL that the widget will redirect users to.
+// Build the public URL that the widget will redirect users to. Only a known
+// origin may be emitted into JS served on third-party partner sites — a
+// misconfigured/poisoned APP_URL must never turn the widget into an open
+// redirect (the response is also CDN-cached up to a day). Falls back to the
+// canonical production origin.
+const ALLOWED_ORIGINS = ["https://www.ikratom.org", "https://ikratom.org"];
 function appUrl(req: NextRequest): string {
-  return process.env.APP_URL || `https://${req.nextUrl.host}`;
+  const env = process.env.APP_URL?.replace(/\/$/, "");
+  if (env && ALLOWED_ORIGINS.includes(env)) return env;
+  if (env && /^https?:\/\/localhost(:\d+)?$/.test(env)) return env; // local dev
+  void req;
+  return "https://www.ikratom.org";
 }
 
 export async function GET(req: NextRequest) {

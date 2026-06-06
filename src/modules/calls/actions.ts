@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { aiSummarizeCall } from "./ai-summarize";
 import { TWO_PARTY_CONSENT_STATES } from "./consent";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export type StartSessionInput = {
   legislatorId?: string | null;
@@ -22,6 +23,16 @@ export async function startCallSession(input: StartSessionInput) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { error: "Sign in required." };
+
+  // Rate-limit session creation so a compromised/abusive account can't flood
+  // call_sessions (each completed session can fire an AI-summarize job).
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`call:start:user:${user.id}`, 30, 3600))) {
+    return { error: "You're starting calls too quickly — try again shortly." };
+  }
+  if (!(await checkRateLimit(`call:start:ip:${ip}`, 80, 3600))) {
+    return { error: "Too many call sessions from this connection — try again later." };
+  }
 
   // For 2-party states, require both consent flags
   const stateUpper = (input.state ?? "").toUpperCase();

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CoalitionAdminPanel } from "./CoalitionAdminPanel";
+import { publicHandle } from "@/lib/public-handle";
 
 export const dynamic = "force-dynamic";
 
@@ -58,10 +59,12 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
   }
 
   // Members list — RLS only returns rows if the viewer is a member.
-  // We use get_public_profiles RPC to read names without exposing the
-  // full profile shape (RLS on profiles is admin-or-self).
+  // Names render via publicHandle() (hard anonymity rule): @username, NEVER
+  // the real full_name, even to fellow coalition members. get_public_profiles
+  // is the public-safe SECURITY DEFINER read (profiles RLS is admin-or-self).
   type MemberRow = { user_id: string; role: string; joined_at: string };
-  let members: Array<MemberRow & { full_name: string | null }> = [];
+  type MemberView = MemberRow & { username: string | null; state: string | null };
+  let members: MemberView[] = [];
   if (viewerRole) {
     const { data: memberRows } = await sb
       .from("coalition_members")
@@ -70,14 +73,19 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
       .order("joined_at", { ascending: true });
     const rows = (memberRows ?? []) as MemberRow[];
     const userIds = rows.map((r) => r.user_id);
-    let nameByUser = new Map<string, string | null>();
+    const profByUser = new Map<string, { username: string | null; state: string | null }>();
     if (userIds.length > 0) {
-      const { data: profs } = await sb
-        .rpc("get_public_profiles", { ids: userIds });
-      type PProf = { id: string; full_name: string | null };
-      for (const p of (profs ?? []) as PProf[]) nameByUser.set(p.id, p.full_name);
+      // NOTE: the RPC arg is p_ids (was incorrectly passed as `ids`, which
+      // silently returned nothing → blank roster).
+      const { data: profs } = await sb.rpc("get_public_profiles", { p_ids: userIds });
+      type PProf = { id: string; username: string | null; state: string | null };
+      for (const p of (profs ?? []) as PProf[]) profByUser.set(p.id, { username: p.username, state: p.state });
     }
-    members = rows.map((r) => ({ ...r, full_name: nameByUser.get(r.user_id) ?? null }));
+    members = rows.map((r) => ({
+      ...r,
+      username: profByUser.get(r.user_id)?.username ?? null,
+      state: profByUser.get(r.user_id)?.state ?? null,
+    }));
   }
 
   // Coalition contact log — aggregate team activity. Privacy: never
@@ -286,7 +294,7 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
             {members.map((m) => (
               <li key={m.user_id} className="flex flex-wrap items-baseline gap-2 rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 text-[11px]">
                 <span className="font-semibold text-zinc-100">
-                  {m.full_name ?? "(unnamed)"}
+                  {publicHandle({ username: m.username, state: m.state })}
                 </span>
                 <span className={`rounded px-1.5 py-0.5 text-[9px] uppercase ${
                   m.role === "owner"

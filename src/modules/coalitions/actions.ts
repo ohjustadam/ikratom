@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * Coalition server actions.
@@ -53,6 +54,12 @@ export async function createCoalition(input: {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Sign in required" };
+
+  // Throttle creation so the coalition index / slug space / invite system
+  // can't be spammed by one account.
+  if (!(await checkRateLimit(`coalition:create:user:${user.id}`, 5, 3600))) {
+    return { ok: false, error: "You're creating coalitions too quickly — try again later." };
+  }
 
   const name = input.name?.trim() ?? "";
   if (name.length < 2 || name.length > 80) {
