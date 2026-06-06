@@ -1,4 +1,5 @@
 import { sendPush, isPushConfigured } from "@/lib/push/send";
+import { canPushUser } from "@/lib/notifications/push-gate";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -47,6 +48,10 @@ type Prefs = {
   digest: string | null;
   push_min_interval_minutes: number | null;
   last_push_at: string | null;
+  dnd_enabled: boolean | null;
+  quiet_hours_start: string | null;
+  quiet_hours_end: string | null;
+  timezone: string | null;
 };
 
 export async function fanoutPushNotifications(
@@ -94,7 +99,9 @@ export async function fanoutPushNotifications(
   // Preferences (opt-out + throttle state)
   const { data: prefsRaw } = await supabase
     .from("notification_preferences")
-    .select("user_id, in_app, digest, push_min_interval_minutes, last_push_at")
+    .select(
+      "user_id, in_app, digest, push_min_interval_minutes, last_push_at, dnd_enabled, quiet_hours_start, quiet_hours_end, timezone",
+    )
     .in("user_id", userIds);
   const prefsByUser = new Map<string, Prefs>();
   for (const p of (prefsRaw ?? []) as Prefs[]) prefsByUser.set(p.user_id, p);
@@ -125,6 +132,13 @@ export async function fanoutPushNotifications(
     // Opt-out → mark delivered (skip next run), never send.
     if (prefs && (prefs.in_app === false || prefs.digest === "off")) {
       deliveredIds.push(...userNotifs.map((n) => n.id));
+      continue;
+    }
+
+    // DND / quiet hours → HOLD (leave unpushed so it rolls into the next
+    // allowed window). The in-app notification still sits in the inbox.
+    if (prefs && !canPushUser(prefs, now)) {
+      held += userNotifs.length;
       continue;
     }
 

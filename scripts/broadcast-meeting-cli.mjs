@@ -17,6 +17,7 @@
  * Requires SUPABASE_SERVICE_ROLE_KEY (already in env).
  */
 import { createClient } from "@supabase/supabase-js";
+import { canPushUser, loadPushPrefs, recordPush } from "./lib/push-gate.mjs";
 
 const args = process.argv.slice(2);
 const MEETING_ID = args.find((a) => /^[0-9a-f-]{36}$/i.test(a));
@@ -106,13 +107,20 @@ if (userIds.length > 0) {
   if (pub && priv) {
     const webpush = (await import("web-push")).default;
     webpush.setVapidDetails(subject, pub, priv);
+    // Honour quiet-hours / DND even for a LIVE-NOW broadcast — the in-app
+    // notification + critical /pulse alert below still reach muted users.
+    const prefsMap = await loadPushPrefs(sb, userIds);
+    const nowMs = Date.now();
+    const pushedUsers = new Set();
+    let pushHeld = 0;
     const { data: subs } = await sb
       .from("push_subscriptions")
-      .select("id, endpoint, p256dh, auth")
+      .select("id, user_id, endpoint, p256dh, auth")
       .in("user_id", userIds)
       .limit(10_000);
     const payload = JSON.stringify({ title, body, link, tag: `meeting-${meeting.id}` });
     for (const s of subs ?? []) {
+      if (!canPushUser(prefsMap.get(s.user_id), nowMs)) { pushHeld++; continue; }
       try {
         await webpush.sendNotification(
           { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
@@ -120,6 +128,7 @@ if (userIds.length > 0) {
           { TTL: 6 * 60 * 60 },
         );
         pushSent++;
+        pushedUsers.add(s.user_id);
       } catch (e) {
         const status = e?.statusCode ?? 0;
         if (status === 404 || status === 410) pushGone.push(s.id);
@@ -128,7 +137,8 @@ if (userIds.length > 0) {
     if (pushGone.length > 0) {
       await sb.from("push_subscriptions").delete().in("id", pushGone);
     }
-    console.log(`   Web push sent: ${pushSent} (${pushGone.length} dead subs pruned)`);
+    await recordPush(sb, [...pushedUsers]);
+    console.log(`   Web push sent: ${pushSent} (${pushGone.length} dead subs pruned${pushHeld > 0 ? `, ${pushHeld} held for quiet/DND` : ""})`);
   } else {
     console.log(`   Web push skipped: VAPID env not configured`);
   }
