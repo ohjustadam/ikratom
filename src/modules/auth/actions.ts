@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedUser } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { getDistrictsForAddress } from "@/lib/civic";
 import { autoRequestLocalCoverageIfMissing } from "@/lib/local-reps-auto-request";
@@ -656,12 +656,12 @@ export async function setNewPassword(formData: FormData): Promise<AuthResult> {
 
 /** Get the current user + their profile row. */
 export async function getProfile() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getCachedUser dedupes the auth round-trip across a render pass (the
+  // dashboard calls getProfile + getCockpitLayout + a reps lookup in one pass).
+  const user = await getCachedUser();
   if (!user) return { profile: null, email: null };
 
+  const supabase = await createClient();
   const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
   return { profile: data, email: user.email ?? null };
 }
