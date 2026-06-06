@@ -1,6 +1,10 @@
 import { createClient, getCachedClaims } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { HomeMemorialBand } from "@/components/HomeMemorialBand";
+import { HomeLivePulse } from "@/components/HomeLivePulse";
+import { StateLegalMap } from "@/components/StateLegalMap";
+import { HomeOnboarding } from "@/components/HomeOnboarding";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { getMessages } from "@/i18n/messages";
 
@@ -185,6 +189,18 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
+
+      {/* Memorial / tribute-video placeholder (in honor of Scot Rubi) */}
+      <HomeMemorialBand />
+
+      {/* Live pulse — proof the platform is awake right now */}
+      <HomeLivePulse />
+
+      {/* "Where it stands" — the canonical legal-status map */}
+      <StateLegalMap />
+
+      {/* Get set up — dual onboarding + calendar / email / calls explainers */}
+      <HomeOnboarding />
 
       {/* Band 1.5 — Active actions header */}
       <section className="mt-8">
