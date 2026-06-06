@@ -1,16 +1,17 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { UI_THEMES, UI_ACCENTS, UI_MODES } from "./constants";
 
 /**
  * Persist a signed-in user's UI preferences (theme / brand accent / mode)
  * to their profile so they follow the user across devices. No-ops cleanly
  * for anonymous users (they rely on localStorage). RLS profiles_self_write
  * gates the update to the caller's own row via .eq("id", user.id).
+ *
+ * NOTE: the UI_* enums live in ./constants (a plain module) — a
+ * "use server" file may only export async functions.
  */
-export const UI_THEMES = ["dark", "light"] as const;
-export const UI_ACCENTS = ["emerald", "blue", "violet", "amber", "rose"] as const;
-export const UI_MODES = ["normal", "war-room"] as const;
 
 export async function saveUiPrefs(input: {
   theme?: string;
