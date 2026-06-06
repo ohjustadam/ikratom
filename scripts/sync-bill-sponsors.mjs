@@ -59,8 +59,9 @@ async function fetchBillDetail(state, billNumber, attempt = 0) {
     signal: AbortSignal.timeout(30_000),
   });
   if (res.status === 429 && attempt < 3) {
-    const wait = (attempt + 1) * 30_000;
-    console.log(`    rate limited — waiting ${wait / 1000}s`);
+    const ra = parseInt(res.headers.get("retry-after") ?? "", 10);
+    const wait = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 90_000) : (attempt + 1) * 20_000;
+    console.log(`    rate limited — waiting ${Math.round(wait / 1000)}s`);
     await sleep(wait);
     return fetchBillDetail(state, billNumber, attempt + 1);
   }
@@ -189,15 +190,28 @@ async function legFor(state) {
 console.log(`Processing ${bills.length} bills${DRY_RUN ? " [DRY RUN]" : ""}…\n`);
 const t0 = Date.now();
 const results = [];
+// Circuit breaker: when OpenStates hard-rate-limits us, every bill burns the
+// full retry budget (~3 min each) and the job grinds into its 30-min timeout
+// (root cause of the 2026-06-05 failure). After a run of consecutive 429s,
+// bail cleanly with partial progress — the daily re-run continues. Structural
+// fix: a LegiScan key offloads bill data from OpenStates (see V2_KICKOFF).
+let consecutive429 = 0;
+const BREAK_AFTER = 6;
 for (const b of bills) {
   const legIndex = await legFor(b.state);
   process.stdout.write(`  ${b.state} ${b.bill_number} `);
   const r = await processBill(b, legIndex);
   results.push(r);
   if (r.status === "ok") {
+    consecutive429 = 0;
     console.log(`✓ ${r.total} sponsors (${r.matched} matched, ${r.unmatched} unmatched)`);
   } else {
+    if (r.status === "fetch-error" && /429/.test(r.error ?? "")) consecutive429++;
     console.log(`${r.status}` + (r.error ? `: ${r.error.slice(0, 60)}` : ""));
+  }
+  if (consecutive429 >= BREAK_AFTER) {
+    console.log(`\n⚠ OpenStates rate-limited ${BREAK_AFTER}x in a row — stopping early (partial run). Daily re-run will continue.`);
+    break;
   }
   await sleep(1200);
 }

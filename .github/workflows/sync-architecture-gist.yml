@@ -35,7 +35,7 @@ jobs:
       GIST_ID: ad6a0d4c0a19303878a8534c17bc9efa
       GIST_FILENAME: ARCHITECTURE_PUBLIC.md
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Push content to gist via GitHub API
         env:
