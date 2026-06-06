@@ -55,7 +55,7 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1); }
-if (!OS_KEY) { console.error("Missing OPENSTATES_API_KEY"); process.exit(1); }
+if (!OS_KEY) { console.warn("OPENSTATES_API_KEY not set — skipping journey enrichment (exit 0)."); process.exit(0); }
 
 const supabase = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 

@@ -47,13 +47,15 @@ function rssUrl(query) {
 }
 
 /**
- * Keep only items published in 2026 (or newer).
+ * Keep only recent items — current year or last year — so Google News
+ * resurfacing a years-old article doesn't pollute the feed. Rolling (no
+ * hardcoded year) so it never silently drops everything on Jan 1.
  * Items without a published_at are accepted (Google sometimes omits it).
  */
 function isCurrentYear(item) {
   if (!item.published_at) return true;
   const year = new Date(item.published_at).getUTCFullYear();
-  return year >= 2026;
+  return year >= new Date().getUTCFullYear() - 1;
 }
 
 /**

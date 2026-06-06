@@ -129,10 +129,19 @@ if (error) {
   process.exit(1);
 }
 
-// Group by valid 2-letter state (skips 'US' federal placeholder + junk).
+// state_status.state has an FK to states(abbr). Load the real set of states
+// so a stray/territory code (valid 2-letter format but absent from states)
+// can't FK-fail the entire upsert batch and zero out the whole publish.
+const { data: stateRows } = await sb.from("states").select("abbr");
+const validStates = new Set((stateRows ?? []).map((s) => s.abbr));
+
+// Group by valid 2-letter state (skips 'US' federal placeholder + junk, plus
+// any code not present in the states table). Fail-open if the states lookup
+// returned nothing, so a transient read error can't drop every state.
 const byState = new Map();
 for (const b of bills ?? []) {
   if (!b.state || !STATE_RE.test(b.state)) continue;
+  if (validStates.size && !validStates.has(b.state)) continue;
   if (!byState.has(b.state)) byState.set(b.state, []);
   byState.get(b.state).push(b);
 }

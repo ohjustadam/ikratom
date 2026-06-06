@@ -44,7 +44,7 @@ const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const OPENSTATES_KEY = process.env.OPENSTATES_API_KEY;
 if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1); }
-if (!OPENSTATES_KEY) { console.error("Missing OPENSTATES_API_KEY"); process.exit(1); }
+if (!OPENSTATES_KEY) { console.warn("OPENSTATES_API_KEY not set — skipping committee sync (exit 0)."); process.exit(0); }
 
 const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
