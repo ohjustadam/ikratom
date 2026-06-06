@@ -109,14 +109,21 @@ export function CampaignAction({
 
   function logAction(method: SendMethod) {
     startTransition(async () => {
-      await logCampaignAction({
-        campaignId,
-        legislatorIds: targets.map((t) => t.id),
-        method: method === "copy" ? "mailto" : "mailto", // schema only allows mailto/platform_email/call
-        subject,
-        body,
-        isNonResident,
-      });
+      // Logging the send is best-effort — the email/copy already happened
+      // client-side. A server hiccup here must NOT throw to the route error
+      // boundary (the "@E352" broken-page the funnel was hitting).
+      try {
+        await logCampaignAction({
+          campaignId,
+          legislatorIds: targets.map((t) => t.id),
+          method: method === "copy" ? "mailto" : "mailto", // schema only allows mailto/platform_email/call
+          subject,
+          body,
+          isNonResident,
+        });
+      } catch (e) {
+        console.error("[campaign] logCampaignAction failed", e);
+      }
       setSentVia(method);
     });
   }
@@ -155,18 +162,23 @@ export function CampaignAction({
     if (!gmailConnected) return;
     setBatchError(null);
     startTransition(async () => {
-      const result = await sendCampaignViaGmail({
-        campaignId,
-        subject,
-        bodyTemplate,
-        targetIds: targetsWithEmail.map((t) => t.id),
-        isNonResident,
-      });
-      if ("error" in result) {
-        setBatchError(result.error);
-      } else {
-        setBatchProgress({ sent: result.sent, failed: result.failed, total: targetsWithEmail.length });
-        setSentVia("platform_gmail");
+      try {
+        const result = await sendCampaignViaGmail({
+          campaignId,
+          subject,
+          bodyTemplate,
+          targetIds: targetsWithEmail.map((t) => t.id),
+          isNonResident,
+        });
+        if ("error" in result) {
+          setBatchError(result.error);
+        } else {
+          setBatchProgress({ sent: result.sent, failed: result.failed, total: targetsWithEmail.length });
+          setSentVia("platform_gmail");
+        }
+      } catch (e) {
+        console.error("[campaign] sendCampaignViaGmail failed", e);
+        setBatchError("Something went wrong sending. Please try again in a moment.");
       }
     });
   }
