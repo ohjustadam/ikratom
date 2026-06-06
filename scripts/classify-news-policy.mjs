@@ -26,6 +26,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { hasKratomKeyword } from "./lib/kratom-keywords.mjs";
+import { reconcileLocality } from "./lib/us-states.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -87,7 +88,7 @@ Return JSON with EXACT fields:
   "confidence": 0.00 to 1.00,
   "kind": "city_ordinance" | "state_bill" | "bop_action" | "ag_enforcement" | "court_ruling" | "fda_action" | "dea_action" | "industry_news" | "other",
   "severity": "critical" | "alert" | "watch" | "routine",
-  "locality": "FED" | "ALL" | "<two-letter state code>",
+  "locality": "FED" | "ALL" | "<two-letter state code> — use a state code ONLY if the article EXPLICITLY names that state. If the state is not stated in the article text, use \"ALL\". NEVER infer a state from a city or town name.",
   "specific_locality": "string (city/county) or null",
   "summary": "2-3 sentences in plain English. ALWAYS distinguish natural leaf kratom from 7-OH-enriched/synthetic products when relevant. Never use 'kratom' as a blanket term for synthetics.",
   "advocate_action": "1 sentence — what should advocates do? null if no action.",
@@ -186,10 +187,22 @@ for (const item of items) {
     }
 
     if (isEvent && conf >= 0.6) {
-      // Auto-publish at high confidence; mark pending at moderate
-      const moderationStatus = conf >= 0.8 ? "approved" : "pending";
       const sev = ["critical", "alert", "watch", "routine"].includes(result.severity) ? result.severity : "watch";
-      const locality = /^[A-Z]{2,4}$/.test(result.locality ?? "") || result.locality === "ALL" ? result.locality : "ALL";
+      // Corroborate the AI's claimed state against the SOURCE text + scrape
+      // scope so we never publish a wrong-state alert (the model mislabeled an
+      // Illinois town ordinance "Rhode Island"). An uncorroborated specific
+      // state is routed to human review (pending), never auto-published.
+      const { locality, corroborated: localityOk } = reconcileLocality({
+        aiLocality: result.locality,
+        scopeState: item.state,
+        text: `${item.title ?? ""} ${item.summary ?? ""}`,
+      });
+      // Auto-publish at high confidence; mark pending at moderate.
+      let moderationStatus = conf >= 0.8 ? "approved" : "pending";
+      if (!localityOk && locality !== "ALL") {
+        moderationStatus = "pending";
+        console.log(`\n  ⚠ locality-guard: AI said "${result.locality}" but the article doesn't corroborate it → locality=${locality}, holding for review`);
+      }
       const kindMap = {
         city_ordinance: "bill_event",
         state_bill: "bill_event",
