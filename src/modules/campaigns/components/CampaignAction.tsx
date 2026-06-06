@@ -98,8 +98,11 @@ export function CampaignAction({
   const isNonResident = (stateMismatch || localityMismatch) && !!allowNonResidents;
   const noProfile = targets.length === 0 && !wrongState && !wrongLocality;
 
-  // Build the right URL / payload for each method
-  const allWithEmail = targets.filter((t) => !!t.email);
+  // Build the right URL / payload for each method.
+  // Exclude contact-form-only "emails" (stored as http(s) URLs) — they're not
+  // mailable and would land as garbage in the compose "To". Mirrors the
+  // server-side filter in actions.ts so client + server agree on who's emailable.
+  const allWithEmail = targets.filter((t) => !!t.email && !t.email.startsWith("http"));
   const alreadySentSet = new Set(alreadySentLegislatorIds);
   const targetsWithEmail = allWithEmail.filter((t) => !alreadySentSet.has(t.id));
   const skippedAlreadySent = allWithEmail.length - targetsWithEmail.length;
@@ -591,7 +594,11 @@ export function CampaignAction({
         </div>
       )}
 
-      {/* Send options — three reliable paths */}
+      {/* Send options — three reliable paths. Gated on having ≥1 sendable
+          recipient (a real, non-cooldown email); without this guard the buttons
+          opened a compose window with an empty "To" field when everyone was in
+          cooldown or had only contact forms. Calls below have their own gate. */}
+      {targetsWithEmail.length > 0 && (
       <div className="mt-6">
         <p className="mb-2 text-xs uppercase tracking-wider text-zinc-500">
           {gmailConnected ? "Or send manually" : "Pick how to send"}
@@ -636,10 +643,13 @@ export function CampaignAction({
           </p>
         )}
       </div>
+      )}
 
+      {targetsWithEmail.length > 0 && (
       <p className="mt-3 text-center text-xs text-zinc-500">
         The email comes from <em>your</em> address — what legislators actually read.
       </p>
+      )}
 
       {/* One-click phone call section — only renders if any target has a phone */}
       <CallActionPanel
