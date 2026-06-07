@@ -149,3 +149,24 @@ Owner's rule: "as long as you are only merging one at a time and we confirm it i
 - **Hard stop:** anything paid, anything destructive, anything outside agreed scope
 
 This file plus AGENTS.md is the trust contract.
+
+---
+
+## Campaign dedup uses THREE keyspaces, intentionally distinct
+
+Campaign de-duplication is enforced in three places that **do not share a key format**. This is deliberate — do **not** "align" them by string-equality without owner sign-off (that's a runtime behavior change, not a cleanup). Pinned by `tests/campaign-autoapprove.test.ts` → "three-keyspace dedup relationship".
+
+1. **DB unique index — insert-time hard gate.** `campaign_topic_key(state,title)` (migration 0107) → `STATE|kw|event`, enforced by `ux_campaigns_topic_key_live` (0108) across `pending_review | auto_active | manual`. Narrow event vocabulary; a title that doesn't parse both a keyword and an event becomes `STATE|unknown|unknown`, which the index **excludes** (the DB refuses to collapse what it can't confidently key). The trigger (`auto_campaign_on_alert`, 0183) and `auto-campaign-from-alert.mjs` catch the 23505 and **link the new alert to the canonical row** — so a DB-clustered duplicate *never becomes a second row*.
+
+2. **Auto-approve engine — decision-time dedup.** `auto-approve-campaigns.mjs` does **not** read `topic_key` and does **not** use the broad `topicKey()`. It keys via `keysFor()` = `billKey` ⊕ `normalizedTitleKey` ⊕ `strongTopicKey` (a STRICT event set: `ban|restrict|schedul|hearing|enact|veto|repeal|ordinance|crackdown|prohibit|classif|outlaw`). Conservative on purpose: a wrong auto-supersede silently buries a real call-to-action, so it only collapses on a strong-specific event, an exact normalized title, or a bill number.
+
+3. **Daily janitor — broad cleanup.** `cleanup-pending-campaigns.mjs` uses `topicKey()` with the BROAD `EVENT_RX` (adds `propose|introduce|vote|advance|warn|action|…`). Broadest of the three; only sweeps the pending queue, never sends anything.
+
+**Why three keyspaces is safe (the relationship the test pins):**
+- The engine's only *fuzzy* collapse (`strongTopicKey`) always lands **inside** DB-enforced space: any title that yields a strong key also yields a DB key that is *not* `…|unknown|unknown` (the keyword always parses), so the index actively enforces it. The engine never guesses a supersede in the DB's blind spot.
+- The engine **covers** the DB's blind spot: for `…|unknown|unknown` titles the index ignores (incl. keyword-free bill-step alerts), the engine still dedups via exact normalized title and `billKey`. This is the intended safety-net — see the `scripts/lib/topic-key.mjs` header.
+- Approve only flips `pending_review → auto_active`; both states are inside the index's `WHERE`, and `topic_key` doesn't change on the flip, so an approve can never raise a fresh 23505.
+
+**Known asymmetry (watch, don't fix without sign-off):** the DB key has **no bill-number awareness**. Two genuinely distinct bills in the same state both phrased as e.g. "kratom ban" collapse to one DB cluster at insert (the second alert links to the first), even though the engine's `billKey` would keep them apart. In practice procedural bill-step alerts are keyword-free → `…|unknown|unknown` → the DB punts → the engine/`billKey` separates them correctly; the over-merge only bites news-style titles carrying *both* a keyword and a strong event. If a second same-state bill ever fails to get its own campaign, this is why.
+
+**Doc drift, noted not fixed:** migration 0107's header claims its keyword+event lists "match `cleanup-pending-campaigns.mjs`". They don't anymore — the janitor's `EVENT_RX` is far broader. The mismatch is benign given the above, but don't trust that comment.
