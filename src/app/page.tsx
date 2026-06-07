@@ -1,5 +1,4 @@
 import { createClient, getCachedClaims } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { HomeMemorialBand } from "@/components/HomeMemorialBand";
 import { HomeLivePulse } from "@/components/HomeLivePulse";
@@ -37,7 +36,9 @@ export default async function HomePage() {
   // the signed-OUT pitch — the new-visitor / app-store front door. Cached LOCAL
   // JWT verify (no auth round-trip) — we only need presence here.
   const claims = await getCachedClaims();
-  if (claims?.sub) redirect("/dashboard");
+  // Signed-in members can still browse the home page — no perma-redirect to the
+  // dashboard. We just swap the signup CTAs for a dashboard link below.
+  const isSignedIn = !!claims?.sub;
   const supabase = await createClient();
   const locale = await readLocale();
   const t = getMessages(locale);
@@ -164,10 +165,10 @@ export default async function HomePage() {
         {/* CTAs */}
         <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
           <Link
-            href="/signup"
+            href={isSignedIn ? "/dashboard" : "/signup"}
             className="rounded-md bg-emerald-500 px-5 py-2.5 font-semibold text-zinc-950 hover:bg-emerald-400"
           >
-            Join the network — 90 seconds →
+            {isSignedIn ? "Go to your dashboard →" : "Join the network — 90 seconds →"}
           </Link>
           <Link
             href="/banned"
@@ -199,8 +200,8 @@ export default async function HomePage() {
       {/* "Where it stands" — the canonical legal-status map */}
       <StateLegalMap />
 
-      {/* Get set up — dual onboarding + calendar / email / calls explainers */}
-      <HomeOnboarding />
+      {/* Get set up — dual onboarding (signed-out only; members are already in) */}
+      {!isSignedIn && <HomeOnboarding />}
 
       {/* Band 1.5 — Active actions header */}
       <section className="mt-8">

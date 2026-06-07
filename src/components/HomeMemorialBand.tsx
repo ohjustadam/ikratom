@@ -4,11 +4,10 @@ import { useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 
 /**
- * Home memorial band — placeholder for the tribute video we'll make together.
- * Lights a candle for Scot Rubi, in whose honor iKratom is built. Shows his
- * portrait from /public/scot-rubi.jpg when present; if the file isn't there
- * yet, it degrades gracefully to a candle so the band always looks intentional.
- * Sits full-width directly under the hero.
+ * Home memorial band — a candle + portrait for Scot Rubi, in whose honor
+ * iKratom is built. Shows his portrait from /public/scot-rubi.jpg when present;
+ * if the file isn't there yet, it degrades gracefully to a candle so the band
+ * always looks intentional. Sits full-width directly under the hero.
  */
 export function HomeMemorialBand() {
   const [photoOk, setPhotoOk] = useState(true);
@@ -58,12 +57,7 @@ export function HomeMemorialBand() {
 
       <h2 className="mt-5 text-2xl font-bold text-zinc-100">Scot Rubi</h2>
       <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-zinc-300">
-        iKratom is built in his honor. A tribute — made by the community he
-        inspired — will live here soon. Until then, we light a candle. Much love,
-        brother.
-      </p>
-      <p className="mt-5 inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-        🎬 Tribute video — coming soon
+        iKratom is built in his honor. Much love, brother.
       </p>
     </motion.section>
   );
