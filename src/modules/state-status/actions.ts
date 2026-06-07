@@ -19,7 +19,7 @@ import { recordAdminAction } from "@/lib/audit";
  * returns an empty queue instead of throwing.
  */
 
-const LEAF_VALUES = ["legal", "kcpa", "banned", "restricted", "protected"];
+const LEAF_VALUES = ["legal", "kcpa", "banned", "restricted", "protected", "incoming"];
 const OH_VALUES = ["legal", "banned", "restricted", "protected"];
 
 export type StateStatusRow = {

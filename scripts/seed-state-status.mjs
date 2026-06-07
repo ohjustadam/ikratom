@@ -76,7 +76,7 @@ const NOTES = {
   OH: "Ohio KCPA (HB236, 2025): leaf legal, age verification + labeling. A May 2026 rule schedules only 7-OH/synthetic forms — not the natural leaf.",
   TN: "Tennessee KCPA (T.C.A. 39-17-452): leaf legal + regulated today. ⚠ A statewide ban on the natural leaf (HB1649) takes effect July 1, 2026.",
   UT: "Utah KCPA (Title 4 Ch. 45 + SB45, 2026): leaf legal, 21+, specialty shops only. A full ban was explicitly rejected; only synthetic/high-7-OH products are banned.",
-  WY: "Wyoming KCPA (SF0056, signed Mar 2026, effective Jul 1 2026): leaf legal, 21+, labeling, 7-OH capped at 2%.",
+  WY: "Wyoming's Kratom Consumer Protection Act (SF0056, signed Mar 2026) is APPROVED but takes effect July 1, 2026 — protections are not active yet. The map flips it to protected on that date.",
   DE: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. Competing ban (SB262) and KCPA (HB332) bills are pending, not enacted.",
   ID: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. 2026 bills failed; only local city ordinances exist.",
   IA: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. A 2026 Schedule I ban passed the House but died in the Senate.",
@@ -99,7 +99,7 @@ const SEED = [
   // Statewide leaf bans (KS removed — see corrections above)
   ...mk(["AL", "AR", "CA", "CT", "IN", "LA", "VT", "WI"], "banned", "banned", BAN_NOTE),
   // Kratom Consumer Protection Act states — leaf legal + regulated
-  ...mk(["AZ", "CO", "FL", "GA", "KY", "MD", "MS", "NE", "NV", "NY", "OH", "OK", "OR", "SC", "SD", "TN", "TX", "UT", "VA", "WV", "WY"], "kcpa", null, KCPA_NOTE),
+  ...mk(["AZ", "CO", "FL", "GA", "KY", "MD", "MS", "NE", "NV", "NY", "OH", "OK", "OR", "SC", "SD", "TN", "TX", "UT", "VA", "WV"], "kcpa", null, KCPA_NOTE),
   // Partial restriction only (age limit) — leaf legal
   ...mk(["IL", "MN", "NC"], "restricted", null, RESTRICTED_NOTE),
   // No statute — legal and unregulated
@@ -107,6 +107,9 @@ const SEED = [
   // Special cases
   { state: "KS", admin_leaf_status: "restricted", admin_7oh_status: "banned", admin_note: NOTES.KS },
   { state: "DC", admin_leaf_status: "legal", admin_7oh_status: "banned", admin_note: NOTES.DC },
+  // Protection approved but not yet in force — shown distinct from green; the
+  // 0180 flip turns it protected on its effective date.
+  { state: "WY", admin_leaf_status: "incoming", admin_7oh_status: null, admin_note: NOTES.WY },
   { state: "RI", admin_leaf_status: "legal", admin_7oh_status: null, admin_note: NOTES.RI },
   { state: "MI", admin_leaf_status: "legal", admin_7oh_status: null, admin_note: NOTES.MI },
 ];
@@ -122,6 +125,7 @@ console.log(`  banned     (${SEED.filter((r) => r.admin_leaf_status === "banned"
 console.log(`  kcpa       (${SEED.filter((r) => r.admin_leaf_status === "kcpa").length}): ${byStatus("kcpa")}`);
 console.log(`  restricted (${SEED.filter((r) => r.admin_leaf_status === "restricted").length}): ${byStatus("restricted")}`);
 console.log(`  legal      (${SEED.filter((r) => r.admin_leaf_status === "legal").length}): ${byStatus("legal")}`);
+console.log(`  incoming   (${SEED.filter((r) => r.admin_leaf_status === "incoming").length}): ${byStatus("incoming")}`);
 
 if (!APPLY) {
   console.log("\n(dry-run — re-run with --apply to write. All 50 states + DC seeded; future-dated flips tracked in state_status_flips / queue-due-state-flips.mjs.)");
