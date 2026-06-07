@@ -3,18 +3,27 @@
 /**
  * AI-summarize a phone-call transcript.
  *
- * The output feeds two purposes:
- *   1. Helps the calling advocate remember what was actually said.
- *   2. (When admin-approved + public) aggregates into "what is government
- *      saying about kratom" intel across all submitted calls.
+ * Produces THREE things from one model call:
+ *   1. summary_md      — full summary INCLUDING verbatim key quotes. PRIVATE:
+ *                        shown to the caller + the admin moderation view only.
+ *   2. public_summary_md — a QUOTE-FREE, PII-light summary safe to publish on
+ *                        the /calls/board intel surface (position + concerns +
+ *                        follow-up, no verbatim quotes of the official).
+ *   3. legislator_position — the stated position as a queryable enum, so the
+ *                        board can roll up "what is government saying" by state.
  *
- * Uses the same multi-provider AI router as the briefing generator —
- * Gemini/Groq/Cerebras/Mistral/Cloudflare/Ollama fallback chain. JSON
- * mode for reliable schema.
- *
- * Returns null on any provider failure — calls should never block on
- * summary generation, and the raw transcript stays available.
+ * Uses the same multi-provider chain as the briefing generator —
+ * Groq/Cerebras/Gemini, JSON mode. Returns nulls on total provider failure;
+ * calls never block on summary generation, and the raw transcript stays.
  */
+
+import {
+  formatSummaryMd,
+  formatPublicSummaryMd,
+  normalizePosition,
+  type Position,
+  type SummaryParsed,
+} from "./summary-format";
 
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 const GROQ_KEY = process.env.GROQ_API_KEY;
@@ -46,7 +55,7 @@ Return JSON with these fields:
 
 Return ONLY the JSON. No prose around it.`;
 
-async function callGroq(transcript: string, ctx: string): Promise<{ summary_md: string; provider: string } | null> {
+async function callGroq(transcript: string, ctx: string): Promise<{ parsed: SummaryParsed; provider: string } | null> {
   if (!GROQ_KEY) return null;
   try {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -68,15 +77,13 @@ async function callGroq(transcript: string, ctx: string): Promise<{ summary_md: 
     const data = await r.json();
     const raw = data.choices?.[0]?.message?.content;
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const md = formatSummaryMd(parsed);
-    return { summary_md: md, provider: "groq" };
+    return { parsed: JSON.parse(raw) as SummaryParsed, provider: "groq" };
   } catch {
     return null;
   }
 }
 
-async function callGemini(transcript: string, ctx: string): Promise<{ summary_md: string; provider: string } | null> {
+async function callGemini(transcript: string, ctx: string): Promise<{ parsed: SummaryParsed; provider: string } | null> {
   if (!GEMINI_KEY) return null;
   try {
     const r = await fetch(
@@ -100,15 +107,13 @@ async function callGemini(transcript: string, ctx: string): Promise<{ summary_md
     const data = await r.json();
     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const md = formatSummaryMd(parsed);
-    return { summary_md: md, provider: "gemini" };
+    return { parsed: JSON.parse(raw) as SummaryParsed, provider: "gemini" };
   } catch {
     return null;
   }
 }
 
-async function callCerebras(transcript: string, ctx: string): Promise<{ summary_md: string; provider: string } | null> {
+async function callCerebras(transcript: string, ctx: string): Promise<{ parsed: SummaryParsed; provider: string } | null> {
   if (!CEREBRAS_KEY) return null;
   try {
     const r = await fetch("https://api.cerebras.ai/v1/chat/completions", {
@@ -130,36 +135,10 @@ async function callCerebras(transcript: string, ctx: string): Promise<{ summary_
     const data = await r.json();
     const raw = data.choices?.[0]?.message?.content;
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const md = formatSummaryMd(parsed);
-    return { summary_md: md, provider: "cerebras" };
+    return { parsed: JSON.parse(raw) as SummaryParsed, provider: "cerebras" };
   } catch {
     return null;
   }
-}
-
-function formatSummaryMd(parsed: {
-  summary_md?: string;
-  legislator_position?: string;
-  key_quotes?: string[];
-  follow_up_needed?: string;
-  concerns_raised_by_legislator?: string[];
-}): string {
-  const blocks: string[] = [];
-  if (parsed.summary_md) blocks.push(parsed.summary_md);
-  if (parsed.legislator_position) {
-    blocks.push(`**Stated position:** ${parsed.legislator_position}`);
-  }
-  if (parsed.key_quotes && parsed.key_quotes.length > 0) {
-    blocks.push(`**Key quotes:**\n${parsed.key_quotes.map((q: string) => `> "${q}"`).join("\n\n")}`);
-  }
-  if (parsed.concerns_raised_by_legislator && parsed.concerns_raised_by_legislator.length > 0) {
-    blocks.push(`**Concerns raised:** ${parsed.concerns_raised_by_legislator.join(" · ")}`);
-  }
-  if (parsed.follow_up_needed) {
-    blocks.push(`**Follow-up:** ${parsed.follow_up_needed}`);
-  }
-  return blocks.join("\n\n");
 }
 
 export async function aiSummarizeCall(args: {
@@ -167,24 +146,35 @@ export async function aiSummarizeCall(args: {
   recipient_name: string | null;
   recipient_role: string | null;
   state: string | null;
-}): Promise<{ summary_md: string | null; provider: string | null }> {
+}): Promise<{
+  summary_md: string | null;
+  public_summary_md: string | null;
+  legislator_position: Position | null;
+  provider: string | null;
+}> {
   const ctx =
     `CALL CONTEXT:\n` +
     `Recipient: ${args.recipient_name ?? "(unknown)"}\n` +
     `Role: ${args.recipient_role ?? "(unknown)"}\n` +
     `State: ${args.state ?? "(unknown)"}\n`;
 
-  // Provider rotation — try fast/cheap first
-  const providers: Array<() => Promise<{ summary_md: string; provider: string } | null>> = [
+  const providers: Array<() => Promise<{ parsed: SummaryParsed; provider: string } | null>> = [
     () => callGroq(args.transcript_md, ctx),
     () => callCerebras(args.transcript_md, ctx),
     () => callGemini(args.transcript_md, ctx),
   ];
   for (const fn of providers) {
     const r = await fn();
-    if (r) return r;
+    if (r) {
+      return {
+        summary_md: formatSummaryMd(r.parsed),
+        public_summary_md: formatPublicSummaryMd(r.parsed),
+        legislator_position: normalizePosition(r.parsed.legislator_position),
+        provider: r.provider,
+      };
+    }
   }
-  return { summary_md: null, provider: null };
+  return { summary_md: null, public_summary_md: null, legislator_position: null, provider: null };
 }
 
 // Cloudflare/Anthropic/Mistral references appear for future expansion

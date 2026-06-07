@@ -18,12 +18,11 @@ const POS_COLORS: Record<string, string> = {
 /**
  * /calls/board — the "what calls work" community intel board.
  *
- * Shows AI summaries from approved call_sessions where users opted in
- * to share. PII-redacted: only the legislator name + summary + position
- * indicator. No user identity, no raw transcript.
- *
- * Builds the open intel corpus the owner described: "what is government
- * actually saying" surfaced for the next advocate going into a similar call.
+ * Reads the public_call_intel VIEW (migration 0184), NOT call_sessions directly:
+ * the view exposes only safe, anonymized columns of APPROVED calls — never the
+ * caller's user_id, the raw transcript, or the verbatim-quote ai_summary_md.
+ * Shows the quote-free public_summary_md + the queryable stated position, plus a
+ * top-line "what is government saying" rollup across all approved calls.
  */
 export default async function CallsBoardPage({ searchParams }: { searchParams?: Promise<{ state?: string }> }) {
   const sp = (await searchParams) ?? {};
@@ -31,25 +30,27 @@ export default async function CallsBoardPage({ searchParams }: { searchParams?: 
 
   const sb = await createClient();
   let q = sb
-    .from("call_sessions")
-    .select("id, recipient_name, recipient_role, state, started_at, duration_seconds, outcome, ai_summary_md")
-    .eq("moderation_status", "approved")
-    .not("ai_summary_md", "is", null)
+    .from("public_call_intel")
+    .select("id, recipient_name, recipient_role, state, started_at, duration_seconds, outcome, legislator_position, public_summary_md")
     .order("started_at", { ascending: false })
     .limit(50);
   if (stateFilter) q = q.eq("state", stateFilter);
   const { data: rows } = await q;
 
-  // Group + count by state for the filter pills
+  // Aggregate across ALL approved calls: per-state counts (filter pills) +
+  // position tally ("what is government saying").
   const { data: allApproved } = await sb
-    .from("call_sessions")
-    .select("state")
-    .eq("moderation_status", "approved");
+    .from("public_call_intel")
+    .select("state, legislator_position");
   const byState = new Map<string, number>();
+  const byPos = new Map<string, number>();
   for (const r of allApproved ?? []) {
     const s = r.state ?? "?";
     byState.set(s, (byState.get(s) ?? 0) + 1);
+    const p = r.legislator_position ?? "unclear";
+    byPos.set(p, (byPos.get(p) ?? 0) + 1);
   }
+  const total = allApproved?.length ?? 0;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -57,18 +58,34 @@ export default async function CallsBoardPage({ searchParams }: { searchParams?: 
         ← Calls
       </Link>
       <header className="mt-2 mb-6">
-        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          📞 What calls work
-        </p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">📞 What calls work</p>
         <h1 className="mt-2 text-3xl font-bold">Community intel from real conversations</h1>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-          AI-summarized highlights from approved advocate calls — what legislators
-          actually said, what arguments landed, where pushback came from. User
-          identity always redacted; only the recipient + position + summary is shown.
-          Submit your own via the &ldquo;Submit for review&rdquo; toggle when you
-          end a tracked call.
+          AI-summarized highlights from approved advocate calls — what legislators actually said, what
+          arguments landed, where pushback came from. User identity always redacted; verbatim quotes are
+          kept private. Submit your own via the &ldquo;Submit for review&rdquo; toggle when you end a tracked call.
         </p>
       </header>
+
+      {/* "What is government saying" rollup */}
+      {total > 0 && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+            What government is saying · {total} call{total === 1 ? "" : "s"}{stateFilter ? "" : " (all states)"}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(["opposed", "undecided", "supportive", "unclear", "not_discussed"] as const).map((p) => {
+              const n = byPos.get(p) ?? 0;
+              if (n === 0) return null;
+              return (
+                <span key={p} className={`rounded border px-2 py-0.5 text-xs font-semibold ${POS_COLORS[p]}`}>
+                  {n} {p.replace(/_/g, " ")}
+                </span>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {byState.size > 0 && (
         <nav className="mb-6 flex flex-wrap gap-2 text-xs">
@@ -76,7 +93,7 @@ export default async function CallsBoardPage({ searchParams }: { searchParams?: 
             href="/calls/board"
             className={`rounded px-3 py-1.5 ${!stateFilter ? "bg-emerald-600 text-zinc-950" : "border border-zinc-800 bg-zinc-950/40 hover:border-emerald-500"}`}
           >
-            All ({allApproved?.length ?? 0})
+            All ({total})
           </Link>
           {Array.from(byState.entries()).sort((a, b) => b[1] - a[1]).map(([state, count]) => (
             <Link
@@ -104,7 +121,7 @@ export default async function CallsBoardPage({ searchParams }: { searchParams?: 
       ) : (
         <ul className="space-y-4">
           {rows?.map((c) => {
-            const pos = (c.ai_summary_md ?? "").match(/\*\*Stated position:\*\*\s*(\w+)/i)?.[1]?.toLowerCase() ?? "unclear";
+            const pos = c.legislator_position ?? "unclear";
             return (
               <li key={c.id} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
                 <div className="flex flex-wrap items-baseline gap-2">
@@ -117,14 +134,10 @@ export default async function CallsBoardPage({ searchParams }: { searchParams?: 
                   {c.duration_seconds != null && (
                     <span className="text-[11px] text-zinc-500">{Math.round(c.duration_seconds / 60)}m</span>
                   )}
-                  <span className="ml-auto text-[10px] text-zinc-600">
-                    {(c.started_at ?? "").slice(0, 10)}
-                  </span>
+                  <span className="ml-auto text-[10px] text-zinc-600">{(c.started_at ?? "").slice(0, 10)}</span>
                 </div>
-                {c.ai_summary_md && (
-                  <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
-                    {c.ai_summary_md}
-                  </div>
+                {c.public_summary_md && (
+                  <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">{c.public_summary_md}</div>
                 )}
               </li>
             );

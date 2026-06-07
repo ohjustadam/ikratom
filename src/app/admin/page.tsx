@@ -43,6 +43,7 @@ export default async function AdminPage() {
     { count: activeLegislatorCount },
     { count: activeBillCount },
     { count: actionCount },
+    { count: pendingCallCount },
     queues,
   ] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }),
@@ -55,6 +56,7 @@ export default async function AdminPage() {
     supabase.from("bills").select("id", { count: "exact", head: true })
       .eq("active", true),
     supabase.from("campaign_actions").select("id", { count: "exact", head: true }),
+    supabase.from("call_sessions").select("id", { count: "exact", head: true }).eq("moderation_status", "pending_review"),
     getAdminQueueCounts(),
   ]);
 
@@ -68,6 +70,12 @@ export default async function AdminPage() {
       title: `Campaign review (${queues.campaigns})`,
       body: "Approve or reject auto-generated campaigns flagged for human review.",
       count: queues.campaigns,
+    });
+    if ((pendingCallCount ?? 0) > 0) inbox.push({
+      href: "/admin/calls",
+      title: `Call intel review (${pendingCallCount})`,
+      body: "Approve advocate call summaries for the public 'what is government saying' board.",
+      count: pendingCallCount ?? 0,
     });
     if (queues.forum > 0) inbox.push({
       href: "/admin/forum",

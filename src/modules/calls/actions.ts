@@ -104,7 +104,12 @@ export async function endCallSession(input: EndSessionInput) {
 
   // If outcome is "reached" + transcript exists → AI-summarize
   const transcript = (input.transcript_md ?? row.transcript_md ?? "").trim();
-  let summary: { summary_md: string | null; provider: string | null } = { summary_md: null, provider: null };
+  let summary: {
+    summary_md: string | null;
+    public_summary_md: string | null;
+    legislator_position: string | null;
+    provider: string | null;
+  } = { summary_md: null, public_summary_md: null, legislator_position: null, provider: null };
   if (input.outcome === "reached" && transcript.length > 100) {
     try {
       summary = await aiSummarizeCall({
@@ -128,6 +133,8 @@ export async function endCallSession(input: EndSessionInput) {
     transcript_md: transcript || null,
     user_notes_md: input.user_notes_md?.slice(0, 10000) ?? null,
     ai_summary_md: summary.summary_md,
+    public_summary_md: summary.public_summary_md,
+    legislator_position: summary.legislator_position,
     ai_summary_provider: summary.provider,
     moderation_status: moderationStatus,
   }).eq("id", input.sessionId).eq("user_id", user.id);
