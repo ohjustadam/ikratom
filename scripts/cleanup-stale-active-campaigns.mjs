@@ -188,10 +188,11 @@ if (APPLY) {
   try {
     await sb.from("scraper_runs").insert({
       source: "daily_stale_campaign_cleanup",
-      status: "ok",
-      items_processed: stats.supersededOrphans + stats.deactivatedBillTerminal + stats.expiredAlerts + stats.deactivatedActionStale,
-      details: stats,
-      ran_at: new Date().toISOString(),
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      status: "success",
+      rows_updated: stats.supersededOrphans + stats.deactivatedBillTerminal + stats.expiredAlerts + stats.deactivatedActionStale,
+      notes: JSON.stringify(stats),
     });
   } catch (e) { console.warn(`(scraper_runs insert non-fatal: ${e.message})`); }
 }
