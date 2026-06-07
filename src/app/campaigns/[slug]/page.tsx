@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators, type Legislator } from "@/lib/legislators";
 import { buildVars, renderTemplate } from "@/modules/campaigns/templates";
 import { getMyCampaignProgress } from "@/modules/campaigns/actions";
+import { getEmailIntegration } from "@/lib/email/user-send";
 import { getMyWaveStatus } from "@/modules/waves/actions";
 import { CampaignAction } from "@/modules/campaigns/components/CampaignAction";
 import { LocalActionPlaybook, type LocalMeta } from "@/modules/campaigns/components/LocalActionPlaybook";
@@ -76,13 +77,22 @@ export default async function CampaignPage({
   // mean touching many sites, so we keep the names but populate from
   // any provider's row. Future cleanup: rename to emailConnected /
   // emailFromAddress.
-  const { data: emailIntegration } = await supabase
+  // Connected = a VALID token, not just a saved row. getEmailIntegration()
+  // (service-role) returns null when the refresh token was blanked after an
+  // invalid_grant revocation — the SAME check the send path uses, so we never
+  // show a "Send" button that then fails with "no provider connected" (the bug
+  // the owner hit: account_email persisted but the token was revoked). A row
+  // with an account_email but no valid token = the connection EXPIRED → prompt a
+  // reconnect rather than a first-time connect.
+  const validIntegration = await getEmailIntegration(user.id);
+  const { data: rawIntegration } = await supabase
     .from("email_integrations")
-    .select("account_email, provider")
+    .select("account_email")
     .eq("user_id", user.id)
     .maybeSingle();
-  const gmailConnected = !!(emailIntegration && emailIntegration.account_email);
-  const gmailIntegration = emailIntegration; // alias for existing prop names below
+  const gmailConnected = !!validIntegration;
+  const gmailIntegration = validIntegration; // alias for existing prop names below
+  const emailNeedsReconnect = !validIntegration && !!rawIntegration?.account_email;
 
   // Resolve recipients — three modes:
   // 1. Explicit `target_legislator_ids` (campaign creator picked specific officials)
@@ -397,6 +407,7 @@ export default async function CampaignPage({
         bodyTemplate={campaign.body_template}
         gmailConnected={gmailConnected}
         gmailEmail={gmailIntegration?.account_email ?? null}
+        emailNeedsReconnect={emailNeedsReconnect}
         alreadySentLegislatorIds={myProgress.sentLegislatorIds}
         lastSentAt={myProgress.lastSentAt}
         initialSubject={subject}

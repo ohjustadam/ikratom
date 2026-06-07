@@ -39,6 +39,7 @@ export function CampaignAction({
   hasDistricts,
   pickableStateReps,
   campaignSlug,
+  emailNeedsReconnect,
 }: {
   campaignId: string;
   targets: Legislator[];
@@ -69,6 +70,9 @@ export function CampaignAction({
   pickableStateReps: Legislator[];
   /** Campaign slug for building the ?manual_targets URL. */
   campaignSlug: string;
+  /** True when a prior email connection exists but its OAuth token was revoked
+   *  (invalid_grant) — prompt a reconnect rather than a first-time connect. */
+  emailNeedsReconnect?: boolean;
 }) {
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
@@ -473,10 +477,14 @@ export function CampaignAction({
       {!allAlreadySent && !gmailConnected && sentVia === null && (
         <div className="mt-6 rounded-lg border-2 border-dashed border-emerald-700/50 bg-emerald-950/10 p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-emerald-300">
-            ⚡ One-click send (optional)
+            {emailNeedsReconnect ? "⚠ Reconnect your email" : "⚡ One-click send (optional)"}
           </p>
           <p className="mt-1 text-sm text-zinc-300">
-            Connect your email once and the {targetsWithEmail.length} email{targetsWithEmail.length === 1 ? "" : "s"} below send in a single click — each from <strong>your</strong> address, each in your Sent folder.
+            {emailNeedsReconnect ? (
+              <>Your email connection expired (Google revoked the token), so one-click send is paused. Reconnect below to resume — or use the manual send options above, which need no connection.</>
+            ) : (
+              <>Connect your email once and the {targetsWithEmail.length} email{targetsWithEmail.length === 1 ? "" : "s"} below send in a single click — each from <strong>your</strong> address, each in your Sent folder.</>
+            )}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <a
