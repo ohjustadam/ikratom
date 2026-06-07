@@ -31,6 +31,19 @@ describe("call summary formatting", () => {
     expect(pub).toContain("youth access");
   });
 
+  it("public summary strips a quote even if the model slips one into the prose", () => {
+    const sneaky = {
+      summary_md: 'Rep Lee said "ban gas-station heroin now" and pushed back hard.',
+      legislator_position: "opposed",
+      key_quotes: [],
+      concerns_raised_by_legislator: ["youth access"],
+    };
+    const pub = formatPublicSummaryMd(sneaky);
+    expect(pub).not.toContain("ban gas-station heroin now");
+    expect(pub).toContain("[…]");
+    expect(pub.toLowerCase()).toContain("opposed");
+  });
+
   it("normalizePosition validates the enum", () => {
     expect(normalizePosition("opposed")).toBe("opposed");
     expect(normalizePosition("OPPOSED")).toBe("opposed");

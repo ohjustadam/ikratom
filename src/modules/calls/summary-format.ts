@@ -30,15 +30,28 @@ export function formatSummaryMd(parsed: SummaryParsed): string {
   return blocks.join("\n\n");
 }
 
-/** Public, QUOTE-FREE summary for /calls/board. Deliberately omits key_quotes —
- *  publishing a named official's verbatim words from a private call carries
- *  wiretap-contents / publication risk the platform should not take by default. */
+/** Strip any double-quoted span (straight or curly) so a verbatim quote the
+ *  model slipped into prose (rather than the key_quotes field) can't reach the
+ *  public board. Defense-in-depth WITH the paraphrase-only prompt + the human
+ *  moderation step — makes the quote-free guarantee structural, not just
+ *  prompt-dependent. Preserves newlines (only collapses runs of spaces). */
+function stripQuotedSpans(text: string): string {
+  return text
+    .replace(/[“”"][^“”"]*[“”"]/g, "[…]")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+/** Public, QUOTE-FREE summary for /calls/board. Omits key_quotes AND strips any
+ *  quoted span from the prose — publishing a named official's verbatim words
+ *  from a private call carries wiretap-contents / publication risk the platform
+ *  should not take by default. */
 export function formatPublicSummaryMd(parsed: SummaryParsed): string {
   const blocks: string[] = [];
-  if (parsed.summary_md) blocks.push(parsed.summary_md);
+  if (parsed.summary_md) blocks.push(stripQuotedSpans(parsed.summary_md));
   if (parsed.legislator_position) blocks.push(`**Stated position:** ${parsed.legislator_position}`);
   if (parsed.concerns_raised_by_legislator && parsed.concerns_raised_by_legislator.length > 0) {
-    blocks.push(`**Concerns raised:** ${parsed.concerns_raised_by_legislator.join(" · ")}`);
+    blocks.push(`**Concerns raised:** ${stripQuotedSpans(parsed.concerns_raised_by_legislator.join(" · "))}`);
   }
   return blocks.join("\n\n");
 }

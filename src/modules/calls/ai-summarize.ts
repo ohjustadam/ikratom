@@ -44,7 +44,9 @@ Return JSON with these fields:
                  Be specific: name the bill/topic, the legislator's stated position (if they shared one),
                  and the call outcome (committed / declined / will-think / unclear).
                  ALWAYS distinguish natural-leaf kratom from 7-OH-enriched / synthetic products if
-                 that distinction came up.",
+                 that distinction came up.
+                 PARAPHRASE ONLY — do NOT put any direct quotation or quoted phrase in summary_md;
+                 ALL verbatim wording goes in key_quotes (it is shown only privately).",
   "legislator_position": "supportive" | "opposed" | "undecided" | "unclear" | "not_discussed",
   "key_quotes": ["array of 0-3 short direct quotes (under 25 words each) that capture the legislator's
                   voice on kratom. Use exact wording from the transcript. Empty array if no notable quotes."],
