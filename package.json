@@ -46,6 +46,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",
     "@aws-sdk/s3-request-presigner": "^3.1045.0",
+    "@breezystack/lamejs": "^1.2.7",
     "@mozilla/readability": "^0.6.0",
     "@sentry/nextjs": "^10.52.0",
     "@supabase/ssr": "^0.10.2",
@@ -57,6 +58,7 @@
     "driver.js": "^1.4.0",
     "framer-motion": "^12.40.0",
     "gray-matter": "^4.0.3",
+    "kokoro-js": "^1.2.1",
     "libsodium-wrappers": "^0.8.4",
     "linkedom": "^0.18.12",
     "marked": "^18.0.3",

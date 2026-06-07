@@ -2,25 +2,23 @@
 /**
  * render-daily-brief-audio.mjs — Phase 2 audio brief.
  *
- * Renders today's national kratom-policy brief as an MP3 using
- * Microsoft Edge TTS (free public endpoint, no API key, neural voice).
- * Uploads the file to a public Supabase Storage bucket so /brief can
- * play it via a standard <audio> element.
+ * Renders today's national kratom-policy brief as a TWO-VOICE MP3 using
+ * Kokoro-82M (kokoro-js, Apache-2.0, pure Node/WASM, no GPU, no API key)
+ * via scripts/lib/kokoro-tts.mjs, then uploads it to a public Supabase
+ * Storage bucket so /brief plays it via a standard <audio> element.
  *
- * The browser-native SpeechSynthesis Listen button on /brief stays as
- * the fallback when no MP3 exists for the current day. Voice quality
- * was the gating issue — owner's Windows install didn't have neural
- * voices, so the browser-native TTS sounded robotic. Edge TTS uses
- * MS's cloud neural voices regardless of client OS.
+ * NPR style: a male anchor (am_michael) frames the brief + transitions; a
+ * female co-anchor (af_heart) reads the individual alerts + headlines.
+ * Replaces the old single-voice Microsoft Edge TTS (an undocumented MS
+ * endpoint) with owned weights. The browser-native SpeechSynthesis Listen
+ * button on /brief stays as the fallback when no MP3 exists for the day.
  *
  * Storage:
  *   bucket: daily-brief-audio (public-read)
- *   path:   {YYYY-MM-DD}/national.mp3
+ *   path:   {YYYY-MM-DD}/national.mp3   (mono MP3, 64kbps, 24kHz)
  *
- * Voice:   en-US-ChristopherNeural  (warm male, NPR-ish timbre)
- * Quality: 24kHz / 48kbps / mono MP3 — ~360KB per minute, plenty for
- *          a 1-2 min brief. Stays well under Supabase free-tier
- *          Storage 1GB cap even with 30-day retention.
+ * Note: the first run downloads the ~80MB q8 ONNX weights from HuggingFace;
+ * subsequent runs reuse the cache.
  *
  * Usage:
  *   node --env-file=.env.local scripts/render-daily-brief-audio.mjs
@@ -28,13 +26,13 @@
  *   node --env-file=.env.local scripts/render-daily-brief-audio.mjs --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import { renderSegmentsToMp3 } from "./lib/kokoro-tts.mjs";
 import { Buffer } from "node:buffer";
 
 const args = process.argv.slice(2);
 const DRY = args.includes("--dry-run");
 const voiceIdx = args.indexOf("--voice");
-const VOICE = voiceIdx >= 0 ? args[voiceIdx + 1] : "en-US-ChristopherNeural";
+const VOICE = voiceIdx >= 0 ? args[voiceIdx + 1] : "kokoro:am_michael+af_heart";
 // --if-missing: render only when today's file is absent. Lets the hourly cron
 // self-heal a skipped daily run (GitHub schedules are best-effort) cheaply.
 const IF_MISSING = args.includes("--if-missing");
@@ -120,34 +118,38 @@ const dateLong = new Date().toLocaleDateString("en-US", {
   weekday: "long", month: "long", day: "numeric", year: "numeric",
 });
 
-const parts = [];
-parts.push(`Welcome to the iKratom daily brief for ${dateLong}. I'm your kratom-policy correspondent.`);
+// Two-voice NPR style: the male anchor frames the brief + transitions; the
+// female co-anchor reads the individual alerts + headlines.
+const segments = [];
+const seg = (text, voice = "male") => { const t = (text ?? "").trim(); if (t) segments.push({ text: t, voice }); };
+
+seg(`Welcome to the iKratom daily brief for ${dateLong}. I'm your kratom-policy anchor.`, "male");
 
 const cn = (critAlerts ?? []).length;
 const wn = (warnAlerts ?? []).length;
 if (cn === 0 && wn === 0) {
-  parts.push("It's a quiet day on the policy front. No new critical alerts and no warning-level events in the last week.");
+  seg("It's a quiet day on the policy front. No new critical alerts and no warning-level events in the last week.", "male");
 } else {
   if (cn > 0) {
-    parts.push(`Top of the brief: ${cn} critical alert${cn === 1 ? "" : "s"} this week.`);
-    for (const a of critAlerts) parts.push(`From ${expandLocality(a.locality) || "the federal level"}: ${cleanForTTS(a.title)}.`);
+    seg(`Top of the brief: ${cn} critical alert${cn === 1 ? "" : "s"} this week.`, "male");
+    for (const a of critAlerts) seg(`From ${expandLocality(a.locality) || "the federal level"}: ${cleanForTTS(a.title)}.`, "female");
   }
   if (wn > 0) {
-    parts.push(`Also tracking ${wn} warning-level event${wn === 1 ? "" : "s"}.`);
-    for (const a of warnAlerts.slice(0, 3)) parts.push(`${expandLocality(a.locality) || "Federal"}: ${cleanForTTS(a.title)}.`);
+    seg(`Also tracking ${wn} warning-level event${wn === 1 ? "" : "s"}.`, "male");
+    for (const a of warnAlerts.slice(0, 3)) seg(`${expandLocality(a.locality) || "Federal"}: ${cleanForTTS(a.title)}.`, "female");
   }
 }
 
 const newsArr = (news ?? []).filter((n) => n.title);
 if (newsArr.length > 0) {
-  parts.push(`In headlines from the last day and a half:`);
+  seg(`Now, headlines from the last day and a half.`, "male");
   for (const n of newsArr.slice(0, 5)) {
-    parts.push(`${n.state ? `From ${expandLocality(n.state)}` : "Federal"}: ${cleanForTTS(n.title)}.`);
+    seg(`${n.state ? `From ${expandLocality(n.state)}` : "Federal"}: ${cleanForTTS(n.title)}.`, "female");
   }
 }
 
-parts.push("That's your iKratom daily brief. Visit ikratom dot org slash brief for the full picture, linked legislation, and one-click actions. Stay engaged.");
-const script = parts.join(" ");
+seg("That's your iKratom daily brief. Visit ikratom dot org slash brief for the full picture, linked legislation, and one-click actions. Stay engaged.", "male");
+const script = segments.map((s) => s.text).join(" ");
 
 console.log(`  script: ${script.length} chars, ~${Math.round(script.length / 15)}s estimated audio`);
 
@@ -172,21 +174,9 @@ if (DRY) {
   process.exit(0);
 }
 
-// ── 2. Render via Edge TTS ───────────────────────────────────────────
-console.log("  rendering via Edge TTS…");
-const tts = new MsEdgeTTS();
-await tts.setMetadata(VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-const { audioStream } = tts.toStream(script);
-
-const chunks = [];
-await new Promise((resolve, reject) => {
-  audioStream.on("data", (c) => chunks.push(c));
-  audioStream.on("end", resolve);
-  audioStream.on("close", resolve);
-  audioStream.on("error", reject);
-  setTimeout(() => reject(new Error("TTS timeout (60s)")), 60_000);
-});
-const mp3 = Buffer.concat(chunks);
+// ── 2. Render via Kokoro (local neural TTS, two voices) ──────────────
+console.log(`  rendering via Kokoro — ${segments.length} segments, 2 voices…`);
+const mp3 = await renderSegmentsToMp3(segments);
 console.log(`  rendered ${(mp3.length / 1024).toFixed(1)} KB`);
 
 // ── 3. Ensure bucket exists ─────────────────────────────────────────
