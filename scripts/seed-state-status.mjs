@@ -9,9 +9,11 @@
  * Ground truth: cross-referenced + adversarially verified 2026-06-07 via a
  * multi-source research sweep (LAPPA statutes + AKA + recent news + industry
  * trackers; statute wins on conflict; each "banned" call had to survive a
- * refutation pass). Only HIGH-confidence, not-mid-change states are seeded here.
- * Mid-change states (TN→ban Jul 1, KY→ban Jan 1, OH/UT/WY/GA/ID/IA/MA/WA, etc.)
- * are intentionally held grey for a second pass.
+ * refutation pass). All 50 states + DC are now seeded (the 2026-06-07 second
+ * pass cleared the previously-held mid-change states at their CURRENT status).
+ * Future-dated changes (TN→ban Jul 1, KY→ban Jan 1, VA 7-OH Jul 1, MN age Aug 1)
+ * are tracked in state_status_flips (migration 0179) and surfaced into the
+ * confirm queue on their effective dates by queue-due-state-flips.mjs.
  *
  * KEY CORRECTIONS from the earlier seed:
  *   - KS was NOT a leaf ban: HB2365 (signed Apr 2026) scheduled only 7-OH; the
@@ -68,6 +70,21 @@ const NOTES = {
   NC: "North Carolina (HB747, 2016): under-18 sale ban + age verification only. No statewide leaf ban.",
   RI: "Rhode Island reversed its kratom ban (effective Apr 1, 2026) — natural-leaf kratom is legal, now regulated (21+, retailer licensing).",
   MI: "Kratom is currently legal in Michigan. A House-passed ban (HB 5537, 2026) is pending in the Senate — a live threat to track, not current law.",
+  // Held states cleared in the 2026-06-07 second pass (current status; future flips tracked in state_status_flips).
+  GA: "Georgia KCPA (GA Code 16-13-120, 2019): leaf legal, 21+ (since 2025), labeling. A repeal/ban bill (HB968) is pending — a live threat, not law.",
+  KY: "Kentucky KCPA (HB293, 2024): leaf legal, 21+. ⚠ HB757 repeals the KCPA and bans sales effective Jan 1, 2027 (under a constitutional challenge).",
+  OH: "Ohio KCPA (HB236, 2025): leaf legal, age verification + labeling. A May 2026 rule schedules only 7-OH/synthetic forms — not the natural leaf.",
+  TN: "Tennessee KCPA (T.C.A. 39-17-452): leaf legal + regulated today. ⚠ A statewide ban on the natural leaf (HB1649) takes effect July 1, 2026.",
+  UT: "Utah KCPA (Title 4 Ch. 45 + SB45, 2026): leaf legal, 21+, specialty shops only. A full ban was explicitly rejected; only synthetic/high-7-OH products are banned.",
+  WY: "Wyoming KCPA (SF0056, signed Mar 2026, effective Jul 1 2026): leaf legal, 21+, labeling, 7-OH capped at 2%.",
+  DE: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. Competing ban (SB262) and KCPA (HB332) bills are pending, not enacted.",
+  ID: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. 2026 bills failed; only local city ordinances exist.",
+  IA: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. A 2026 Schedule I ban passed the House but died in the Senate.",
+  MA: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. 2026 ban/KCPA bills are pending; only local bans exist.",
+  MO: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. The 2022 KCPA was vetoed; restrictions are local only.",
+  NH: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. The 2026 regulation bill (SB557) failed; only local ordinances exist.",
+  WA: "No kratom-specific statute — natural-leaf kratom is legal and unregulated. 2026 regulation/tax bills died; only local city bans exist.",
+  DC: "Washington, D.C. schedules only 7-OH (since 2016); the natural leaf is legal. No Consumer Protection Act.",
 };
 
 const mk = (states, leaf, sevenoh, fallbackNote) =>
@@ -82,13 +99,14 @@ const SEED = [
   // Statewide leaf bans (KS removed — see corrections above)
   ...mk(["AL", "AR", "CA", "CT", "IN", "LA", "VT", "WI"], "banned", "banned", BAN_NOTE),
   // Kratom Consumer Protection Act states — leaf legal + regulated
-  ...mk(["AZ", "CO", "FL", "MD", "MS", "NE", "NV", "NY", "OK", "OR", "SC", "SD", "TX", "VA", "WV"], "kcpa", null, KCPA_NOTE),
+  ...mk(["AZ", "CO", "FL", "GA", "KY", "MD", "MS", "NE", "NV", "NY", "OH", "OK", "OR", "SC", "SD", "TN", "TX", "UT", "VA", "WV", "WY"], "kcpa", null, KCPA_NOTE),
   // Partial restriction only (age limit) — leaf legal
   ...mk(["IL", "MN", "NC"], "restricted", null, RESTRICTED_NOTE),
   // No statute — legal and unregulated
-  ...mk(["AK", "HI", "ME", "MT", "NJ", "NM", "ND", "PA"], "legal", null, LEGAL_NOTE),
+  ...mk(["AK", "DE", "HI", "IA", "ID", "MA", "ME", "MO", "MT", "NH", "NJ", "NM", "ND", "PA", "WA"], "legal", null, LEGAL_NOTE),
   // Special cases
   { state: "KS", admin_leaf_status: "restricted", admin_7oh_status: "banned", admin_note: NOTES.KS },
+  { state: "DC", admin_leaf_status: "legal", admin_7oh_status: "banned", admin_note: NOTES.DC },
   { state: "RI", admin_leaf_status: "legal", admin_7oh_status: null, admin_note: NOTES.RI },
   { state: "MI", admin_leaf_status: "legal", admin_7oh_status: null, admin_note: NOTES.MI },
 ];
@@ -106,7 +124,7 @@ console.log(`  restricted (${SEED.filter((r) => r.admin_leaf_status === "restric
 console.log(`  legal      (${SEED.filter((r) => r.admin_leaf_status === "legal").length}): ${byStatus("legal")}`);
 
 if (!APPLY) {
-  console.log("\n(dry-run — re-run with --apply to write. Mid-change states held grey: TN KY OH UT WY GA ID IA MA MO WA DE DC NH.)");
+  console.log("\n(dry-run — re-run with --apply to write. All 50 states + DC seeded; future-dated flips tracked in state_status_flips / queue-due-state-flips.mjs.)");
   process.exit(0);
 }
 
