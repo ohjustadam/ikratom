@@ -39,6 +39,8 @@ export function CallActionPanel({
   const [showPoints, setShowPoints] = useState(false);
   const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE);
   const [pending, startTransition] = useTransition();
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
 
   const callable = targets.filter((t) => !!t.phone);
   if (callable.length === 0) return null;
@@ -62,13 +64,30 @@ export function CallActionPanel({
           method: "call",
           isNonResident,
         });
-        if (!("error" in r)) {
+        if ("error" in r) {
+          setCallError(r.error ?? "Couldn't log the call — please try again.");
+        } else {
           setLogged((prev) => new Set(prev).add(legislatorId));
+          setCallError(null);
         }
       } catch (e) {
         console.error("[campaign] logCampaignAction(call) failed", e);
+        setCallError("Couldn't log the call — please try again.");
       }
     });
+  }
+
+  // tel: links do nothing in a desktop browser, so "Call now" also copies the
+  // number (and logs the call) — desktop users can dial it from their phone.
+  function copyNumber(phone: string | null, id: string) {
+    if (!phone) return;
+    navigator.clipboard
+      ?.writeText(phone)
+      .then(() => {
+        setCopiedId(id);
+        setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 3000);
+      })
+      .catch(() => {});
   }
 
   return (
@@ -144,7 +163,7 @@ export function CallActionPanel({
                 <div className="flex gap-2">
                   <a
                     href={`tel:${t.phone}`}
-                    onClick={() => logCall(t.id)}
+                    onClick={() => { copyNumber(t.phone, t.id); logCall(t.id); }}
                     className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-400"
                   >
                     Call now
@@ -162,10 +181,16 @@ export function CallActionPanel({
                   </button>
                 </div>
               </div>
+              {copiedId === t.id && (
+                <p className="mt-2 text-xs text-emerald-300">
+                  📋 {t.phone} copied — dial it from your phone (a desktop browser can&apos;t place the call).
+                </p>
+              )}
             </li>
           );
         })}
       </ul>
+      {callError && <p className="mt-2 text-xs text-red-300">{callError}</p>}
 
       {(hiddenCount > 0 || visibleCount > DEFAULT_VISIBLE) && (
         <div className="mt-3 flex flex-wrap gap-2">

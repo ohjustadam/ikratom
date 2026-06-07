@@ -1,25 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   buildShareUrl,
+  withShareRef,
   NETWORK_LABEL,
   NETWORK_EMOJI,
   type ShareNetwork,
 } from "./share";
 
 /**
- * "Social media bombing" — share-everywhere button row + edit-text
- * popover. Each button opens the network's compose dialog with text
- * + URL prefilled. Hashtags optional (X/Mastodon use them, others
- * ignore).
+ * Amplify / share row. Replaces the old "bomb run" that opened 5 popups at once
+ * (popup-blocked on desktop, broken on mobile). Three reliable paths instead:
  *
- * "Bomb all" button opens every network's dialog in sequence (with
- * a small delay so popup blockers don't squash them all).
+ *   1. Share (native sheet) — navigator.share opens the device's own share menu,
+ *      so one tap posts to ANY installed app, including Instagram, TikTok,
+ *      Snapchat, SMS, WhatsApp — the platforms that have NO web prefill URL.
+ *      Shown when supported (all mobile + Safari/Edge desktop).
+ *   2. Copy — copies the message + link to the clipboard so it can be pasted
+ *      anywhere (Facebook strips prefilled text; IG/TikTok/Snap are app-only).
+ *   3. Per-platform buttons — open ONE network on click (a user gesture, so no
+ *      popup blocker), for X/Bluesky/Telegram/Mastodon/Facebook/Reddit/WhatsApp/Email.
  *
- * Attribution: every share URL gets ?ref=share&host=<network>
- * appended so proxy.ts cookie-credits any landing user.
+ * Attribution: every path tags ?ref=share&host=<channel> for proxy.ts crediting.
  */
+const NETWORKS: ShareNetwork[] = [
+  "x", "bluesky", "telegram", "mastodon", "facebook", "reddit", "whatsapp", "email",
+];
+
 export function ShareButtons({
   url,
   text: initialText,
@@ -33,20 +41,33 @@ export function ShareButtons({
 }) {
   const [text, setText] = useState(initialText);
   const [showEditor, setShowEditor] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [canNativeShare, setCanNativeShare] = useState(false);
 
-  const networks: ShareNetwork[] = ["x", "bluesky", "telegram", "mastodon", "facebook"];
+  // Feature-detect after mount to avoid SSR hydration mismatch.
+  useEffect(() => {
+    setCanNativeShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
+  }, []);
 
   function shareTo(network: ShareNetwork) {
-    const shareUrl = buildShareUrl({ network, text, url, hashtags });
-    window.open(shareUrl, "_blank", "noopener,noreferrer,width=560,height=620");
+    window.open(buildShareUrl({ network, text, url, hashtags }), "_blank", "noopener,noreferrer,width=560,height=620");
   }
 
-  async function bombAll() {
-    if (!confirm(`Open share dialogs for all ${networks.length} networks?`)) return;
-    // Stagger so popup blockers (and the user) don't drown.
-    for (const n of networks) {
-      shareTo(n);
-      await new Promise((r) => setTimeout(r, 200));
+  async function nativeShare() {
+    try {
+      await navigator.share({ text, url: withShareRef(url, "native") });
+    } catch {
+      /* user cancelled or unsupported — no-op */
+    }
+  }
+
+  async function copyMessage() {
+    try {
+      await navigator.clipboard.writeText(`${text} ${withShareRef(url, "copy")}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — no-op */
     }
   }
 
@@ -56,12 +77,9 @@ export function ShareButtons({
         <div className="mb-3 flex items-end justify-between">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">amplify</p>
-            <h3 className="text-sm font-bold text-zinc-100">Share — every channel at once</h3>
+            <h3 className="text-sm font-bold text-zinc-100">Spread the word</h3>
           </div>
-          <button
-            onClick={() => setShowEditor((v) => !v)}
-            className="text-xs text-emerald-400 hover:underline"
-          >
+          <button onClick={() => setShowEditor((v) => !v)} className="text-xs text-emerald-400 hover:underline">
             {showEditor ? "Hide" : "Edit"} message
           </button>
         </div>
@@ -76,8 +94,27 @@ export function ShareButtons({
         />
       )}
 
+      {/* Primary actions: native share (mobile → any app incl. IG/TikTok/Snap) + copy */}
       <div className="flex flex-wrap gap-2">
-        {networks.map((n) => (
+        {canNativeShare && (
+          <button
+            onClick={nativeShare}
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-bold text-zinc-950 hover:bg-emerald-400"
+          >
+            📲 Share…
+          </button>
+        )}
+        <button
+          onClick={copyMessage}
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-4 py-1.5 text-xs font-semibold hover:border-emerald-500"
+        >
+          {copied ? "✓ Copied" : "📋 Copy message"}
+        </button>
+      </div>
+
+      {/* Per-platform quick buttons — one at a time (no popup blast). */}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {NETWORKS.map((n) => (
           <button
             key={n}
             onClick={() => shareTo(n)}
@@ -87,16 +124,15 @@ export function ShareButtons({
             <span>{NETWORK_LABEL[n]}</span>
           </button>
         ))}
-        {!compact && (
-          <button
-            onClick={bombAll}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-zinc-950 hover:bg-amber-400"
-            title="Opens compose dialogs for all networks. You confirm + send each."
-          >
-            🚀 Bomb run
-          </button>
-        )}
       </div>
+
+      {!compact && (
+        <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+          {canNativeShare ? "Tap " : "On your phone, tap "}<span className="font-semibold text-zinc-400">Share</span> to post to
+          {" "}<span className="text-zinc-400">Instagram, TikTok, Snapchat</span> & any app. Facebook strips typed text — use{" "}
+          <span className="font-semibold text-zinc-400">Copy</span> and paste.
+        </p>
+      )}
     </div>
   );
 }
