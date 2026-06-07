@@ -35,6 +35,7 @@
  *   node --env-file=.env.local scripts/cleanup-pending-campaigns.mjs --stale-days 30
  */
 import { createClient } from "@supabase/supabase-js";
+import { topicKey } from "./lib/topic-key.mjs";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -46,42 +47,9 @@ const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1); }
 const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
-/**
- * Compute a topic-cluster key for a campaign. Two campaigns about the
- * "same event" should produce the same key.
- *
- *   key = state | kratom_kw | event_word
- *
- * Examples:
- *   "Kratom users concerned about TN's ban"           → TN|kratom|ban
- *   "Kratom ban in Tennessee threatens local shops"   → TN|kratom|ban
- *   "Michigan's proposed kratom ban"                  → MI|kratom|ban
- *   "Idaho Falls weighing kratom ban"                 → ID|kratom|ban
- *
- * The first two cluster together (both TN, both kratom, both ban) and
- * collapse to one canonical campaign.
- */
-const KW_RX = /\b(kratom|mitragyna(?:[a-z]+)?|7-?o?h|gas[- ]?station)\b/i;
-const EVENT_RX =
-  /\b(ban|restrict|regulat|hearing|petition|schedul|crackdown|ordinance|enact|ruling|veto|sign|amend|advance|pass|repeal|reject|withdraw|approv|stall|halt|block|warn|advisor|action|sue|classif|control|emergenc|propos|introduc|vote)/i;
-
-function topicKey(state, title) {
-  const t = (title || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const kw = (t.match(KW_RX) || [])[1];
-  const event = (t.match(EVENT_RX) || [])[1];
-  // Collapse only with a CONFIDENT keyword + event signal (distinct events have
-  // distinct event-words, so this won't merge unrelated fights). State-null
-  // federal items cluster under "FED". When keyword OR event can't be parsed,
-  // fall back to the exact normalized title so we dedupe only true repeats —
-  // never distinct events (the bug that wrongly over-collapsed 9 federal
-  // campaigns when the event word was unparseable).
-  if (!kw || !event) return `title:${t}`;
-  return `${state || "FED"}|${kw}|${event}`;
-}
+// topicKey(state, title) is imported from ./lib/topic-key.mjs — this file was
+// its original home; the logic is unchanged and now shared with the auto-approve
+// engine so the janitor and the engine cluster identically.
 
 // ---------- main ----------
 const t0 = Date.now();
