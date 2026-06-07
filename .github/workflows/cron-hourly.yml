@@ -61,6 +61,29 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET" \
             "$APP_URL/api/cron/fire-waves"
 
+  daily-brief-audio-selfheal:
+    # Self-heal: render TODAY's brief audio if it's missing. The daily render
+    # is buried in a 60-min job (detect-bill-clusters → legiscan-wide-pass) and
+    # GitHub schedules are best-effort (the whole daily cron was skipped on the
+    # 2026-06-06/07 weekend → /brief served Friday's audio). --if-missing makes
+    # this a cheap no-op once today's file exists, so it's safe every hour and
+    # guarantees same-day audio regardless of the daily cron. Also keeps the
+    # render_daily_brief_audio source fresh in check-cron-staleness.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Render today's brief audio if missing
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/render-daily-brief-audio.mjs --if-missing
+
   news-pipeline:
     # News scrape → classify → auto-campaign. Runs alongside fire-waves
     # but in its own job so a failure in one doesn't kill the other.
