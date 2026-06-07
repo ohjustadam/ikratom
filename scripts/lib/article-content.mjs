@@ -11,7 +11,16 @@
  *
  * Output is plain text + validated URLs only. No publisher HTML is
  * passed through, so the rendering side never needs dangerouslySetInnerHTML.
+ *
+ * Extraction strategy (2026-06-07): PRIMARY = Mozilla Readability (the
+ * Firefox Reader-View algorithm) over a linkedom DOM — far more reliable at
+ * isolating the real article body than hand-rolled regex, across the long tail
+ * of publisher layouts. FALLBACK = the original regex region scan, used when
+ * Readability returns nothing (rare layouts, fragment HTML). We still keep only
+ * the lead paragraphs from whichever path wins, preserving the fair-use posture.
  */
+import { Readability } from "@mozilla/readability";
+import { parseHTML } from "linkedom";
 
 const PARAGRAPH_CAP = 6;     // lead paragraphs to keep (fair-use excerpt)
 const PARA_MIN_CHARS = 40;   // drop nav-y/cruft one-liners
@@ -39,7 +48,7 @@ function stripTags(s) {
   return decodeEntities(s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")).trim();
 }
 
-/** Reduce the HTML to the main article region (mirrors extractArticleBody). */
+/** Reduce the HTML to the main article region (regex fallback path). */
 function articleRegion(html) {
   let h = html;
   h = h.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ");
@@ -135,10 +144,36 @@ function extractMedia(html, regionHtml, base) {
 }
 
 /**
+ * PRIMARY path: Mozilla Readability over a linkedom DOM. Returns the lead
+ * fair-use paragraphs + media derived from the CLEAN article body (so article
+ * images are kept and nav/ad/related images are dropped). Returns null when
+ * Readability can't find an article (caller falls back to the regex scan).
+ */
+function readabilityExtract(html, baseUrl) {
+  try {
+    const { document } = parseHTML(html);
+    // Readability mutates the document; we parse a fresh one each call.
+    const article = new Readability(document, { charThreshold: 200 }).parse();
+    if (!article || !article.content) return null;
+    const paragraphs = extractParagraphs(article.content);
+    if (paragraphs.length === 0) return null;
+    // og:image + video embeds come from the FULL html (often in <head> / players
+    // outside the article node); inline images from the clean article body.
+    const media = extractMedia(html, article.content, baseUrl);
+    return { paragraphs, media };
+  } catch {
+    return null; // any DOM/parse error → fall back to the regex path
+  }
+}
+
+/**
  * @returns {{ paragraphs: string[], media: Array<{type,url,embed_url?,video_id?,lead?}> }}
  */
 export function extractArticleContent(html, baseUrl) {
   if (!html) return { paragraphs: [], media: [] };
+  const primary = readabilityExtract(html, baseUrl);
+  if (primary && primary.paragraphs.length > 0) return primary;
+  // Fallback: original regex region scan.
   const region = articleRegion(html);
   return {
     paragraphs: extractParagraphs(region),
