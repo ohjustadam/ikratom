@@ -5,9 +5,9 @@ import { motion, useReducedMotion } from "framer-motion";
 
 /**
  * Home memorial band — a candle + portrait for Scot Rubi, in whose honor
- * iKratom is built. Shows his portrait from /public/scot-rubi.jpg when present;
- * if the file isn't there yet, it degrades gracefully to a candle so the band
- * always looks intentional. Sits full-width directly under the hero.
+ * iKratom is built. Shows his portrait from /public/scot.webp when present; if
+ * the file isn't there, it degrades gracefully to a candle so the band always
+ * looks intentional. Sits full-width directly under the hero.
  */
 export function HomeMemorialBand() {
   const [photoOk, setPhotoOk] = useState(true);
@@ -43,7 +43,7 @@ export function HomeMemorialBand() {
         {photoOk ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src="/scot-rubi.jpg"
+            src="/scot.webp"
             alt="Scot Rubi"
             onError={() => setPhotoOk(false)}
             className="h-32 w-32 rounded-full object-cover ring-2 ring-amber-500/40 sm:h-36 sm:w-36"
