@@ -111,3 +111,154 @@ describe("topicKey / normalizedTitleKey dedup keys", () => {
     expect(billKey("MO", "Kansas City mayor introduces ban on gas-station heroin")).toBeNull();
   });
 });
+
+/**
+ * Three-keyspace dedup relationship (see docs/DECISIONS.md → "Campaign dedup
+ * uses THREE keyspaces, intentionally distinct"). Campaign de-dup is enforced in
+ * three places that DO NOT share a key format and are NOT meant to be string-
+ * equal:
+ *   1. DB unique index   — campaign_topic_key() (migration 0107) → STATE|kw|event,
+ *                          enforced by ux_campaigns_topic_key_live (0108), which
+ *                          EXCLUDES rows ending in |unknown|unknown.
+ *   2. auto-approve engine — keysFor() = billKey / normalizedTitleKey / strongTopicKey
+ *                          (the NARROW STRONG_EVENT_RX). Never reads topic_key.
+ *   3. daily janitor      — topicKey() with the BROAD EVENT_RX (not used by the engine).
+ *
+ * These tests pin the safety-relevant relationship, NOT a (false) string-equality.
+ * They guard against someone "aligning" the keyspaces and silently changing
+ * dedup behavior.
+ */
+
+// DB topic-key, ported VERBATIM from supabase/migrations/0107 (campaign_topic_key,
+// lines 31-80). Kept in lockstep with that SQL function — if the migration's
+// keyword/event lists change, update this mirror and the asserts below. Postgres
+// \m / \M word-boundaries are emulated with JS \b; the corpus below is chosen to
+// behave identically under both engines.
+function dbTopicKey(state: string | null, title: string | null): string | null {
+  if (title == null) return null;
+  const t = String(title).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  let kw = "unknown";
+  if (/\b7-?hydroxymitragynine\b/.test(t)) kw = "mitragynine";
+  else if (/\bmitragyn[a-z]*\b/.test(t)) kw = "mitragyna";
+  else if (/\b7-?o?h\b/.test(t)) kw = "mitragynine";
+  else if (/\bkratomite\b/.test(t)) kw = "kratom";
+  else if (/\bkratoms?\b/.test(t)) kw = "kratom";
+  else if (/\bgas[- ]?station\b/.test(t)) kw = "gas-station";
+  else if (/\btianeptine\b/.test(t)) kw = "tianeptine";
+  let ev = "unknown";
+  if (/\bban/.test(t)) ev = "ban";
+  else if (/\brestrict/.test(t)) ev = "restrict";
+  else if (/\bregulat/.test(t)) ev = "regulat";
+  else if (/\bhearing/.test(t)) ev = "hearing";
+  else if (/\bschedul/.test(t)) ev = "schedule";
+  else if (/\benact/.test(t)) ev = "enact";
+  else if (/\bveto/.test(t)) ev = "veto";
+  else if (/\brepeal/.test(t)) ev = "repeal";
+  else if (/\bordinance/.test(t)) ev = "ordinance";
+  else if (/\bcrackdown/.test(t)) ev = "crackdown";
+  else if (/\blaw\b/.test(t)) ev = "law";
+  else if (/\bruling/.test(t)) ev = "ruling";
+  else if (/\bpass(es|ed)?/.test(t)) ev = "pass";
+  else if (/\bsign(s|ed)?/.test(t)) ev = "sign";
+  else if (/\bapprov/.test(t)) ev = "approve";
+  else if (/\breject/.test(t)) ev = "reject";
+  else if (/\bwithdraw/.test(t)) ev = "withdraw";
+  else if (/\bstall/.test(t)) ev = "stall";
+  else if (/\bhalt/.test(t)) ev = "halt";
+  return `${state ?? "?"}|${kw}|${ev}`;
+}
+
+// The DB index (migration 0108) ignores rows whose key ends in |unknown|unknown.
+// This emulates its "does the unique index enforce this row?" predicate.
+const dbEnforces = (key: string | null): boolean => key != null && !/\|unknown\|unknown$/.test(key);
+
+// Mirror of the engine's keysFor() (auto-approve-campaigns.mjs lines 399-408):
+// the keys the engine actually dedups on. NOT the broad topicKey().
+function engineKeys(state: string | null, title: string | null): string[] {
+  const bk = billKey(state, title);
+  if (bk) return [bk];
+  const keys: string[] = [normalizedTitleKey(title)];
+  const sk = strongTopicKey(state, title);
+  if (sk) keys.push(sk);
+  return [...new Set(keys)];
+}
+
+// Representative backlog title shapes: clean topic events, a strong-only event,
+// a keyword-token divergence, DB blind-spot titles, bill-step titles, and a
+// broad-only (generic-event) title.
+const CORPUS: ReadonlyArray<[string | null, string]> = [
+  ["TN", "Kratom users concerned about TN's ban"],
+  ["TN", "Kratom ban in Tennessee threatens local shops"],
+  ["FL", "Florida kratom hearing set"],
+  ["TX", "Texas kratom prohibition advances"],      // strong-only event (DB has no 'prohibit')
+  ["FL", "Florida 7OH ban"],                        // keyword token differs engine↔DB
+  ["OK", "City council budget meeting notes"],      // DB blind spot: unknown|unknown
+  [null, "Unrelated federal headline about wellness funding"], // blind spot, null state
+  ["TX", "TX HB 1097 — Reported engrossed"],        // keyword-free bill step
+  ["TX", "TX HB 1097 — Reported favorably as substituted"],
+  ["TX", "Texas kratom community takes action"],    // generic event: broad-only
+];
+
+describe("three-keyspace dedup relationship", () => {
+  it("engine's fuzzy key (strongTopicKey) never lands in the DB index blind spot", () => {
+    // Every title that yields a strong topic key also yields a DB key the unique
+    // index ENFORCES (never …|unknown|unknown) — so the engine's only fuzzy
+    // collapse can only fire inside a cluster the DB itself treats as one.
+    for (const [state, title] of CORPUS) {
+      if (strongTopicKey(state, title) != null) {
+        expect(dbEnforces(dbTopicKey(state, title))).toBe(true);
+      }
+    }
+  });
+
+  it("engine COVERS the DB blind spot via exact-title / bill-number keys", () => {
+    // A title the DB index ignores (unknown|unknown) — the DB would have let a
+    // duplicate row through; the engine still dedups it by exact normalized title.
+    const blind = dbTopicKey("OK", "City council budget meeting notes");
+    expect(dbEnforces(blind)).toBe(false);
+    expect(engineKeys("OK", "City council budget meeting notes"))
+      .toEqual(engineKeys("OK", "City Council  Budget Meeting NOTES")); // case/space-insensitive title key
+    expect(engineKeys("OK", "City council budget meeting notes")[0]).toMatch(/^title:/);
+
+    // Keyword-free bill-step alerts also fall in the DB blind spot; the engine's
+    // billKey collapses the steps the DB punted on.
+    expect(dbEnforces(dbTopicKey("TX", "TX HB 1097 — Reported engrossed"))).toBe(false);
+    const step1 = engineKeys("TX", "TX HB 1097 — Reported engrossed");
+    const step2 = engineKeys("TX", "TX HB 1097 — Reported favorably as substituted");
+    expect(step1).toEqual(["bill:TX|hb1097"]);
+    expect(step1).toEqual(step2);
+  });
+
+  it("engine and DB AGREE on the strong-event grouping (no wrong split)", () => {
+    // Two distinct TN-ban headlines: the engine clusters them (shared strong key)
+    // AND the DB clusters them (identical DB key) — the engine never splits a
+    // cluster the DB joined.
+    const t1: [string, string] = ["TN", "Kratom users concerned about TN's ban"];
+    const t2: [string, string] = ["TN", "Kratom ban in Tennessee threatens local shops"];
+    expect(engineKeys(...t1)).toEqual(expect.arrayContaining(["TN|kratom|ban"]));
+    expect(engineKeys(...t2)).toEqual(expect.arrayContaining(["TN|kratom|ban"]));
+    expect(dbTopicKey(...t1)).toBe("TN|kratom|ban");
+    expect(dbTopicKey(...t1)).toBe(dbTopicKey(...t2));
+  });
+
+  it("the keyspaces are different namespaces — NOT string-equal even when both parse", () => {
+    // Same title, both keys parse, but the tokens differ (engine keeps the literal
+    // matched keyword; the DB normalizes 7-OH → mitragynine). They must NOT be
+    // compared by ===.
+    expect(strongTopicKey("FL", "Florida 7OH ban")).toBe("FL|7oh|ban");
+    expect(dbTopicKey("FL", "Florida 7OH ban")).toBe("FL|mitragynine|ban");
+    expect(strongTopicKey("FL", "Florida 7OH ban")).not.toBe(dbTopicKey("FL", "Florida 7OH ban"));
+    // engine's title:/bill: keys have no analogue in the DB STATE|kw|event format
+    expect(dbTopicKey(null, "Unrelated federal headline about wellness funding")).not.toMatch(/^(title|bill):/);
+    expect(billKey("TX", "TX HB 1097 — Reported engrossed")).toMatch(/^bill:/);
+  });
+
+  it("the broad janitor topicKey() is a THIRD, broader keyspace the engine does NOT use", () => {
+    // One generic-event title → three different answers, proving the engine is
+    // neither the DB key nor the broad janitor key:
+    const title = "Texas kratom community takes action";
+    expect(topicKey("TX", title)).toBe("TX|kratom|action");      // janitor: broad EVENT_RX collapses on 'action'
+    expect(strongTopicKey("TX", title)).toBeNull();              // engine: not a strong event → falls back to title
+    expect(dbTopicKey("TX", title)).toBe("TX|kratom|unknown");   // DB: 'action' isn't a DB event
+  });
+});
