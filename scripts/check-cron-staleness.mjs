@@ -71,6 +71,7 @@ const REGISTRY = [
       "fire_daily_brief_push",
       "render_daily_brief_audio",
       "extract_news_content",
+      "queue_due_state_flips",
      ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
 
   // weekly

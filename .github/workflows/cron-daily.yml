@@ -972,6 +972,29 @@ jobs:
         # auto-derivations never surface publicly (fix/data-accuracy 2026-06-06).
         run: node scripts/derive-state-status.mjs --apply
 
+  queue-due-state-flips:
+    # Surface FUTURE-DATED legal changes (state_status_flips, migration 0179) —
+    # e.g. TN's leaf ban effective Jul 1, 2026 — into the /admin/state-status
+    # confirm queue on their effective date, and notify the owner. Runs AFTER
+    # derive-state-status so its needs_review flag wins for the day (derive
+    # rewrites needs_review nightly). Does NOT auto-publish — the owner confirms.
+    needs: derive-state-status
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Queue due state-status flips into the confirm queue
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/queue-due-state-flips.mjs --apply
+
   sync-legistar-officials:
     # FREE, non-grounded local-officials source: the Legistar (Granicus)
     # webapi exposes authoritative current council/board rosters (the
