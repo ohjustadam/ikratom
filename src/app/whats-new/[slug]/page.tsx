@@ -3,7 +3,7 @@ import path from "path";
 import matter from "gray-matter";
 import { marked } from "marked";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 
 export const metadata = { title: "Patch note" };
 
@@ -11,7 +11,10 @@ export default async function PatchNotePage({ params }: { params: Promise<{ slug
   const { slug } = await params;
   const dir = path.join(process.cwd(), "src", "content", "patch-notes");
   const filePath = path.join(dir, `${slug}.md`);
-  if (!fs.existsSync(filePath)) notFound();
+  // A missing slug usually means a broadcast notification pointed at a patch
+  // note that never landed in the repo (see the weekly-digest cron fix). Send
+  // the reader to the changelog index instead of a dead 404.
+  if (!fs.existsSync(filePath)) redirect("/whats-new");
 
   const raw = fs.readFileSync(filePath, "utf8");
   const { data, content } = matter(raw);
