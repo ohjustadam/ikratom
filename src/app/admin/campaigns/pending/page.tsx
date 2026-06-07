@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { PendingQueueClient } from "./PendingQueueClient";
+import { CampaignAutoApprovePolicyPanel } from "./CampaignAutoApprovePolicyPanel";
+import { getCampaignAutoApprovePolicy, listRecentAutoDecisions } from "@/modules/admin/campaign-autoapprove-actions";
 
 export const metadata = { title: "Campaigns awaiting review" };
 export const dynamic = "force-dynamic";
@@ -12,6 +14,7 @@ type SearchParams = {
   has_bill?: string;
   sort?: string;
   show_superseded?: string;
+  show_rejected?: string;
 };
 
 export type PendingRow = {
@@ -24,6 +27,8 @@ export type PendingRow = {
   mobilization_type: string | null;
   auto_generated: boolean | null;
   review_state: string | null;
+  reviewed_by: string | null;
+  review_reason: string | null;
   created_at: string;
   bills:
     | { bill_number: string; status: string | null; kratom_relevance: string | null; relevance_confidence: number | null; official_url: string | null }[]
@@ -44,6 +49,7 @@ export default async function PendingCampaignsPage({
   const search = (sp.q ?? "").trim().slice(0, 80) || null;
   const hasBillFilter = sp.has_bill === "1" ? true : sp.has_bill === "0" ? false : null;
   const showSuperseded = sp.show_superseded === "1";
+  const showRejected = sp.show_rejected === "1";
   const sortKey = (() => {
     switch (sp.sort) {
       case "title-asc": return { col: "title", asc: true };
@@ -59,16 +65,17 @@ export default async function PendingCampaignsPage({
     .from("campaigns")
     .select(
       "id, slug, title, blurb, state, bill_id, mobilization_type, auto_generated, " +
-      "review_state, created_at, " +
+      "review_state, reviewed_by, review_reason, created_at, " +
       "bills(bill_number, status, kratom_relevance, relevance_confidence, official_url)",
       { count: "exact" }
     );
 
-  if (showSuperseded) {
-    q = q.in("review_state", ["pending_review", "superseded"]);
-  } else {
-    q = q.eq("review_state", "pending_review");
-  }
+  const wantStates = ["pending_review"];
+  if (showSuperseded) wantStates.push("superseded");
+  if (showRejected) wantStates.push("rejected");
+  q = wantStates.length === 1
+    ? q.eq("review_state", wantStates[0])
+    : q.in("review_state", wantStates);
   if (stateFilter === "NONE") {
     q = q.is("state", null);
   } else if (stateFilter) {
@@ -99,6 +106,14 @@ export default async function PendingCampaignsPage({
     byState.set(k, (byState.get(k) ?? 0) + 1);
   }
 
+  // Engine policy + shadow/live decision ledger for the owner panel. Both reads
+  // are defensive (return safe defaults / [] if migrations 0182/0183 aren't
+  // applied yet) so this page renders even before the schema lands.
+  const [policy, recentDecisions] = await Promise.all([
+    getCampaignAutoApprovePolicy(),
+    listRecentAutoDecisions(30),
+  ]);
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
       <a href="/admin" className="text-xs text-zinc-500 hover:text-emerald-400">
@@ -114,6 +129,12 @@ export default async function PendingCampaignsPage({
         </p>
       </header>
 
+      <CampaignAutoApprovePolicyPanel
+        initial={policy}
+        isOwner={ctx.isOwner}
+        recentDecisions={recentDecisions}
+      />
+
       <PendingQueueClient
         rows={(rows ?? []) as unknown as PendingRow[]}
         totalCount={count ?? 0}
@@ -124,6 +145,7 @@ export default async function PendingCampaignsPage({
           hasBill: hasBillFilter,
           sort: sp.sort ?? "newest",
           showSuperseded,
+          showRejected,
         }}
       />
     </div>

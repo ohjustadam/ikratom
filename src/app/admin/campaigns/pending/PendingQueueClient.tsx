@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { PendingRow } from "./page";
 import { bulkReviewCampaigns } from "@/modules/admin/campaign-review-actions";
+import { reactivateRejectedCampaigns } from "@/modules/admin/campaign-autoapprove-actions";
 
 type CurrentParams = {
   state: string | null;
@@ -11,6 +12,7 @@ type CurrentParams = {
   hasBill: boolean | null;
   sort: string;
   showSuperseded: boolean;
+  showRejected: boolean;
 };
 
 type Props = {
@@ -49,6 +51,7 @@ export function PendingQueueClient({ rows, totalCount, stateCounts, currentParam
     else if (merged.hasBill === false) usp.set("has_bill", "0");
     if (merged.sort && merged.sort !== "newest") usp.set("sort", merged.sort);
     if (merged.showSuperseded) usp.set("show_superseded", "1");
+    if (merged.showRejected) usp.set("show_rejected", "1");
     const s = usp.toString();
     return s ? `?${s}` : "/admin/campaigns/pending";
   }
@@ -95,6 +98,20 @@ export function PendingQueueClient({ rows, totalCount, stateCounts, currentParam
         return;
       }
       setMsg(`✓ ${action} applied to ${r.affected} campaign(s)`);
+      setSelected(new Set());
+      router.refresh();
+      setTimeout(() => setMsg(null), 4500);
+    });
+  }
+
+  function runRepend() {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`Re-pend ${selectedIds.length} rejected campaign(s) back to the review queue?`)) return;
+    setMsg(null);
+    startTransition(async () => {
+      const r = await reactivateRejectedCampaigns(selectedIds);
+      if ("error" in r) { setMsg(`✗ ${(r.error ?? "Failed").slice(0, 120)}`); return; }
+      setMsg(`✓ re-pended ${r.affected} campaign(s)`);
       setSelected(new Set());
       router.refresh();
       setTimeout(() => setMsg(null), 4500);
@@ -158,6 +175,15 @@ export function PendingQueueClient({ rows, totalCount, stateCounts, currentParam
             />
             Show superseded
           </label>
+          <label className="flex items-center gap-1.5 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              checked={currentParams.showRejected}
+              onChange={(e) => applyFilter({ showRejected: e.target.checked })}
+              className="h-3.5 w-3.5"
+            />
+            Show rejected
+          </label>
         </div>
 
         {/* State pills */}
@@ -211,11 +237,11 @@ export function PendingQueueClient({ rows, totalCount, stateCounts, currentParam
               {rows.map((c) => {
                 const bill = Array.isArray(c.bills) ? c.bills[0] : c.bills;
                 const isChecked = selected.has(c.id);
-                const isSuperseded = c.review_state === "superseded";
+                const isInactive = c.review_state !== "pending_review";
                 return (
                   <tr
                     key={c.id}
-                    className={`${isChecked ? "bg-emerald-950/15" : ""} ${isSuperseded ? "opacity-50" : ""}`}
+                    className={`${isChecked ? "bg-emerald-950/15" : ""} ${isInactive ? "opacity-60" : ""}`}
                   >
                     <td className="p-2 align-top">
                       <input
@@ -291,8 +317,16 @@ export function PendingQueueClient({ rows, totalCount, stateCounts, currentParam
                     <td className="p-2 align-top text-[11px]">
                       {c.review_state === "superseded" ? (
                         <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-500">superseded</span>
+                      ) : c.review_state === "rejected" ? (
+                        <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-300">rejected</span>
                       ) : (
                         <span className="rounded bg-amber-950/40 px-1.5 py-0.5 text-amber-300">pending</span>
+                      )}
+                      {isInactive && c.reviewed_by === null && (
+                        <div className="mt-0.5 text-[10px] uppercase tracking-wider text-sky-400">🤖 by system</div>
+                      )}
+                      {isInactive && c.review_reason && (
+                        <div className="mt-0.5 line-clamp-2 text-[10px] text-zinc-600">{c.review_reason}</div>
                       )}
                       <div className="text-zinc-600">{c.mobilization_type ?? "—"}</div>
                     </td>
@@ -382,6 +416,15 @@ export function PendingQueueClient({ rows, totalCount, stateCounts, currentParam
             >
               🗑 Delete
             </button>
+            {currentParams.showRejected && (
+              <button
+                onClick={runRepend}
+                disabled={pending}
+                className="rounded-md border border-sky-700/50 bg-sky-950/30 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:border-sky-500 disabled:opacity-50"
+              >
+                ↩ Re-pend
+              </button>
+            )}
             <button
               onClick={() => setSelected(new Set())}
               disabled={pending}
