@@ -22,7 +22,7 @@ export type StateStatusData = {
   sevenoh_evidence_bill: string | null;
 };
 
-type Tone = "red" | "amber" | "emerald" | "blue" | "zinc";
+type Tone = "red" | "amber" | "emerald" | "blue" | "teal" | "zinc";
 
 // Green is reserved for ENACTED protection (a KCPA / pro-kratom law). "Legal"
 // with no law on the books is unprotected — shown blue, not green — because no
@@ -33,6 +33,7 @@ const STATUS_META: Record<string, { label: string; tone: Tone }> = {
   kcpa: { label: "Protected · KCPA-regulated", tone: "emerald" },
   protected: { label: "Protected", tone: "emerald" },
   legal: { label: "Legal · no protections", tone: "blue" },
+  incoming: { label: "Protection incoming · not yet in force", tone: "teal" },
 };
 
 const TONE_CLS: Record<Tone, string> = {
@@ -40,6 +41,7 @@ const TONE_CLS: Record<Tone, string> = {
   amber: "border-amber-700/50 bg-amber-950/25 text-amber-200",
   emerald: "border-emerald-700/50 bg-emerald-950/25 text-emerald-200",
   blue: "border-blue-700/50 bg-blue-950/30 text-blue-200",
+  teal: "border-teal-700/50 bg-teal-950/30 text-teal-200",
   zinc: "border-zinc-700/50 bg-zinc-900/40 text-zinc-300",
 };
 

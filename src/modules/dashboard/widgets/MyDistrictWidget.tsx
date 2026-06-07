@@ -15,6 +15,8 @@ const TONE: Record<string, string> = {
   protected: "border-emerald-700/50 bg-emerald-950/25 text-emerald-200",
   // "legal" = no protective law on the books → unprotected, not green.
   legal: "border-blue-700/50 bg-blue-950/30 text-blue-200",
+  // "incoming" = protection approved but not yet in force.
+  incoming: "border-teal-700/50 bg-teal-950/30 text-teal-200",
 };
 
 export async function MyDistrictWidget({
