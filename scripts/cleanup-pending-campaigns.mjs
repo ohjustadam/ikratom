@@ -63,7 +63,7 @@ const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
  */
 const KW_RX = /\b(kratom|mitragyna(?:[a-z]+)?|7-?o?h|gas[- ]?station)\b/i;
 const EVENT_RX =
-  /\b(ban|restrict|regulat|hearing|petition|schedule|crackdown|ordinance|enact|law|ruling|veto|sign|amend|advance|pass|repeal|reject|withdraw|approve|approv|stalls?|halts?|block)/i;
+  /\b(ban|restrict|regulat|hearing|petition|schedul|crackdown|ordinance|enact|ruling|veto|sign|amend|advance|pass|repeal|reject|withdraw|approv|stall|halt|block|warn|advisor|action|sue|classif|control|emergenc|propos|introduc|vote)/i;
 
 function topicKey(state, title) {
   const t = (title || "")
@@ -71,9 +71,16 @@ function topicKey(state, title) {
     .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const kw = (t.match(KW_RX) || [])[1] || "unknown";
-  const event = (t.match(EVENT_RX) || [])[1] || "unknown";
-  return `${state || "?"}|${kw}|${event}`;
+  const kw = (t.match(KW_RX) || [])[1];
+  const event = (t.match(EVENT_RX) || [])[1];
+  // Collapse only with a CONFIDENT keyword + event signal (distinct events have
+  // distinct event-words, so this won't merge unrelated fights). State-null
+  // federal items cluster under "FED". When keyword OR event can't be parsed,
+  // fall back to the exact normalized title so we dedupe only true repeats —
+  // never distinct events (the bug that wrongly over-collapsed 9 federal
+  // campaigns when the event word was unparseable).
+  if (!kw || !event) return `title:${t}`;
+  return `${state || "FED"}|${kw}|${event}`;
 }
 
 // ---------- main ----------

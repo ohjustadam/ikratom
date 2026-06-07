@@ -478,6 +478,23 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/cleanup-stale-active-campaigns.mjs --apply
+      # Auto-dedupe (topic-cluster collapse) + reject stale/FP-derived pending
+      # auto-campaigns so the review queue doesn't fill with junk. Live mode.
+      - name: Auto-clean the pending-campaign queue
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/cleanup-pending-campaigns.mjs
+      # Auto-reject wrong-state pending alerts (per-state RSS mis-tags national
+      # news to a state; the title is the trustworthy signal). Drains the
+      # pending "intel queue" of geo-mismatched false positives.
+      - name: Auto-reject wrong-state pending alerts
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/reject-wrongstate-pending-alerts.mjs --apply
 
   sync-committees-openstates:
     # Pull legislator committee assignments across ALL 51 states from
