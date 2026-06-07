@@ -13,7 +13,8 @@ const TONE: Record<string, string> = {
   restricted: "border-amber-700/50 bg-amber-950/25 text-amber-200",
   kcpa: "border-emerald-700/50 bg-emerald-950/25 text-emerald-200",
   protected: "border-emerald-700/50 bg-emerald-950/25 text-emerald-200",
-  legal: "border-emerald-700/50 bg-emerald-950/25 text-emerald-200",
+  // "legal" = no protective law on the books → unprotected, not green.
+  legal: "border-blue-700/50 bg-blue-950/30 text-blue-200",
 };
 
 export async function MyDistrictWidget({
