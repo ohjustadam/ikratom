@@ -19,7 +19,11 @@
  * counts can be derived from referrals later.
  */
 
-export type ShareNetwork = "x" | "bluesky" | "telegram" | "mastodon" | "facebook";
+// Networks with a real WEB share-intent URL (prefill text + link). Instagram,
+// TikTok & Snapchat are NOT here — they have no web prefill API, so they're
+// reached via the native share sheet (navigator.share) or copy-paste instead.
+export type ShareNetwork =
+  | "x" | "bluesky" | "telegram" | "mastodon" | "facebook" | "reddit" | "whatsapp" | "email";
 
 export const NETWORK_LABEL: Record<ShareNetwork, string> = {
   x: "X / Twitter",
@@ -27,6 +31,9 @@ export const NETWORK_LABEL: Record<ShareNetwork, string> = {
   telegram: "Telegram",
   mastodon: "Mastodon",
   facebook: "Facebook",
+  reddit: "Reddit",
+  whatsapp: "WhatsApp",
+  email: "Email",
 };
 
 export const NETWORK_EMOJI: Record<ShareNetwork, string> = {
@@ -35,6 +42,9 @@ export const NETWORK_EMOJI: Record<ShareNetwork, string> = {
   telegram: "✈",
   mastodon: "🐘",
   facebook: "f",
+  reddit: "👽",
+  whatsapp: "🟢",
+  email: "✉",
 };
 
 const TEXT_HARD_CAP: Record<ShareNetwork, number> = {
@@ -43,6 +53,9 @@ const TEXT_HARD_CAP: Record<ShareNetwork, number> = {
   telegram: 1000,
   mastodon: 500,
   facebook: 1000,
+  reddit: 300,
+  whatsapp: 1000,
+  email: 2000,
 };
 
 function clipText(text: string, network: ShareNetwork, urlOverhead = 30): string {
@@ -51,11 +64,14 @@ function clipText(text: string, network: ShareNetwork, urlOverhead = 30): string
   return text.slice(0, cap - 1).trimEnd() + "…";
 }
 
-function withRef(url: string, network: ShareNetwork): string {
+/** Append referral attribution (?ref=share&host=…) so proxy.ts credits the
+ *  channel. Exported so the native-share + copy paths can tag too (host=native
+ *  / host=copy). */
+export function withShareRef(url: string, host: string): string {
   try {
     const u = new URL(url);
     u.searchParams.set("ref", "share");
-    u.searchParams.set("host", network);
+    u.searchParams.set("host", host);
     return u.toString();
   } catch {
     return url;
@@ -69,7 +85,7 @@ export function buildShareUrl(input: {
   hashtags?: string[];
   mastodonInstance?: string; // default mastodon.social
 }): string {
-  const tracked = withRef(input.url, input.network);
+  const tracked = withShareRef(input.url, input.network);
   const text = clipText(input.text, input.network, tracked.length + 5);
 
   switch (input.network) {
@@ -97,9 +113,21 @@ export function buildShareUrl(input: {
     }
     case "facebook": {
       // FB sharer just takes a URL — opengraph metadata on the page does
-      // the heavy lifting for title/description.
+      // the heavy lifting for title/description (FB strips any prefilled text).
       const params = new URLSearchParams({ u: tracked });
       return `https://www.facebook.com/sharer/sharer.php?${params.toString()}`;
+    }
+    case "reddit": {
+      const params = new URLSearchParams({ url: tracked, title: text });
+      return `https://www.reddit.com/submit?${params.toString()}`;
+    }
+    case "whatsapp": {
+      const params = new URLSearchParams({ text: `${text} ${tracked}` });
+      return `https://wa.me/?${params.toString()}`;
+    }
+    case "email": {
+      const params = new URLSearchParams({ subject: text.slice(0, 80), body: `${text}\n\n${tracked}` });
+      return `mailto:?${params.toString()}`;
     }
   }
 }
