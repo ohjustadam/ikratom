@@ -62,9 +62,13 @@ jobs:
         run: node scripts/sync-nonprofit-990s.mjs
 
   weekly-patch-digest-broadcast:
-    # Sunday morning weekly digest. Generates a 7-day-lookback patch
-    # note via scripts/generate-patch-note.mjs and broadcasts a
-    # web-push notification to every user pointing at /whats-new.
+    # Sunday morning weekly digest. Broadcasts a web-push notification to
+    # every user pointing at the LATEST COMMITTED patch note. The daily
+    # auto-patch-notes workflow is what creates + merges the notes; this job
+    # must NOT generate its own. (An earlier version ran generate-patch-note
+    # here, which wrote an ephemeral note on the runner that was never
+    # committed — so the broadcast linked to a /whats-new/<slug> that 404'd
+    # in production. That's the bug this comment exists to prevent recurring.)
     #
     # Security guardrail: the notification body is the patch-note
     # front-matter `summary` only, NOT the full markdown. Full notes
@@ -73,7 +77,8 @@ jobs:
     # patch-note draft contains technical refs.
     #
     # Idempotent via notifications.kind='whats_new' + link=/whats-new/<slug>:
-    # second run with the same slug is a no-op per user.
+    # second run with the same slug is a no-op per user (and if no new note
+    # landed since last week, the latest slug is unchanged → no spam).
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -85,12 +90,12 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
-      - name: Generate weekly patch note draft (7-day lookback)
-        run: node scripts/generate-patch-note.mjs --since "7 days ago"
-      - name: Determine latest patch-note slug
+      - name: Determine latest committed patch-note slug
         id: latest
         shell: bash
         run: |
+          # Latest note that actually exists in the repo (and therefore has a
+          # live /whats-new/<slug> page). Do NOT generate one here.
           SLUG=$(ls -1 src/content/patch-notes/*.md | sort | tail -1 | xargs basename | sed 's/\.md$//')
           echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
       - name: Broadcast weekly digest to all users
