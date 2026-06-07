@@ -35,6 +35,9 @@ const args = process.argv.slice(2);
 const DRY = args.includes("--dry-run");
 const voiceIdx = args.indexOf("--voice");
 const VOICE = voiceIdx >= 0 ? args[voiceIdx + 1] : "en-US-ChristopherNeural";
+// --if-missing: render only when today's file is absent. Lets the hourly cron
+// self-heal a skipped daily run (GitHub schedules are best-effort) cheaply.
+const IF_MISSING = args.includes("--if-missing");
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -47,7 +50,41 @@ const today = new Date().toISOString().slice(0, 10);
 const OBJECT_PATH = `${today}/national.mp3`;
 
 const t0 = Date.now();
-console.log(`Render-daily-brief-audio${DRY ? " [DRY]" : ""} — date=${today} voice=${VOICE}`);
+console.log(`Render-daily-brief-audio${DRY ? " [DRY]" : ""}${IF_MISSING ? " [if-missing]" : ""} — date=${today} voice=${VOICE}`);
+
+// Self-heal guard: when --if-missing, skip if today's audio already exists.
+if (IF_MISSING && !DRY) {
+  try {
+    const { data: existing } = await sb.storage.from(BUCKET).list(today, { search: "national.mp3" });
+    if ((existing ?? []).some((f) => f.name === "national.mp3")) {
+      console.log(`  ${OBJECT_PATH} already exists — skipping.`);
+      await tag("empty", 0);
+      process.exit(0);
+    }
+    console.log(`  ${OBJECT_PATH} missing — rendering now.`);
+  } catch (e) {
+    console.warn(`  if-missing check failed (${e.message?.slice(0, 60)}) — rendering anyway.`);
+  }
+}
+
+// Locality/state fields hold 2-letter postal codes ("OK") — TTS reads those as
+// letters ("oh-kay"); expand to the full state name for natural speech.
+const STATE_NAMES = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California", CO: "Colorado",
+  CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho",
+  IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas", KY: "Kentucky", LA: "Louisiana",
+  ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota",
+  MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada",
+  NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina",
+  ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania",
+  RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee", TX: "Texas",
+  UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington", WV: "West Virginia",
+  WI: "Wisconsin", WY: "Wyoming", DC: "Washington D C", FED: "the federal level", ALL: "the national level",
+};
+function expandLocality(loc) {
+  if (!loc) return loc;
+  return STATE_NAMES[String(loc).trim().toUpperCase()] ?? loc;
+}
 
 // ── 1. Build the briefing script (national scope) ───────────────────
 function isoDaysAgo(n) { return new Date(Date.now() - n * 86400 * 1000).toISOString(); }
@@ -93,11 +130,11 @@ if (cn === 0 && wn === 0) {
 } else {
   if (cn > 0) {
     parts.push(`Top of the brief: ${cn} critical alert${cn === 1 ? "" : "s"} this week.`);
-    for (const a of critAlerts) parts.push(`From ${a.locality || "the federal level"}: ${cleanForTTS(a.title)}.`);
+    for (const a of critAlerts) parts.push(`From ${expandLocality(a.locality) || "the federal level"}: ${cleanForTTS(a.title)}.`);
   }
   if (wn > 0) {
     parts.push(`Also tracking ${wn} warning-level event${wn === 1 ? "" : "s"}.`);
-    for (const a of warnAlerts.slice(0, 3)) parts.push(`${a.locality || "Federal"}: ${cleanForTTS(a.title)}.`);
+    for (const a of warnAlerts.slice(0, 3)) parts.push(`${expandLocality(a.locality) || "Federal"}: ${cleanForTTS(a.title)}.`);
   }
 }
 
@@ -105,7 +142,7 @@ const newsArr = (news ?? []).filter((n) => n.title);
 if (newsArr.length > 0) {
   parts.push(`In headlines from the last day and a half:`);
   for (const n of newsArr.slice(0, 5)) {
-    parts.push(`${n.state ? `From ${n.state}` : "Federal"}: ${cleanForTTS(n.title)}.`);
+    parts.push(`${n.state ? `From ${expandLocality(n.state)}` : "Federal"}: ${cleanForTTS(n.title)}.`);
   }
 }
 
