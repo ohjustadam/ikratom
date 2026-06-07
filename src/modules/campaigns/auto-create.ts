@@ -341,6 +341,42 @@ export async function autoCreateCampaignsForNewAntiBills(
         // never let a Discord outage stop campaign creation
       }
     }
+
+    // Record the auto-publish in the build #3 decision ledger + audit so the
+    // owner's /admin/campaigns/pending "what the system auto-approved" view is
+    // complete — this bill-born path auto-publishes independently of the alert
+    // engine. (Follow-up: unify its AUTO_PUBLISH_CONFIDENCE knob under the
+    // site_config campaign_auto_approve_min_confidence column.)
+    if (shouldAutoPublish && insertedCampaignId) {
+      try {
+        await supabase.from("campaign_auto_approve_decisions").insert({
+          campaign_id: insertedCampaignId,
+          mode: "live",
+          decision: "approve",
+          score: bill.relevance_confidence ?? null,
+          signals: {
+            path: "auto-create.ts (bill-born)",
+            bill_id: bill.id,
+            relevance_confidence: bill.relevance_confidence ?? null,
+            deep_analyzed: bill.deep_analyzed_at !== null,
+            targets_natural_leaf: bill.targets_natural_leaf,
+          },
+          review_reason:
+            `auto-published anti-kratom bill ${bill.state} ${bill.bill_number} ` +
+            `at confidence ${bill.relevance_confidence ?? "?"} (>= ${AUTO_PUBLISH_CONFIDENCE})`,
+          applied: true,
+        });
+        await supabase.from("admin_audit_log").insert({
+          actor_id: null,
+          action: "campaign_auto_approved",
+          target_type: "campaign",
+          target_id: insertedCampaignId,
+          details: { path: "auto-create", bill_id: bill.id, relevance_confidence: bill.relevance_confidence ?? null },
+        });
+      } catch {
+        // ledger + audit are best-effort, never block campaign creation
+      }
+    }
   }
 
   return result;

@@ -47,6 +47,7 @@ const REGISTRY = [
       "extract_news_officials",
       "extract_news_events",
       "auto_approve_meetings",
+      "auto_approve_campaigns",
      ].map((source) => ({ source, interval_hours: 4, system: "gh-hourly", cadence: "every-30min" })),
 
   // daily

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "./actions";
 import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
+import { applyCampaignReviewTransition } from "./campaign-review-shared";
 
 /**
  * Approve a pending auto-generated campaign. Flips active=true,
@@ -19,12 +20,12 @@ export async function approvePendingCampaign(campaignId: string) {
   if (mfaErr) return { error: mfaErr };
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("campaigns")
-    .update({ active: true, review_state: "auto_active" })
-    .eq("id", campaignId)
-    .eq("review_state", "pending_review"); // safety: only flip pending rows
-  if (error) return { error: error.message };
+  const r = await applyCampaignReviewTransition(supabase, {
+    ids: [campaignId],
+    action: "approve",
+    reviewerId: ctx.userId,
+  });
+  if (r.error) return { error: r.error };
 
   await recordAdminAction({
     action: "campaign_review_approved",
@@ -48,12 +49,13 @@ export async function rejectPendingCampaign(input: { campaignId: string; reason?
   if (mfaErr) return { error: mfaErr };
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("campaigns")
-    .update({ active: false, review_state: "rejected" })
-    .eq("id", input.campaignId)
-    .eq("review_state", "pending_review");
-  if (error) return { error: error.message };
+  const r = await applyCampaignReviewTransition(supabase, {
+    ids: [input.campaignId],
+    action: "reject",
+    reviewerId: ctx.userId,
+    reason: input.reason ?? null,
+  });
+  if (r.error) return { error: r.error };
 
   await recordAdminAction({
     action: "campaign_review_rejected",
@@ -88,8 +90,8 @@ type BulkAction = "approve" | "reject" | "supersede" | "delete";
  * in one click. UI should chunk if needed.
  *
  * Safety: every UPDATE includes `.eq('review_state','pending_review')`
- * so admins can't accidentally flip already-approved or already-rejected
- * rows back.
+ * (via applyCampaignReviewTransition) so admins can't accidentally flip
+ * already-approved or already-rejected rows back.
  *
  * Audit: one row per affected campaign in admin_audit_log via
  * recordAdminAction(). Lets the audit log surface exactly which bulk
@@ -120,7 +122,6 @@ export async function bulkReviewCampaigns(input: {
   const reason = (input.reason ?? "").slice(0, 500) || null;
 
   const supabase = await createClient();
-  const nowIso = new Date().toISOString();
 
   let affected = 0;
 
@@ -138,29 +139,14 @@ export async function bulkReviewCampaigns(input: {
     if (error) return { error: error.message };
     affected = data?.length ?? 0;
   } else {
-    const patch: Record<string, unknown> = {
-      reviewed_at: nowIso,
-      reviewed_by: ctx.userId,
-      review_reason: reason,
-    };
-    if (input.action === "approve") {
-      patch.review_state = "auto_active";
-      patch.active = true;
-    } else if (input.action === "reject") {
-      patch.review_state = "rejected";
-      patch.active = false;
-    } else if (input.action === "supersede") {
-      patch.review_state = "superseded";
-      patch.active = false;
-    }
-    const { data, error } = await supabase
-      .from("campaigns")
-      .update(patch)
-      .in("id", ids)
-      .eq("review_state", "pending_review")
-      .select("id");
-    if (error) return { error: error.message };
-    affected = data?.length ?? 0;
+    const r = await applyCampaignReviewTransition(supabase, {
+      ids,
+      action: input.action,
+      reviewerId: ctx.userId,
+      reason,
+    });
+    if (r.error) return { error: r.error };
+    affected = r.affected;
   }
 
   // Per-row audit — useful for the audit-log timeline view. Cap
