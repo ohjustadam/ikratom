@@ -259,8 +259,29 @@ for (const r of industryParty.slice(0, 10)) {
   console.log(`    [${r.state ?? "FED"}] ${r.case_kind} · ${(r.date_filed ?? "").slice(0, 10)} · ${r.case_name?.slice(0, 80)}`);
 }
 
-if (DRY_RUN || allRows.length === 0) {
-  console.log(`\n${DRY_RUN ? "DRY RUN — skipping insert." : "Nothing to write."}`);
+let batchFails = 0;
+// Self-healing telemetry: every run registers in scraper_runs (source matches
+// check-cron-staleness) so a silent failure is visible in /admin/automation.
+async function logRun(status, rows, notes) {
+  try {
+    await sb.from("scraper_runs").insert({
+      source: "courtlistener",
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      status,
+      rows_added: rows,
+      notes,
+    });
+  } catch { /* telemetry is best-effort — never block the run */ }
+}
+
+if (DRY_RUN) {
+  console.log(`\nDRY RUN — skipping insert.`);
+  process.exit(0);
+}
+if (allRows.length === 0) {
+  console.log(`\nNothing to write.`);
+  await logRun("empty", 0, "0 cases");
   process.exit(0);
 }
 
@@ -280,6 +301,7 @@ async function upsertChunk(table, rows, conflictTarget) {
       .select("id");
     if (error) {
       console.error(`  ${conflictTarget} batch ${i / BATCH} failed: ${error.message?.slice(0, 200)}`);
+      batchFails++;
       continue;
     }
     total += data?.length ?? 0;
@@ -290,4 +312,5 @@ async function upsertChunk(table, rows, conflictTarget) {
 written += await upsertChunk("court_cases", opinionRowsDedupe, "cl_cluster_id");
 written += await upsertChunk("court_cases", docketRowsDedupe, "cl_docket_id");
 
-console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${written} rows upserted.`);
+await logRun(batchFails > 0 ? "error" : "success", written, `${opinionRowsDedupe.length} opinions, ${docketRowsDedupe.length} dockets, ${written} upserted, ${batchFails} batch error(s)`);
+console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${written} rows upserted${batchFails > 0 ? `, ${batchFails} error(s)` : ""}.`);

@@ -140,7 +140,23 @@ function toRow(r, category) {
 const t0 = Date.now();
 console.log(`Syncing kratom-mentioning federal awards from USAspending.gov${DRY_RUN ? " (DRY RUN)" : ""}…`);
 
+// Self-healing telemetry: every run registers in scraper_runs (source matches
+// check-cron-staleness) so a silent failure is visible in /admin/automation.
+async function logRun(status, rows, notes) {
+  try {
+    await sb.from("scraper_runs").insert({
+      source: "usaspending",
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      status,
+      rows_added: rows,
+      notes,
+    });
+  } catch { /* telemetry is best-effort — never block the run */ }
+}
+
 const allRows = [];
+let fetchFails = 0;
 for (const group of AWARD_GROUPS) {
   try {
     process.stdout.write(`  ${group.name} (${group.codes.join(",")})… `);
@@ -149,6 +165,7 @@ for (const group of AWARD_GROUPS) {
     allRows.push(...r);
   } catch (e) {
     console.log(`FAIL: ${e.message?.slice(0, 120)}`);
+    fetchFails++;
   }
   await new Promise(r => setTimeout(r, 400));   // polite pacing
 }
@@ -172,13 +189,19 @@ for (const r of deduped.slice(0, 8)) {
   if (r.description) console.log(`      ${r.description.slice(0, 120)}`);
 }
 
-if (DRY_RUN || deduped.length === 0) {
-  console.log(`\n${DRY_RUN ? "DRY RUN — skipping insert." : "Nothing to write."}`);
+if (DRY_RUN) {
+  console.log(`\nDRY RUN — skipping insert.`);
+  process.exit(0);
+}
+if (deduped.length === 0) {
+  console.log(`\nNothing to write.`);
+  await logRun(fetchFails > 0 ? "error" : "empty", 0, `${allRows.length} fetched, ${fetchFails} fetch error(s)`);
   process.exit(0);
 }
 
 const BATCH = 100;
 let written = 0;
+let batchFails = 0;
 for (let i = 0; i < deduped.length; i += BATCH) {
   const chunk = deduped.slice(i, i + BATCH);
   const { error, data } = await sb
@@ -187,9 +210,12 @@ for (let i = 0; i < deduped.length; i += BATCH) {
     .select("id");
   if (error) {
     console.error(`  Batch ${i / BATCH} failed: ${error.message?.slice(0, 200)}`);
+    batchFails++;
     continue;
   }
   written += data?.length ?? 0;
 }
 
-console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${written} rows upserted.`);
+const failed = fetchFails + batchFails;
+await logRun(failed > 0 ? "error" : "success", written, `${deduped.length} awards, ${written} upserted, ${failed} error(s)`);
+console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${written} rows upserted${failed > 0 ? `, ${failed} error(s)` : ""}.`);
