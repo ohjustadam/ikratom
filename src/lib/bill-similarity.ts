@@ -79,16 +79,22 @@ export async function findSimilarBills(
     .maybeSingle<{ id: string; state: string; embedding: number[] | null }>();
   if (tErr || !target?.embedding || !Array.isArray(target.embedding)) return [];
 
-  // Pull all other embedded active bills. At ~500 rows × 768 floats this
-  // is a ~1.5 MB payload — acceptable for one query, and most rows will
-  // be excluded before we render anything. If this grows past 2k rows
-  // we should pre-filter by kratom_relevance or chunk by state.
+  // Pull other embedded active bills. Each row carries a 768-float jsonb
+  // embedding (~3KB detoasted), so the payload grows with the corpus. We
+  // bound it two ways (per this file's original TODO + the 2026-06-08 OOM
+  // RCA: on a cold cache this query detoasted the full embedding set on a
+  // ~400MB instance): (1) only anti/pro bills can be meaningful matches —
+  // neutral/unclassified bills never clear the 0.6 similarity floor for a
+  // kratom-policy bill anyway; (2) a hard 2000-row cap so worst-case query
+  // memory stays flat as the bill table grows.
   let q = supabase
     .from("bills")
     .select("id, state, bill_number, title, kratom_relevance, status, last_action_at, embedding")
     .eq("active", true)
     .not("embedding", "is", null)
-    .neq("id", billId);
+    .in("kratom_relevance", ["anti", "pro"])
+    .neq("id", billId)
+    .limit(2000);
   if (!includeSameState) q = q.neq("state", target.state);
 
   const { data: candidates, error: cErr } = await q;

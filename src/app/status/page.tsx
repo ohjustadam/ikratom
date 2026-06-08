@@ -1,16 +1,23 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const metadata = {
   title: "iKratom · live platform status",
   description: "Real-time platform health: bills tracked, meetings monitored, alerts pushed, research catalogued. Proof the intel network is alive.",
 };
+// Kept dynamic so Next never tries to prerender this at build time (the
+// data is live), but the actual DB work is wrapped in unstable_cache below
+// (revalidate 300s). Before that, this force-dynamic page re-ran ~15 DB
+// queries — including a 20k-row pull — on EVERY hit, which made it a
+// self-serve OOM trigger on the free-tier (~400MB) instance (2026-06-08
+// outage). Now any volume of traffic costs at most one snapshot per 5 min.
 export const dynamic = "force-dynamic";
 
 /**
  * /status — public proof-of-life page.
  *
- * Live counts pulled from the database at request time:
+ * Live counts pulled from the database (snapshotted every 5 min):
  *   - Total active bills across all 50 states
  *   - Approved upcoming municipal meetings
  *   - Recent policy alerts pushed
@@ -18,12 +25,12 @@ export const dynamic = "force-dynamic";
  *   - Calls tracked by advocates
  *   - States with at least one signal (live nodes)
  *
- * Plus a per-source freshness table (sync_news_rss, classify-news-policy,
- * push-critical-alerts, fire-meeting-reminders, etc.) so anyone can see
- * the pipelines are running on schedule.
+ * Plus a per-source freshness table so anyone can see the pipelines are
+ * running on schedule.
  *
  * Public — anyone can hit this URL to verify the intel network is real.
- * Demonstrates depth without exposing any user PII.
+ * Reads run through a service-role client (cookie-free, so the result is
+ * cacheable) and only ever expose aggregate counts — never any user PII.
  */
 
 const STATE_NAMES: Record<string, string> = {
@@ -39,6 +46,7 @@ const STATE_NAMES: Record<string, string> = {
   VT:"Vermont",VA:"Virginia",WA:"Washington",WV:"West Virginia",WI:"Wisconsin",
   WY:"Wyoming",
 };
+void STATE_NAMES;
 
 // Cron jobs we expose publicly — the user-facing pipelines that
 // matter to "is the data real?". Anything admin-only or PII-sensitive
@@ -62,139 +70,188 @@ const PUBLIC_PIPELINES = [
   { source: "verify_bill_status_ai",        label: "Bill status verify (AI)",      expectedHours: 26 },
 ];
 
-export default async function StatusPage() {
-  const supabase = await createClient();
-  const now = Date.now();
-  const horizon90d = new Date(now + 90 * 86_400_000).toISOString();
-  const since7d = new Date(now - 7 * 86_400_000).toISOString();
-  const since30d = new Date(now - 30 * 86_400_000).toISOString();
+type StatusSnapshot = {
+  billsCount: number;
+  meetingsCount: number;
+  alertsCount: number;
+  researchCount: number;
+  researchEvaluatedCount: number;
+  callsCount: number;
+  advocatesCount: number;
+  statesWithBillsCount: number;
+  statesWithMeetingsCount: number;
+  stanceStatesCount: number;
+  liveStates: number;
+  billsInCommitteeCount: number;
+  antiBillsInCommitteeCount: number;
+  cronRuns: { source: string; started_at: string; status: string; rows_added: number | null }[];
+  speedMedianMin: number | null;
+  speedSample: number;
+  generatedAt: string;
+};
 
-  // Parallel pulls for the headline counts
-  const [
-    bills,
-    meetings,
-    alerts,
-    research,
-    researchEvaluated,
-    callsLast30d,
-    advocates,
-    statesWithBills,
-    statesWithMeetings,
-    statesWithStance,
-    cronRuns,
-    billsInCommittee,
-    antiBillsInCommittee,
-  ] = await Promise.all([
-    supabase.from("bills").select("state", { count: "exact" })
-      .eq("active", true).in("kratom_relevance", ["anti", "pro"]),
-    supabase.from("municipal_meetings").select("state", { count: "exact" })
-      .eq("moderation_status", "approved")
-      .gte("meeting_at", new Date(now).toISOString())
-      .lte("meeting_at", horizon90d),
-    supabase.from("policy_alerts").select("*", { count: "exact", head: true })
-      .eq("moderation_status", "approved")
-      .in("severity", ["critical", "alert"])
-      .gte("created_at", since7d),
-    supabase.from("research_papers").select("*", { count: "exact", head: true }).eq("is_active", true),
-    supabase.from("research_papers").select("*", { count: "exact", head: true })
-      .eq("is_active", true).not("ai_evaluated_at", "is", null),
-    supabase.from("call_sessions").select("*", { count: "exact", head: true })
-      .gte("started_at", since30d).not("ended_at", "is", null),
-    supabase.from("profiles").select("*", { count: "exact", head: true }),
-    supabase.from("bills").select("state").eq("active", true).in("kratom_relevance", ["anti", "pro"]),
-    supabase.from("municipal_meetings").select("state").eq("moderation_status", "approved")
-      .gte("meeting_at", new Date(now).toISOString()).lte("meeting_at", horizon90d),
-    supabase.from("legislator_kratom_stance").select("legislators!inner(state)").limit(20000),
-    supabase.from("scraper_runs_latest").select("source, started_at, status, rows_added"),
-    // Committee-leverage counts. Public visibility into how many bills
-    // are currently sitting in a parseable committee — the moments
-    // where a constituent's call to a specific committee member moves
-    // the bill. Wrapped server-side with a head:true count so we don't
-    // pay row-transfer cost.
-    supabase.from("bills").select("current_committee_name", { count: "exact", head: true })
-      .eq("active", true)
-      .not("current_committee_name", "is", null),
-    supabase.from("bills").select("current_committee_name", { count: "exact", head: true })
-      .eq("active", true)
-      .eq("kratom_relevance", "anti")
-      .not("current_committee_name", "is", null),
-  ]);
+/**
+ * All the DB work for /status, snapshotted across requests (revalidate 5m).
+ * Uses a service-role client so it's cookie-free (cacheable) — only aggregate
+ * counts leave this function, never user rows.
+ */
+const getStatusSnapshot = unstable_cache(
+  async (): Promise<StatusSnapshot> => {
+    const supabase = createServiceRoleClient();
+    const now = Date.now();
+    const horizon90d = new Date(now + 90 * 86_400_000).toISOString();
+    const since7d = new Date(now - 7 * 86_400_000).toISOString();
+    const since30d = new Date(now - 30 * 86_400_000).toISOString();
 
-  // Speed-to-action metric: median minutes between alert publish-time
-  // (occurs_at OR underlying news published_at OR created_at) and
-  // first user campaign_action timestamp on that alert. The lobbyist-
-  // equalizer measurement. Lower = better.
-  // Sample: last 30 days of alerts that had at least one downstream action.
-  let speedMedianMin: number | null = null;
-  let speedSample = 0;
-  try {
-    // Step 1: pull recently-created alerts with their campaign_id
-    const { data: recentAlerts } = await supabase
-      .from("policy_alerts")
-      .select("id, campaign_id, created_at, occurs_at")
-      .not("campaign_id", "is", null)
-      .gte("created_at", since30d)
-      .limit(200);
-    const campaignIds = (recentAlerts ?? [])
-      .map((a) => a.campaign_id)
-      .filter(Boolean) as string[];
-    if (campaignIds.length > 0) {
-      // Step 2: pull first action per campaign
-      const { data: actions } = await supabase
-        .from("campaign_actions")
-        .select("campaign_id, sent_at")
-        .in("campaign_id", campaignIds)
-        .order("sent_at", { ascending: true });
-      const firstActionByCampaign = new Map<string, string>();
-      for (const a of (actions ?? []) as Array<{ campaign_id: string; sent_at: string }>) {
-        if (!firstActionByCampaign.has(a.campaign_id)) {
-          firstActionByCampaign.set(a.campaign_id, a.sent_at);
+    const [
+      bills,
+      meetings,
+      alerts,
+      research,
+      researchEvaluated,
+      callsLast30d,
+      advocates,
+      statesWithBills,
+      statesWithMeetings,
+      statesWithStance,
+      cronRuns,
+      billsInCommittee,
+      antiBillsInCommittee,
+    ] = await Promise.all([
+      supabase.from("bills").select("state", { count: "exact", head: true })
+        .eq("active", true).in("kratom_relevance", ["anti", "pro"]),
+      supabase.from("municipal_meetings").select("state", { count: "exact", head: true })
+        .eq("moderation_status", "approved")
+        .gte("meeting_at", new Date(now).toISOString())
+        .lte("meeting_at", horizon90d),
+      supabase.from("policy_alerts").select("*", { count: "exact", head: true })
+        .eq("moderation_status", "approved")
+        .in("severity", ["critical", "alert"])
+        .gte("created_at", since7d),
+      supabase.from("research_papers").select("*", { count: "exact", head: true }).eq("is_active", true),
+      supabase.from("research_papers").select("*", { count: "exact", head: true })
+        .eq("is_active", true).not("ai_evaluated_at", "is", null),
+      supabase.from("call_sessions").select("*", { count: "exact", head: true })
+        .gte("started_at", since30d).not("ended_at", "is", null),
+      supabase.from("profiles").select("*", { count: "exact", head: true }),
+      // Distinct-state coverage: pull just the `state` column (small) to
+      // count distinct states with an active anti/pro bill.
+      supabase.from("bills").select("state").eq("active", true).in("kratom_relevance", ["anti", "pro"]),
+      supabase.from("municipal_meetings").select("state").eq("moderation_status", "approved")
+        .gte("meeting_at", new Date(now).toISOString()).lte("meeting_at", horizon90d),
+      // Distinct states with a stance draft. Capped at 2000 (was 20000):
+      // there are only 51 possible states, so a 2000-row sample captures
+      // them all in practice while keeping the payload bounded.
+      supabase.from("legislator_kratom_stance").select("legislators!inner(state)").limit(2000),
+      supabase.from("scraper_runs_latest").select("source, started_at, status, rows_added"),
+      supabase.from("bills").select("current_committee_name", { count: "exact", head: true })
+        .eq("active", true)
+        .not("current_committee_name", "is", null),
+      supabase.from("bills").select("current_committee_name", { count: "exact", head: true })
+        .eq("active", true)
+        .eq("kratom_relevance", "anti")
+        .not("current_committee_name", "is", null),
+    ]);
+
+    // Speed-to-action metric: median minutes from event detection to first
+    // advocate action. Best-effort; never blocks the snapshot.
+    let speedMedianMin: number | null = null;
+    let speedSample = 0;
+    try {
+      const { data: recentAlerts } = await supabase
+        .from("policy_alerts")
+        .select("id, campaign_id, created_at, occurs_at")
+        .not("campaign_id", "is", null)
+        .gte("created_at", since30d)
+        .limit(200);
+      const campaignIds = (recentAlerts ?? [])
+        .map((a) => a.campaign_id)
+        .filter(Boolean) as string[];
+      if (campaignIds.length > 0) {
+        const { data: actions } = await supabase
+          .from("campaign_actions")
+          .select("campaign_id, sent_at")
+          .in("campaign_id", campaignIds)
+          .order("sent_at", { ascending: true });
+        const firstActionByCampaign = new Map<string, string>();
+        for (const a of (actions ?? []) as Array<{ campaign_id: string; sent_at: string }>) {
+          if (!firstActionByCampaign.has(a.campaign_id)) {
+            firstActionByCampaign.set(a.campaign_id, a.sent_at);
+          }
+        }
+        const minutes: number[] = [];
+        for (const a of recentAlerts ?? []) {
+          if (!a.campaign_id) continue;
+          const firstAction = firstActionByCampaign.get(a.campaign_id);
+          if (!firstAction) continue;
+          const eventTime = a.occurs_at ? new Date(a.occurs_at).getTime() : new Date(a.created_at).getTime();
+          const actionTime = new Date(firstAction).getTime();
+          if (actionTime <= eventTime) continue;
+          minutes.push((actionTime - eventTime) / 60_000);
+        }
+        if (minutes.length > 0) {
+          minutes.sort((a, b) => a - b);
+          speedMedianMin = minutes[Math.floor(minutes.length / 2)];
+          speedSample = minutes.length;
         }
       }
-      // Step 3: per alert, compute minutes from event-time to first action
-      const minutes: number[] = [];
-      for (const a of recentAlerts ?? []) {
-        if (!a.campaign_id) continue;
-        const firstAction = firstActionByCampaign.get(a.campaign_id);
-        if (!firstAction) continue;
-        const eventTime = a.occurs_at ? new Date(a.occurs_at).getTime() : new Date(a.created_at).getTime();
-        const actionTime = new Date(firstAction).getTime();
-        if (actionTime <= eventTime) continue;
-        minutes.push((actionTime - eventTime) / 60_000);
-      }
-      if (minutes.length > 0) {
-        minutes.sort((a, b) => a - b);
-        speedMedianMin = minutes[Math.floor(minutes.length / 2)];
-        speedSample = minutes.length;
-      }
+    } catch { /* metric is best-effort */ }
+
+    // Distinct-state sets
+    const billStates = new Set<string>();
+    for (const row of statesWithBills.data ?? []) {
+      if (row.state) billStates.add(row.state.toUpperCase());
     }
-  } catch { /* metric is best-effort */ }
+    const meetingStates = new Set<string>();
+    for (const row of statesWithMeetings.data ?? []) {
+      if (row.state) meetingStates.add(row.state.toUpperCase());
+    }
+    const liveStates = new Set<string>([...billStates, ...meetingStates]).size;
 
-  // State coverage breakdown
-  const stateActivityRaw = new Set<string>();
-  for (const row of statesWithBills.data ?? []) {
-    if (row.state) stateActivityRaw.add(row.state.toUpperCase());
-  }
-  for (const row of statesWithMeetings.data ?? []) {
-    if (row.state) stateActivityRaw.add(row.state.toUpperCase());
-  }
-  const liveStates = stateActivityRaw.size;
+    const stanceStates = new Set<string>();
+    type StanceRow = { legislators: { state: string } | Array<{ state: string }> };
+    for (const r of (statesWithStance.data ?? []) as StanceRow[]) {
+      const leg = Array.isArray(r.legislators) ? r.legislators[0] : r.legislators;
+      if (leg?.state) stanceStates.add(leg.state.toUpperCase());
+    }
 
-  const stanceStates = new Set<string>();
-  type StanceRow = { legislators: { state: string } | Array<{ state: string }> };
-  for (const r of (statesWithStance.data ?? []) as StanceRow[]) {
-    const leg = Array.isArray(r.legislators) ? r.legislators[0] : r.legislators;
-    if (leg?.state) stanceStates.add(leg.state.toUpperCase());
-  }
+    return {
+      billsCount: bills.count ?? 0,
+      meetingsCount: meetings.count ?? 0,
+      alertsCount: alerts.count ?? 0,
+      researchCount: research.count ?? 0,
+      researchEvaluatedCount: researchEvaluated.count ?? 0,
+      callsCount: callsLast30d.count ?? 0,
+      advocatesCount: advocates.count ?? 0,
+      statesWithBillsCount: billStates.size,
+      statesWithMeetingsCount: meetingStates.size,
+      stanceStatesCount: stanceStates.size,
+      liveStates,
+      billsInCommitteeCount: billsInCommittee.count ?? 0,
+      antiBillsInCommitteeCount: antiBillsInCommittee.count ?? 0,
+      cronRuns: (cronRuns.data ?? []).map((r) => ({
+        source: r.source as string,
+        started_at: r.started_at as string,
+        status: r.status as string,
+        rows_added: (r.rows_added ?? null) as number | null,
+      })),
+      speedMedianMin,
+      speedSample,
+      generatedAt: new Date(now).toISOString(),
+    };
+  },
+  ["status-snapshot-v1"],
+  { revalidate: 300, tags: ["status-snapshot"] },
+);
 
-  // Build the cron-health table
+export default async function StatusPage() {
+  const snap = await getStatusSnapshot();
+  const now = Date.now();
+
+  // Build the cron-health table from the cached snapshot
   const cronByName = new Map<string, { started_at: string; status: string; rows_added: number | null }>();
-  for (const r of cronRuns.data ?? []) {
-    cronByName.set(r.source, {
-      started_at: r.started_at,
-      status: r.status,
-      rows_added: r.rows_added,
-    });
+  for (const r of snap.cronRuns) {
+    cronByName.set(r.source, { started_at: r.started_at, status: r.status, rows_added: r.rows_added });
   }
 
   const pipelineStatus = PUBLIC_PIPELINES.map((p) => {
@@ -210,6 +267,8 @@ export default async function StatusPage() {
   const healthyPipelines = pipelineStatus.filter((p) => p.tone === "emerald").length;
   const allPipelines = pipelineStatus.length;
 
+  const { speedMedianMin, speedSample } = snap;
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
       <header className="mb-8">
@@ -220,13 +279,12 @@ export default async function StatusPage() {
           The intel network is alive.
         </h1>
         <p className="mt-3 max-w-3xl text-base text-zinc-400">
-          Real-time platform snapshot pulled from the database at the moment
-          you loaded this page. Updated every refresh. Designed as proof:
-          when iKratom says &ldquo;we&apos;re tracking N bills across X states&rdquo;
-          there&apos;s a number behind it.
+          Platform snapshot pulled from the database, refreshed every few
+          minutes. Designed as proof: when iKratom says &ldquo;we&apos;re
+          tracking N bills across X states&rdquo; there&apos;s a number behind it.
         </p>
         <p className="mt-2 text-[10px] font-mono text-zinc-600">
-          generated {new Date(now).toISOString().slice(0, 19).replace("T", " ")} UTC
+          generated {snap.generatedAt.slice(0, 19).replace("T", " ")} UTC
         </p>
       </header>
 
@@ -234,33 +292,33 @@ export default async function StatusPage() {
       <section className="mb-10 grid gap-4 sm:grid-cols-3">
         <Stat
           label="Active bills tracked"
-          value={bills.count ?? 0}
-          sub={`across ${stateActivityRaw.size} state${stateActivityRaw.size === 1 ? "" : "s"}`}
+          value={snap.billsCount}
+          sub={`across ${snap.liveStates} state${snap.liveStates === 1 ? "" : "s"}`}
           tone="emerald"
         />
         <Stat
           label="Upcoming public meetings"
-          value={meetings.count ?? 0}
+          value={snap.meetingsCount}
           sub="next 90 days · approved + scheduled"
         />
         <Stat
           label="Alerts in last 7 days"
-          value={alerts.count ?? 0}
+          value={snap.alertsCount}
           sub="critical + alert severity, approved"
         />
         <Stat
           label="Research papers"
-          value={research.count ?? 0}
-          sub={`${researchEvaluated.count ?? 0} AI-evaluated`}
+          value={snap.researchCount}
+          sub={`${snap.researchEvaluatedCount} AI-evaluated`}
         />
         <Stat
           label="Calls placed"
-          value={callsLast30d.count ?? 0}
+          value={snap.callsCount}
           sub="completed sessions, last 30d"
         />
         <Stat
           label="Registered advocates"
-          value={advocates.count ?? 0}
+          value={snap.advocatesCount}
           sub="across all states"
         />
       </section>
@@ -297,13 +355,8 @@ export default async function StatusPage() {
         </section>
       )}
 
-      {/* Committee-leverage moments — counts the open structural-leverage
-          windows. A bill in committee = a small group of legislators
-          deciding it. Constituents of THOSE legislators carry weight.
-          Only renders when we have at least one bill with a parseable
-          current_committee_name (i.e. post-migration 0123 + at least
-          one populated row). */}
-      {(billsInCommittee.count ?? 0) > 0 && (
+      {/* Committee-leverage moments */}
+      {snap.billsInCommitteeCount > 0 && (
         <section className="mb-10 rounded-lg border border-emerald-500/40 bg-emerald-950/15 p-5">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
             ⚡ Committee leverage windows — open right now
@@ -317,16 +370,16 @@ export default async function StatusPage() {
           <div className="mt-4 flex flex-wrap items-baseline gap-6">
             <div>
               <span className="text-5xl font-bold tabular-nums text-emerald-200">
-                {billsInCommittee.count ?? 0}
+                {snap.billsInCommitteeCount}
               </span>
               <p className="mt-1 text-[11px] text-zinc-400">
                 bills in committee with structured assignment
               </p>
             </div>
-            {(antiBillsInCommittee.count ?? 0) > 0 && (
+            {snap.antiBillsInCommitteeCount > 0 && (
               <div>
                 <span className="text-3xl font-bold tabular-nums text-red-300">
-                  {antiBillsInCommittee.count ?? 0}
+                  {snap.antiBillsInCommitteeCount}
                 </span>
                 <p className="mt-1 text-[11px] text-zinc-400">
                   of those are anti-kratom — defense windows
@@ -352,12 +405,12 @@ export default async function StatusPage() {
           tracked bill / scheduled public meeting / drafted legislator stance.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <PillarStat label="States with active bills" value={new Set((statesWithBills.data ?? []).map((r) => r.state?.toUpperCase()).filter(Boolean)).size} total={51} />
-          <PillarStat label="States with upcoming meetings" value={new Set((statesWithMeetings.data ?? []).map((r) => r.state?.toUpperCase()).filter(Boolean)).size} total={51} />
-          <PillarStat label="States with stance drafts" value={stanceStates.size} total={51} />
+          <PillarStat label="States with active bills" value={snap.statesWithBillsCount} total={51} />
+          <PillarStat label="States with upcoming meetings" value={snap.statesWithMeetingsCount} total={51} />
+          <PillarStat label="States with stance drafts" value={snap.stanceStatesCount} total={51} />
         </div>
         <p className="mt-3 text-[11px] text-zinc-500">
-          {liveStates} of 51 states + DC currently show real activity in our intel feeds.
+          {snap.liveStates} of 51 states + DC currently show real activity in our intel feeds.
         </p>
       </section>
 

@@ -30,13 +30,14 @@ name: Hourly cron
 
 on:
   schedule:
-    # GitHub Actions cron is best-effort under load — observed actual
-    # cadence with single 'hourly' schedule was every 2-3h. Two
-    # schedules at :00 and :30 double our chances of hitting close
-    # to the hour. The concurrency lock below prevents pile-up if
-    # both fire while a prior run is still going.
+    # Single hourly schedule. We previously ran TWO (:00 and :30) to
+    # "double our chances" against GitHub's best-effort scheduler, but
+    # that doubled the sustained DB load on the free-tier (~400MB)
+    # Postgres and contributed to the 2026-06-08 OOM outage. News +
+    # alerts target <1h latency (not real-time), and the news-pipeline
+    # drains any backlog across ticks, so one tick/hour is plenty. The
+    # concurrency lock below still prevents pile-up if a run overruns.
     - cron: "0 * * * *"
-    - cron: "30 * * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -307,7 +308,12 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/extract-bills-from-alerts.mjs --limit 2000
+        # --limit 500 (was 2000): pulling 2000 alerts + 2000 news_items
+        # (incl. summary/excerpt text) + the full bills table in one
+        # payload was a multi-MB working set materialized on the ~400MB
+        # instance every hour. 500 still drains any realistic backlog
+        # across a few ticks; idempotent so nothing is lost.
+        run: node scripts/extract-bills-from-alerts.mjs --limit 500
       - name: Fire user-set custom reminders
         # User-controlled reminders set via 🔔 Remind me button on
         # bills/meetings/etc. (migration 0132). Hourly because
