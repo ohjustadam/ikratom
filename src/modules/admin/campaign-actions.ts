@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { recordAdminAction } from "@/lib/audit";
 import { getCreatorContext } from "./actions";
 import { requireMfaForMutation } from "./mfa";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const ROLE_OPTIONS = ["us_senate", "us_house", "state_senate", "state_house"] as const;
 
@@ -80,6 +81,10 @@ export async function createCampaign(formData: FormData): Promise<CampaignFormRe
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
+  // Defense-in-depth: bound campaign creation even for a (compromised) leader.
+  if (!(await checkRateLimit(`campaign:create:${ctx.userId}`, 30, 3600))) {
+    return { error: "Too many campaigns created this hour — slow down." };
+  }
 
   const data = readForm(formData);
   const err = validate(data);
