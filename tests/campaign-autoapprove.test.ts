@@ -115,27 +115,32 @@ describe("topicKey / normalizedTitleKey dedup keys", () => {
 /**
  * Three-keyspace dedup relationship (see docs/DECISIONS.md → "Campaign dedup
  * uses THREE keyspaces, intentionally distinct"). Campaign de-dup is enforced in
- * three places that DO NOT share a key format and are NOT meant to be string-
- * equal:
- *   1. DB unique index   — campaign_topic_key() (migration 0107) → STATE|kw|event,
- *                          enforced by ux_campaigns_topic_key_live (0108), which
- *                          EXCLUDES rows ending in |unknown|unknown.
+ * three places with DIFFERENT key formats:
+ *   1. DB unique index   — campaign_topic_key() (migration 0107, made bill-aware
+ *                          in 0186) → bill:ST|<chamber><num> for bill-numbered
+ *                          titles else STATE|kw|event, enforced by
+ *                          ux_campaigns_topic_key_live (0108), which EXCLUDES rows
+ *                          ending in |unknown|unknown.
  *   2. auto-approve engine — keysFor() = billKey / normalizedTitleKey / strongTopicKey
  *                          (the NARROW STRONG_EVENT_RX). Never reads topic_key.
  *   3. daily janitor      — topicKey() with the BROAD EVENT_RX (not used by the engine).
  *
- * These tests pin the safety-relevant relationship, NOT a (false) string-equality.
- * They guard against someone "aligning" the keyspaces and silently changing
- * dedup behavior.
+ * 0186 ALIGNED the bill axis (DB key now == engine billKey for bill titles); the
+ * topic-token + event-vocabulary divergence remains intentional. These tests pin
+ * the safety-relevant relationship and guard against silently re-diverging (or
+ * over-aligning) the keyspaces.
  */
 
-// DB topic-key, ported VERBATIM from supabase/migrations/0107 (campaign_topic_key,
-// lines 31-80). Kept in lockstep with that SQL function — if the migration's
-// keyword/event lists change, update this mirror and the asserts below. Postgres
-// \m / \M word-boundaries are emulated with JS \b; the corpus below is chosen to
-// behave identically under both engines.
+// DB topic-key, ported from supabase/migrations/0107 as amended by 0186
+// (campaign_topic_key). Kept in lockstep with that SQL function — if the
+// migration's bill/keyword/event logic changes, update this mirror and the
+// asserts below. The bill branch reuses billKey (the SQL mirrors it verbatim);
+// Postgres \m / \M word-boundaries are emulated with JS \b, and the corpus below
+// is chosen to behave identically under both engines.
 function dbTopicKey(state: string | null, title: string | null): string | null {
   if (title == null) return null;
+  const bk = billKey(state, title); // 0186: bill-numbered titles key like the engine
+  if (bk) return bk;
   const t = String(title).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
   let kw = "unknown";
   if (/\b7-?hydroxymitragynine\b/.test(t)) kw = "mitragynine";
@@ -200,33 +205,41 @@ const CORPUS: ReadonlyArray<[string | null, string]> = [
 ];
 
 describe("three-keyspace dedup relationship", () => {
-  it("engine's fuzzy key (strongTopicKey) never lands in the DB index blind spot", () => {
-    // Every title that yields a strong topic key also yields a DB key the unique
-    // index ENFORCES (never …|unknown|unknown) — so the engine's only fuzzy
-    // collapse can only fire inside a cluster the DB itself treats as one.
+  it("every non-title engine key maps to DB-index-enforced space (never the blind spot)", () => {
+    // The engine's confident keys (bill:… and STATE|kw|strongEvent) all correspond
+    // to a DB key the unique index ENFORCES (never …|unknown|unknown) — so the
+    // engine's collapse only ever fires inside a cluster the DB treats as one.
+    // Only the engine's title: fallback may land in the DB's blind spot (by design).
     for (const [state, title] of CORPUS) {
-      if (strongTopicKey(state, title) != null) {
-        expect(dbEnforces(dbTopicKey(state, title))).toBe(true);
+      for (const k of engineKeys(state, title)) {
+        if (!k.startsWith("title:")) {
+          expect(dbEnforces(dbTopicKey(state, title))).toBe(true);
+        }
       }
     }
   });
 
-  it("engine COVERS the DB blind spot via exact-title / bill-number keys", () => {
-    // A title the DB index ignores (unknown|unknown) — the DB would have let a
-    // duplicate row through; the engine still dedups it by exact normalized title.
+  it("0186: bill-step alerts now ALIGN with the DB key (no longer the blind spot)", () => {
+    // Pre-0186 these keyword-free titles were TX|unknown|unknown (index-excluded)
+    // and only the engine's billKey collapsed them. Post-0186 the DB key equals
+    // the engine billKey and the index enforces it.
+    const step1db = dbTopicKey("TX", "TX HB 1097 — Reported engrossed");
+    const step2db = dbTopicKey("TX", "TX HB 1097 — Reported favorably as substituted");
+    expect(step1db).toBe("bill:TX|hb1097");
+    expect(step1db).toBe(step2db);
+    expect(dbEnforces(step1db)).toBe(true);
+    expect(engineKeys("TX", "TX HB 1097 — Reported engrossed")).toEqual(["bill:TX|hb1097"]);
+  });
+
+  it("engine still COVERS the DB blind spot for truly-unparseable titles", () => {
+    // No keyword, no event, no bill number → DB key is …|unknown|unknown (the index
+    // would let a duplicate row through); the engine still dedups exact repeats via
+    // normalizedTitleKey.
     const blind = dbTopicKey("OK", "City council budget meeting notes");
     expect(dbEnforces(blind)).toBe(false);
     expect(engineKeys("OK", "City council budget meeting notes"))
       .toEqual(engineKeys("OK", "City Council  Budget Meeting NOTES")); // case/space-insensitive title key
     expect(engineKeys("OK", "City council budget meeting notes")[0]).toMatch(/^title:/);
-
-    // Keyword-free bill-step alerts also fall in the DB blind spot; the engine's
-    // billKey collapses the steps the DB punted on.
-    expect(dbEnforces(dbTopicKey("TX", "TX HB 1097 — Reported engrossed"))).toBe(false);
-    const step1 = engineKeys("TX", "TX HB 1097 — Reported engrossed");
-    const step2 = engineKeys("TX", "TX HB 1097 — Reported favorably as substituted");
-    expect(step1).toEqual(["bill:TX|hb1097"]);
-    expect(step1).toEqual(step2);
   });
 
   it("engine and DB AGREE on the strong-event grouping (no wrong split)", () => {
@@ -241,16 +254,15 @@ describe("three-keyspace dedup relationship", () => {
     expect(dbTopicKey(...t1)).toBe(dbTopicKey(...t2));
   });
 
-  it("the keyspaces are different namespaces — NOT string-equal even when both parse", () => {
-    // Same title, both keys parse, but the tokens differ (engine keeps the literal
-    // matched keyword; the DB normalizes 7-OH → mitragynine). They must NOT be
-    // compared by ===.
+  it("0186 aligned the BILL axis but the topic-token divergence stays (intentional)", () => {
+    // CONVERGENCE: for bill-numbered titles the engine billKey and the DB key now agree.
+    expect(billKey("TX", "TX HB 1097 — Reported engrossed"))
+      .toBe(dbTopicKey("TX", "TX HB 1097 — Reported engrossed"));
+    // REMAINING divergence (intentional): the engine keeps the literal matched
+    // keyword; the DB normalizes 7-OH → mitragynine. Don't "fix" this by ===.
     expect(strongTopicKey("FL", "Florida 7OH ban")).toBe("FL|7oh|ban");
     expect(dbTopicKey("FL", "Florida 7OH ban")).toBe("FL|mitragynine|ban");
     expect(strongTopicKey("FL", "Florida 7OH ban")).not.toBe(dbTopicKey("FL", "Florida 7OH ban"));
-    // engine's title:/bill: keys have no analogue in the DB STATE|kw|event format
-    expect(dbTopicKey(null, "Unrelated federal headline about wellness funding")).not.toMatch(/^(title|bill):/);
-    expect(billKey("TX", "TX HB 1097 — Reported engrossed")).toMatch(/^bill:/);
   });
 
   it("the broad janitor topicKey() is a THIRD, broader keyspace the engine does NOT use", () => {

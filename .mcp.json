@@ -2,7 +2,15 @@
   "mcpServers": {
     "supabase": {
       "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=wxwoyjbgldtmvmiewhfq"
+      "url": "https://mcp.supabase.com/mcp?project_ref=wxwoyjbgldtmvmiewhfq&read_only=true"
+    },
+    "filesystem": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-filesystem", "C:\\claude\\ikratom"]
+    },
+    "playwright": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@playwright/mcp@latest"]
     }
   }
 }
