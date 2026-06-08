@@ -15,3 +15,11 @@ tsconfig.tsbuildinfo
 # Local Claude Code config (skills symlinks, preview launch.json) — machine-specific
 .claude/
 private/
+
+# Gazetteer: raw Census downloads + transient audit dumps. Only the built
+# us-counties.json / us-places.json are committed (regenerate via build-gazetteer.mjs).
+scripts/lib/geo/_raw/
+scripts/lib/geo/_proposed.json
+scripts/lib/geo/_confirmed.json
+# One-off diagnostic/fix scripts (underscore-prefixed, never committed)
+scripts/_*.mjs

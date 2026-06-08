@@ -39,7 +39,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { normalizedTitleKey, strongTopicKey, billKey } from "./lib/topic-key.mjs";
 import { isCampaignWorthyAlert } from "./lib/campaign-eligibility.mjs";
-import { reconcileLocality } from "./lib/us-states.mjs";
+import { reconcileLocality } from "./lib/geo-resolver.mjs";
 import { APPROVE_COLUMNS, REJECT_COLUMNS, SUPERSEDE_COLUMNS } from "./lib/campaign-review-columns.mjs";
 
 const DRY = process.argv.slice(2).includes("--dry-run");

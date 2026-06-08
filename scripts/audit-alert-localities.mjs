@@ -14,7 +14,7 @@
  *   node --env-file=.env.local scripts/audit-alert-localities.mjs --limit 500
  */
 import { createClient } from "@supabase/supabase-js";
-import { reconcileLocality, STATE_ABBRS } from "./lib/us-states.mjs";
+import { reconcileLocality, STATE_ABBRS } from "./lib/geo-resolver.mjs";
 
 const args = process.argv.slice(2);
 const arg = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : null; };
