@@ -1,11 +1,15 @@
 name: Daily cron
 
 # Daily-frequency jobs that aren't worth running hourly. Runs at
-# 10:00 UTC (~5am ET / 2am PT) so admins see results when they wake.
+# 10:17 UTC (~5am ET / 2am PT) so admins see results when they wake.
+# Minute 17 (not :00) so this big fan-out doesn't start on the same
+# clock-edge as the hourly cron's :00 tick — they'll still partially
+# overlap (the hourly job can run ~30min), but they no longer launch
+# simultaneously. See the 2026-06-08 OOM RCA.
 
 on:
   schedule:
-    - cron: "0 10 * * *"
+    - cron: "17 10 * * *"
   workflow_dispatch: {}
 
 concurrency:

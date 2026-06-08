@@ -3,11 +3,11 @@
   "crons": [
     {
       "path": "/api/cron/daily-sync",
-      "schedule": "0 12 * * *"
+      "schedule": "23 13 * * *"
     },
     {
       "path": "/api/cron/reverify-local-officials",
-      "schedule": "0 8 * * *"
+      "schedule": "41 6 * * *"
     }
   ]
 }
