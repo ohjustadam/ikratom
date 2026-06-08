@@ -97,6 +97,22 @@ export default function manifest(): MetadataRoute.Manifest {
         label: "iKratom — the advocate's toolbelt",
       },
     ],
+    // Web Share Target — registers iKratom in the OS share sheet as
+    // "Share to iKratom". Sharing a link/article from a browser or app
+    // GET-navigates to /alerts/submit with the shared title/text/url as
+    // query params, which the page reads to prefill the intel form so an
+    // advocate can flag a news item in two taps. (Android/Chromium TWA +
+    // desktop PWA honor this; iOS ignores it, which is fine.)
+    share_target: {
+      action: "/alerts/submit",
+      method: "GET",
+      enctype: "application/x-www-form-urlencoded",
+      params: {
+        title: "title",
+        text: "text",
+        url: "url",
+      },
+    },
     shortcuts: [
       {
         name: "Active campaigns",

@@ -26,15 +26,27 @@ const SEVERITIES: { id: "watch" | "alert" | "critical"; label: string; hint: str
   { id: "critical", label: "Critical", hint: "Imminent vote / hearing / deadline" },
 ];
 
-export function SubmitIntelForm({ defaultState }: { defaultState: string }) {
+export function SubmitIntelForm({
+  defaultState,
+  initialTitle = "",
+  initialBody = "",
+  initialUrl = "",
+}: {
+  defaultState: string;
+  /** Prefilled from the PWA share target (manifest.ts) when a user
+   *  shares a link/article into iKratom. Empty for normal visits. */
+  initialTitle?: string;
+  initialBody?: string;
+  initialUrl?: string;
+}) {
   const router = useRouter();
   const { user, requireSignIn } = useSignIn();
   const [kind, setKind] = useState<typeof KINDS[number]["id"]>("bill_event");
   const [severity, setSeverity] = useState<typeof SEVERITIES[number]["id"]>("watch");
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
+  const [title, setTitle] = useState(initialTitle);
+  const [body, setBody] = useState(initialBody);
   const [locality, setLocality] = useState(defaultState || "");
-  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceUrl, setSourceUrl] = useState(initialUrl);
   const [occursAt, setOccursAt] = useState("");
   const [actionRequired, setActionRequired] = useState(false);
   const [anon, setAnon] = useState(false);

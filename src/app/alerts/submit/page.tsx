@@ -13,7 +13,21 @@ export const metadata = { title: "Submit intel" };
  * Anonymous visitors see the form too — the in-page sign-in modal
  * (SignInProvider in layout.tsx) opens on submit.
  */
-export default async function SubmitIntelPage() {
+export default async function SubmitIntelPage({
+  searchParams,
+}: {
+  // Populated by the PWA Web Share Target (see manifest.ts share_target):
+  // sharing a link/article into iKratom GET-navigates here with these.
+  searchParams: Promise<{ title?: string; text?: string; url?: string }>;
+}) {
+  const sp = await searchParams;
+  // Many Android apps drop the URL into `text` rather than `url`; pull a
+  // URL out of whichever field has one, and use the leftover text as body.
+  const urlInText = sp.text?.match(/https?:\/\/\S+/)?.[0] ?? "";
+  const sharedUrl = (sp.url || urlInText || "").slice(0, 500);
+  const sharedTitle = (sp.title ?? "").slice(0, 200);
+  const sharedBody = (sp.text && sp.text !== sharedUrl ? sp.text : "").slice(0, 2000);
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -93,7 +107,12 @@ export default async function SubmitIntelPage() {
         </p>
       </div>
 
-      <SubmitIntelForm defaultState={(profile as { state: string | null } | null)?.state ?? ""} />
+      <SubmitIntelForm
+        defaultState={(profile as { state: string | null } | null)?.state ?? ""}
+        initialTitle={sharedTitle}
+        initialBody={sharedBody}
+        initialUrl={sharedUrl}
+      />
     </div>
   );
 }
