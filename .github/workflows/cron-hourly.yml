@@ -200,6 +200,10 @@ jobs:
         # auto-campaign onto those local officials so the alert is
         # one-click actionable against the right people. Free-tier AI
         # only; self-heals on Gemini quota (leaves unprocessed to retry).
+        # A 429/parse failure here must not fail the whole hourly run — the
+        # downstream auto-campaign-from-alert + auto-approve steps + telemetry
+        # still need to run. (Self-heals: unprocessed alerts retry next hour.)
+        continue-on-error: true
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -199,13 +199,13 @@ async function callCerebras(sys, user, maxTokens) {
     method: "POST",
     headers: { Authorization: `Bearer ${CEREBRAS_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      // Cerebras free-tier currently grants access to llama3.1-8b for
-      // most accounts (other listed models like gpt-oss-120b require a
-      // paid plan). 8B is small but Cerebras's silicon serves it at
-      // ~3000 tok/sec — fast enough for classification fallback when
-      // Groq + Gemini are in cooldown. Override with CEREBRAS_MODEL
-      // env var if your account has access to bigger models.
-      model: process.env.CEREBRAS_MODEL || "llama3.1-8b",
+      // Cerebras retired the old "llama3.1-8b" id (it 404s now, which made
+      // this provider a silent no-op fallthrough). Default to their current
+      // free Llama 3.3 70B id, served on Cerebras silicon at thousands of
+      // tok/sec — fast enough as a classification fallback when Groq + Gemini
+      // are in cooldown. Override with CEREBRAS_MODEL if your account exposes
+      // a different/bigger model id.
+      model: process.env.CEREBRAS_MODEL || "llama-3.3-70b",
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       temperature: 0.1,
       max_tokens: maxTokens,
