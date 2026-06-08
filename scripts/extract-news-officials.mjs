@@ -35,6 +35,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter } from "./lib/ai-router.mjs";
 import { seedLocalitySlate } from "./lib/officials-slate.mjs";
+import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -132,7 +133,26 @@ for (const a of alerts) {
     continue;
   }
 
-  const locality = `${j.locality_name.trim()}, ${j.state_code}`;
+  // Corroborate the AI's claimed state against the article text + the
+  // per-state scrape bucket before we stamp a "City, ST" specific_locality or
+  // seed a permanent officials slate. The gazetteer-backed resolver is
+  // conservative: it never returns a state the article contradicts. If it
+  // can't confirm the AI's state_code (corroborated===false), we SKIP this
+  // alert entirely and leave it UNSTAMPED so a later run can retry — better an
+  // undercount than seeding officials under the wrong state.
+  const { locality: resolvedState, corroborated } = reconcileLocality({
+    aiLocality: j.state_code,
+    scopeState: a.locality,
+    text: a.body,
+    title: a.title,
+  });
+  if (!corroborated || !STATE_RE.test(resolvedState)) {
+    console.log(`  ⏳ locality-guard: AI said state=${j.state_code} but the article doesn't corroborate it (resolver=${resolvedState}) — skipping seed, leaving unstamped for retry`);
+    failed++;
+    continue; // don't stamp officials_extracted_at — never seed a wrong-state slate
+  }
+
+  const locality = `${j.locality_name.trim()}, ${resolvedState}`;
   console.log(`  → local jurisdiction: ${locality}`);
 
   if (DRY) { processed++; continue; }
@@ -143,7 +163,7 @@ for (const a of alerts) {
   // 3. Seed the full local slate (skips cleanly if already covered)
   let seedRetryable = false; // true → leave unstamped so it retries
   if (GEMINI_KEY) {
-    const slate = await seedLocalitySlate({ sb, state: j.state_code, locality, geminiKey: GEMINI_KEY });
+    const slate = await seedLocalitySlate({ sb, state: resolvedState, locality, geminiKey: GEMINI_KEY });
     if (slate.status === "ok") {
       console.log(`  ✓ seeded ${slate.inserted} new official(s) (${slate.officialIds.length} total for locality)`);
       seeded++;

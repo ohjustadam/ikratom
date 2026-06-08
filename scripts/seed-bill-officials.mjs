@@ -24,6 +24,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { geminiKeyCount, pickGeminiKey, markGeminiKeyCooldown } from "./lib/gemini-keys.mjs";
+import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -217,6 +218,23 @@ async function processBill(bill) {
   // Parse "Marshall, IL" → "Marshall"
   const cityMatch = bill.locality.match(/^([^,]+),\s*([A-Z]{2})/);
   const city = cityMatch?.[1]?.trim() ?? bill.locality.trim();
+
+  // Gazetteer guard: confirm the city in bill.locality actually sits in
+  // bill.state before seeding PERMANENT legislator rows for that pair.
+  // legislators is monitored but auto-fix is detect-only, so a wrong-state
+  // row inserted here would persist. If the gazetteer can't corroborate the
+  // "City, ST" pair (or contradicts it), SKIP rather than insert wrong-state
+  // officials — better an undercount (safe) than a mislabel (unsafe).
+  const { locality: resolvedState, corroborated } = reconcileLocality({
+    aiLocality: bill.state,
+    scopeState: bill.state,
+    text: bill.locality,
+    title: bill.bill_number ?? "",
+  });
+  if (!corroborated) {
+    console.log(`  ⏭  locality-guard: "${bill.locality}" not corroborated as ${bill.state} (gazetteer → ${resolvedState}); skip seeding — would insert wrong-state officials`);
+    return "skip";
+  }
 
   // Skip if locality already has officials and not forcing refresh
   if (!REFRESH) {

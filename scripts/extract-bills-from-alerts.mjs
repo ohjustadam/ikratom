@@ -36,6 +36,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -205,17 +206,32 @@ let scannedAlerts = 0, scannedNews = 0, alreadyTracked = 0;
 // Scan alerts
 for (const a of alerts ?? []) {
   scannedAlerts++;
-  const state = stateFromLocality(a.locality);
-  if (!state) continue;
+  const guessedState = stateFromLocality(a.locality);
+  if (!guessedState) continue;
   const text = `${a.title ?? ""} ${a.body ?? ""}`;
   if (!KRATOM_RE.test(text)) continue;
+  // The alert's parsed locality is only a candidate. Reconcile against the
+  // authoritative gazetteer so we never stamp a bill with a wrong-state label
+  // (e.g. an Illinois ordinance bucketed "RI"). resolvedState is a 2-letter
+  // code, 'FED', or 'ALL'.
+  const { locality: resolvedState, corroborated } = reconcileLocality({
+    aiLocality: guessedState,
+    scopeState: null,
+    text,
+    title: a.title ?? "",
+  });
+  if (!/^[A-Z]{2}$/.test(resolvedState)) continue; // skip FED/ALL — a local/state bill needs a concrete state
+  // The verbatim "City, ST" locality is a permanent specific stamp. Keep it
+  // only when the gazetteer corroborates the parsed state; if the resolver
+  // overrode the bucket, drop the specific locality rather than mislabel.
+  const specificLocality = corroborated ? localityFromText(a.locality) : null;
   const extractions = extractBillNumbers(text);
   for (const ex of extractions) {
-    const key = `${state}|${ex.billNumber.toUpperCase().replace(/\s+/g, " ")}`;
+    const key = `${resolvedState}|${ex.billNumber.toUpperCase().replace(/\s+/g, " ")}`;
     if (existingKeys.has(key)) { alreadyTracked++; continue; }
     if (toCreate.has(key)) continue;
-    const row = rowFromExtraction(state, ex, a.source_url, text.slice(0, 400));
-    row.locality = localityFromText(a.locality);
+    const row = rowFromExtraction(resolvedState, ex, a.source_url, text.slice(0, 400));
+    row.locality = specificLocality;
     toCreate.set(key, row);
   }
 }
@@ -226,12 +242,22 @@ for (const n of news ?? []) {
   if (!n.state) continue;
   const text = `${n.title ?? ""} ${n.summary ?? ""} ${n.body_extract_excerpt ?? ""}`;
   if (!KRATOM_RE.test(text)) continue;
+  // The news_item.state column is just the scrape bucket. Reconcile it against
+  // the gazetteer so a syndicated story scraped under the wrong state doesn't
+  // mislabel the bill. resolvedState is a 2-letter code, 'FED', or 'ALL'.
+  const { locality: resolvedState } = reconcileLocality({
+    aiLocality: null,
+    scopeState: n.state,
+    text,
+    title: n.title ?? "",
+  });
+  if (!/^[A-Z]{2}$/.test(resolvedState)) continue; // skip FED/ALL — a bill needs a concrete state
   const extractions = extractBillNumbers(text);
   for (const ex of extractions) {
-    const key = `${n.state}|${ex.billNumber.toUpperCase().replace(/\s+/g, " ")}`;
+    const key = `${resolvedState}|${ex.billNumber.toUpperCase().replace(/\s+/g, " ")}`;
     if (existingKeys.has(key)) { alreadyTracked++; continue; }
     if (toCreate.has(key)) continue;
-    const row = rowFromExtraction(n.state, ex, n.url, text.slice(0, 400));
+    const row = rowFromExtraction(resolvedState, ex, n.url, text.slice(0, 400));
     toCreate.set(key, row);
   }
 }

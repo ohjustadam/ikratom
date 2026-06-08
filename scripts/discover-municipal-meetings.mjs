@@ -27,6 +27,7 @@
  *     (NY, FL, TX, CA, OH, MI — the states with the most kratom activity)
  */
 import { createClient } from "@supabase/supabase-js";
+import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -136,8 +137,22 @@ ALWAYS include source_url for every meeting.`;
     if (Number.isNaN(meetingAt.getTime())) { skipped++; continue; }
     if (meetingAt.getTime() < Date.now() - 24 * 60 * 60 * 1000) { skipped++; continue; }  // already happened
     if (!DRY_RUN) {
+      // Gazetteer-reconcile the meeting's state. The per-state scrape bucket
+      // (`state`) and the model's "City, ST" guess (`m.locality`) are both just
+      // candidates — the gazetteer decides. We write the RESOLVED state, never
+      // the raw bucket, so a meeting the agenda body contradicts can't be
+      // mislabeled. When the resolver can't corroborate a specific state, we
+      // force moderation_status='pending_review' so auto-approve-meetings.mjs
+      // can't promote a possibly-wrong-state meeting to /calendar.
+      const { locality: resolvedState, corroborated } = reconcileLocality({
+        aiLocality: m.locality,
+        scopeState: state,
+        text: `${m.body_name ?? ""} ${m.agenda_excerpt ?? ""}`,
+        title: m.body_name,
+      });
       const { error } = await sb.from("municipal_meetings").insert({
-        state,
+        state: resolvedState,
+        ...(corroborated ? {} : { moderation_status: "pending_review" }),
         locality: m.locality?.slice(0, 200) ?? null,
         body_name: m.body_name?.slice(0, 200) ?? null,
         meeting_at: meetingAt.toISOString(),

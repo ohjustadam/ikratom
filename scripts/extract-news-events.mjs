@@ -33,6 +33,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
+import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -144,12 +145,27 @@ for (const item of items) {
   }
 
   for (const e of future) {
-    const state = (e.state_code && STATE_RE.test(e.state_code)) ? e.state_code
-      : (item.state && STATE_RE.test(item.state)) ? item.state : null;
+    // Gazetteer-backed reconciliation: the AI's state_code (and the per-state
+    // scrape bucket) are only CANDIDATES — the resolver decides, never emitting
+    // a state the gazetteer contradicts. Better an undercount than a mislabel.
+    const { locality: resolvedState, corroborated } = reconcileLocality({
+      aiLocality: e.state_code,
+      scopeState: item.state,
+      text: `${item.title ?? ""} ${e.agenda_excerpt ?? ""}`,
+      title: item.title,
+    });
+    // A municipal meeting needs a concrete state; FED/ALL aren't seedable here.
+    const state = STATE_RE.test(resolvedState) ? resolvedState : null;
     if (!state) { console.log(`     · skip event (no resolvable state): ${e.event_date} ${e.body_name ?? ""}`); continue; }
 
     const meetingAt = `${e.event_date}T${(e.event_time_local && /^\d{2}:\d{2}$/.test(e.event_time_local)) ? e.event_time_local : "12:00"}:00Z`;
-    const locality = e.locality_name ? `${e.locality_name.trim()}, ${state}` : null;
+    // Don't pair a specific "City, ST" locality with an unverified state — a
+    // city under a guessed-wrong state is a mislabel. Drop to state-level when
+    // the resolver couldn't corroborate.
+    const locality = (e.locality_name && corroborated) ? `${e.locality_name.trim()}, ${state}` : null;
+    if (e.locality_name && !corroborated) {
+      console.log(`     · locality-guard: dropping "${e.locality_name.trim()}, ${state}" (uncorroborated) → state-level row`);
+    }
     const conf = Number.isFinite(e.confidence) ? Math.max(0, Math.min(1, e.confidence)) : null;
 
     console.log(`     • ${e.event_date} ${e.kind} ${e.body_name ?? ""} (${locality ?? state})  conf=${conf ?? "?"}`);

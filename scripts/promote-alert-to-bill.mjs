@@ -16,6 +16,7 @@
  *   node --env-file=.env.local scripts/promote-alert-to-bill.mjs --all-bill-events  (process every alert with kind=bill_event and bill_id=null)
  */
 import { createClient } from "@supabase/supabase-js";
+import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -65,7 +66,11 @@ function deriveStatus(alert) {
   return "introduced";
 }
 
-function deriveLocality(alert) {
+// Pull a candidate "City, ST" specific-locality out of the title. This is only
+// STAMPED onto bills.locality when the gazetteer corroborates the state (see
+// processAlert) — an uncorroborated guess would mislabel the bill, so we drop
+// the specific locality and let the bill sit at plain state scope instead.
+function deriveCityLocality(alert) {
   const m = alert.title?.match(/^([A-Z][A-Za-z .]+),\s*([A-Z]{2})/);
   if (m) return `${m[1].trim()}, ${m[2]}`;
   return null;
@@ -77,22 +82,40 @@ async function processAlert(alert) {
     console.log(`  ⏭  alert already linked to bill ${alert.bill_id}`);
     return false;
   }
-  if (!alert.locality || alert.locality.length !== 2) {
-    console.log("  ⏭  alert has no two-letter state locality; skipping");
+
+  // Gazetteer-backed state resolution. The alert's stored locality is only a
+  // guess (it could have been mislabeled upstream); the resolver corroborates
+  // it against the alert title+body and NEVER returns a state the gazetteer
+  // contradicts. We refuse to mint a bill from a guessed state — better an
+  // undercount than a wrong-state municipal bill.
+  const { locality: resolvedState, corroborated } = reconcileLocality({
+    aiLocality: alert.locality,
+    text: alert.body,
+    title: alert.title,
+  });
+  if (!/^[A-Z]{2}$/.test(resolvedState)) {
+    console.log(`  ⏭  no single state resolved (got "${resolvedState}"); skipping`);
     return false;
   }
 
   const billNumber = deriveBillNumber(alert);
   const title = deriveTitle(alert);
   const status = deriveStatus(alert);
-  const locality = deriveLocality(alert);
+  // Only stamp the specific "City, ST" locality when the resolver corroborated
+  // the state. Uncorroborated → leave locality null and create the bill at
+  // plain state scope (no mislabel).
+  const cityLocality = deriveCityLocality(alert);
+  const locality = corroborated ? cityLocality : null;
+  if (cityLocality && !corroborated) {
+    console.log(`  ⚠ locality-guard: "${cityLocality}" not corroborated against ${resolvedState} → dropping specific locality, using state scope`);
+  }
   const session = String(new Date().getFullYear());
 
   // Idempotent — match by (state, bill_number, scope, locality).
   const { data: existing } = await sb
     .from("bills")
     .select("id")
-    .eq("state", alert.locality)
+    .eq("state", resolvedState)
     .eq("bill_number", billNumber)
     .eq("scope", "municipal")
     .eq("locality", locality ?? "")
@@ -106,7 +129,7 @@ async function processAlert(alert) {
     const { data: created, error } = await sb
       .from("bills")
       .insert({
-        state: alert.locality,
+        state: resolvedState,
         bill_number: billNumber,
         title,
         summary: alert.body?.slice(0, 4000) ?? null,
