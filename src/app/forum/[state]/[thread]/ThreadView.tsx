@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { publicHandle } from "@/lib/public-handle";
 import { useRouter } from "next/navigation";
 import { createPost, toggleReaction } from "@/modules/forum/actions";
@@ -38,6 +38,11 @@ export function ThreadView({
   // Live posts list — appends new replies via Supabase Realtime
   const [livePosts, setLivePosts] = useState<PostRow[]>(posts);
   const [authorNamesLocal, setAuthorNamesLocal] = useState<Record<string, string>>(authorNames);
+  // Authors we've already resolved — a ref (not state) so the realtime handler
+  // can dedup without the effect depending on authorNamesLocal. Depending on it
+  // tore down + recreated the channel on every name fetch (churn, and messages
+  // arriving during the resubscribe gap could be missed).
+  const knownAuthorsRef = useRef<Set<string>>(new Set(Object.keys(authorNames)));
 
   // Subscribe to new posts on this thread
   useEffect(() => {
@@ -58,8 +63,10 @@ export function ThreadView({
             if (prev.some((p) => p.id === newPost.id)) return prev;
             return [...prev, newPost];
           });
-          // Fetch author display name lazily
-          if (newPost.author_id && !authorNamesLocal[newPost.author_id]) {
+          // Fetch author display name lazily — deduped via the ref so rapid
+          // posts from the same author don't each fire an RPC.
+          if (newPost.author_id && !knownAuthorsRef.current.has(newPost.author_id)) {
+            knownAuthorsRef.current.add(newPost.author_id);
             const { data } = await supabase.rpc("get_public_profile", { p_id: newPost.author_id });
             const name = publicHandle(data?.[0]);
             setAuthorNamesLocal((prev) => ({ ...prev, [newPost.author_id!]: name }));
@@ -71,7 +78,7 @@ export function ThreadView({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [thread.id, authorNamesLocal]);
+  }, [thread.id]);
 
   function hasReaction(type: "thread" | "post", id: string, reaction: "upvote" | "helpful") {
     return reactions.some(
