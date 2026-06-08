@@ -62,7 +62,10 @@ function appearsOnlyComparatively(text, stateName) {
 
 // Clearly-federal signals: when present (and no single state is pinned) the
 // story belongs to the national level, not whatever state-bucket scraped it.
-const FEDERAL_RE = /\b(f\.?d\.?a\.?|food and drug admin\w*|d\.?e\.?a\.?|drug enforcement|justice department|dept\.? of justice|d\.?o\.?j\.?|f\.?t\.?c\.?|congress(ional)?|u\.?s\.? senate|u\.?s\.? house|house of representatives|federal\w*|nationwide|national(ly)? ban|schedule [iv]+\b|controlled substances act|\bcsa\b|\bhhs\b|\bnida\b|\bsamhsa\b|white house|capitol hill|supreme court)\b/i;
+// NOTE: deliberately EXCLUDES "Schedule I"/"Controlled Substances Act"/"CSA" —
+// states schedule substances too (e.g. "KS bill classifying 7-OH as Schedule I"
+// is a STATE action, not federal). Only genuinely-federal bodies/terms here.
+const FEDERAL_RE = /\b(f\.?d\.?a\.?|food and drug admin\w*|d\.?e\.?a\.?|drug enforcement admin\w*|justice department|dept\.? of justice|d\.?o\.?j\.?|f\.?t\.?c\.?|congress(ional)?|u\.?s\.? senate|u\.?s\.? house|house of representatives|federal\w*|nationwide|national(ly)? ban|\bhhs\b|\bnida\b|\bsamhsa\b|white house|capitol hill)\b/i;
 
 const COUNTY_RE = /\b([A-Z][A-Za-z.''’-]+(?:\s+[A-Z][A-Za-z.''’-]+){0,3})\s+(County|Parish|Borough|Census Area)\b/g;
 const CITY_ST_RE = /\b([A-Z][A-Za-z.''’-]+(?:\s+[A-Z][A-Za-z.''’-]+){0,3}),\s*([A-Z]{2})\b/g;
@@ -157,7 +160,13 @@ export function resolveLocality({ title = "", text = "", candidateState = null }
   // 1. Exactly one full state NAME spelled out in the text.
   if (ev.fullNames.size === 1) {
     const st = [...ev.fullNames][0];
-    if (!appearsOnlyComparatively(blob, STATE_NAMES[st])) {
+    const nm = STATE_NAMES[st];
+    // Ambiguity guard: the state NAME is also a city (e.g. "Washington" = the
+    // town of Washington, IL). If that city exists in the candidate state, the
+    // mention is more likely the city than the state -> keep the candidate.
+    const asCity = PLACES[normName(nm)];
+    const cityAmbiguous = asCity && cand && STATE_ABBRS.has(cand) && st !== cand && asCity.includes(cand);
+    if (!cityAmbiguous && !appearsOnlyComparatively(blob, nm)) {
       return { locality: st, corroborated: st === cand, confidence: "high", reason: `full-state-name:${st}` };
     }
   }

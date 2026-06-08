@@ -21,6 +21,12 @@ const cases = [
   ["Idaho Falls City Council Has Banned the Sale of Kratom Within the City", "ID", "ID"],
   ["Brandon Clarke said it's just kratom. His death has the substance under scrutiny.", "AR", "AR"], // names must NOT override
 
+  // ── State "Schedule I" bills are STATE actions, not federal ──
+  ["Gov. Kelly signs bill classifying 7-OH kratom as Schedule I drug", "KS", "KS"], // KS state bill, not FED
+  ["Kratom could be classified as Schedule I controlled substance under new PA bill", "PA", "PA"], // PA bill, not FED
+  // ── A city named after a state must not be read as the state ──
+  ["Washington bans sale of synthetic kratom, allows lab-tested versions", "IL", "IL"], // Washington, IL (not WA)
+
   // ── False-positive guards: a single-word name must NOT override a valid state ──
   ["Suffolk lawmakers reschedule vote to potentially ban kratom", "NY", "NY"], // Suffolk (VA city) must not override NY
   ["Rep. Brennan issues statement on JCARR review of synthetic kratom", "OH", "OH"], // surname must not override
