@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * Coordinated wave sends — coalition mode.
@@ -31,6 +32,10 @@ export async function createWave(input: CreateWaveInput) {
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to create a wave." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
+  // Defense-in-depth: bound wave creation even for a (compromised) leader.
+  if (!(await checkRateLimit(`wave:create:${ctx.userId}`, 30, 3600))) {
+    return { error: "Too many waves created this hour — slow down." };
+  }
 
   const title = (input.title || "").trim().slice(0, 200);
   if (!title) return { error: "Title is required." };
