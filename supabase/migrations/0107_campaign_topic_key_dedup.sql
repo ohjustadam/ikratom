@@ -17,8 +17,14 @@
 -- script both need updating to handle the unique-violation gracefully
 -- by linking the policy_alert to the existing canonical campaign.
 --
--- The keyword + event lists match scripts/cleanup-pending-campaigns.mjs
--- so back-fill clusters and going-forward inserts agree.
+-- NOTE (corrected in 0186): this function's keyword+event lists are NARROWER than
+-- the broad EVENT_RX in scripts/lib/topic-key.mjs (the daily janitor's topicKey)
+-- and differ from the engine's strongTopicKey set — the three dedup keyspaces are
+-- intentionally distinct (see docs/DECISIONS.md "Campaign dedup uses THREE
+-- keyspaces"). The original claim that these lists "match cleanup-pending-
+-- campaigns.mjs" no longer holds. Migration 0186 makes this function bill-number-
+-- aware to match the engine's billKey on the one axis where divergence caused
+-- real over-merges.
 --
 -- Rollback:
 --   DROP INDEX IF EXISTS ux_campaigns_topic_key_live;
