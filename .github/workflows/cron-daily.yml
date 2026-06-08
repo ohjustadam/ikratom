@@ -514,6 +514,17 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/reject-wrongstate-pending-alerts.mjs --apply
+      # Self-healing locality<->state audit: re-check every geo-tagged row
+      # against the authoritative US gazetteer (scripts/lib/geo-resolver.mjs)
+      # and auto-correct high-precision mismatches (Reno County=KS, a national
+      # FDA story tagged a state, etc.). Conservative: only writes the zero-FP
+      # tiers; ambiguous guesses are flagged in telemetry, never auto-written.
+      - name: Self-healing locality<->state audit (gazetteer)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/audit-locality-states.mjs --apply
 
   sync-committees-openstates:
     # Pull legislator committee assignments across ALL 51 states from

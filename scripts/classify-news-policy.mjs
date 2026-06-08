@@ -26,7 +26,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { hasKratomKeyword } from "./lib/kratom-keywords.mjs";
-import { reconcileLocality } from "./lib/us-states.mjs";
+import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
