@@ -131,3 +131,55 @@ describe("decodeEntities", () => {
     expect(decodeEntities("&amp;&lt;&gt;&quot;")).toBe('&<>"');
   });
 });
+
+describe("sanitize — advanced bypass attempts", () => {
+  const hasNoExec = (out: string) => {
+    expect(out).not.toMatch(/<script/i);
+    expect(out).not.toMatch(/<iframe/i);
+    expect(out).not.toMatch(/\son[a-z]+\s*=/i); // no on*= event handlers
+    expect(out).not.toMatch(/javascript:/i);
+    expect(out).not.toMatch(/vbscript:/i);
+  };
+
+  it("neutralizes nested / mutation script tags", () => {
+    hasNoExec(sanitize("<scr<script>ipt>alert(1)</script>"));
+    hasNoExec(sanitize("<<script>script>alert(1)</script>"));
+  });
+
+  it("drops unquoted event handlers + bad src on allowed tags", () => {
+    const out = sanitize("<img src=x onerror=alert(1)>");
+    hasNoExec(out);
+    expect(out).not.toContain('src="x"');
+  });
+
+  it("drops a handler with no space before it", () => {
+    hasNoExec(sanitize('<a href="https://x.com" title="t"onmouseover="alert(1)">x</a>'));
+  });
+
+  it("rejects vbscript: and leading-whitespace javascript: schemes", () => {
+    expect(sanitize('<a href="vbscript:msgbox(1)">x</a>')).not.toContain("vbscript:");
+    expect(sanitize('<a href="   javascript:alert(1)">x</a>')).not.toMatch(/javascript:/i);
+  });
+
+  it("rejects double-encoded javascript: scheme", () => {
+    const out = sanitize('<a href="&amp;#106;avascript:alert(1)">x</a>');
+    expect(out).not.toMatch(/javascript:/i);
+  });
+
+  it("strips event handlers on allowed interactive tags (details / summary)", () => {
+    hasNoExec(sanitize('<details ontoggle="alert(1)" open><summary onclick="alert(2)">s</summary>x</details>'));
+  });
+
+  it("drops attrs not on the per-tag allowlist (autofocus / formaction)", () => {
+    const out = sanitize('<a href="https://x.com" autofocus formaction="javascript:alert(1)">x</a>');
+    expect(out).not.toContain("autofocus");
+    expect(out).not.toContain("formaction");
+    expect(out).toContain('href="https://x.com"');
+  });
+
+  it("preserves spaces in alt/title (control-char strip must not eat normal text)", () => {
+    const out = sanitize('<img src="https://x.com/a.jpg" alt="my cat photo" title="a-b c">');
+    expect(out).toContain('alt="my cat photo"');
+    expect(out).toContain('title="a-b c"');
+  });
+});
