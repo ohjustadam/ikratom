@@ -120,14 +120,14 @@ export default async function CallsPage() {
     p_limit: 3,
   });
   const top3 = ((top3Rows ?? []) as Array<{ user_id: string; count: number; state: string | null }>);
-  let top3Profiles = new Map<string, { username: string | null; full_name: string | null }>();
+  let top3Profiles = new Map<string, { username: string | null }>();
   if (top3.length > 0) {
     const { data: profs } = await sb.rpc("get_public_profiles", {
       p_ids: top3.map((r) => r.user_id),
     });
     top3Profiles = new Map(
-      ((profs ?? []) as Array<{ id: string; username: string | null; full_name: string | null }>)
-        .map((p) => [p.id, { username: p.username, full_name: p.full_name }])
+      ((profs ?? []) as Array<{ id: string; username: string | null }>)
+        .map((p) => [p.id, { username: p.username }])
     );
   }
 
@@ -186,8 +186,6 @@ export default async function CallsPage() {
               const p = top3Profiles.get(r.user_id);
               const name = p?.username
                 ? `@${p.username}`
-                : p?.full_name
-                ? (p.full_name.split(/\s+/)[0] || "Advocate")
                 : `Advocate from ${r.state ?? "?"}`;
               const isMe = r.user_id === user.id;
               const medal = ["🥇", "🥈", "🥉"][i] ?? `#${i + 1}`;

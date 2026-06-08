@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 /**
  * Persist a recording's metadata after the client uploaded the binary
@@ -90,7 +91,13 @@ export async function recordShare(input: {
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  // anon allowed
+  // Anon shares are allowed (we count them), but the INSERT RLS is open
+  // (check(true)), so rate-limit per-user + per-IP to stop a bot flooding
+  // campaign_shares with millions of rows.
+  const rlKey = user ? `share:user:${user.id}` : `share:ip:${await getClientIp()}`;
+  if (!(await checkRateLimit(rlKey, 30, 60))) {
+    return { error: "Too many shares — slow down a moment." };
+  }
   const { error } = await supabase.from("campaign_shares").insert({
     user_id: user?.id ?? null,
     platform: input.platform,
