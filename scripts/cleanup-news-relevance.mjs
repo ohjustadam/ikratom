@@ -116,59 +116,63 @@ while (from < LIMIT) {
     .eq("body_has_kratom_keyword", true)
     .is("policy_alert_id", null)
     .is("bill_id", null)
-    .order("published_at", { ascending: false, nullsFirst: false })
+    // Stable unique sort key — paging on a non-unique column (published_at)
+    // can skip/duplicate rows across range() pages, leaving stragglers behind.
+    .order("id", { ascending: true })
     .range(from, from + PAGE - 1);
   if (error) { console.error("PASS B query:", error.message); break; }
   if (!data || data.length === 0) break;
 
   for (const n of data) {
-    // Cheap pre-screen on what we already have. If kratom is clearly the
-    // subject from title/summary/excerpt, leave it alone (no fetch).
-    const relCheap = kratomRelevance({ title: n.title, summary: n.summary, body: n.body_extract_excerpt ?? "" });
-    if (relCheap.subject) continue;
+    // Keep WITHOUT any fetch only on a headline hit (kratom named in
+    // title/summary is authoritative). Everything else: kratom is the subject
+    // only if it's in the LEDE. Prefer a fresh re-fetch to read the real lede
+    // (the stored excerpt may be from the OLD leaky extractor); fall back to
+    // the stored excerpt when we can't fetch. A deep-only mention — including a
+    // recirc rail with several kratom links — is NOT the subject.
+    const relCheap = kratomRelevance({ title: n.title, summary: n.summary });
+    if (relCheap.headlineHit) continue;
 
     bCandidates++;
-    if (!FETCH) { if (sampleB.length < 15) sampleB.push(`[${n.state ?? "?"}] ${n.title}`); continue; }
-    if (!n.resolved_url) { bErrored++; continue; }
-
-    try {
-      const body = await fetchAndExtract(n.resolved_url);
-      const rel = kratomRelevance({ title: n.title, summary: n.summary, body });
-      if (rel.subject) {
-        bKept++;
-        if (APPLY) {
-          await sb.from("news_items").update({
-            body_verified_at: new Date().toISOString(),
-            body_extract_excerpt: body.slice(0, 500),
-          }).eq("id", n.id);
-        }
-      } else {
-        bDeactivated++;
-        if (sampleB.length < 15) sampleB.push(`[${n.state ?? "?"}] ${n.title} — ${rel.reason}`);
-        if (APPLY) {
-          await sb.from("news_items").update({
-            body_verified_at: new Date().toISOString(),
-            body_has_kratom_keyword: false,
-            active: false,
-            body_extract_excerpt: body.slice(0, 500),
-          }).eq("id", n.id);
-        }
+    let body = null, freshExcerpt = null, fetchErr = false;
+    if (FETCH && n.resolved_url) {
+      try {
+        body = await fetchAndExtract(n.resolved_url);
+        freshExcerpt = body.slice(0, 500);
+        await sleep(1200);
+      } catch (e) {
+        fetchErr = true;
+        if (process.env.DEBUG) console.log(`   ✗ ${n.title?.slice(0, 50)} — ${e.message}`);
       }
-      await sleep(1200);
-    } catch (e) {
-      bErrored++;
-      if (process.env.DEBUG) console.log(`   ✗ ${n.title?.slice(0, 50)} — ${e.message}`);
+    }
+    const rel = kratomRelevance({ title: n.title, summary: n.summary, body: body ?? n.body_extract_excerpt ?? "" });
+
+    if (rel.subject) {
+      bKept++;
+      if (APPLY && freshExcerpt) {
+        await sb.from("news_items").update({
+          body_verified_at: new Date().toISOString(),
+          body_extract_excerpt: freshExcerpt,
+        }).eq("id", n.id);
+      }
+    } else {
+      bDeactivated++;
+      if (fetchErr) bErrored++;
+      if (sampleB.length < 15) sampleB.push(`[${n.state ?? "?"}] ${n.title} — ${rel.reason}${fetchErr ? " [fetch failed; decided on excerpt]" : ""}`);
+      if (APPLY) {
+        const upd = { body_verified_at: new Date().toISOString(), body_has_kratom_keyword: false, active: false };
+        if (freshExcerpt) upd.body_extract_excerpt = freshExcerpt;
+        await sb.from("news_items").update(upd).eq("id", n.id);
+      }
     }
   }
   from += data.length;
   if (data.length < PAGE) break;
 }
 
-if (FETCH) {
-  console.log(`   candidates re-fetched: ${bCandidates}  → deactivated=${bDeactivated} kept=${bKept} errored=${bErrored}${APPLY ? "" : " (dry-run, no writes)"}`);
-} else {
-  console.log(`   candidates needing a body re-check: ${bCandidates}  (re-run with --fetch to resolve)`);
-}
+console.log(`   candidates (no headline hit): ${bCandidates} → deactivate=${bDeactivated} keep=${bKept}` +
+  `${FETCH ? ` (incl. ${bErrored} fetch-fail→excerpt fallback)` : ` [no fetch: decided on stored excerpt]`}` +
+  `${APPLY ? "" : " (dry-run, no writes)"}`);
 for (const s of sampleB) console.log(`   · ${s}`);
 
 console.log(`\n${APPLY ? "Applied." : "Dry-run complete — re-run with --apply (and --fetch) to write."}`);

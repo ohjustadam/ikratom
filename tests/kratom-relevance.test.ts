@@ -58,15 +58,18 @@ describe("kratomRelevance — subject vs passing mention", () => {
     expect(r.leadHit).toBe(true);
   });
 
-  it("accepts sustained discussion deeper in the body (roundup item)", () => {
+  it("rejects deep body mentions when kratom is absent from headline AND lede (recirc-rail defense)", () => {
+    // Several kratom mentions buried below the lede look identical to a
+    // "trending/related" widget once HTML is stripped — this is exactly how
+    // the redistricting / sports-death false positives survived. Not subject.
     const filler = "Other local news filled the rest of the morning briefing. ".repeat(20);
     const r = kratomRelevance({
       title: "Around the State: Tuesday roundup",
       body: filler +
-        "The county also weighed a kratom ordinance. Supporters said kratom helps with " +
+        "Trending: City council weighs kratom ordinance. Supporters said kratom helps with " +
         "pain; opponents pointed to 7-OH products. The kratom debate continues next month.",
     });
-    expect(r.subject).toBe(true);
+    expect(r.subject).toBe(false);
     expect(r.hits).toBeGreaterThanOrEqual(3);
   });
 });

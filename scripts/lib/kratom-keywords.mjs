@@ -151,16 +151,20 @@ export function kratomRelevance({ title = "", summary = "", body = "" } = {}) {
   const words = body ? String(body).trim().split(/\s+/).filter(Boolean).length : 0;
   const density = words ? (hits / words) * 1000 : 0;
 
+  // Subject = kratom is named in the headline/summary OR in the lede. We do
+  // NOT count deep body mentions as the subject, even repeated ones: a
+  // "trending/related" recirc rail with several kratom links is textually
+  // indistinguishable from a real discussion once HTML is stripped, and
+  // trusting deep density let sports-death / redistricting / plane-crash
+  // articles (carrying a kratom rail) survive as "kratom news". If kratom
+  // matters to the story, the headline or the lede says so.
   let subject, score, reason;
   if (headlineHit) {
     subject = true; score = 0.95; reason = "kratom named in title/summary";
   } else if (leadHit) {
     subject = true; score = 0.8; reason = "kratom in the article lede";
-  } else if (hits >= 3 || (hits >= 2 && density >= 1.5)) {
-    // Sustained discussion deeper in the body (e.g. a news-roundup item).
-    subject = true; score = 0.7; reason = `kratom discussed repeatedly (${hits} mentions)`;
   } else if (hits >= 1) {
-    subject = false; score = 0.3; reason = `passing mention only (${hits} deep mention${hits === 1 ? "" : "s"})`;
+    subject = false; score = 0.3; reason = `kratom only deep in body (${hits} mention${hits === 1 ? "" : "s"}), not headline/lede`;
   } else {
     subject = false; score = 0; reason = "no kratom keyword in any signal";
   }
