@@ -155,6 +155,7 @@ export default async function StatePage({ params }: Props) {
       .select("id, title, source_name, url, published_at, summary")
       .eq("state", codeUpper)
       .eq("active", true)
+      .not("body_has_kratom_keyword", "is", false)
       .gte("published_at", newsSince)
       .order("published_at", { ascending: false })
       .limit(40),

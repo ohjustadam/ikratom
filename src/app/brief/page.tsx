@@ -188,6 +188,8 @@ export default async function BriefPage() {
   try {
     let nq = sb.from("news_items")
       .select("id, title, url, source_name, state, published_at, summary")
+      .eq("active", true)
+      .not("body_has_kratom_keyword", "is", false)
       .gte("published_at", cutoff36hDate)
       .not("policy_classified_at", "is", null)
       .order("published_at", { ascending: false })
@@ -210,6 +212,8 @@ export default async function BriefPage() {
   try {
     let nq = sb.from("news_items")
       .select("id, title, url, source_name, state, published_at, summary")
+      .eq("active", true)
+      .not("body_has_kratom_keyword", "is", false)
       .gte("published_at", cutoff36hDate)
       .not("policy_classified_at", "is", null)
       .order("published_at", { ascending: false })
