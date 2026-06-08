@@ -8,15 +8,9 @@ import { listActiveCommunities } from "@/modules/forum/community-actions";
 import { fetchForumStatsForIndex } from "@/modules/forum/engagement-actions";
 import { stateKey, communityKey } from "@/modules/forum/engagement-keys";
 import { ForumSubscribeButton } from "@/modules/forum/components/ForumSubscribeButton";
+import { ForumStateNav } from "@/modules/forum/components/ForumStateNav";
 
 export const metadata = { title: "Community" };
-
-const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  legal: { label: "Legal", cls: "bg-emerald-950/40 text-emerald-300" },
-  kcpa: { label: "KCPA", cls: "bg-blue-950/40 text-blue-300" },
-  banned: { label: "Banned", cls: "bg-red-950/40 text-red-300" },
-  restricted: { label: "Restricted", cls: "bg-amber-950/40 text-amber-300" },
-};
 
 export default async function ForumIndexPage() {
   const supabase = await createClient();
@@ -59,6 +53,30 @@ export default async function ForumIndexPage() {
     isAdmin = !!prof?.is_admin;
   }
 
+  // Per-state forum activity — drives the map's activity dots + the searchable
+  // state nav (sort-by-active). Derived from the single stats RPC above.
+  const activityByAbbr: Record<string, { threads: number; posts: number; lastActivity: string | null }> = {};
+  const stateActivity: Record<
+    string,
+    { threads: number; posts: number; lastActivity: string | null; unread: number; subMode: "alerts" | "digest" | "mute" | null }
+  > = {};
+  for (const s of states ?? []) {
+    const k = stateKey(s.abbr);
+    const fs = k ? stats[k] : undefined;
+    activityByAbbr[s.abbr] = {
+      threads: fs?.thread_count ?? 0,
+      posts: fs?.post_count ?? 0,
+      lastActivity: fs?.last_activity ?? null,
+    };
+    stateActivity[s.abbr] = {
+      threads: fs?.thread_count ?? 0,
+      posts: fs?.post_count ?? 0,
+      lastActivity: fs?.last_activity ?? null,
+      unread: fs?.unread_count ?? 0,
+      subMode: fs?.sub_mode ?? null,
+    };
+  }
+
   // Lounge: load last 30 messages and resolve author names in one round-trip.
   //
   // We must use the public.get_public_profiles() SECURITY DEFINER RPC here,
@@ -99,14 +117,16 @@ export default async function ForumIndexPage() {
         />
       </div>
 
-      {/* Recent activity ticker — proves the platform is alive */}
-      <div className="mb-8">
-        <RecentActivity limit={6} />
+      {/* Map — legality + live forum-activity dots. The visual "where's it
+          happening" entry point; click any state to enter its forum. */}
+      <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 sm:p-6">
+        <USMap statusByAbbr={statusByAbbr} highlightAbbr={userState} activityByAbbr={activityByAbbr} />
       </div>
 
-      {/* Map */}
-      <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 sm:p-6">
-        <USMap statusByAbbr={statusByAbbr} highlightAbbr={userState} />
+      {/* Recent activity feed — latest threads, replies, and campaigns so the
+          page reads as alive, not a ghost town */}
+      <div className="mb-8">
+        <RecentActivity limit={10} />
       </div>
 
       {/* Topical communities — admin-curated, rendered only when present.
@@ -216,58 +236,14 @@ export default async function ForumIndexPage() {
         );
       })()}
 
-      {/* Searchable list backup */}
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
-        All states (51)
-      </h2>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {(states ?? []).map((st) => {
-          const tag = STATUS_BADGE[st.kratom_status ?? ""] ?? null;
-          const isMine = userState === st.abbr;
-          const key = stateKey(st.abbr);
-          const fs = key ? stats[key] : undefined;
-          const muted = fs?.sub_mode === "mute";
-          return (
-            <a
-              key={st.abbr}
-              href={`/forum/${st.abbr}`}
-              className={`flex items-start justify-between gap-2 rounded-md border px-4 py-3 hover:border-emerald-500 ${
-                isMine
-                  ? "border-emerald-700/50 bg-emerald-950/10"
-                  : "border-zinc-800 bg-zinc-950/40"
-              } ${muted ? "opacity-50" : ""}`}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs text-zinc-500">{st.abbr}</span>
-                  <span className="font-medium">{st.name}</span>
-                  {isMine && (
-                    <span className="rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-950">
-                      Yours
-                    </span>
-                  )}
-                  {!!fs?.unread_count && fs.unread_count > 0 && (
-                    <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-zinc-950">
-                      {fs.unread_count > 99 ? "99+" : fs.unread_count} new
-                    </span>
-                  )}
-                  {fs?.sub_mode === "alerts" && <span title="Alerts on">🔔</span>}
-                  {fs?.sub_mode === "digest" && <span title="Daily digest">📰</span>}
-                  {fs?.sub_mode === "mute" && <span title="Muted">🔕</span>}
-                </div>
-                <div className="mt-1 text-[11px] text-zinc-500">
-                  {fs?.thread_count ?? 0} threads · {fs?.post_count ?? 0} posts
-                </div>
-              </div>
-              {tag && (
-                <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-semibold ${tag.cls}`}>
-                  {tag.label}
-                </span>
-              )}
-            </a>
-          );
-        })}
-      </div>
+      {/* Searchable + activity-sorted state forums (replaces the old static
+          alphabetical grid — your state pins first; "Most active" floats the
+          live forums to the top). */}
+      <ForumStateNav
+        states={(states ?? []).map((s) => ({ abbr: s.abbr, name: s.name, status: s.kratom_status }))}
+        activity={stateActivity}
+        userState={userState}
+      />
     </div>
   );
 }

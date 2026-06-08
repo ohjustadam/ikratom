@@ -14,6 +14,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import FeedbackWidget from "@/components/FeedbackWidget";
+import { ChatPopup } from "@/modules/chat/ChatPopup";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
 import { SignInProvider } from "@/components/auth/SignInContext";
@@ -283,6 +284,9 @@ export default async function RootLayout({
         <RegisterSW />
         <InstallPrompt />
         <FeedbackWidget />
+        {/* Lounge live chat as a floating widget on every page (its full home
+            stays at /forum, where this self-hides). Gated on the forum flag. */}
+        {siteConfig.features.forum && <ChatPopup />}
         </SignInProvider>
         </PostHogProvider>
       </body>
