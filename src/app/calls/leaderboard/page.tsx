@@ -76,27 +76,23 @@ export default async function CallsLeaderboardPage({ searchParams }: {
 
   // Look up public-visible display info for the leaderboard user IDs.
   // Anyone not returned by the RPC is non-public — shown as anonymous.
-  let publicProfiles: Map<string, { username: string | null; full_name: string | null; state: string | null; avatar_url: string | null }> = new Map();
+  let publicProfiles: Map<string, { username: string | null; state: string | null; avatar_url: string | null }> = new Map();
   if (rows.length > 0) {
     const { data: profs } = await sb.rpc("get_public_profiles", {
       p_ids: rows.map((r) => r.user_id),
     });
     publicProfiles = new Map(
-      ((profs ?? []) as Array<{ id: string; username: string | null; full_name: string | null; state: string | null; avatar_url: string | null }>)
-        .map((p) => [p.id, { username: p.username, full_name: p.full_name, state: p.state, avatar_url: p.avatar_url }])
+      ((profs ?? []) as Array<{ id: string; username: string | null; state: string | null; avatar_url: string | null }>)
+        .map((p) => [p.id, { username: p.username, state: p.state, avatar_url: p.avatar_url }])
     );
   }
 
-  // Display name resolver: prefer username, fall back to full first name,
-  // and finally anonymize as "Advocate from {state}".
+  // Display name resolver (anonymity rule #1): @username for public users,
+  // else "Advocate from {state}". NEVER a real name — the RPC no longer
+  // returns full_name, and public surfaces expose @username only.
   const displayName = (r: LeaderRow): { name: string; anonymous: boolean; avatar: string | null } => {
     const p = publicProfiles.get(r.user_id);
     if (p?.username) return { name: `@${p.username}`, anonymous: false, avatar: p.avatar_url };
-    if (p?.full_name) {
-      // First name only — protect last names even for opted-in users
-      const first = p.full_name.split(/\s+/)[0];
-      return { name: first || "Advocate", anonymous: false, avatar: p.avatar_url };
-    }
     return { name: `Advocate from ${r.state ?? "?"}`, anonymous: true, avatar: null };
   };
 
