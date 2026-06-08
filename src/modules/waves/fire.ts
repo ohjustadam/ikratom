@@ -72,7 +72,7 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
       .from("campaigns")
       .select("id, slug, state, target_roles, target_legislator_ids, subject_template, body_template, active")
       .eq("id", wave.campaign_id)
-      .single();
+      .maybeSingle();
     if (!campaign || !campaign.active) {
       // Campaign gone or deactivated — mark all pending signups skipped, mark wave fired
       await supabase
@@ -171,7 +171,7 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
         // Send to each target
         let userSent = 0;
         let userFailed = 0;
-        const lastError: string | null = null;
+        let lastError: string | null = null;
         for (const target of sendable) {
           try {
             const vars = buildVars(profile ?? null, target, sendable);
@@ -196,6 +196,7 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
             userSent++;
           } catch (e) {
             userFailed++;
+            lastError = String(e).slice(0, 500);
             // Self-healing: if the user's token was revoked (either
             // provider), mark the integration stale + bail out of this
             // user's batch. Every remaining send would fail identically.
