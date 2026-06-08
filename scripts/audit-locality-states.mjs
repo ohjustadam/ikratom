@@ -46,14 +46,16 @@ if (APPLY_CONFIRMED) {
   process.exit(0);
 }
 
-// Only the zero-false-positive tiers run unattended (daily cron): explicit
-// county, "City, ST" pair, federal signal, and high-precision contradiction.
-// full-state-name + intersection are reliable at WRITE time (full article body)
-// but title-only can mislead on regional name collisions (Suffolk Co. NY vs
-// Suffolk, VA), so the daily audit FLAGS those for review instead of writing.
-// (The one-time backlog cleanup applies them only after adversarial verification.)
+// Only the NEVER-REJECTED tiers run unattended (daily cron): an explicit unique
+// county, a consistent "City, ST" pair, and a federal-agency signal. Adversarial
+// verification of 215 real corrections showed full-state-name, intersection,
+// contradicted->ALL, and bare-place all produce false positives on ambiguous
+// headlines (Long Island=NY, Kansas City=MO, multi-state counties, source
+// bylines). Those are FLAGGED for the verified-apply path, NEVER auto-written.
+// (Write-time prevention still uses all tiers — it has the full article + only
+// overrides on high confidence.)
 function autoApplyable(reason) {
-  return /^(county|city-state|federal-signal)/.test(reason) || reason.includes("contradicted");
+  return /^(county|city-state|federal-signal)/.test(reason);
 }
 function correction(candidate, title, extra) {
   const r = resolveLocality({ title: title || "", text: `${title || ""} ${extra || ""}`.trim(), candidateState: candidate });

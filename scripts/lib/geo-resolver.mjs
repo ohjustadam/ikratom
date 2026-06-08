@@ -65,7 +65,7 @@ function appearsOnlyComparatively(text, stateName) {
 // NOTE: deliberately EXCLUDES "Schedule I"/"Controlled Substances Act"/"CSA" —
 // states schedule substances too (e.g. "KS bill classifying 7-OH as Schedule I"
 // is a STATE action, not federal). Only genuinely-federal bodies/terms here.
-const FEDERAL_RE = /\b(f\.?d\.?a\.?|food and drug admin\w*|d\.?e\.?a\.?|drug enforcement admin\w*|justice department|dept\.? of justice|d\.?o\.?j\.?|f\.?t\.?c\.?|congress(ional)?|u\.?s\.? senate|u\.?s\.? house|house of representatives|federal\w*|nationwide|national(ly)? ban|\bhhs\b|\bnida\b|\bsamhsa\b|white house|capitol hill)\b/i;
+const FEDERAL_RE = /\b(f\.?d\.?a\.?|food and drug admin\w*|d\.?e\.?a\.?|drug enforcement admin\w*|justice department|dept\.? of justice|d\.?o\.?j\.?|f\.?t\.?c\.?|congress|u\.?s\.? senate|u\.?s\.? house|house of representatives|federal\w*|nationwide|national(ly)? ban|\bhhs\b|\bnida\b|\bsamhsa\b|white house|capitol hill)\b/i;
 
 const COUNTY_RE = /\b([A-Z][A-Za-z.''’-]+(?:\s+[A-Z][A-Za-z.''’-]+){0,3})\s+(County|Parish|Borough|Census Area)\b/g;
 const CITY_ST_RE = /\b([A-Z][A-Za-z.''’-]+(?:\s+[A-Z][A-Za-z.''’-]+){0,3}),\s*([A-Z]{2})\b/g;
