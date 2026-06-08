@@ -528,6 +528,21 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/audit-locality-states.mjs
+      # Two-source verification gate for LOCAL kratom bans (failsafe behind
+      # migration 0190). Re-confirms HELD single-aggregator bans against >=2
+      # sources via grounded Gemini search; promotes corroborated ones to
+      # confirmed+active, marks repeals, holds the rest. Grounding-budget-guarded
+      # so it grinds the backlog over several days without blowing the free tier.
+      - name: Verify local bans (two-source gate, grounded)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+        run: node scripts/verify-local-bans.mjs --limit 30
 
   sync-committees-openstates:
     # Pull legislator committee assignments across ALL 51 states from

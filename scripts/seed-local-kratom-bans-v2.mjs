@@ -74,7 +74,13 @@ for (const b of LOCAL_BANS) {
     locality: b.locality,
     targets_natural_leaf: true,
     targets_synthetic_only: false,
-    active: true,
+    // Gate (migration 0190): a single-aggregator source is NOT a current fact
+    // until verify-local-bans.mjs corroborates it with a 2nd, authoritative
+    // source. So seed HELD (active=false, single_source) — never live. This is
+    // why a repealed county (e.g. Monroe, rescinded 2020) can't slip back in.
+    active: false,
+    verification_status: "single_source",
+    verification_note: "Seeded from a single aggregator; held pending two-source confirmation.",
     session_id: "editorial-seed",
     source_url: "https://kratomlords.com/kratom-legality/kratom-in-mississippi-latest-news/",
     created_at: new Date().toISOString(),
@@ -87,9 +93,12 @@ for (const b of LOCAL_BANS) {
     continue;
   }
 
+  // ignoreDuplicates: never overwrite an existing row — once verify-local-bans
+  // promotes a locality to 'confirmed'/'repealed', re-running this seed must
+  // not clobber that decision back to single_source. Insert-new-only.
   const { error } = await sb
     .from("bills")
-    .upsert(row, { onConflict: "state,bill_number" });
+    .upsert(row, { onConflict: "state,bill_number", ignoreDuplicates: true });
   if (error) {
     console.error(`  ✗ ${b.locality}: ${error.message?.slice(0, 150)}`);
     fail++;

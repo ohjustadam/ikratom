@@ -78,6 +78,7 @@ const REGISTRY = [
       "cleanup_pending_campaigns",
       "reject_wrongstate_pending_alerts",
       "locality_state_audit",
+      "verify_local_bans",
      ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
 
   // weekly
