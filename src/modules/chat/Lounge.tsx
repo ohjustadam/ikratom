@@ -90,7 +90,7 @@ export function Lounge({
                   ...cur,
                   [row.id]: { name: publicHandle(row), isAdmin: !!row.is_admin },
                 }));
-              });
+              }, () => { /* RPC failed (e.g. network) — name stays "…"; non-fatal, but handle the rejection so it isn't unhandled */ });
           }
         },
       );
