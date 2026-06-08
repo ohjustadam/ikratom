@@ -33,7 +33,7 @@
  *     (only re-process items that have a resolved_url and were Phase-1 flagged)
  */
 import { createClient } from "@supabase/supabase-js";
-import { hasKratomKeyword, extractArticleBody } from "./lib/kratom-keywords.mjs";
+import { hasKratomKeyword, extractArticleBody, kratomRelevance } from "./lib/kratom-keywords.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -142,10 +142,13 @@ async function runPhase2() {
     process.stdout.write(`  ${tag} `);
     try {
       const body = await fetchAndExtract(it.resolved_url);
-      const hasKw = hasKratomKeyword(body);
-      if (hasKw) {
+      // Subject test, not bare presence: a single kratom mention buried deep
+      // (or a keyword leaked from a recirc rail the extractor missed) is NOT
+      // kratom news. Only rescue when kratom is actually the article subject.
+      const rel = kratomRelevance({ title: it.title, summary: it.summary, body });
+      if (rel.subject) {
         rescued++;
-        console.log(`✓ rescued — kratom in body`);
+        console.log(`✓ rescued — ${rel.reason}`);
         if (!DRY_RUN) {
           await sb.from("news_items").update({
             body_verified_at: new Date().toISOString(),
@@ -155,10 +158,16 @@ async function runPhase2() {
         }
       } else {
         confirmed++;
-        console.log(`⚠ confirmed FP — no kratom in body either`);
+        // Confirmed false positive. Deactivate so it stops surfacing on the
+        // feeds/briefings that gate only on `active` (e.g. /states, bill and
+        // legislator pages) — body_has_kratom_keyword=false already hides it
+        // from the body-gated surfaces.
+        console.log(`⚠ confirmed FP — ${rel.reason} → deactivating`);
         if (!DRY_RUN) {
           await sb.from("news_items").update({
             body_verified_at: new Date().toISOString(),
+            body_has_kratom_keyword: false,
+            active: false,
             body_extract_excerpt: body.slice(0, 500),
           }).eq("id", it.id);
         }

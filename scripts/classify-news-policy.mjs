@@ -25,7 +25,7 @@
  *   node --env-file=.env.local scripts/classify-news-policy.mjs --refresh  # re-classify already-done
  */
 import { createClient } from "@supabase/supabase-js";
-import { hasKratomKeyword } from "./lib/kratom-keywords.mjs";
+import { kratomRelevance } from "./lib/kratom-keywords.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const args = process.argv.slice(2);
@@ -133,7 +133,7 @@ console.log(`Providers: ${avail().join(", ")}`);
 // to auto-publish items whose article body proved kratom-free. NULL
 // passes through (verifier hasn't run yet — don't blackout fresh news).
 let q = sb.from("news_items")
-  .select("id, title, url, source_name, state, published_at, summary, body_has_kratom_keyword")
+  .select("id, title, url, source_name, state, published_at, summary, body_has_kratom_keyword, body_extract_excerpt")
   .eq("active", true)
   .not("body_has_kratom_keyword", "is", false)
   .limit(LIMIT);
@@ -167,21 +167,24 @@ for (const item of items) {
     let conf = Number.isFinite(result.confidence) ? result.confidence : 0;
     let alertId = null;
 
-    // Post-classify hallucination guard. The AI sometimes invents
-    // kratom angles for unrelated articles ("could potentially impact
-    // kratom vendors"). If the source inputs (title + summary) lack
-    // any kratom keyword and the AI claims is_policy_event=true,
-    // we refuse — force is_policy_event=false. This catches the
-    // Aurora-tobacco-license class of FP that slipped through before.
+    // Post-classify subject guard. The AI sometimes invents kratom angles
+    // for unrelated articles ("could potentially impact kratom vendors"), or
+    // fires on an article that merely mentions kratom in passing (an NBA
+    // player's possession charge, a redistricting story with a kratom link in
+    // its trending rail). We require kratom to be the actual SUBJECT — named
+    // in the title/summary, in the lede, or discussed repeatedly in the body
+    // excerpt — before allowing an alert. This subsumes the old title/summary
+    // keyword check and adds the passing-mention defense.
     //
-    // We DON'T apply this guard if the inputs DO contain a keyword
-    // and the AI just disagrees on severity — that's a legitimate
-    // judgment call we trust the AI to make.
-    const inputHasKw =
-      hasKratomKeyword(item.title ?? "") ||
-      hasKratomKeyword(item.summary ?? "");
-    if (isEvent && !inputHasKw) {
-      console.log(`\n  ⚠ hallucination-guard: AI said is_policy_event=true but inputs lack kratom keyword — forcing false`);
+    // We DON'T second-guess severity when kratom IS the subject — that's a
+    // legitimate judgment call we trust the AI to make.
+    const rel = kratomRelevance({
+      title: item.title ?? "",
+      summary: item.summary ?? "",
+      body: item.body_extract_excerpt ?? "",
+    });
+    if (isEvent && !rel.subject) {
+      console.log(`\n  ⚠ subject-guard: AI said is_policy_event=true but kratom is not the subject (${rel.reason}) — forcing false`);
       isEvent = false;
       conf = 0;
     }
