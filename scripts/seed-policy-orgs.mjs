@@ -15,6 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 
 const APPLY = process.argv.includes("--apply");
+const PRUNE = process.argv.includes("--prune"); // delete DB rows not in the deduped seed set
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -27,16 +28,22 @@ const slugify = (s) =>
   String(s || "org").toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "org";
 const CONF = { high: 3, medium: 2, low: 1 };
 
-// Dedupe by normalized name — keep the strongest record (confidence, then evidence count).
+// Dedupe by canonical WEBSITE first (strongest identity — catches "7-HOPE
+// Alliance" vs "7-HOPE Alliance (Dr. Ross…)"), falling back to normalized name.
+// Keep the strongest record: highest confidence, then the shortest (cleanest) name.
+const canonKey = (o) => {
+  const w = String(o.website || "").trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/.*$/, "").toLowerCase();
+  return w || norm(o.name);
+};
 const byKey = new Map();
 for (const o of rows) {
-  const k = norm(o.name);
+  const k = canonKey(o);
   if (!k) continue;
   const prev = byKey.get(k);
   const better =
     !prev ||
     (CONF[o.confidence] || 0) > (CONF[prev.confidence] || 0) ||
-    ((o.evidence || []).length > (prev.evidence || []).length);
+    ((CONF[o.confidence] || 0) === (CONF[prev.confidence] || 0) && String(o.name || "").length < String(prev.name || "").length);
   if (better) byKey.set(k, o);
 }
 const uniq = [...byKey.values()];
@@ -80,4 +87,14 @@ for (const r of seedRows) {
   if (error) { console.error(`  ✗ ${r.slug}: ${error.message}`); fail++; } else ok++;
 }
 console.log(`\n✅ Seeded ${ok} policy orgs (${fail} failed).`);
+
+if (PRUNE) {
+  const keep = new Set(seedRows.map((r) => r.slug));
+  const { data: existing } = await sb.from("policy_orgs").select("slug");
+  const orphans = (existing ?? []).map((r) => r.slug).filter((s) => !keep.has(s));
+  if (orphans.length) {
+    const { error } = await sb.from("policy_orgs").delete().in("slug", orphans);
+    console.log(error ? `prune failed: ${error.message}` : `🧹 pruned ${orphans.length} orphan/dupe rows`);
+  } else console.log("no orphans to prune.");
+}
 process.exit(fail ? 1 : 0);
