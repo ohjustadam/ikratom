@@ -156,9 +156,13 @@ export async function sendMessage(input: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
-  // Server-side rate limit (anti-spam)
-  const { data: rateOk } = await supabase.rpc("check_dm_rate_limit", { p_user_id: user.id });
-  if (rateOk === false) {
+  // Server-side rate limit (anti-spam). This RPC is the ONLY spam guard on DMs
+  // (the dm_messages INSERT RLS doesn't rate-limit), so FAIL CLOSED: block unless
+  // the RPC explicitly returns true. Previously a non-true `rateOk` (incl. the
+  // error case, where it's undefined) was ignored → the limit was silently
+  // bypassed on any RPC error.
+  const { data: rateOk, error: rateErr } = await supabase.rpc("check_dm_rate_limit", { p_user_id: user.id });
+  if (rateErr || rateOk !== true) {
     return { error: "You're sending too fast. Wait a minute and try again." };
   }
 
@@ -228,19 +232,20 @@ export async function listConversations() {
     otherByConv[op.conversation_id].push(op.user_id);
   }
 
-  // Unread counts per conv
+  // Unread counts per conv — parallelized (was a sequential N+1).
   const unread: Record<string, number> = {};
-  for (const c of convs ?? []) {
-    const lastRead = lastReadByConv[c.id];
-    const since = lastRead ?? "1970-01-01";
-    const { count } = await supabase
-      .from("dm_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("conversation_id", c.id)
-      .neq("sender_id", user.id)
-      .gt("created_at", since);
-    unread[c.id] = count ?? 0;
-  }
+  await Promise.all(
+    (convs ?? []).map(async (c) => {
+      const since = lastReadByConv[c.id] ?? "1970-01-01";
+      const { count } = await supabase
+        .from("dm_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", c.id)
+        .neq("sender_id", user.id)
+        .gt("created_at", since);
+      unread[c.id] = count ?? 0;
+    }),
+  );
 
   return (convs ?? []).map((c) => {
     const otherIds = otherByConv[c.id] ?? [];
@@ -329,16 +334,18 @@ export async function getUnreadDmCount(): Promise<number> {
 
   if (!parts || parts.length === 0) return 0;
 
-  let total = 0;
-  for (const p of parts) {
-    const since = p.last_read_at ?? "1970-01-01";
-    const { count } = await supabase
-      .from("dm_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("conversation_id", p.conversation_id)
-      .neq("sender_id", user.id)
-      .gt("created_at", since);
-    total += count ?? 0;
-  }
-  return total;
+  // Parallelize per-conversation counts (was a sequential N+1 on every header render).
+  const counts = await Promise.all(
+    parts.map(async (p) => {
+      const since = p.last_read_at ?? "1970-01-01";
+      const { count } = await supabase
+        .from("dm_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", p.conversation_id)
+        .neq("sender_id", user.id)
+        .gt("created_at", since);
+      return count ?? 0;
+    }),
+  );
+  return counts.reduce((a, b) => a + b, 0);
 }
