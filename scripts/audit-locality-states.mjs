@@ -6,6 +6,12 @@
  * auto-corrects place<->state mismatches (Reno County tagged NV, a national FDA
  * story tagged a state, etc.). Even a brand-new edge case is caught within a day.
  *
+ * Covered tables: policy_alerts, news_items, municipal_meetings, bills, and
+ * legislators (local officials — level municipal/county — whose "City, ST"
+ * locality pins a different state than the row's `state`; fixes both the `state`
+ * column and the "City, ST" suffix). Candidate follow-on passes not yet wired:
+ * call_sessions.state, legislator_events, bop_findings.
+ *
  * AUTO-APPLY only the high-precision determinations (federal signal, explicit
  * "<X> County", "City, ST" pair, multi-place intersection, full-state-name as
  * SUBJECT). Lower-precision multi-word bare-place guesses are FLAGGED, not
@@ -136,12 +142,65 @@ async function auditBills() {
     await record("bills", b.id, b.state, r.locality, r.reason, b.locality || b.title || "", { state: r.locality });
   }
 }
+// Local officials (level municipal/county) get their `state` from the AI/scrape
+// extractor with no resolver guard (extract-news-officials seeds locality
+// "City, ST" + state_code; sync-legistar writes the scraped tenant's state). A
+// city mislabeled to the wrong state writes a wrong-state legislator row that
+// powers local campaign targeting. The locality string IS the gazetteer evidence:
+// resolve it and override `state` (and the "City, ST" suffix) when it pins a
+// different single state at high/medium confidence.
+async function auditLegislators() {
+  const { data, error } = await sb.from("legislators").select("id, state, level, locality")
+    .in("level", ["municipal", "county"]).not("locality", "is", null).in("state", STATES).limit(5000);
+  if (error) return console.error("legislators:", error.message);
+  for (const l of data ?? []) {
+    scanned++;
+    const r = correction(l.state, l.locality, null);
+    if (!r || r.locality === "FED" || r.locality === "ALL") continue;
+    const patch = { state: r.locality };
+    const loc = fixSpecific(l.locality, l.state, r.locality);
+    if (loc !== l.locality) patch.locality = loc;
+    await record("legislators", l.id, l.state, r.locality, r.reason, l.locality || "", patch);
+  }
+}
+
+// BoP findings get `state` from the per-state bop_sources scrape bucket, so a
+// syndicated/national finding can land under the wrong state before triage into
+// policy_alerts. The finding title is the gazetteer evidence.
+async function auditBopFindings() {
+  const { data, error } = await sb.from("bop_findings").select("id, state, title").in("state", STATES).limit(5000);
+  if (error) return console.error("bop_findings:", error.message);
+  for (const b of data ?? []) {
+    scanned++;
+    const r = correction(b.state, b.title, null);
+    if (!r || r.locality === "FED" || r.locality === "ALL") continue;
+    await record("bop_findings", b.id, b.state, r.locality, r.reason, b.title || "", { state: r.locality });
+  }
+}
+// legislator_events (public /events surface): AI/admin-entered state + "City, ST"
+// locality; catch an event filed under the wrong state.
+async function auditLegislatorEvents() {
+  const { data, error } = await sb.from("legislator_events").select("id, state, locality, title").in("state", STATES).limit(5000);
+  if (error) return console.error("legislator_events:", error.message);
+  for (const e of data ?? []) {
+    scanned++;
+    const r = correction(e.state, e.title, e.locality);
+    if (!r || r.locality === "FED" || r.locality === "ALL") continue;
+    const patch = { state: r.locality };
+    const loc = fixSpecific(e.locality, e.state, r.locality);
+    if (loc !== e.locality) patch.locality = loc;
+    await record("legislator_events", e.id, e.state, r.locality, r.reason, e.locality || e.title || "", patch);
+  }
+}
 
 console.log(`Locality<->state audit ${APPLY ? "(APPLY)" : "(DRY RUN)"}…`);
 await auditPolicyAlerts();
 await auditNewsItems();
 await auditMeetings();
 await auditBills();
+await auditLegislators();
+await auditBopFindings();
+await auditLegislatorEvents();
 
 console.log(`\nScanned ${scanned}. ${APPLY ? "Auto-corrected" : "Would auto-correct"} ${fixed}; flagged for review ${review}.`);
 console.log("By evidence tier:", JSON.stringify(tally));

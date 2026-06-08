@@ -20,6 +20,8 @@ const cases = [
   ["Missouri's largest Kratom distributor agrees to stop sales", "MO", "MO"], // explicit state name
   ["Idaho Falls City Council Has Banned the Sale of Kratom Within the City", "ID", "ID"],
   ["Brandon Clarke said it's just kratom. His death has the substance under scrutiny.", "AR", "AR"], // names must NOT override
+  ["Tennessee kratom ban takes effect July 1 - KOLN Nebraska Lincoln NE", "TN", "TN"], // own-state named -> source byline "Lincoln, NE" must NOT override
+  ["Federal court rejects attempt to block new kratom regulation law", "UT", "UT"], // "federal court" is not a federal action; keep candidate
 
   // ── State "Schedule I" bills are STATE actions, not federal ──
   ["Gov. Kelly signs bill classifying 7-OH kratom as Schedule I drug", "KS", "KS"], // KS state bill, not FED
