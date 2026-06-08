@@ -27,6 +27,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { renderSegmentsToMp3 } from "./lib/kokoro-tts.mjs";
+import { normalizeForTTS } from "./lib/tts-normalize.mjs";
 import { Buffer } from "node:buffer";
 
 const args = process.argv.slice(2);
@@ -136,7 +137,7 @@ if (cn === 0 && wn === 0) {
   }
   if (wn > 0) {
     seg(`Also tracking ${wn} warning-level event${wn === 1 ? "" : "s"}.`, "male");
-    for (const a of warnAlerts.slice(0, 3)) seg(`${expandLocality(a.locality) || "Federal"}: ${cleanForTTS(a.title)}.`, "female");
+    for (const a of warnAlerts.slice(0, 3)) seg(`From ${expandLocality(a.locality) || "the federal level"}: ${cleanForTTS(a.title)}.`, "female");
   }
 }
 
@@ -153,19 +154,10 @@ const script = segments.map((s) => s.text).join(" ");
 
 console.log(`  script: ${script.length} chars, ~${Math.round(script.length / 15)}s estimated audio`);
 
+// Shared, comprehensive normalizer (Roman-numeral schedules, RFK Jr., agencies,
+// honorifics, places, chemistry) so the brief reads like a human, not a robot.
 function cleanForTTS(s) {
-  // Replace em/en dashes with regular hyphens; expand common abbreviations
-  // so TTS pronounces them naturally.
-  return (s ?? "")
-    .replace(/[—–]/g, " - ")
-    .replace(/\bDEA\b/g, "D E A")
-    .replace(/\bFDA\b/g, "F D A")
-    .replace(/\bAG\b/g, "Attorney General")
-    .replace(/\bBoP\b/g, "Board of Pharmacy")
-    .replace(/\b7-OH\b/gi, "seven-hydroxy")
-    .replace(/\b7-hydroxymitragynine\b/gi, "seven-hydroxy mitragynine")
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizeForTTS(s);
 }
 
 if (DRY) {
