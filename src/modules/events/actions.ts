@@ -100,3 +100,28 @@ export async function listUpcomingEvents(input?: { state?: string; limit?: numbe
     .limit(input?.limit ?? 50);
   return data ?? [];
 }
+
+/**
+ * Upcoming auto-discovered civic meetings (city/county council + board
+ * hearings where kratom is on the agenda) from municipal_meetings. Approved +
+ * future only; public-readable (RLS allows approved). Merged into /events so
+ * the page reflects the meeting tracker, not just hand-added legislator events.
+ */
+export async function listUpcomingMeetings(input?: { state?: string; limit?: number }) {
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  let q = supabase
+    .from("municipal_meetings")
+    .select(
+      "id, state, locality, body_name, meeting_at, meeting_end_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url",
+    )
+    .eq("moderation_status", "approved")
+    .gte("meeting_at", now);
+  if (input?.state && /^[A-Z]{2}$/.test(input.state)) {
+    q = q.eq("state", input.state);
+  }
+  const { data } = await q
+    .order("meeting_at", { ascending: true })
+    .limit(input?.limit ?? 100);
+  return data ?? [];
+}
