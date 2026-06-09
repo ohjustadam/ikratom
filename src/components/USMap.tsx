@@ -3,27 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { US_VIEWBOX, US_STATE_PATHS } from "@/lib/us-map-paths";
+import {
+  LEGAL_STATUS_FILL,
+  LEGAL_STATUS_UNKNOWN,
+  legalStatusFill,
+  legalStatusLabel,
+} from "@/lib/legal-status";
 
 type StatusByAbbr = Record<string, string | null | undefined>;
 
 /** Per-state forum activity, used to surface where discussion is happening. */
 export type MapActivity = { threads: number; posts: number; lastActivity?: string | null };
 type ActivityByAbbr = Record<string, MapActivity | undefined>;
-
-// Tuned for dark backgrounds — every status reads distinctly.
-const STATUS_FILL: Record<string, string> = {
-  kcpa: "#10b981",         // emerald-500 — protected (gold standard)
-  legal: "#475569",        // slate-600 — neutral; doesn't dominate
-  restricted: "#f59e0b",   // amber-500 — caution
-  banned: "#dc2626",       // red-600 — repeal target
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  kcpa: "KCPA-protected",
-  legal: "Legal",
-  restricted: "Restricted",
-  banned: "Banned",
-};
 
 const ACTIVITY_DOT = "#a7f3d0"; // emerald-200 — reads on every status fill
 
@@ -49,7 +40,7 @@ export function USMap({
   const hoverState = hoverAbbr
     ? US_STATE_PATHS.find((s) => s.abbr === hoverAbbr)
     : null;
-  const hoverStatus = hoverAbbr ? (statusByAbbr[hoverAbbr] ?? "legal") : null;
+  const hoverStatus = hoverAbbr ? (statusByAbbr[hoverAbbr] ?? null) : null;
   const hoverActivity = hoverAbbr ? activityByAbbr?.[hoverAbbr] : null;
 
   const isActive = (a?: MapActivity) => !!a && (a.threads > 0 || a.posts > 0);
@@ -89,8 +80,8 @@ export function USMap({
       >
         <g ref={gRef}>
           {US_STATE_PATHS.map(({ abbr, name, d }) => {
-            const status = statusByAbbr[abbr] ?? "legal";
-            const fill = STATUS_FILL[status] ?? "#3f3f46";
+            const status = statusByAbbr[abbr] ?? null;
+            const fill = legalStatusFill(status);
             const isHover = hoverAbbr === abbr;
             const isHighlight = highlightAbbr === abbr;
             const act = activityByAbbr?.[abbr];
@@ -114,7 +105,7 @@ export function USMap({
                 onMouseLeave={() => setHoverAbbr((c) => (c === abbr ? null : c))}
                 onClick={() => router.push(onClickHref(abbr))}
               >
-                <title>{`${name} — ${STATUS_LABEL[status] ?? status}${activeLabel}`}</title>
+                <title>{`${name} — ${legalStatusLabel(status)}${activeLabel}`}</title>
               </path>
             );
           })}
@@ -147,10 +138,10 @@ export function USMap({
           <span className="font-semibold text-zinc-100">{hoverState.name}</span>
           <span
             className="ml-2 inline-block h-2 w-2 rounded-sm align-middle"
-            style={{ backgroundColor: STATUS_FILL[hoverStatus ?? "legal"] }}
+            style={{ backgroundColor: legalStatusFill(hoverStatus) }}
           />
           <span className="ml-1.5 text-zinc-400">
-            {STATUS_LABEL[hoverStatus ?? "legal"] ?? "—"}
+            {legalStatusLabel(hoverStatus)}
           </span>
           {isActive(hoverActivity ?? undefined) && (
             <span className="ml-2 text-emerald-300">
@@ -162,10 +153,12 @@ export function USMap({
 
       {/* Legend */}
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-        <Legend color={STATUS_FILL.banned} label="Banned" />
-        <Legend color={STATUS_FILL.restricted} label="Restricted" />
-        <Legend color={STATUS_FILL.legal} label="Legal" />
-        <Legend color={STATUS_FILL.kcpa} label="KCPA-protected" />
+        <Legend color={LEGAL_STATUS_FILL.banned} label="Banned" />
+        <Legend color={LEGAL_STATUS_FILL.restricted} label="Restricted" />
+        <Legend color={LEGAL_STATUS_FILL.legal} label="Legal · unprotected" />
+        <Legend color={LEGAL_STATUS_FILL.incoming} label="Protection incoming" />
+        <Legend color={LEGAL_STATUS_FILL.kcpa} label="Protected · KCPA" />
+        <Legend color={LEGAL_STATUS_UNKNOWN} label="Tracking" />
         {activityByAbbr && (
           <div className="flex items-center gap-1.5">
             <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ACTIVITY_DOT }} />
