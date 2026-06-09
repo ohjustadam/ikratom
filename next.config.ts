@@ -85,6 +85,14 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      // The live efficiency breakdown lives in the /pitch suite (shares the
+      // pitch layout + MermaidLoader). Support the shorter URL /efficiency that
+      // gets shared around so it doesn't 404.
+      { source: "/efficiency", destination: "/pitch/efficiency", permanent: false },
+    ];
+  },
 };
 
 // Sentry wrapper: instruments builds for source-map upload + error
