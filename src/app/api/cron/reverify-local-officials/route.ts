@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { reVerifyLocality, autoFulfillLocality } from "@/lib/local-reps-auto-fulfill";
-import { getGroundingBudget } from "@/lib/ai/grounding-budget";
 import { isRetryableGroundingError } from "@/lib/ai/grounding-errors";
 
 /**
@@ -33,12 +32,12 @@ import { isRetryableGroundingError } from "@/lib/ai/grounding-errors";
  * Triggered via Vercel cron (vercel.json) at a low-volume hour, OR
  * manually via gh workflow run. Verified by CRON_SECRET header.
  *
- * Gemini quota: ~500 grounded queries/project/day on free tier. The
- * caps here (5 + 5 + 5 = 15 max grounded calls per day) keep this
- * cron well under the budget; the budget guard in suggest-officials.ts
- * + officials-slate.mjs is the hard backstop. Cron now runs DAILY
- * instead of weekly to spread load — same total weekly throughput, no
- * Sunday spike that used to blow the quota (V2_KICKOFF §3.A1).
+ * De-Gemini'd 2026-06-08: officials resolution is now Legistar-or-queue
+ * (suggestLocalOfficials, src/lib/ai/suggest-officials.ts) — this cron makes
+ * ZERO Gemini-grounded calls. Non-Legistar localities return a transient
+ * "queued" result and are filled by the batch SearXNG+Ollama run; this cron
+ * just skips them. The per-pass caps (5 + 5 + 5) now bound DB/HTTP work, not
+ * a grounded quota. Runs DAILY to spread load.
  */
 
 export const dynamic = "force-dynamic";
@@ -76,24 +75,7 @@ export async function GET(request: NextRequest) {
     pendingFulfilled: 0,
     pendingFailed: 0,
     errors: [] as string[],
-    /** Snapshot of today's grounded-query budget at the start of the
-     *  run. If `exhausted` is true we bail before any Gemini calls so
-     *  the cron doesn't compound an already-blown quota. */
-    quota: null as null | { usedToday: number; cap: number; remaining: number; exhausted: boolean },
   };
-
-  // Budget check up front. If today's cap is already gone (e.g. an
-  // admin clicked AI suggest 400+ times, or the daily scripts already
-  // ran), this cron skips cleanly rather than logging 15 more failures.
-  stats.quota = await getGroundingBudget(admin);
-  if (stats.quota.exhausted) {
-    return NextResponse.json({
-      ok: true,
-      ranAt: new Date().toISOString(),
-      skipped: "grounded-quota-exhausted",
-      stats,
-    });
-  }
 
   // ── Pass 1: term-expired officials ─────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
@@ -142,10 +124,13 @@ export async function GET(request: NextRequest) {
   for (const [, pair] of [...stalePairs.entries()].slice(0, MAX_STALE_PER_RUN)) {
     try {
       const r = await reVerifyLocality(pair);
-      stats.staleLocalitiesReVerified++;
-      if (r.error && isRetryableGroundingError(r.error)) {
+      if (r.error) {
+        // Non-Legistar localities return a transient "queued" error having
+        // done no work — don't count those as re-verified.
         stats.errors.push(`stale ${pair.locality}: ${r.error}`);
-        break;
+        if (isRetryableGroundingError(r.error)) break;
+      } else {
+        stats.staleLocalitiesReVerified++;
       }
     } catch (e) {
       stats.errors.push(`stale ${pair.locality}: ${(e as Error).message}`);
@@ -178,9 +163,6 @@ export async function GET(request: NextRequest) {
       stats.errors.push(`pending ${pair.locality}: ${(e as Error).message}`);
     }
   }
-
-  // Refresh quota snapshot so the response shows post-run state.
-  stats.quota = await getGroundingBudget(admin);
 
   return NextResponse.json({
     ok: true,

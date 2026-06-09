@@ -70,10 +70,11 @@ export async function previewSuggestions(input: {
 
   const suggestion = await suggestLocalOfficials({ city, state: stateRaw, caller: "admin-inline-suggest" });
   if ("error" in suggestion) {
-    // Replace raw "Gemini 429: ..." with a friendly classified message
-    // (quota-exhausted → "retry tomorrow", network blip → "try again",
-    // etc.). The raw string already got logged into ai_jobs inside
-    // suggestLocalOfficials.
+    // De-Gemini'd: a Legistar miss returns a transient "queued for batch"
+    // result. Surface it as an informational note, not a red error box.
+    if (suggestion.transient) {
+      return { ok: false, error: "🕒 Not on Legistar — queued for the next batch (SearXNG + Ollama) resolution run. Check back shortly." };
+    }
     return { ok: false, error: friendlyGroundingError(suggestion.error) };
   }
 
@@ -90,11 +91,14 @@ export async function previewSuggestions(input: {
 
   const results: SuggestionWithTier[] = [];
   for (const o of suggestion.officials) {
-    const v = await verifyOfficialAgainstSource({
-      fullName: o.full_name,
-      sourceUrl: o.source_url,
-      localityHint: localityNorm,
-    });
+    // Legistar officials are authoritative clerk data — skip the page fetch.
+    const v = o.source_kind === "legistar"
+      ? { ok: true as const, tier: "verified" as const, matchedAt: o.source_url ?? "", pageSnippet: "Legistar — official clerk roster" }
+      : await verifyOfficialAgainstSource({
+          fullName: o.full_name,
+          sourceUrl: o.source_url,
+          localityHint: localityNorm,
+        });
     const exists = existingNames.has(o.full_name.toLowerCase());
     if (v.ok) {
       results.push({

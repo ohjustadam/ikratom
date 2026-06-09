@@ -69,6 +69,7 @@ const REGISTRY = [
       "classify_bill_substance",
       "derive_state_status",
       "sync_legistar_officials",
+      "discover_legistar_tenants",
       "fire_daily_brief_push",
       "render_daily_brief_audio",
       "extract_news_content",

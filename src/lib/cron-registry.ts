@@ -346,6 +346,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "meetings",
   },
   {
+    source: "discover_legistar_tenants",
+    label: "Discover Legistar tenants",
+    purpose: "Probe gazetteer-derived slugs to expand keyless Legistar officials coverage (de-Gemini)",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "legislators",
+  },
+  {
     source: "sync_research_pubmed",
     label: "PubMed research sync",
     purpose: "Sync new peer-reviewed kratom research from PubMed",

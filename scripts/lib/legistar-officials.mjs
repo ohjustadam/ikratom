@@ -138,9 +138,10 @@ export async function fetchLegistarOfficials({ client, bodyHint, level, subdomai
   // De-dupe by person (a member can hold multiple overlapping records);
   // keep the one with the latest end date.
   const byPerson = new Map();
+  const endRank = (d) => (d ? new Date(d).getTime() : Infinity); // null end = ongoing → latest
   for (const r of records) {
     const prev = byPerson.get(r.OfficeRecordPersonId);
-    if (!prev || new Date(r.OfficeRecordEndDate) > new Date(prev.OfficeRecordEndDate)) {
+    if (!prev || endRank(r.OfficeRecordEndDate) > endRank(prev.OfficeRecordEndDate)) {
       byPerson.set(r.OfficeRecordPersonId, r);
     }
   }
