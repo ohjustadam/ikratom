@@ -16,13 +16,20 @@ export default async function ForumIndexPage() {
   const supabase = await createClient();
   const { data: states } = await supabase
     .from("states")
-    .select("abbr, name, kratom_status")
+    .select("abbr, name")
     .order("name");
 
-  // Build status-by-abbr map for the SVG
+  // Map colors come from the SAME source as the home-page map
+  // (state_status.admin_leaf_status) so the forum map and the landing map
+  // always agree. The legacy states.kratom_status column was a stale parallel
+  // source (it lacked CT's 2026 ban, etc.) — no longer used for the map.
+  const { data: legalRows } = await supabase
+    .from("state_status")
+    .select("state, admin_leaf_status")
+    .not("admin_leaf_status", "is", null);
   const statusByAbbr: Record<string, string> = {};
-  for (const s of states ?? []) {
-    if (s.kratom_status) statusByAbbr[s.abbr] = s.kratom_status;
+  for (const r of legalRows ?? []) {
+    if (r.admin_leaf_status) statusByAbbr[r.state as string] = r.admin_leaf_status as string;
   }
 
   // Topical communities (admin-curated). Renders only if non-empty so
@@ -240,7 +247,7 @@ export default async function ForumIndexPage() {
           alphabetical grid — your state pins first; "Most active" floats the
           live forums to the top). */}
       <ForumStateNav
-        states={(states ?? []).map((s) => ({ abbr: s.abbr, name: s.name, status: s.kratom_status }))}
+        states={(states ?? []).map((s) => ({ abbr: s.abbr, name: s.name, status: statusByAbbr[s.abbr] ?? null }))}
         activity={stateActivity}
         userState={userState}
       />

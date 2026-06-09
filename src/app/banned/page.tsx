@@ -4,7 +4,7 @@ import { PageShareWithAttribution } from "@/components/PageShareWithAttribution"
 
 export const metadata = {
   title: "Where kratom is banned — every state, county, and city tracking",
-  description: "Comprehensive list of US jurisdictions banning kratom: 6 states, 12+ counties, 30+ cities. Updated as bans are enacted or repealed.",
+  description: "Comprehensive list of US jurisdictions banning kratom — states, counties, and cities. Updated as bans are enacted or repealed.",
 };
 export const dynamic = "force-dynamic";
 
@@ -67,16 +67,35 @@ export default async function BannedPage() {
     .range(0, 9999);
   const rows = (data ?? []) as BanRow[];
 
-  // Bucket
-  // For state-level rows, we ONLY count entries with editorial takeback intel
-  // (opposition_summary_md is not null). This is our source of truth for "is
-  // this an actual full kratom ban" vs "did this state pass any anti-kratom
-  // legislation." Without this filter, 7-OH-only bans, age regs, KCPA bills,
-  // and misclassified non-kratom rows all show up as "banning states" — which
-  // is misleading. The 6 historical banning states + TN imminent are all
-  // editorially curated with opposition_summary_md populated.
-  const enactedStates = rows.filter(r => r.scope === "state" && r.status === "enacted" && r.opposition_summary_md);
+  // SINGLE SOURCE OF TRUTH for state-level bans = state_status.admin_leaf_status
+  // (the exact same source the home-page map and forum map read). /banned used
+  // to derive banned states from a bills heuristic, which DISAGREED with the
+  // maps — it still showed Rhode Island (which reversed its ban, legal as of
+  // Apr 2026) and missed Louisiana (Aug 2025) + Connecticut (2026). Reading
+  // state_status here means the maps and this page can never contradict again.
+  const { data: ssRows } = await sb
+    .from("state_status")
+    .select("state, admin_leaf_status, admin_note")
+    .eq("admin_leaf_status", "banned");
+
+  // Link each banned state to its enacting state bill when we have one (else
+  // we link to the state hub). First enacted state-scope anti bill per state.
+  const stateBill = new Map<string, BanRow>();
+  for (const r of rows) {
+    if (r.scope === "state" && r.status === "enacted" && !stateBill.has(r.state)) stateBill.set(r.state, r);
+  }
+  const bannedStates = (ssRows ?? [])
+    .map(r => ({ state: r.state as string, note: (r.admin_note as string | null) ?? null, bill: stateBill.get(r.state as string) ?? null }))
+    .sort((a, b) => a.state.localeCompare(b.state));
+
+  // Imminent statewide BANS stay bill-derived (a ban bill that passed a chamber
+  // but isn't enacted yet) — gated on editorial takeback intel to avoid
+  // surfacing 7-OH-only / age-reg / misclassified bills as "imminent bans".
   const imminentStates = rows.filter(r => r.scope === "state" && r.status === "passed_chamber" && r.opposition_summary_md);
+
+  // Local bans now pass through the two-source verification gate (migration
+  // 0190 / verify-local-bans) before they reach active=true — so this is the
+  // CONFIRMED set, not the old single-aggregator dump.
   const enactedCounties = rows.filter(r => r.scope === "county" && r.status === "enacted");
   const enactedCities = rows.filter(r => r.scope === "municipal" && r.status === "enacted");
 
@@ -96,7 +115,7 @@ export default async function BannedPage() {
 
   const totalLocal = enactedCounties.length + enactedCities.length;
   const allBanStates = new Set([
-    ...enactedStates.map(r => r.state),
+    ...bannedStates.map(b => b.state),
     ...localsByState.keys(),
   ]);
 
@@ -127,7 +146,7 @@ export default async function BannedPage() {
 
       {/* Top-line stats */}
       <section className="mb-8 grid gap-3 grid-cols-2 sm:grid-cols-4">
-        <Stat label="Banning states" value={enactedStates.length.toString()} tone="red" />
+        <Stat label="Banning states" value={bannedStates.length.toString()} tone="red" />
         <Stat label="Imminent state bans" value={imminentStates.length.toString()} tone={imminentStates.length > 0 ? "amber" : "neutral"} />
         <Stat label="Banning counties" value={enactedCounties.length.toString()} tone="red" />
         <Stat label="Banning cities" value={enactedCities.length.toString()} tone="red" />
@@ -165,19 +184,19 @@ export default async function BannedPage() {
       {/* Banning states */}
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-300">
-          Banned states ({enactedStates.length})
+          Banned states ({bannedStates.length})
         </h2>
-        {enactedStates.length === 0 ? (
+        {bannedStates.length === 0 ? (
           <p className="text-zinc-500">None — yet.</p>
         ) : (
           <ul className="grid gap-2 sm:grid-cols-2">
-            {[...enactedStates].sort((a, b) => a.state.localeCompare(b.state)).map(r => (
-              <li key={r.id}>
-                <Link href={`/bills/${r.id}`} className="block rounded border border-red-800/40 bg-zinc-950/40 p-3 hover:border-red-500">
+            {bannedStates.map(b => (
+              <li key={b.state}>
+                <Link href={b.bill ? `/bills/${b.bill.id}` : `/states/${b.state}`} className="block rounded border border-red-800/40 bg-zinc-950/40 p-3 hover:border-red-500">
                   <p className="font-semibold text-zinc-100">
-                    <span className="font-mono text-red-300">{r.state}</span> {STATE_NAMES[r.state] ?? r.state}
+                    <span className="font-mono text-red-300">{b.state}</span> {STATE_NAMES[b.state] ?? b.state}
                   </p>
-                  <p className="mt-1 text-[11px] text-zinc-500">{r.bill_number}</p>
+                  <p className="mt-1 text-[11px] text-zinc-500">{b.bill?.bill_number ?? "View state hub →"}</p>
                 </Link>
               </li>
             ))}
@@ -243,7 +262,7 @@ export default async function BannedPage() {
           Every local ban becomes precedent that anti-kratom advocates shop to the next county. {STATE_NAMES["MS"]}&apos;s 11-county + 25-city pattern started as one small county and spread. The Suffolk County NY resolution currently in committee was modeled in part on Mississippi precedent. If you can spot a friend in any of these jurisdictions, point them at us — they can subscribe to the bill page for status pings + submit local intel.
         </p>
         <p className="mt-2 text-zinc-500">
-          Source for state-level designations: bills marked status=enacted in our DB. Source for local bans: editorial seed from public news + AKA state-action tracker + kratomlords.com legality map. Verify exact ordinance citations from city/county code search before citing publicly.
+          State-level status comes from our admin-confirmed state ledger — the <em>same</em> source as the maps on the home and community pages, so they never disagree. Local bans pass a two-source verification gate before they appear here. Spot something off? The intel-tip form on any bill page is the fastest correction path.
         </p>
       </section>
     </div>

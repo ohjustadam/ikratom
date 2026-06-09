@@ -1,5 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { US_STATE_PATHS, US_VIEWBOX } from "@/lib/us-map-paths";
+import {
+  LEGAL_STATUS_FILL as FILL,
+  LEGAL_STATUS_UNKNOWN as UNKNOWN,
+  LEGAL_STATUS_LABEL as LABEL,
+} from "@/lib/legal-status";
 
 /**
  * "Where it stands" — a US map colored by each state's CONFIRMED kratom-leaf
@@ -8,27 +13,8 @@ import { US_STATE_PATHS, US_VIEWBOX } from "@/lib/us-map-paths";
  * a wrong "banned" on a legal market). Every state links to its hub. As the
  * /admin/state-status queue confirms more states, the map fills in.
  */
-// Color = degree of PROTECTION, not merely "is it currently legal". A state
-// with no kratom law isn't "safe" — it's unprotected and one bad bill from a
-// ban, so it is NOT green. Green is reserved for an enacted protective law.
-const FILL: Record<string, string> = {
-  banned: "#991b1b", // red-800 — statewide leaf ban
-  restricted: "#b45309", // amber-700 — partial restriction (age limit only)
-  legal: "#2563eb", // blue-600 — legal but UNPROTECTED (no kratom law on the books)
-  incoming: "#0d9488", // teal-600 — protection approved but NOT yet in force
-  kcpa: "#15803d", // green-700 — enacted protection (KCPA / pro-kratom law)
-  protected: "#15803d",
-};
-const UNKNOWN = "#27272a"; // zinc-800 — tracking, not yet confirmed
-
-const LABEL: Record<string, string> = {
-  banned: "Banned",
-  restricted: "Restricted",
-  legal: "Legal · no protections",
-  incoming: "Protection incoming",
-  kcpa: "Protected · KCPA",
-  protected: "Protected",
-};
+// Color/label/unknown semantics now live in @/lib/legal-status (shared with
+// the forum USMap so the two maps can't drift apart).
 
 export async function StateLegalMap() {
   let byState = new Map<string, { status: string; note: string | null }>();
