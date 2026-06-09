@@ -78,32 +78,22 @@ const AVG_COMMERCIAL_COST_USD = 0.008;
 export default async function EfficiencyPage() {
   const supabase = await createClient();
   const now = Date.now();
-  const since24h = new Date(now - 86_400_000).toISOString();
-  const since30d = new Date(now - 30 * 86_400_000).toISOString();
 
   const configuredProviders = AI_PROVIDERS.filter(
     (p) => p.env === null || !!process.env[p.env],
   );
   const providerCount = configuredProviders.length;
 
-  const [cronRuns, aiCalls24h, aiCalls30d, groundedToday] = await Promise.all([
+  // ai_jobs row reads are admin-RLS'd, but the ai_jobs_stats() RPC is
+  // SECURITY DEFINER + anon-callable — so this returns real aggregates even
+  // to a logged-out partner viewing the page (a direct count would read 0).
+  const [u30, u24, cronRuns] = await Promise.all([
+    usageByProvider(supabase, 720),
+    usageByProvider(supabase, 24),
     supabase
       .from("scraper_runs_latest")
       .select("source, started_at, status")
       .in("source", PUBLIC_PIPELINES),
-    supabase
-      .from("ai_jobs")
-      .select("id", { count: "exact", head: true })
-      .gte("created_at", since24h),
-    supabase
-      .from("ai_jobs")
-      .select("id", { count: "exact", head: true })
-      .gte("created_at", since30d),
-    supabase
-      .from("ai_jobs")
-      .select("id", { count: "exact", head: true })
-      .eq("task_kind", "gemini_grounded")
-      .gte("created_at", new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString()),
   ]);
 
   // Healthy = ran within 1.5× expected interval AND last status != error.
@@ -122,9 +112,15 @@ export default async function EfficiencyPage() {
   }
   const totalPipelines = PUBLIC_PIPELINES.length;
 
-  const calls30d = aiCalls30d.count ?? 0;
-  const calls24h = aiCalls24h.count ?? 0;
+  const calls30d = u30.total;
+  const calls24h = u24.total;
+  const groundedToday = u24.grounded;
   const savedUsd30d = Math.round(calls30d * AVG_COMMERCIAL_COST_USD);
+
+  // Per-system breakdown for the graph: every provider is free-tier or local;
+  // Anthropic Claude is shown explicitly at 0 to make "other systems vs Claude"
+  // literal. Sorted by call volume, biggest first.
+  const systemRows = buildSystemRows(u30.byProvider, calls30d);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 text-zinc-100 sm:px-6 lg:px-8">
@@ -169,7 +165,7 @@ export default async function EfficiencyPage() {
         <Metric
           value={calls30d.toLocaleString()}
           label="AI calls · last 30d"
-          sub={`${calls24h.toLocaleString()} in last 24h · ${(groundedToday.count ?? 0).toLocaleString()} grounded today`}
+          sub={`${calls24h.toLocaleString()} in last 24h · ${groundedToday.toLocaleString()} grounded today`}
         />
         <Metric
           value={`~$${savedUsd30d.toLocaleString()}`}
@@ -178,6 +174,48 @@ export default async function EfficiencyPage() {
           tone="emerald"
         />
       </section>
+
+      {/* ───────── Usage graph: free systems vs Claude (the headline ask) ───────── */}
+      <Section title="0. Where the AI work runs — free systems vs Claude">
+        <p className="mb-5 text-sm text-zinc-400">
+          Every one of the{" "}
+          <span className="font-mono text-zinc-100">{calls30d.toLocaleString()}</span>{" "}
+          AI calls in the last 30 days was served by a free-tier or local provider.
+          Anthropic Claude — the expensive option — handled{" "}
+          <strong className="text-zinc-100">zero</strong> of them: it&apos;s the tool used
+          to <em>build</em> iKratom, never a runtime dependency.
+        </p>
+
+        {/* A — distribution across the free stack */}
+        <div className="mb-8 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            AI calls by system · last 30 days
+          </p>
+          {systemRows.length === 1 ? (
+            <p className="text-sm text-zinc-500">No AI calls recorded in the window.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {systemRows.map((s) => (
+                <UsageBar key={s.label} label={s.label} count={s.count} pct={s.pct} tone={s.tone} note={s.note} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* B — what those same calls would have cost on Claude */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            Cost for the same {calls30d.toLocaleString()} calls · last 30 days
+          </p>
+          <CostBar label="If routed to Anthropic Claude (paid baseline)" usd={savedUsd30d} max={savedUsd30d} tone="red" />
+          <CostBar label="iKratom actual (free-tier + local stack)" usd={0} max={savedUsd30d} tone="emerald" />
+          <p className="mt-4 text-[11px] text-zinc-500">
+            Baseline = {calls30d.toLocaleString()} calls × ${AVG_COMMERCIAL_COST_USD.toFixed(3)} (a
+            conservative Claude-Sonnet per-call estimate at our prompt sizes). Actual AI
+            spend on the platform: <span className="text-emerald-300">$0</span>.
+          </p>
+        </div>
+      </Section>
 
       {/* Configured provider roster — verifies the "9 providers" claim */}
       <Section title={`1. AI router — ${providerCount} provider${providerCount === 1 ? "" : "s"} configured right now`}>
@@ -364,7 +402,7 @@ export default async function EfficiencyPage() {
                 Last 30d AI calls: <span className="font-mono text-zinc-100">{calls30d.toLocaleString()}</span>
               </p>
               <p className="text-xs text-zinc-400">
-                Grounded today: <span className="font-mono text-zinc-100">{(groundedToday.count ?? 0).toLocaleString()}</span>
+                Grounded · 24h: <span className="font-mono text-zinc-100">{groundedToday.toLocaleString()}</span>
               </p>
             </div>
           </div>
@@ -592,5 +630,105 @@ function Row({ cap, us, alt, saved }: { cap: string; us: string; alt: string; sa
       <td className="px-3 py-2 text-zinc-500">{alt}</td>
       <td className="px-3 py-2 text-right font-mono text-emerald-300">{saved}</td>
     </tr>
+  );
+}
+
+// ───────────────────────── usage graph helpers ─────────────────────────
+
+type SystemRow = { label: string; count: number; pct: number; tone: "emerald" | "zinc"; note?: string };
+
+async function usageByProvider(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  hours: number,
+): Promise<{ total: number; grounded: number; byProvider: Record<string, number> }> {
+  const { data } = await supabase.rpc("ai_jobs_stats", { p_hours: hours });
+  const rows = (data ?? []) as Array<{
+    provider_used: string | null;
+    task_kind: string | null;
+    successes: number | null;
+    failures: number | null;
+  }>;
+  let total = 0;
+  let grounded = 0;
+  const byProvider: Record<string, number> = {};
+  for (const r of rows) {
+    const calls = Number(r.successes ?? 0) + Number(r.failures ?? 0);
+    total += calls;
+    const key = (r.provider_used || "other").toLowerCase();
+    byProvider[key] = (byProvider[key] ?? 0) + calls;
+    if (r.task_kind === "gemini_grounded") grounded += calls;
+  }
+  return { total, grounded, byProvider };
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  groq: "Groq · llama-3.3-70b",
+  gemini: "Gemini Flash 2.5 + Search",
+  cerebras: "Cerebras",
+  mistral: "Mistral",
+  cloudflare: "Cloudflare Workers AI",
+  github: "GitHub Models",
+  sambanova: "SambaNova",
+  openrouter: "OpenRouter",
+  nvidia: "NVIDIA NIM",
+  ollama: "Ollama (local · $0)",
+  other: "Other free providers",
+  unknown: "Other free providers",
+};
+
+function buildSystemRows(byProvider: Record<string, number>, total: number): SystemRow[] {
+  const rows: SystemRow[] = Object.entries(byProvider)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => ({
+      label: PROVIDER_LABELS[k] ?? k,
+      count: n,
+      pct: total > 0 ? Math.round((n / total) * 100) : 0,
+      tone: "emerald" as const,
+    }))
+    .sort((a, b) => b.count - a.count);
+  // Explicit contrast row — Claude is never in the runtime path.
+  rows.push({ label: "Anthropic Claude (paid)", count: 0, pct: 0, tone: "zinc", note: "never called by the platform" });
+  return rows;
+}
+
+function UsageBar({ label, count, pct, tone, note }: {
+  label: string; count: number; pct: number; tone: "emerald" | "zinc"; note?: string;
+}) {
+  const barCls = tone === "emerald" ? "bg-emerald-500" : "bg-zinc-700";
+  const txtCls = tone === "emerald" ? "text-emerald-300" : "text-zinc-500";
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3 text-xs">
+        <span className="text-zinc-300">
+          {label}
+          {note ? <span className="ml-2 text-[10px] text-zinc-600">— {note}</span> : null}
+        </span>
+        <span className={`font-mono tabular-nums ${txtCls}`}>
+          {count.toLocaleString()}{pct > 0 ? ` · ${pct}%` : ""}
+        </span>
+      </div>
+      <div className="mt-1 h-2 overflow-hidden rounded-full bg-zinc-900">
+        <div className={`h-full ${barCls}`} style={{ width: `${Math.max(pct, count > 0 ? 2 : 0)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function CostBar({ label, usd, max, tone }: {
+  label: string; usd: number; max: number; tone: "red" | "emerald";
+}) {
+  const pct = max > 0 ? Math.round((usd / max) * 100) : 0;
+  const barCls = tone === "red" ? "bg-red-600" : "bg-emerald-500";
+  const txtCls = tone === "red" ? "text-red-300" : "text-emerald-300";
+  return (
+    <div className="mb-3 last:mb-0">
+      <div className="flex items-baseline justify-between gap-3 text-xs">
+        <span className="text-zinc-300">{label}</span>
+        <span className={`font-mono tabular-nums ${txtCls}`}>~${usd.toLocaleString()}</span>
+      </div>
+      <div className="mt-1 h-3 overflow-hidden rounded-full bg-zinc-900">
+        <div className={`h-full ${barCls}`} style={{ width: `${Math.max(pct, usd > 0 ? 2 : 1)}%` }} />
+      </div>
+    </div>
   );
 }
