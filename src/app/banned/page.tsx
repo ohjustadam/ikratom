@@ -259,7 +259,7 @@ export default async function BannedPage() {
       <section className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 text-[11px] text-zinc-400">
         <p className="font-semibold text-zinc-200">Why this matters even if you don&apos;t live in a banned jurisdiction</p>
         <p className="mt-1">
-          Every local ban becomes precedent that anti-kratom advocates shop to the next county. {STATE_NAMES["MS"]}&apos;s 11-county + 25-city pattern started as one small county and spread. The Suffolk County NY resolution currently in committee was modeled in part on Mississippi precedent. If you can spot a friend in any of these jurisdictions, point them at us — they can subscribe to the bill page for status pings + submit local intel.
+          Every local ban becomes precedent that anti-kratom advocates shop to the next jurisdiction. {STATE_NAMES["MS"]}&apos;s county-by-county spread — the most of any state — and Illinois&apos;s Metro-East city cluster both started with one small jurisdiction and grew. If you can spot a friend in any of these jurisdictions, point them at us — they can subscribe to the bill page for status pings + submit local intel.
         </p>
         <p className="mt-2 text-zinc-500">
           State-level status comes from our admin-confirmed state ledger — the <em>same</em> source as the maps on the home and community pages, so they never disagree. Local bans pass a two-source verification gate before they appear here. Spot something off? The intel-tip form on any bill page is the fastest correction path.
