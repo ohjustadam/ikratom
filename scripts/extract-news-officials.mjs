@@ -15,9 +15,9 @@
  *      (city / county + state) and any officials named in the article.
  *   2. Writes policy_alerts.specific_locality so the (0164-patched)
  *      targeting function can find the locality without title-parsing.
- *   3. Seeds the FULL local official slate for that jurisdiction via
- *      Gemini Search grounding (mayor + every council member, or county
- *      execs/commissioners) — also growing our nationwide officials DB.
+ *   3. Seeds the FULL local official slate for that jurisdiction via the
+ *      keyless, Gemini-free source (Legistar webapi → SearXNG + local
+ *      Ollama/Groq) — also growing our nationwide officials DB.
  *   4. Re-runs targeting on the alert's auto-campaign (retarget_auto_
  *      campaign RPC) so the campaign now targets ALL those local
  *      officials → the alert becomes one-click actionable against the
@@ -49,7 +49,6 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY,
   { auth: { persistSession: false } },
 );
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
 const STATE_RE = /^[A-Z]{2}$/;
 
@@ -160,26 +159,23 @@ for (const a of alerts) {
   // 2. Record the precise locality so targeting can find it
   await sb.from("policy_alerts").update({ specific_locality: locality }).eq("id", a.id);
 
-  // 3. Seed the full local slate (skips cleanly if already covered)
+  // 3. Seed the full local slate (skips cleanly if already covered).
+  // Keyless + Gemini-free: Legistar webapi → SearXNG + local Ollama/Groq.
   let seedRetryable = false; // true → leave unstamped so it retries
-  if (GEMINI_KEY) {
-    const slate = await seedLocalitySlate({ sb, state: resolvedState, locality, geminiKey: GEMINI_KEY });
-    if (slate.status === "ok") {
-      console.log(`  ✓ seeded ${slate.inserted} new official(s) (${slate.officialIds.length} total for locality)`);
-      seeded++;
-    } else if (slate.status === "skip") {
-      console.log(`  ⏭  slate already present (${slate.officialIds.length} officials)`);
-    } else {
-      console.log(`  ⚠ slate fetch failed: ${slate.error?.slice(0, 120)}`);
-      // Quota / rate-limit / transient network → retry next run (don't
-      // stamp). Only "0 officials returned" is treated as terminal —
-      // re-asking Gemini for a locality it can't find wastes quota.
-      const err = (slate.error ?? "").toLowerCase();
-      seedRetryable = /429|quota|rate|timeout|fetch failed|503|502|econn/.test(err);
-    }
+  const slate = await seedLocalitySlate({ sb, state: resolvedState, locality });
+  if (slate.status === "ok") {
+    console.log(`  ✓ seeded ${slate.inserted} new official(s) (${slate.officialIds.length} total for locality)`);
+    seeded++;
+  } else if (slate.status === "skip") {
+    console.log(`  ⏭  slate already present (${slate.officialIds.length} officials)`);
   } else {
-    console.log("  ⚠ GEMINI_API_KEY not set — skipping slate seed (specific_locality still recorded)");
-    seedRetryable = true; // no key this run; retry when configured
+    console.log(`  ⚠ slate not seeded: ${slate.error?.slice(0, 120)}`);
+    // Retry next run only on transient infra errors. "queued: …" (no
+    // SearXNG/Ollama reachable here, or no .gov page found) is terminal for
+    // THIS run — Legistar discovery + an owner batch run with local infra
+    // will cover it; don't spin hourly on the cloud runner.
+    const err = (slate.error ?? "").toLowerCase();
+    seedRetryable = /429|rate|timeout|fetch failed|503|502|econn/.test(err) && !err.includes("queued");
   }
 
   // 4. Retarget the alert's auto-campaign onto the local slate
@@ -208,7 +204,7 @@ for (const a of alerts) {
     processed++;
   }
 
-  // Gentle pace — Gemini grounding is the slow part; be a good citizen
+  // Gentle pace — be a good citizen to the free providers + clerk sites
   await new Promise((r) => setTimeout(r, 1500));
 }
 

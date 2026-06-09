@@ -3,22 +3,19 @@
  * local officials for a "City, ST" / "County, ST" locality.
  *
  * Extracted so both scripts/seed-bill-officials.mjs (bill-driven) and
- * scripts/extract-news-officials.mjs (news-alert-driven) can build the
- * same legislators rows the same way. (seed-bill-officials still has its
- * own inline copy as of 2026-05-30 — folding it onto this helper is a
- * low-risk future cleanup noted in V2_KICKOFF.)
+ * scripts/extract-news-officials.mjs (news-alert-driven) build the same
+ * legislators rows the same way.
  *
- * Uses Gemini 2.5 Flash with Google Search grounding (free tier) — no
- * paid API. Validates official websites against known parked-domain
- * squatters before persisting. Per migration 0169, every grounded call
- * runs through assertGroundingBudget() so the Sunday weekly burst can't
- * blow the daily ~500 grounded-query free-tier ceiling — once today's
- * cap is hit, callers get status='skip' with a quota_exhausted error
- * and the alert/request stays unprocessed for tomorrow's retry.
+ * De-Gemini'd 2026-06-08 (private/LOCAL_REPS_DEGEMINI_PLAN.md): the slate now
+ * comes from findAndExtractOfficials — Legistar webapi first (authoritative,
+ * keyless), then self-hosted SearXNG + local Ollama / free-tier Groq-Cerebras
+ * to extract from a deterministically-fetched .gov page. NO Gemini, NO
+ * Google-Search grounding, no per-day quota. If the long-tail infra isn't
+ * reachable, it returns status='fail' with a "queued" note and the caller
+ * leaves the locality for a later run where SearXNG/Ollama are present.
  */
 
-import { assertGroundingBudget, GroundingQuotaError, recordGroundingCall } from "./grounding-budget.mjs";
-import { geminiKeyCount, pickGeminiKey, markGeminiKeyCooldown } from "./gemini-keys.mjs";
+import { findAndExtractOfficials } from "./officials-extract.mjs";
 
 const PARKED_DOMAINS = [
   "hugedomains.com", "sedoparking.com", "dan.com", "godaddy.com",
@@ -49,110 +46,26 @@ export async function isUsableUrl(rawUrl) {
   }
 }
 
-const SYSTEM = `You are a civic-data analyst. Given a U.S. city or county, find the CURRENT elected officials AND the city/county general contact info. Return strict JSON inside a <result>...</result> block. Use Google Search grounding for accuracy — prefer .gov / .us domains over third-party aggregators.
-
-Return shape:
-<result>
-{
-  "officials": [
-    {
-      "full_name": "Jane Doe",
-      "role": "mayor" | "city_council" | "county_executive" | "county_commissioner",
-      "title": "Mayor" | "Council Member, Ward 3" | "County Judge-Executive" | etc.,
-      "district": "Ward 3" or null,
-      "party": "D" | "R" | "I" | null,
-      "email": "jane.doe@cityofx.gov" or null,
-      "phone": "555-555-5555" or null,
-      "website": "https://..." or null
-    }
-  ],
-  "city_general": {
-    "name": "City of Marshall, IL",
-    "general_phone": "555-555-5555" or null,
-    "general_email": "info@cityofmarshall.org" or null,
-    "contact_form_url": "https://cityofmarshall.org/contact" or null,
-    "mailing_address": "123 Main St, Marshall, IL 62441" or null,
-    "council_meeting_url": "https://cityofmarshall.org/meetings" or null,
-    "official_website": "https://cityofmarshall.org" or null
-  },
-  "sources": ["https://cityofx.gov/council", ...]
+// Tier label for verified_sources_md. Legistar = clerk system (verified).
+// SearXNG-extracted = verified when the cited page is on a .gov/.us domain
+// (the name was read off that page), else tentative for admin spot-check.
+function tierFor(official) {
+  if (official.source_kind === "legistar") return "verified";
+  try {
+    const host = new URL(official.source_url).hostname.toLowerCase();
+    if (host.endsWith(".gov") || host.endsWith(".us")) return "verified";
+  } catch { /* ignore */ }
+  return "tentative";
 }
-</result>
 
-Rules:
-- Include the mayor + ALL current city council members for cities.
-- Include the county executive + ALL current county commissioners for counties.
-- ALWAYS populate city_general with at minimum the official_website.
-- Skip school boards unless explicitly asked.
-- If you cannot find verifiable current data, return officials: [] with an explanation in sources.
-- Phone numbers in 555-555-5555 format.
-- Never fabricate emails. If only a contact form is published, put the form URL in website (or contact_form_url for city_general) and leave email null.
-- Output ONLY the <result>...</result> block. No prose before or after.`;
-
-async function suggestOfficials({ sb, city, state, geminiKey, caller }) {
-  const isCounty = /county$/i.test(city);
-  const userPrompt = isCounty
-    ? `Find the current ${city} ${state} commissioners / supervisors and county executive (or judge-executive). Search the official county government website first.`
-    : `Find the current Mayor and ALL City Council members for ${city}, ${state}. Search the official city government website (look for .gov or .us domains) first.`;
-
-  // Budget guard BEFORE the call. Throws GroundingQuotaError if today's
-  // cap is reached; seedLocalitySlate catches and converts to status='skip'.
-  await assertGroundingBudget(sb);
-
-  // KEY ROTATION: each configured Gemini key is a separate free-tier
-  // project with its own grounded-search quota. On a 429/5xx we rotate to
-  // the next free key instead of failing the locality outright, and only
-  // throw once every key has been tried. Falls back to the passed-in
-  // geminiKey when no rotation pool is configured (backward compatible).
-  const keyCount = Math.max(1, geminiKeyCount());
-  let lastErr = null;
-  for (let attempt = 0; attempt < keyCount; attempt++) {
-    const key = pickGeminiKey() || geminiKey;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
-    const startedAt = Date.now();
-    let res;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-          systemInstruction: { parts: [{ text: SYSTEM }] },
-          tools: [{ google_search: {} }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-        }),
-        signal: AbortSignal.timeout(90_000),
-      });
-    } catch (e) {
-      await recordGroundingCall(sb, { caller, status: "failure", error: `fetch failed: ${e.message}`, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
-      lastErr = e;
-      continue; // network blip — try the next key
-    }
-    if (!res.ok) {
-      const errBody = (await res.text()).slice(0, 300);
-      await recordGroundingCall(sb, { caller, status: "failure", error: `Gemini ${res.status}: ${errBody}`, elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
-      if (res.status === 429) markGeminiKeyCooldown(key);
-      lastErr = new Error(`Gemini ${res.status}: ${errBody}`);
-      if (res.status === 429 || res.status >= 500) continue; // rotate to next key
-      throw lastErr; // non-retryable (4xx other than 429)
-    }
-    const data = await res.json();
-    const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("\n");
-    const m = text.match(/<result>([\s\S]*?)<\/result>/);
-    if (!m) {
-      await recordGroundingCall(sb, { caller, status: "failure", error: "no <result> block", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt });
-      throw new Error(`Model did not return a <result> block. Got: ${text.slice(0, 200)}`);
-    }
-    const parsed = JSON.parse(m[1].trim());
-    await recordGroundingCall(sb, { caller, status: "success", elapsedMs: Date.now() - startedAt, promptPreview: userPrompt, metadata: { officials_returned: Array.isArray(parsed.officials) ? parsed.officials.length : 0 } });
-    return {
-      officials: Array.isArray(parsed.officials) ? parsed.officials : [],
-      sources: Array.isArray(parsed.sources) ? parsed.sources : [],
-    };
+function sourcesMd(official, tier) {
+  const lines = [`- Tier: **${tier}**${tier === "tentative" ? " (admin spot-check recommended)" : ""}`];
+  if (official.source_kind === "legistar") {
+    lines[0] = `- Tier: **verified** (Legistar — official clerk system)`;
   }
-  // All keys exhausted — surface the last error (retains the "Gemini 429"
-  // string so isRetryableGroundingError() still classifies it correctly).
-  throw lastErr ?? new Error("Gemini grounded call failed (all keys exhausted)");
+  if (official.source_url) lines.push(`- Source: ${official.source_url}`);
+  if (official.source_note) lines.push(`- ${official.source_note}`);
+  return lines.join("\n");
 }
 
 /**
@@ -160,12 +73,11 @@ async function suggestOfficials({ sb, city, state, geminiKey, caller }) {
  * dedupes against existing (state, locality, role, lower(full_name)).
  *
  * @returns {Promise<{ status: "ok"|"skip"|"fail", inserted: number,
- *                      existing: number, officialIds: string[] }>}
- *   officialIds = ALL active city/county official IDs for the locality
- *   after the run (existing + newly inserted) — the set to target.
+ *                      existing: number, officialIds: string[], error?: string }>}
  */
-export async function seedLocalitySlate({ sb, state, locality, geminiKey, refresh = false, caller = "officials-slate" }) {
+export async function seedLocalitySlate({ sb, state, locality, refresh = false, caller = "officials-slate" }) {
   const city = locality.split(",")[0].trim();
+  const level = /\b(county|parish|borough)\b/i.test(locality) ? "county" : "municipal";
 
   // Already covered?
   const { data: pre } = await sb.from("legislators").select("id")
@@ -178,27 +90,22 @@ export async function seedLocalitySlate({ sb, state, locality, geminiKey, refres
     return { status: "skip", inserted: 0, existing: preIds.length, officialIds: preIds };
   }
 
-  let suggestion;
-  try {
-    suggestion = await suggestOfficials({ sb, city, state, geminiKey, caller });
-  } catch (e) {
-    // Quota exhaustion is the common "leave it for tomorrow" case —
-    // surface a clean error string so callers can match on it via
-    // isRetryableGroundingError(). All raw errors are already in
-    // ai_jobs via recordGroundingCall.
-    if (e instanceof GroundingQuotaError) {
-      return { status: "fail", inserted: 0, existing: preIds.length, officialIds: preIds, error: e.message };
-    }
-    return { status: "fail", inserted: 0, existing: preIds.length, officialIds: preIds, error: e.message };
+  const res = await findAndExtractOfficials({ sb, city, state, locality, level, caller });
+  if (res.queued) {
+    // No deterministic Legistar match AND the SearXNG+Ollama long-tail infra
+    // isn't reachable here (e.g. a cloud runner). Leave it for a run where the
+    // infra is present — never fall back to Gemini.
+    return { status: "fail", inserted: 0, existing: preIds.length, officialIds: preIds, error: `queued: ${res.reason}` };
   }
-  if (suggestion.officials.length === 0) {
-    return { status: "fail", inserted: 0, existing: preIds.length, officialIds: preIds, error: "0 officials returned" };
+  if (!res.ok || res.officials.length === 0) {
+    return { status: "fail", inserted: 0, existing: preIds.length, officialIds: preIds, error: res.error ?? "0 officials returned" };
   }
 
   const cap = (s, n) => (s ? String(s).slice(0, n).trim() || null : null);
-  const websiteOk = await Promise.all(suggestion.officials.map((o) => isUsableUrl(o.website)));
-  const rows = suggestion.officials.map((o, i) => {
+  const websiteOk = await Promise.all(res.officials.map((o) => isUsableUrl(o.website)));
+  const rows = res.officials.map((o, i) => {
     const isCounty = (o.role ?? "").startsWith("county_");
+    const tier = tierFor(o);
     return {
       full_name: cap(o.full_name, 120) ?? "Unknown",
       state,
@@ -211,7 +118,11 @@ export async function seedLocalitySlate({ sb, state, locality, geminiKey, refres
       website: websiteOk[i] ? cap(o.website, 500) : null,
       party: cap(o.party, 60),
       level: isCounty ? "county" : "municipal",
+      body: isCounty ? "county_commission" : "city_council",
       active: true,
+      term_end_date: o.term_end_date ?? null,
+      verified_sources_md: sourcesMd(o, tier),
+      last_synced_at: new Date().toISOString(),
     };
   }).filter((r) => ["city_council", "mayor", "county_executive", "county_commissioner"].includes(r.role));
 

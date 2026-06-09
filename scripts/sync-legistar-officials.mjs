@@ -21,7 +21,8 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { LEGISTAR_TENANTS } from "./lib/legistar-tenants.mjs";
-import { fetchLegistarOfficials, webapiClientFor, resolveTenant } from "./lib/legistar-officials.mjs";
+import { fetchLegistarOfficials, webapiClientFor } from "./lib/legistar-officials.mjs";
+import { normLoc } from "./lib/legistar-resolver.mjs";
 import { runWithLogging } from "./lib/scraper-run.mjs";
 
 const args = process.argv.slice(2);
@@ -37,7 +38,22 @@ function levelFor(tenant) {
 }
 
 await runWithLogging({ source: "sync_legistar_officials", supabase: sb }, async () => {
-  const tenants = ONE ? LEGISTAR_TENANTS.filter((t) => t.subdomain === ONE) : LEGISTAR_TENANTS;
+  let tenants;
+  if (ONE) {
+    tenants = LEGISTAR_TENANTS.filter((t) => t.subdomain === ONE);
+  } else {
+    // Hand-curated list + auto-discovered cache (discover-legistar-tenants.mjs
+    // writes legistar_tenants with probe_status='live'). Dedupe the cache
+    // against the hand list by (state, normalized locality).
+    const handKeys = new Set(LEGISTAR_TENANTS.map((t) => `${t.state.toUpperCase()}|${normLoc(t.locality)}`));
+    const { data: cached } = await sb.from("legistar_tenants")
+      .select("state, locality, subdomain, webapi_client, body").eq("probe_status", "live");
+    const extra = (cached ?? [])
+      .filter((t) => t.webapi_client && !handKeys.has(`${String(t.state).toUpperCase()}|${normLoc(t.locality)}`))
+      .map((t) => ({ subdomain: t.subdomain ?? t.webapi_client, state: String(t.state).toUpperCase(), locality: t.locality, body: t.body ?? undefined }));
+    tenants = [...LEGISTAR_TENANTS, ...extra];
+    console.log(`  (${LEGISTAR_TENANTS.length} hand + ${extra.length} discovered)`);
+  }
   console.log(`Legistar officials sync${DRY ? " (DRY RUN)" : ""} — ${tenants.length} tenant(s)\n`);
 
   let inserted = 0, updated = 0, fulfilledReqs = 0, covered = 0, skipped = 0;

@@ -86,11 +86,15 @@ export async function autoFulfillLocality(input: {
   // accepted; tentative is flagged so admin can spot-check fast.
   const verified: { official: SuggestedOfficial; snippet: string; tier: "verified" | "tentative" }[] = [];
   for (const o of suggestion.officials) {
-    const v = await verifyOfficialAgainstSource({
-      fullName: o.full_name,
-      sourceUrl: o.source_url,
-      localityHint: localityNorm,
-    });
+    // Legistar officials are authoritative clerk data — already verified at
+    // source; skip the page-fetch check (legistar.com isn't a .gov domain).
+    const v = o.source_kind === "legistar"
+      ? { ok: true as const, tier: "verified" as const, matchedAt: o.source_url ?? "", pageSnippet: "Legistar — official clerk roster" }
+      : await verifyOfficialAgainstSource({
+          fullName: o.full_name,
+          sourceUrl: o.source_url,
+          localityHint: localityNorm,
+        });
     if (v.ok) {
       verified.push({ official: o, snippet: v.pageSnippet, tier: v.tier });
     } else {
@@ -232,7 +236,9 @@ export async function reVerifyLocality(input: {
   // official; only fully-rejected officials get treated as "gone")
   const verifiedNames = new Set<string>();
   for (const o of suggestion.officials) {
-    const v = await verifyOfficialAgainstSource({ fullName: o.full_name, sourceUrl: o.source_url });
+    const v = o.source_kind === "legistar"
+      ? { ok: true as const }
+      : await verifyOfficialAgainstSource({ fullName: o.full_name, sourceUrl: o.source_url });
     if (v.ok) verifiedNames.add(o.full_name.toLowerCase());
   }
 

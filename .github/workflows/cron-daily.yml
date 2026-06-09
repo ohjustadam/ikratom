@@ -1066,7 +1066,8 @@ jobs:
     # clerk's own system) with NO key and NO per-day cap. Seeds major-metro
     # councils so they never spend a scarce Gemini-grounded call, and
     # closes matching local_rep_requests. Tenants whose Legistar lacks a
-    # membership roster are skipped (grounding still covers those).
+    # membership roster are skipped (the SearXNG+Ollama batch covers those).
+    # Auto-discovers new tenants first (keyless probe) to widen coverage.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1076,6 +1077,11 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Discover new Legistar tenants (expand keyless coverage)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/discover-legistar-tenants.mjs --limit 200
       - name: Sync local officials from Legistar webapi
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
