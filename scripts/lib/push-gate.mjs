@@ -7,9 +7,11 @@
 //   timezone           — IANA zone the window is expressed in
 //
 // Used by every push delivery path (the fanout cron mirrors this in TS at
-// src/lib/notifications/push-gate.ts — keep the two in sync). Suppressed
-// pushes are HELD, not dropped: the in-app notification still lands in the
-// inbox; only the device buzz is withheld.
+// src/lib/notifications/push-gate.ts — keep the two in sync; EXCEPTION:
+// digestDue (PR-J digest cadence) is deliberately TS-only — it gates the
+// hourly fan-out, never the direct-send scripts that use this mirror).
+// Suppressed pushes are HELD, not dropped: the in-app notification still
+// lands in the inbox; only the device buzz is withheld.
 
 // Minutes-since-midnight "now" in the given IANA zone, or null if unusable.
 function minutesNowInTz(nowMs, tz) {
