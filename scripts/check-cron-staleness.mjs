@@ -105,6 +105,8 @@ const REGISTRY = [
   // under gh-daily — any system writing the source keeps it fresh).
   { source: "translate_content", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "bill_embeddings", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // Dossier Phase 1: one Hermes deep-dive per night on the box.
+  { source: "dossier_research", interval_hours: 72, system: "local-box", cadence: "daily" },
 ];
 
 const t0 = Date.now();

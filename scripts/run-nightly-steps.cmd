@@ -35,7 +35,12 @@ node --env-file=.env.local scripts/summarize-news.mjs --limit 1000
 node --env-file=.env.local scripts/translate-content.mjs --model llama3.2:3b
 node --env-file=.env.local scripts/compute-bill-embeddings.mjs
 
-REM 7. Session prep (PR-F): regenerate the codebase map + state snapshot into
+REM 7. THE DOSSIER (flagship Phase 1): Hermes deep-dives ONE target per night
+REM    through the verified corpora into the admin-only dossiers table (0195).
+REM    Human review gates any publish.
+node --env-file=.env.local scripts/dossier-research.mjs --auto
+
+REM 8. Session prep (PR-F): regenerate the codebase map + state snapshot into
 REM    the WORKING checkout's private/session-prep/ so Claude sessions
 REM    cold-start from a fresh brief instead of re-deriving state.
 node scripts/generate-codebase-map.mjs --out C:\claude\ikratom\private\session-prep\CODEBASE_MAP.md
