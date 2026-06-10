@@ -27,6 +27,8 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { extractArticleContent } from "./lib/article-content.mjs";
+import { renderPage, closeHeadless } from "./lib/headless-render.mjs";
+import { fetchMsnArticleHtml } from "./lib/msn-content.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -82,21 +84,43 @@ let processed = 0, withBody = 0, withMedia = 0, failed = 0;
 
 for (const item of items) {
   const target = item.resolved_url || item.url;
-  let html;
-  try {
-    html = await fetchHtml(target);
-  } catch (e) {
-    console.log(`  ✗ ${item.id.slice(0, 8)} fetch failed (${e.message?.slice(0, 50)}) — retry next run`);
+  let html = null;
+  let fetchErr = null;
+  // MSN pages defeat fetch AND headless render, but their content API is
+  // public + keyless (lib/msn-content.mjs) — try it first for msn.com URLs.
+  html = await fetchMsnArticleHtml(target);
+  if (!html) {
+    try {
+      html = await fetchHtml(target);
+    } catch (e) {
+      fetchErr = e;
+    }
+  }
+
+  let { paragraphs, media } = html ? extractArticleContent(html, target) : { paragraphs: [], media: [] };
+
+  // Headless fallback (PR-B): MSN-class pages serve a JS shell to plain
+  // fetch — zero paragraphs. Real Chromium renders the article; degrades to
+  // null where Chromium isn't available.
+  let rendered = false;
+  if (paragraphs.length === 0) {
+    const r = await renderPage(target);
+    if (r?.html) {
+      ({ paragraphs, media } = extractArticleContent(r.html, target));
+      rendered = paragraphs.length > 0;
+    }
+  }
+
+  if (!html && !rendered) {
+    console.log(`  ✗ ${item.id.slice(0, 8)} fetch failed (${fetchErr?.message?.slice(0, 50)}) — retry next run`);
     failed++;
     continue; // don't stamp — transient; retry
   }
-
-  const { paragraphs, media } = extractArticleContent(html, target);
   const nVideos = media.filter((m) => m.type !== "image").length;
   const nImages = media.filter((m) => m.type === "image").length;
   if (paragraphs.length > 0) withBody++;
   if (media.length > 0) withMedia++;
-  console.log(`  ${item.id.slice(0, 8)} "${(item.title ?? "").slice(0, 48)}" → ${paragraphs.length}¶ · ${nVideos} video · ${nImages} img`);
+  console.log(`  ${item.id.slice(0, 8)} "${(item.title ?? "").slice(0, 48)}" → ${paragraphs.length}¶ · ${nVideos} video · ${nImages} img${rendered ? " · ⚙ rendered" : ""}`);
 
   if (DRY) { processed++; continue; }
 
@@ -112,6 +136,7 @@ for (const item of items) {
   await new Promise((r) => setTimeout(r, 800));
 }
 
+await closeHeadless();
 console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — processed ${processed}, with-excerpt ${withBody}, with-media ${withMedia}, failed ${failed}.`);
 
 if (!DRY) {
