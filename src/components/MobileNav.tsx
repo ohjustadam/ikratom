@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { CATEGORIES } from "@/config/nav-categories";
 
 /**
  * Mobile menu — full-screen overlay (NOT a side drawer).
@@ -178,6 +179,24 @@ export function MobileNav({
             {/* Auth row pinned at top */}
             <div className="mb-4 rounded-md border border-zinc-800 bg-zinc-900/40 p-3" onClick={close}>
               {authSlot}
+            </div>
+
+            {/* Category landing pages — the five-pillar map of the platform
+                (shared source: src/config/nav-categories.ts) */}
+            <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+              Browse by category
+            </p>
+            <div className="mb-5 flex flex-wrap gap-2">
+              {CATEGORIES.map((c) => (
+                <a
+                  key={c.slug}
+                  href={c.href}
+                  onClick={close}
+                  className="rounded-full border border-zinc-700 bg-zinc-900/60 px-3 py-1.5 text-sm font-medium text-zinc-200 hover:border-emerald-500 hover:text-emerald-300"
+                >
+                  {c.label}
+                </a>
+              ))}
             </div>
 
             {/* Primary nav */}
