@@ -97,6 +97,8 @@ const REGISTRY = [
   // both run on the box too (SearXNG find → fetch → local/free-tier extract).
   { source: "verify_local_bans", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "sweep_locality_intel", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // PR-E: Hermes (hermes3:8b) writes campaign briefings nightly on the box.
+  { source: "auto_brief_campaigns", interval_hours: 72, system: "local-box", cadence: "daily" },
 ];
 
 const t0 = Date.now();
