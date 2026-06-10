@@ -185,15 +185,14 @@ export async function autoFulfillLocality(input: {
     // Notify requesters + residents via the shared RPC (0193) — best-effort;
     // push delivery rides the hourly fan-out (DND/quiet-hours respected there).
     if (result.fulfilled) {
-      try {
-        await db.rpc("notify_locality_residents", {
-          p_state: input.state,
-          p_locality: localityNorm,
-          p_official_names: rowsToInsert.map((r) => r.full_name),
-        });
-      } catch {
-        // non-fatal
-      }
+      // supabase-js rpc() returns { error }, it doesn't throw — check it or
+      // a missing/broken RPC fails silently (standing rule 6).
+      const { error: notifyErr } = await db.rpc("notify_locality_residents", {
+        p_state: input.state,
+        p_locality: localityNorm,
+        p_official_names: rowsToInsert.map((r) => r.full_name),
+      });
+      if (notifyErr) console.warn("[auto-fulfill] notify RPC failed:", notifyErr.message);
     }
   } else {
     // 0 inserted (all rejected by source verifier or all duplicates).

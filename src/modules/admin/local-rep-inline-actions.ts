@@ -219,6 +219,18 @@ export async function acceptSelectedOfficials(input: {
     .eq("level", input.level)
     .eq("status", "pending");
 
+  // Notify requesters + residents via the shared RPC (0193) — best-effort.
+  // Once status flips to fulfilled the batch/cron queues skip this locality
+  // forever, so missing the notify here would never be retried.
+  {
+    const { error: notifyErr } = await db.rpc("notify_locality_residents", {
+      p_state: stateRaw,
+      p_locality: localityNorm,
+      p_official_names: rows.map((r) => r.full_name),
+    });
+    if (notifyErr) console.warn("[inline-accept] notify RPC failed:", notifyErr.message);
+  }
+
   try {
     await recordAdminAction({
       action: "local_reps.inline_accept",

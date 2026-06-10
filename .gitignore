@@ -23,3 +23,4 @@ scripts/lib/geo/_proposed.json
 scripts/lib/geo/_confirmed.json
 # One-off diagnostic/fix scripts (underscore-prefixed, never committed)
 scripts/_*.mjs
+.playwright-mcp/

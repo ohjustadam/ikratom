@@ -36,11 +36,16 @@ declare
   v_total int;
   v_count int := 0;
 begin
+  -- Serialize concurrent fulfills of the same locality (admin click racing
+  -- the hourly cron) so the NOT EXISTS dedup can't double-insert.
+  perform pg_advisory_xact_lock(hashtext('notify_locality:' || p_state || ':' || lower(v_bare)));
+
   v_title := 'Your local officials for ' || p_locality || ' are in your War Room';
 
   v_total := coalesce(array_length(p_official_names, 1), 0);
   if v_total > 0 then
-    select string_agg(n, ', ') into v_names from unnest(p_official_names[1:3]) as n;
+    select string_agg(n, ', ' order by ord) into v_names
+    from unnest(p_official_names[1:3]) with ordinality as t(n, ord);
     if v_total > 3 then
       v_names := v_names || ' and ' || (v_total - 3)::text || ' more';
     end if;
@@ -59,10 +64,13 @@ begin
       and lower(trim(regexp_replace(locality, ',\s*[A-Za-z]{2}\s*$', ''))) = lower(v_bare)
   ),
   residents as (
+    -- Case-insensitive, matching the requesters arm: normalizeLocality
+    -- title-cases ("DeSoto" -> "Desoto") while profiles hold Census casing —
+    -- an exact match would be a silent per-locality dead zone.
     select id as user_id
     from profiles
     where state = p_state
-      and (city = v_bare or county = v_bare)
+      and (lower(trim(city)) = lower(v_bare) or lower(trim(county)) = lower(v_bare))
   ),
   targets as (
     select distinct user_id
@@ -70,13 +78,17 @@ begin
     where user_id is not null
   ),
   fresh as (
+    -- Per-user-per-locality dedup, anchored on " for <locality> are" /
+    -- " in <locality> are" (current + legacy title formats) so a prior
+    -- "North Charleston, SC" notification can't suppress "Charleston, SC".
     select tg.user_id
     from targets tg
     where not exists (
       select 1 from notifications n
       where n.user_id = tg.user_id
         and n.kind = 'reps_added'
-        and n.title ilike '%' || p_locality || '%'
+        and (n.title ilike '% for ' || p_locality || ' are%'
+          or n.title ilike '% in ' || p_locality || ' are%')
     )
   )
   insert into notifications (user_id, kind, title, body, link)
@@ -96,3 +108,11 @@ revoke execute on function public.notify_locality_residents(text, text, text[]) 
 revoke execute on function public.notify_locality_residents(text, text, text[]) from anon;
 revoke execute on function public.notify_locality_residents(text, text, text[]) from authenticated;
 grant execute on function public.notify_locality_residents(text, text, text[]) to service_role;
+
+-- Adjacent pre-existing hole (caught in the PR-C review): the 0050 fulfill
+-- RPC was executable by ANY authenticated user. Its only caller uses the
+-- service-role client — lock it down the same way.
+revoke execute on function public.fulfill_local_rep_requests(text, text) from public;
+revoke execute on function public.fulfill_local_rep_requests(text, text) from anon;
+revoke execute on function public.fulfill_local_rep_requests(text, text) from authenticated;
+grant execute on function public.fulfill_local_rep_requests(text, text) to service_role;

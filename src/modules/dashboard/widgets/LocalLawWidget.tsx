@@ -43,19 +43,19 @@ export async function LocalLawWidget({
   const places = [userCity, userCounty].filter(Boolean) as string[];
   if (places.length === 0) return null;
 
-  let rows: IntelRow[] = [];
-  try {
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("locality_intel")
-      .select("locality, scope, legal_status, legal_framework_md, ordinance_url, pending_measures_md, pending_count, next_meeting_at")
-      .eq("state", userState)
-      .in("locality", places)
-      .order("scope", { ascending: true }); // county after municipal
-    rows = (data as IntelRow[] | null) ?? [];
-  } catch {
-    return null; // table not applied yet / transient — widget simply absent
-  }
+  // ilike with no wildcards = case-insensitive equality: intel rows keep
+  // source casing while profiles hold Census casing ("DeSoto" vs "Desoto").
+  const orFilter = places.map((p) => `locality.ilike.${p}`).join(",");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("locality_intel")
+    .select("locality, scope, legal_status, legal_framework_md, ordinance_url, pending_measures_md, pending_count, next_meeting_at")
+    .eq("state", userState)
+    .or(orFilter)
+    .order("scope", { ascending: false }); // municipal first, county after
+  // Missing table (0192 not applied yet) or transient error → widget absent.
+  if (error) return null;
+  const rows = (data as IntelRow[] | null) ?? [];
   if (rows.length === 0) return null;
 
   return (
@@ -94,7 +94,8 @@ export async function LocalLawWidget({
               <div className="flex flex-wrap gap-3 text-[11px]">
                 {r.next_meeting_at && (
                   <Link href="/calendar" className="text-emerald-400 hover:underline">
-                    next council meeting {new Date(r.next_meeting_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} →
+                    {/* Central-time date chip (median US zone — exact local time lives on /calendar) */}
+                    next council meeting {new Date(r.next_meeting_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" })} →
                   </Link>
                 )}
                 {r.ordinance_url && (

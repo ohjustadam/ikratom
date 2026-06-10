@@ -113,17 +113,19 @@ export async function acceptSuggestions(input: {
   if (added > 0) {
     try {
       const sr = createServiceRoleClient();
-      await sr.rpc("fulfill_local_rep_requests", {
+      const { error: fulfillErr } = await sr.rpc("fulfill_local_rep_requests", {
         p_state: stateRaw,
         p_locality: localityNorm,
       });
-      await sr.rpc("notify_locality_residents", {
+      if (fulfillErr) console.warn("[accept] fulfill RPC failed:", fulfillErr.message);
+      const { error: notifyErr } = await sr.rpc("notify_locality_residents", {
         p_state: stateRaw,
         p_locality: localityNorm,
         p_official_names: input.officials.map((o) => o.full_name),
       });
+      if (notifyErr) console.warn("[accept] notify RPC failed:", notifyErr.message);
     } catch {
-      // non-fatal
+      // non-fatal (createServiceRoleClient itself)
     }
   }
 
