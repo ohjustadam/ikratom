@@ -25,7 +25,12 @@ const sb = createClient(
 const count = async (table, mod = (q) => q) => {
   try {
     const { count: c, error } = await mod(sb.from(table).select("*", { count: "exact", head: true }));
-    return error ? `err: ${error.message.slice(0, 60)}` : (c ?? 0);
+    if (error) return `err: ${error.message.slice(0, 60)}`;
+    // GOTCHA (found 2026-06-10): a HEAD count against a MISSING table returns
+    // NO error and count=null — supabase-js can't parse an error body that
+    // isn't there. null must read as "unknown", never as 0, or the snapshot
+    // lies about unapplied-migration tables.
+    return c === null || c === undefined ? "n/a (no count — table missing?)" : c;
   } catch (e) { return `err: ${e.message.slice(0, 60)}`; }
 };
 
