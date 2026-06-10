@@ -69,3 +69,44 @@ export function canPushUser(prefs: PushGatePrefs | null | undefined, nowMs: numb
   if (isWithinQuietHours(nowMs, prefs)) return false;
   return true;
 }
+
+export type DigestPrefs = PushGatePrefs & {
+  digest?: string | null;
+  last_push_at?: string | null;
+};
+
+function weekdayIndexInTz(nowMs: number, tz: string): number | null {
+  try {
+    const w = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(new Date(nowMs));
+    return ({ Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 } as Record<string, number>)[w] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Digest cadence (PR-J — wires the long-dead digest enum). "Due" semantics,
+ * not a fixed window: a daily user is due once their local 9am boundary has
+ * passed AND they haven't been pushed since that boundary; weekly uses
+ * Monday 9am local as the boundary. Because it's boundary-based, quiet
+ * hours / DND / rate-cap that cover 9am only DELAY the digest to the next
+ * allowed hour — never skip it (the fixed-window version silently starved
+ * users whose quiet hours overlapped the window). last_push_at is the
+ * "already delivered since the boundary" marker — any push counts, incl.
+ * the direct-send daily brief, which is deliberate: one buzz per boundary.
+ * Boundary epoch is computed from the current UTC offset (DST edge ≤1h —
+ * irrelevant at digest granularity). Unusable timezone fails open.
+ */
+export function digestDue(prefs: DigestPrefs | null | undefined, nowMs: number): boolean {
+  const d = prefs?.digest;
+  if (d !== "daily" && d !== "weekly") return true;
+  const tz = prefs?.timezone || "UTC";
+  const cur = minutesNowInTz(nowMs, tz);
+  if (cur === null) return true; // unusable tz → fail open to instant
+  let minutesSinceBoundary = cur - 9 * 60;
+  if (d === "weekly") minutesSinceBoundary += (weekdayIndexInTz(nowMs, tz) ?? 0) * 1440;
+  if (minutesSinceBoundary < 0) return false; // boundary not reached yet
+  const boundaryMs = nowMs - minutesSinceBoundary * 60_000;
+  const last = prefs?.last_push_at ? Date.parse(prefs.last_push_at) : 0;
+  return !(last >= boundaryMs);
+}

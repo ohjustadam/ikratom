@@ -3,6 +3,18 @@
 import { useEffect, useState, useTransition } from "react";
 import { updateNotificationPrefs, type NotificationPrefs } from "../actions";
 
+// Per-category mute toggles (0194). The kind→category map lives in SQL
+// (notification_category) and is enforced by the BEFORE INSERT gate, so
+// muting a category stops BOTH the buzz and the inbox row.
+const CATEGORY_FIELDS = [
+  { name: "notify_bills", label: "Bill movements", hint: "status changes + actions on tracked bills" },
+  { name: "notify_local_reps", label: "Local officials", hint: "your city/county reps landing in your War Room" },
+  { name: "notify_news", label: "News + alerts", hint: "policy alerts and state news that affect you" },
+  { name: "notify_meetings", label: "Meetings + hearings", hint: "council meetings, hearings, reminders" },
+  { name: "notify_community", label: "Community", hint: "forum threads and replies" },
+  { name: "notify_announcements", label: "Announcements", hint: "platform updates + what's-new posts" },
+] as const;
+
 export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs | null }) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -45,6 +57,23 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
           <Check name="notify_local_campaigns" defaultChecked={initial?.notify_local_campaigns ?? true}>
             New campaigns in my city or county
           </Check>
+          <Check name="notify_nonresident_campaigns" defaultChecked={initial?.notify_nonresident_campaigns ?? true}>
+            National / open-to-everyone campaigns <span className="ml-1 text-xs text-zinc-500">(uncheck to only hear about campaigns for YOUR area)</span>
+          </Check>
+        </div>
+        <div className="mt-4 space-y-2 text-sm">
+          {/* Marker: tells the server these checkboxes were rendered, so an
+              absent field means UNCHECKED — not a stale pre-deploy page. */}
+          <input type="hidden" name="categories_present" value="1" readOnly />
+          {CATEGORY_FIELDS.map((c) => (
+            <Check
+              key={c.name}
+              name={c.name}
+              defaultChecked={(initial?.[c.name as keyof NotificationPrefs] as boolean | undefined) ?? true}
+            >
+              {c.label} <span className="ml-1 text-xs text-zinc-500">({c.hint})</span>
+            </Check>
+          ))}
         </div>
       </div>
 
@@ -107,8 +136,8 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
           className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
         >
           <option value="instant">Instant — notify the moment something matches</option>
-          <option value="daily">Daily digest (planned)</option>
-          <option value="weekly">Weekly digest (planned)</option>
+          <option value="daily">Daily digest — one coalesced push around 9am your time</option>
+          <option value="weekly">Weekly digest — one coalesced push Monday ~9am your time</option>
           <option value="off">Off — turn off all notifications</option>
         </select>
       </div>

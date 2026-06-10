@@ -7,6 +7,13 @@ export type NotificationPrefs = {
   notify_state_campaigns: boolean;
   notify_local_campaigns: boolean;
   notify_federal_campaigns: boolean;
+  notify_nonresident_campaigns: boolean;
+  notify_bills: boolean;
+  notify_local_reps: boolean;
+  notify_news: boolean;
+  notify_meetings: boolean;
+  notify_community: boolean;
+  notify_announcements: boolean;
   in_app: boolean;
   email: boolean;
   digest: "instant" | "daily" | "weekly" | "off";
@@ -55,7 +62,7 @@ export async function updateNotificationPrefs(formData: FormData) {
   const quiet_hours_end = timeRe.test(qheRaw) ? qheRaw : null;
   const timezone = /^[A-Za-z0-9_+/-]{1,64}$/.test(tzRaw) ? tzRaw : null;
 
-  const update = {
+  const update: Record<string, unknown> = {
     user_id: user.id,
     notify_state_campaigns: formData.get("notify_state_campaigns") === "on",
     notify_local_campaigns: formData.get("notify_local_campaigns") === "on",
@@ -71,9 +78,32 @@ export async function updateNotificationPrefs(formData: FormData) {
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await supabase
+  // Category fields (0194) only when the form actually RENDERED them — an
+  // unchecked checkbox and a checkbox that never existed both submit
+  // nothing, so a save from a stale pre-deploy page must not mute
+  // everything. The form sets categories_present=1 next to the group.
+  const categoryFields = [
+    "notify_nonresident_campaigns", "notify_bills", "notify_local_reps",
+    "notify_news", "notify_meetings", "notify_community", "notify_announcements",
+  ] as const;
+  const categoriesPresent = formData.get("categories_present") === "1";
+  if (categoriesPresent) {
+    for (const f of categoryFields) update[f] = formData.get(f) === "on";
+  }
+
+  let { error } = await supabase
     .from("notification_preferences")
     .upsert(update, { onConflict: "user_id" });
+
+  // Transitional: if this code deploys before migration 0194 lands, the
+  // category columns don't exist — retry with the legacy field set rather
+  // than breaking the whole prefs form. Remove once 0194 is applied.
+  if (error && categoriesPresent && /notify_(bills|nonresident)/.test(error.message)) {
+    for (const f of categoryFields) delete update[f];
+    ({ error } = await supabase
+      .from("notification_preferences")
+      .upsert(update, { onConflict: "user_id" }));
+  }
 
   if (error) return { error: error.message };
   revalidatePath("/account");

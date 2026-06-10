@@ -1,5 +1,5 @@
 import { sendPush, isPushConfigured } from "@/lib/push/send";
-import { canPushUser } from "@/lib/notifications/push-gate";
+import { canPushUser, digestDue } from "@/lib/notifications/push-gate";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -69,14 +69,21 @@ export async function fanoutPushNotifications(
     return { skipped: "VAPID not configured" };
   }
 
-  // Pull unpushed notifications from the last 24 hours (oldest first)
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // Pull unpushed notifications from the last 7 DAYS, NEWEST first. Was 24h
+  // oldest-first; widened for digest cadences (a weekly user's held rows must
+  // survive until their Monday boundary) — and flipped to newest-first so
+  // held-by-design digest/DND rows can never pin the LIMIT window and starve
+  // fresh instant pushes. Per-user delivery covers out-of-batch rows anyway:
+  // a pushed user has ALL their pending rows stamped (see below). Opt-out/
+  // no-sub rows are stamped on first sweep, so the wider window doesn't
+  // resurrect those.
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: notifsRaw, error: notifsErr } = await supabase
     .from("notifications")
     .select("id, user_id, kind, title, body, link")
     .is("pushed_at", null)
     .gte("created_at", since)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(MAX_PER_RUN);
 
   if (notifsErr) return { skipped: `query failed: ${notifsErr.message}` };
@@ -106,12 +113,14 @@ export async function fanoutPushNotifications(
   const prefsByUser = new Map<string, Prefs>();
   for (const p of (prefsRaw ?? []) as Prefs[]) prefsByUser.set(p.user_id, p);
 
-  // Group pending notifications per user (already oldest-first)
+  // Group pending notifications per user, oldest-first within each user
+  // (the sweep itself is newest-first; reverse per group).
   const byUser = new Map<string, Notification[]>();
   for (const n of notifs) {
     if (!byUser.has(n.user_id)) byUser.set(n.user_id, []);
     byUser.get(n.user_id)!.push(n);
   }
+  for (const list of byUser.values()) list.reverse();
 
   const now = Date.now();
   let sent = 0;
@@ -122,16 +131,26 @@ export async function fanoutPushNotifications(
   const deliveredIds: string[] = [];
   const deadSubIds: string[] = [];
   const pushedUserIds: string[] = [];
+  // Per-user delivery telemetry (push_send_log, 0194) — the answer to
+  // "why didn't I get notified?". Best-effort batch insert at the end.
+  const sendLog: Array<{
+    user_id: string; outcome: string; notification_count: number;
+    subscription_count: number; sent_count: number; failed_count: number; error: string | null;
+  }> = [];
+  const logRow = (uid: string, outcome: string, n: number, subs: number, ok = 0, bad = 0, err: string | null = null) =>
+    sendLog.push({ user_id: uid, outcome, notification_count: n, subscription_count: subs, sent_count: ok, failed_count: bad, error: err });
 
   const resolveLink = (link: string | null) =>
     link ? (link.startsWith("http") ? link : new URL(link, SITE_URL).href) : `${SITE_URL}/notifications`;
 
   for (const [uid, userNotifs] of byUser) {
     const prefs = prefsByUser.get(uid);
+    const subCount = (subsByUser.get(uid) ?? []).length;
 
     // Opt-out → mark delivered (skip next run), never send.
     if (prefs && (prefs.in_app === false || prefs.digest === "off")) {
       deliveredIds.push(...userNotifs.map((n) => n.id));
+      logRow(uid, "opt_out", userNotifs.length, subCount);
       continue;
     }
 
@@ -139,12 +158,27 @@ export async function fanoutPushNotifications(
     // allowed window). The in-app notification still sits in the inbox.
     if (prefs && !canPushUser(prefs, now)) {
       held += userNotifs.length;
+      logRow(uid, "held_dnd", userNotifs.length, subCount);
       continue;
     }
 
+    // No push target → mark delivered BEFORE any digest hold (holding rows
+    // for a user we could never push is a pointless 7-day loop).
     const subs = subsByUser.get(uid) ?? [];
     if (subs.length === 0) {
       deliveredIds.push(...userNotifs.map((n) => n.id));
+      logRow(uid, "no_subs", userNotifs.length, 0);
+      continue;
+    }
+
+    // Digest cadence (PR-J): daily/weekly users push once per 9am-local
+    // boundary (Monday for weekly) → HOLD until due. Boundary semantics
+    // mean quiet hours / rate-caps over 9am only DELAY delivery to the
+    // next allowed hour, never skip a digest. Held rows accumulate and
+    // coalesce into ONE digest push when due.
+    if (prefs && !digestDue(prefs, now)) {
+      held += userNotifs.length;
+      logRow(uid, "held_digest", userNotifs.length, subs.length);
       continue;
     }
 
@@ -155,6 +189,7 @@ export async function fanoutPushNotifications(
     const last = prefs?.last_push_at ? new Date(prefs.last_push_at).getTime() : 0;
     if (last && now - last < minIntervalMs) {
       held += userNotifs.length;
+      logRow(uid, "held_rate", userNotifs.length, subs.length);
       continue;
     }
 
@@ -175,6 +210,8 @@ export async function fanoutPushNotifications(
     }
 
     let anyOk = false;
+    let userFailed = 0;
+    let lastErr: string | null = null;
     for (const sub of subs) {
       const r = await sendPush(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
@@ -182,11 +219,13 @@ export async function fanoutPushNotifications(
       );
       if (r.ok) anyOk = true;
       else if (!r.ok && r.gone) deadSubIds.push(sub.id);
-      else failed++;
+      else { failed++; userFailed++; lastErr = ("error" in r ? String(r.error) : "send failed").slice(0, 200); }
     }
     if (anyOk) sent++;
     deliveredIds.push(...userNotifs.map((n) => n.id));
     pushedUserIds.push(uid);
+    if (!anyOk && userFailed === 0) lastErr = "all subscriptions gone (pruned)";
+    logRow(uid, anyOk ? "sent" : "error", userNotifs.length, subs.length, anyOk ? 1 : 0, userFailed, lastErr);
   }
 
   // Mark delivered notifications pushed (incl. opt-out / no-sub, to skip next run)
@@ -197,7 +236,19 @@ export async function fanoutPushNotifications(
       .in("id", deliveredIds);
   }
 
-  // Stamp last_push_at for users we actually pushed (drives the rate-cap)
+  // A push "covers" EVERYTHING the user had pending — also stamp their
+  // out-of-batch rows (a digest user can hold more than the sweep window
+  // carried; without this they'd re-buzz at the next boundary).
+  if (pushedUserIds.length > 0) {
+    await supabase
+      .from("notifications")
+      .update({ pushed_at: new Date().toISOString() })
+      .in("user_id", pushedUserIds)
+      .is("pushed_at", null);
+  }
+
+  // Stamp last_push_at for users we actually pushed (drives the rate-cap
+  // AND the digest boundary marker)
   if (pushedUserIds.length > 0) {
     await supabase
       .from("notification_preferences")
@@ -209,6 +260,15 @@ export async function fanoutPushNotifications(
   if (deadSubIds.length > 0) {
     await supabase.from("push_subscriptions").delete().in("id", deadSubIds);
     pruned = deadSubIds.length;
+  }
+
+  // Delivery telemetry — best-effort; tolerates 0194 not being applied yet.
+  if (sendLog.length > 0) {
+    try {
+      await supabase.from("push_send_log").insert(sendLog);
+      // Retention: held outcomes log every hourly run — cap at 30 days.
+      await supabase.from("push_send_log").delete().lt("run_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
+    } catch { /* best-effort */ }
   }
 
   return { sent, failed, pruned, users: byUser.size, coalesced, held };

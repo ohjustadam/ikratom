@@ -193,8 +193,9 @@ export async function saveNotificationsStep(formData: FormData) {
     notify_state_campaigns: formData.get("notify_state_campaigns") === "on",
     notify_local_campaigns: formData.get("notify_local_campaigns") === "on",
     notify_federal_campaigns: formData.get("notify_federal_campaigns") === "on",
-    in_app: true,
-    digest: "instant",
+    // NOTE: deliberately not setting in_app/digest here — re-running
+    // onboarding used to silently reset a user's saved digest cadence to
+    // 'instant'. New users get both from the column defaults.
     updated_at: new Date().toISOString(),
   };
 
