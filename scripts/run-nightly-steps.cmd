@@ -26,3 +26,9 @@ node --env-file=.env.local scripts/sweep-locality-intel.mjs --limit 20
 REM 5. Hermes auto-brief: local research agent writes campaigns.briefing for
 REM    newly auto-approved campaigns (PR-E; hermes3:8b tool-calling).
 node --env-file=.env.local scripts/auto-brief-campaigns.mjs --limit 3
+
+REM 6. Session prep (PR-F): regenerate the codebase map + state snapshot into
+REM    the WORKING checkout's private/session-prep/ so Claude sessions
+REM    cold-start from a fresh brief instead of re-deriving state.
+node scripts/generate-codebase-map.mjs --out C:\claude\ikratom\private\session-prep\CODEBASE_MAP.md
+node --env-file=.env.local scripts/generate-state-snapshot.mjs --out C:\claude\ikratom\private\session-prep\STATE_SNAPSHOT.md
