@@ -99,6 +99,8 @@ const REGISTRY = [
   { source: "sweep_locality_intel", interval_hours: 72, system: "local-box", cadence: "daily" },
   // PR-E: Hermes (hermes3:8b) writes campaign briefings nightly on the box.
   { source: "auto_brief_campaigns", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // PR-F: session-prep regen (codebase map + state snapshot) on the box.
+  { source: "session_prep", interval_hours: 72, system: "local-box", cadence: "daily" },
 ];
 
 const t0 = Date.now();
