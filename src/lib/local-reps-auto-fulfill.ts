@@ -182,6 +182,19 @@ export async function autoFulfillLocality(input: {
       console.warn("[auto-fulfill] couldn't close requests:", updErr.message);
     }
     result.fulfilled = !updErr;
+    // Notify requesters + residents via the shared RPC (0193) — best-effort;
+    // push delivery rides the hourly fan-out (DND/quiet-hours respected there).
+    if (result.fulfilled) {
+      try {
+        await db.rpc("notify_locality_residents", {
+          p_state: input.state,
+          p_locality: localityNorm,
+          p_official_names: rowsToInsert.map((r) => r.full_name),
+        });
+      } catch {
+        // non-fatal
+      }
+    }
   } else {
     // 0 inserted (all rejected by source verifier or all duplicates).
     // Leave pending; admin will see in the queue.
