@@ -14,6 +14,7 @@
 
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
 
 // We can't import the .ts router from node directly without a build step,
 // so this script duplicates the minimal client logic. (Each provider's
@@ -66,7 +67,7 @@ async function testOllama() {
     fetch(`${OLLAMA_HOST}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: OLLAMA_MODEL, prompt: PROMPT, stream: false }),
+      body: JSON.stringify({ model: OLLAMA_MODEL, prompt: PROMPT, stream: false, options: { num_thread: OLLAMA_NUM_THREAD } }),
     }).then((r) => r.json()),
     TIMEOUT, "ollama plain"
   );
@@ -83,6 +84,7 @@ async function testOllama() {
         system: `Respond ONLY with JSON matching this schema: ${JSON.stringify(STRUCTURED_SCHEMA)}.`,
         stream: false,
         format: "json",
+        options: { num_thread: OLLAMA_NUM_THREAD },
       }),
     }).then((r) => r.json()),
     TIMEOUT, "ollama structured"

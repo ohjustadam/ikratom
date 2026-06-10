@@ -34,6 +34,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { TOOLS_SCHEMA, dispatchTool } from "./research-tools.mjs";
+import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const args = process.argv.slice(2);
@@ -148,7 +149,7 @@ for (let turn = 0; turn < MAX_TURNS; turn++) {
       messages,
       tools: TOOLS_SCHEMA,
       stream: false,
-      options: { temperature: 0.2 },
+      options: { temperature: 0.2, num_thread: OLLAMA_NUM_THREAD },
     }),
     signal: AbortSignal.timeout(180_000),
   });

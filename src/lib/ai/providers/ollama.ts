@@ -9,6 +9,8 @@
  * gracefully when offline.
  */
 
+import os from "node:os";
+
 import type {
   AIProvider,
   CompletionOptions,
@@ -20,6 +22,14 @@ import type {
 
 const DEFAULT_HOST = process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
 const DEFAULT_MODEL = process.env.OLLAMA_DEFAULT_MODEL ?? "llama3.1:8b";
+
+// CPU throttle: default inference saturates every core and lags the host.
+// Half the cores keeps the box usable; OLLAMA_NUM_THREAD overrides.
+const envThreads = Number.parseInt(process.env.OLLAMA_NUM_THREAD ?? "", 10);
+const NUM_THREAD =
+  Number.isFinite(envThreads) && envThreads >= 1
+    ? envThreads
+    : Math.max(1, Math.floor((os.availableParallelism?.() ?? os.cpus().length) / 2));
 
 function flattenPrompt(p: PromptInput): { prompt: string; system?: string } {
   if (typeof p === "string") return { prompt: p };
@@ -60,6 +70,7 @@ export const ollama: AIProvider = {
         options: {
           temperature: opts.temperature ?? 0.2,
           num_predict: opts.maxTokens ?? 1024,
+          num_thread: NUM_THREAD,
           ...(opts.extra ?? {}),
         },
       }),
@@ -104,6 +115,7 @@ export const ollama: AIProvider = {
         options: {
           temperature: opts.temperature ?? 0,
           num_predict: opts.maxTokens ?? 2048,
+          num_thread: NUM_THREAD,
           ...(opts.extra ?? {}),
         },
       }),

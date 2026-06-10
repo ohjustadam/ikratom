@@ -24,6 +24,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "crypto";
+import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const args = process.argv.slice(2);
@@ -83,7 +84,7 @@ async function translate(text, targetLangCode) {
         { role: "user", content: text },
       ],
       stream: false,
-      options: { temperature: 0.2 },
+      options: { temperature: 0.2, num_thread: OLLAMA_NUM_THREAD },
     }),
     signal: AbortSignal.timeout(60_000),
   });

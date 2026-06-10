@@ -27,6 +27,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "module";
+import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
 const requireCjs = createRequire(import.meta.url);
 const { PDFParse } = requireCjs("pdf-parse");
 
@@ -351,7 +352,7 @@ async function callOllama(systemPrompt, userPrompt, model) {
       messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
       format: "json",
       stream: false,
-      options: { temperature: 0.1 },
+      options: { temperature: 0.1, num_thread: OLLAMA_NUM_THREAD },
     }),
     signal: AbortSignal.timeout(300_000),
   });
