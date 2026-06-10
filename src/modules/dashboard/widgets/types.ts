@@ -11,6 +11,7 @@
 export type WidgetId =
   | "briefing"
   | "my_district"
+  | "local_law"
   | "streak"
   | "my_reps"
   | "profile_completion"
@@ -70,6 +71,7 @@ export const DEFAULT_WIDGETS: WidgetSlot[] = [
   { id: "whats_new", visible: true },
   { id: "briefing", visible: true },
   { id: "my_district", visible: true },
+  { id: "local_law", visible: true },
   { id: "active_campaigns", visible: true },
   { id: "my_committee_bills", visible: true },
   { id: "my_battles", visible: true },
@@ -100,6 +102,10 @@ export const WIDGET_META: Record<WidgetId, { title: string; description: string 
   my_district: {
     title: "My district",
     description: "Your state's kratom + 7-OH status and your single highest-priority action. Gateway to the full /my-district hub.",
+  },
+  local_law: {
+    title: "The law around you",
+    description: "Your city/county's kratom legal framework, measures being pushed right now, and the next council meeting.",
   },
   streak: {
     title: "Action streak",
@@ -179,6 +185,7 @@ export const PRESETS: Record<PresetId, { label: string; description: string; wid
       { id: "whats_new", visible: true },
       { id: "briefing", visible: true },
       { id: "my_district", visible: true },
+      { id: "local_law", visible: true },
       { id: "profile_completion", visible: true },
       { id: "rep_coverage", visible: true },
       { id: "active_campaigns", visible: true },

@@ -104,60 +104,28 @@ export async function acceptSuggestions(input: {
   }
   const added = data?.length ?? 0;
 
-  // Mark any pending user-driven requests for this area as fulfilled.
+  // Mark any pending user-driven requests fulfilled, then notify via the
+  // SHARED RPC (0193): requesters ∪ residents, deduped per user+locality —
+  // the same rule every fulfill path (admin, cron, box batch) uses, so the
+  // notify behavior can never drift between runtimes. Best-effort: failure
+  // must not roll back the legislator inserts; push rides the hourly
+  // fan-out with its own DND / quiet-hours safety.
   if (added > 0) {
     try {
       const sr = createServiceRoleClient();
-      await sr.rpc("fulfill_local_rep_requests", {
+      const { error: fulfillErr } = await sr.rpc("fulfill_local_rep_requests", {
         p_state: stateRaw,
         p_locality: localityNorm,
       });
+      if (fulfillErr) console.warn("[accept] fulfill RPC failed:", fulfillErr.message);
+      const { error: notifyErr } = await sr.rpc("notify_locality_residents", {
+        p_state: stateRaw,
+        p_locality: localityNorm,
+        p_official_names: input.officials.map((o) => o.full_name),
+      });
+      if (notifyErr) console.warn("[accept] notify RPC failed:", notifyErr.message);
     } catch {
-      // non-fatal
-    }
-  }
-
-  // Notify residents — best-effort, never blocks the response.
-  if (added > 0) {
-    try {
-      const sr = createServiceRoleClient();
-      // legislators.locality is the canonical form ("Midwest City, OK")
-      // but profiles.city / profiles.county are bare strings from the
-      // Census Geocoder ("Midwest City" / "Oklahoma County" — note: no
-      // ", <STATE>" suffix). Strip the suffix from localityNorm to get
-      // the bare form for matching against profiles.
-      const bareLocality = localityNorm.replace(new RegExp(`,\\s*${stateRaw}$`), "").trim();
-      const { data: residents } = await sr
-        .from("profiles")
-        .select("id")
-        .eq("state", stateRaw)
-        .or(`city.eq.${bareLocality},county.eq.${bareLocality}`);
-
-      const userIds = (residents ?? []).map((r: { id: string }) => r.id);
-      if (userIds.length > 0) {
-        const repNames = input.officials
-          .slice(0, 3)
-          .map((o) => o.full_name)
-          .join(", ");
-        const moreCount = input.officials.length > 3 ? input.officials.length - 3 : 0;
-        const body =
-          repNames +
-          (moreCount > 0 ? ` and ${moreCount} more` : "") +
-          ` now appear on your dashboard.`;
-        await sr.from("notifications").insert(
-          userIds.map((uid) => ({
-            user_id: uid,
-            kind: "reps_added",
-            title: `Your local reps in ${localityNorm} are in your war room`,
-            body,
-            link: "/dashboard",
-          })),
-        );
-      }
-    } catch {
-      // Fan-out failure must not roll back the legislator inserts. The
-      // user can still see the new reps when they next visit /dashboard
-      // — this notification is about *immediate* awareness, not state.
+      // non-fatal (createServiceRoleClient itself)
     }
   }
 

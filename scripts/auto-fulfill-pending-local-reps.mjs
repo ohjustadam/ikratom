@@ -159,6 +159,16 @@ for (const req of pending ?? []) {
   if (covered) {
     await sb.from("local_rep_requests").update({ status: "fulfilled", resolved_at: new Date().toISOString() })
       .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");
+    // Notify requesters + residents via the shared RPC (0193) — the gap that
+    // left 17 requesters silently unserved before 2026-06-09. Best-effort;
+    // push rides the hourly fan-out (DND/quiet-hours respected there).
+    const { data: notified, error: notifyErr } = await sb.rpc("notify_locality_residents", {
+      p_state: req.state,
+      p_locality: req.locality,
+      p_official_names: rows.map((r) => r.full_name),
+    });
+    if (notifyErr) console.log(`  ⚠ notify RPC failed: ${notifyErr.message?.slice(0, 80)}`);
+    else if (notified > 0) console.log(`  ◇ notified ${notified} requester(s)/resident(s)`);
   }
 }
 console.log(`\n=== TOTAL: inserted ${totalInserted} · skipped ${totalSkipped} ===`);

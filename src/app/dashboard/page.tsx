@@ -12,6 +12,7 @@ import { TutorialReplay, WelcomeReplayTour } from "@/modules/dashboard/TutorialR
 import { WelcomeExploreWidget } from "@/modules/dashboard/widgets/WelcomeExploreWidget";
 import { BriefingWidget } from "@/modules/dashboard/widgets/BriefingWidget";
 import { MyDistrictWidget } from "@/modules/dashboard/widgets/MyDistrictWidget";
+import { LocalLawWidget } from "@/modules/dashboard/widgets/LocalLawWidget";
 import { normalizeLocality } from "@/lib/locality";
 import { ActiveCampaignsWidget } from "@/modules/dashboard/widgets/ActiveCampaignsWidget";
 import { RepCoverageWidget } from "@/modules/dashboard/widgets/RepCoverageWidget";
@@ -146,6 +147,13 @@ export default async function DashboardPage({
         userLocality={normalizeLocality(profile.city ?? null, profile.state)}
       />
     ) : null,
+    local_law: (
+      <LocalLawWidget
+        userState={profile?.state ?? null}
+        userCity={profile?.city ?? null}
+        userCounty={profile?.county ?? null}
+      />
+    ),
     active_campaigns: (
       <ActiveCampaignsWidget userState={profile?.state ?? null} />
     ),
