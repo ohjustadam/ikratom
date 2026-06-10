@@ -31,6 +31,7 @@
 import { createClient } from "@supabase/supabase-js";
 // pdf-parse v2 exports a PDFParse class via CJS — bridge with createRequire
 import { createRequire } from "module";
+import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
 const requireCjs = createRequire(import.meta.url);
 const { PDFParse } = requireCjs("pdf-parse");
 
@@ -163,7 +164,7 @@ async function analyzeWithOllama(bill, pdfText) {
       ],
       format: "json",
       stream: false,
-      options: { temperature: 0.1 },
+      options: { temperature: 0.1, num_thread: OLLAMA_NUM_THREAD },
     }),
     signal: AbortSignal.timeout(180_000),
   });

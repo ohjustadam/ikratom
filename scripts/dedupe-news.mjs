@@ -28,6 +28,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const args = process.argv.slice(2);
@@ -73,7 +74,7 @@ async function embed(text) {
   const res = await fetch(`${OLLAMA_URL}/api/embeddings`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: MODEL, prompt: text }),
+    body: JSON.stringify({ model: MODEL, prompt: text, options: { num_thread: OLLAMA_NUM_THREAD } }),
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`);

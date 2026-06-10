@@ -28,6 +28,8 @@
  *   // → { provider, parsed, usage, elapsedMs }
  */
 
+import { OLLAMA_NUM_THREAD } from "./ollama-options.mjs";
+
 const GROQ_KEY = process.env.GROQ_API_KEY;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY;
@@ -347,7 +349,7 @@ async function callOllama(sys, user) {
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       format: "json",
       stream: false,
-      options: { temperature: 0.1 },
+      options: { temperature: 0.1, num_thread: OLLAMA_NUM_THREAD },
     }),
     signal: AbortSignal.timeout(180_000),
   });
