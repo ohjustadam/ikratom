@@ -35,6 +35,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter } from "./lib/ai-router.mjs";
 import { seedLocalitySlate } from "./lib/officials-slate.mjs";
+import { queueLocalityIntel } from "./lib/locality-intel.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const args = process.argv.slice(2);
@@ -177,6 +178,14 @@ for (const a of alerts) {
     const err = (slate.error ?? "").toLowerCase();
     seedRetryable = /429|rate|timeout|fetch failed|503|502|econn/.test(err) && !err.includes("queued");
   }
+
+  // 3b. Queue the unified locality-intelligence sweep (PR-A): every news
+  // story's locality leaves us knowing its law, lawmakers, calendar, and
+  // leverage — drained nightly on the box by sweep-locality-intel.mjs.
+  // Best-effort: no-op if a row exists or migration 0192 isn't applied yet.
+  const intelQ = await queueLocalityIntel({ sb, state: resolvedState, locality: j.locality_name.trim(), scope: j.scope === "county" ? "county" : "municipal" });
+  if (intelQ.ok) console.log("  ◇ locality-intel sweep queued");
+  else console.log(`  ⚠ locality-intel queue failed: ${intelQ.error?.slice(0, 80)}`);
 
   // 4. Retarget the alert's auto-campaign onto the local slate
   if (a.campaign_id) {

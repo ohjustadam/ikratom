@@ -345,7 +345,10 @@ async function callOllama(sys, user) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "llama3.3:70b",
+      // llama3.3:70b no longer fits in RAM beside Docker on the owner box —
+      // OLLAMA_ROUTER_MODEL lets the box pin a fitting model (hermes3:8b) so
+      // extraction stays local instead of falling through to free-tier quota.
+      model: process.env.OLLAMA_ROUTER_MODEL || "llama3.3:70b",
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       format: "json",
       stream: false,

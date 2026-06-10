@@ -79,7 +79,6 @@ const REGISTRY = [
       "cleanup_pending_campaigns",
       "reject_wrongstate_pending_alerts",
       "locality_state_audit",
-      "verify_local_bans",
      ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
 
   // weekly
@@ -94,6 +93,10 @@ const REGISTRY = [
   // officials drain). Lenient 72h interval: a 3×72h silence (~9 days) alerts,
   // tolerating reboots/short downtime without crying wolf.
   { source: "auto_fulfill_local_reps", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // PR-A: local-ban verification + the unified locality-intelligence sweep
+  // both run on the box too (SearXNG find → fetch → local/free-tier extract).
+  { source: "verify_local_bans", interval_hours: 72, system: "local-box", cadence: "daily" },
+  { source: "sweep_locality_intel", interval_hours: 72, system: "local-box", cadence: "daily" },
 ];
 
 const t0 = Date.now();

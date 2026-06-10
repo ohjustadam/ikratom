@@ -24,6 +24,7 @@ import { fetchLegistarOfficials } from "./legistar-officials.mjs";
 import { searxngConfigured, searxngSearch } from "./searxng.mjs";
 import { reconcileLocality } from "./geo-resolver.mjs";
 import { aiRouter } from "./ai-router.mjs";
+import { fetchPageText } from "./page-text.mjs";
 
 const VALID_ROLES = new Set([
   "mayor", "city_council", "county_executive", "county_commissioner", "school_board", "other_local",
@@ -73,35 +74,7 @@ function pickCandidateUrls(results, city) {
   return [...new Set(scored.map((s) => s.url))].slice(0, 3);
 }
 
-async function fetchPageText(url) {
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(15_000),
-      headers: { "User-Agent": "iKratom Civic Data (contact@ikratom.org)" },
-    });
-    if (!res.ok) return null;
-    const ct = res.headers.get("content-type") || "";
-    if (ct.includes("pdf")) return null; // no PDF extraction in this path
-    const html = (await res.text()).slice(0, 600_000);
-    // Always use the full tag-stripped page text, NOT Readability: rosters
-    // live in tables/sidebars that article extraction discards (verified on
-    // cityoflewistown.com — Readability kept the meeting schedule and dropped
-    // every commissioner). Noise is fine; the extractor works from raw text.
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;|&#160;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&#(\d+);/g, (_, n) => { const c = Number(n); return c >= 32 && c < 65536 ? String.fromCharCode(c) : " "; })
-      .replace(/\s+/g, " ")
-      .trim();
-    return text.slice(0, 24_000);
-  } catch {
-    return null;
-  }
-}
+// fetchPageText moved to ./page-text.mjs (shared with ban-verify.mjs).
 
 async function extractFromText({ text, city, state, level, sourceUrl }) {
   const user = `Page URL: ${sourceUrl}\nJurisdiction: ${city}, ${state} (${level})\n\nPAGE TEXT:\n${text}`;
@@ -162,7 +135,10 @@ async function logExtract(sb, { caller, provider, status, city, state, count }) 
       task_kind: "officials_extract", // NOT 'gemini_grounded' — the freed metric
       provider_used: provider ?? "none",
       model_used: provider === "ollama" ? "llama3.3:70b" : (provider ?? "none"),
-      status,
+      // ai_jobs CHECK allows pending|success|failure only — the old "empty"
+      // value violated it and the row was silently dropped. "ran, found
+      // nothing" is a success; metadata carries the zero count.
+      status: status === "empty" ? "success" : status,
       caller,
       prompt_preview: `${city}, ${state} officials`,
       metadata: { officials_returned: count, source: "searxng" },

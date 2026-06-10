@@ -40,6 +40,7 @@ type BanRow = {
   last_action_at: string | null;
   source_url: string | null;
   opposition_summary_md: string | null;
+  verification_status: string | null;
 };
 
 const STATE_NAMES: Record<string, string> = {
@@ -60,7 +61,7 @@ export default async function BannedPage() {
   const sb = await createClient();
   const { data } = await sb
     .from("bills")
-    .select("id, state, bill_number, title, status, scope, locality, effective_date, last_action_at, source_url, opposition_summary_md")
+    .select("id, state, bill_number, title, status, scope, locality, effective_date, last_action_at, source_url, opposition_summary_md, verification_status")
     .eq("kratom_relevance", "anti")
     .eq("active", true)
     .in("status", ["enacted", "passed_chamber"])
@@ -95,9 +96,12 @@ export default async function BannedPage() {
 
   // Local bans now pass through the two-source verification gate (migration
   // 0190 / verify-local-bans) before they reach active=true — so this is the
-  // CONFIRMED set, not the old single-aggregator dump.
-  const enactedCounties = rows.filter(r => r.scope === "county" && r.status === "enacted");
-  const enactedCities = rows.filter(r => r.scope === "municipal" && r.status === "enacted");
+  // CONFIRMED set, not the old single-aggregator dump. Defense in depth: even
+  // if a held/repealed row is ever left active by mistake, it doesn't count
+  // here (NULL = legacy seeded/synced data, which is inherently sourced).
+  const localOk = (r: BanRow) => r.verification_status === null || r.verification_status === "confirmed";
+  const enactedCounties = rows.filter(r => r.scope === "county" && r.status === "enacted" && localOk(r));
+  const enactedCities = rows.filter(r => r.scope === "municipal" && r.status === "enacted" && localOk(r));
 
   // Group locals by state
   const localsByState = new Map<string, { counties: BanRow[]; cities: BanRow[] }>();
