@@ -11,9 +11,12 @@
  * Safe by construction (see legistar-resolver.mjs): a slug is only accepted
  * when the place/county name is unique to the expected state (per the Census
  * gazetteer) OR the slug carries the state code, AND member addresses don't
- * contradict the state. Cross-state slug collisions can't seed wrong-state
- * tenants. Incremental: skips localities already in the hand list or cache,
- * so daily runs whittle down the long tail without re-probing.
+ * contradict the state, AND the tenant's bodies match the requested government
+ * LEVEL (county → board of supervisors/commissioners; city → city council).
+ * Cross-state AND cross-level slug collisions can't seed wrong tenants
+ * ("salem" = City of Salem, OR — rejected for Salem County, NJ). Incremental:
+ * skips localities already in the hand list or cache, so daily runs whittle
+ * down the long tail without re-probing.
  *
  *   node --env-file=.env.local scripts/discover-legistar-tenants.mjs
  *   node --env-file=.env.local scripts/discover-legistar-tenants.mjs --limit 500
@@ -52,10 +55,18 @@ await runWithLogging({ source: "discover_legistar_tenants", supabase: sb }, asyn
   for (const r of bills ?? []) add(r.state, r.locality);
   for (const t of GRANICUS_TENANTS) add(t.state, t.locality);
 
-  // Skip the hand list and anything already probed (live or none).
+  // Skip the hand list, probed-and-missing rows, and post-gate live rows.
+  // Live rows with body IS NULL are PRE-LEVEL-GATE discoveries (the gate
+  // always stores a body) — leave them OUT of the skip-set so they re-enter
+  // the probe queue and get revalidated through the gate (backfilling body on
+  // pass, flipping to 'none' on fail). This is the self-heal for the
+  // Salem-OR / Oakland-CA cross-level collisions that pre-gate probing cached.
   const known = new Set(LEGISTAR_TENANTS.map((t) => `${t.state.toUpperCase()}|${normLoc(t.locality)}`));
-  const { data: cached } = await sb.from("legistar_tenants").select("state, locality");
-  for (const t of cached ?? []) known.add(`${String(t.state).toUpperCase()}|${normLoc(t.locality)}`);
+  const { data: cached } = await sb.from("legistar_tenants").select("state, locality, probe_status, body");
+  for (const t of cached ?? []) {
+    if (t.probe_status === "live" && !t.body) continue; // pre-gate row → re-probe
+    known.add(`${String(t.state).toUpperCase()}|${normLoc(t.locality)}`);
+  }
 
   const todo = [...demand.entries()].filter(([k]) => !known.has(k)).map(([, v]) => v).slice(0, LIMIT);
   console.log(`Demand ${demand.size} · already known ${known.size} · probing ${todo.length}${DRY ? " (dry-run)" : ""}`);
@@ -67,7 +78,7 @@ await runWithLogging({ source: "discover_legistar_tenants", supabase: sb }, asyn
     if (found) {
       live++;
       console.log(`  ✓ ${locality} → ${found.client}`);
-      if (!DRY) await upsertTenant(sb, { state, locality, subdomain: found.client, webapi_client: found.client, probe_status: "live" });
+      if (!DRY) await upsertTenant(sb, { state, locality, subdomain: found.client, webapi_client: found.client, body: found.body, probe_status: "live" });
     } else {
       none++;
       if (!DRY) await upsertTenant(sb, { state, locality, probe_status: "none" });

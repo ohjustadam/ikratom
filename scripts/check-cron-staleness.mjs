@@ -89,6 +89,11 @@ const REGISTRY = [
 
   // vercel (different system, but still monitorable)
   { source: "vercel_daily_sync", interval_hours: 36, system: "vercel", cadence: "daily" },
+
+  // owner-box scheduled task (SearXNG + Ollama live there — the long-tail
+  // officials drain). Lenient 72h interval: a 3×72h silence (~9 days) alerts,
+  // tolerating reboots/short downtime without crying wolf.
+  { source: "auto_fulfill_local_reps", interval_hours: 72, system: "local-box", cadence: "daily" },
 ];
 
 const t0 = Date.now();

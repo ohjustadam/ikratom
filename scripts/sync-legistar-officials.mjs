@@ -22,7 +22,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { LEGISTAR_TENANTS } from "./lib/legistar-tenants.mjs";
 import { fetchLegistarOfficials, webapiClientFor } from "./lib/legistar-officials.mjs";
-import { normLoc } from "./lib/legistar-resolver.mjs";
+import { normLoc, levelForTenant } from "./lib/legistar-resolver.mjs";
 import { runWithLogging } from "./lib/scraper-run.mjs";
 
 const args = process.argv.slice(2);
@@ -32,10 +32,9 @@ const ONE = arg("--tenant");
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
-function levelFor(tenant) {
-  if (/county|borough|parish/i.test(tenant.locality) || /supervisor|commission|county/i.test(tenant.body)) return "county";
-  return "municipal";
-}
+// Level comes from the shared resolver rule — its body half is county-shaped
+// only, so a "City Commission" tenant (Miami) stays municipal.
+const levelFor = levelForTenant;
 
 await runWithLogging({ source: "sync_legistar_officials", supabase: sb }, async () => {
   let tenants;

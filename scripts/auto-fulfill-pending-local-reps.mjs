@@ -16,6 +16,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { findAndExtractOfficials } from "./lib/officials-extract.mjs";
 
+const t0 = Date.now();
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -161,3 +162,16 @@ for (const req of pending ?? []) {
   }
 }
 console.log(`\n=== TOTAL: inserted ${totalInserted} · skipped ${totalSkipped} ===`);
+try {
+  // Self-monitoring (standing rule #6): this runs on the owner box's nightly
+  // scheduled task ("local" system in check-cron-staleness), where SearXNG +
+  // Ollama are reachable — it's what drains the long-tail queue.
+  await sb.from("scraper_runs").insert({
+    source: "auto_fulfill_local_reps",
+    started_at: new Date(t0).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: totalInserted > 0 ? "success" : (seen.size === 0 ? "empty" : "success"),
+    rows_added: totalInserted,
+    notes: `${seen.size} localities processed · ${totalInserted} officials inserted · ${totalSkipped} skipped by verification`,
+  });
+} catch { /* best-effort */ }

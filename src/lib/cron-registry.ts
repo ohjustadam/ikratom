@@ -20,7 +20,7 @@
  * Update this file when adding/removing scripts from any workflow.
  */
 
-export type CronSystem = "vercel" | "gh-hourly" | "gh-daily" | "gh-weekly" | "db-trigger";
+export type CronSystem = "vercel" | "gh-hourly" | "gh-daily" | "gh-weekly" | "db-trigger" | "local-box";
 export type CronCadence = "every-30min" | "hourly" | "daily" | "weekly" | "realtime";
 
 export type CronEntry = {
@@ -350,6 +350,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     label: "Discover Legistar tenants",
     purpose: "Probe gazetteer-derived slugs to expand keyless Legistar officials coverage (de-Gemini)",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "legislators",
+  },
+  {
+    source: "auto_fulfill_local_reps",
+    label: "Auto-fulfill local reps (owner box)",
+    purpose: "Drain pending local-rep requests via SearXNG + local Ollama/free-tier extract — runs as a scheduled task on the owner box where the self-hosted infra lives",
+    system: "local-box", cadence: "daily", runs_per_day: 1, category: "legislators",
   },
   {
     source: "sync_research_pubmed",

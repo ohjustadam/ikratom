@@ -41,8 +41,13 @@ function normLoc(s: string | null | undefined): string {
   return String(s ?? "").trim().toLowerCase().replace(/,\s*[a-z]{2}$/i, "").replace(/\s+/g, " ").trim();
 }
 
+// Mirror of scripts/lib/legistar-resolver.mjs levelForTenant — keep in sync.
+// Body half is COUNTY-SHAPED only: "City Commission" (Miami/Gainesville) is a
+// CITY's governing body and must stay municipal; "Township Board of
+// Supervisors" (PA) is municipal too.
+const COUNTY_LEVEL_BODY_RE = /\bcounty\b|(?<!township )\bboard of supervisors\b|commissioners? ?'? ?s? ?court|freeholders/i;
 export function levelForTenant(locality: string, body?: string | null): "municipal" | "county" {
-  if (/\b(county|borough|parish)\b/i.test(locality) || /supervisor|commission|county/i.test(body ?? "")) return "county";
+  if (/\b(county|borough|parish)\b/i.test(locality) || COUNTY_LEVEL_BODY_RE.test(body ?? "")) return "county";
   return "municipal";
 }
 
