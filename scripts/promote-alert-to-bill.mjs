@@ -143,6 +143,10 @@ async function processAlert(alert) {
         kratom_relevance: "anti", // city ordinances tracked here are bans
         relevance_confidence: 0.75,
         active: true,
+        // News-minted local ordinances are single-source by definition —
+        // enter the 0190 verification gate instead of shipping as fact.
+        // /banned hides local rows until verify-local-bans confirms them.
+        verification_status: "unverified",
       })
       .select("id")
       .single();
