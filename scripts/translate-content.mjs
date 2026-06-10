@@ -221,3 +221,15 @@ for (const src of targetSources) {
 
 const elapsed = ((Date.now() - tStart) / 1000 / 60).toFixed(1);
 console.log(`\nDone in ${elapsed} min — ${totalDone} translated, ${totalSkipped} skipped (cached), ${totalFailed} failed.`);
+
+// Self-monitoring (standing rule 6) — nightly box step since PR-D.
+try {
+  await supabase.from("scraper_runs").insert({
+    source: "translate_content",
+    started_at: new Date(tStart).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: totalDone === 0 && totalFailed > 0 ? "fail" : "success",
+    rows_updated: totalDone,
+    notes: `translated=${totalDone} cached=${totalSkipped} failed=${totalFailed} model=${MODEL}`,
+  });
+} catch { /* best-effort */ }

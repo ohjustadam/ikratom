@@ -101,6 +101,10 @@ const REGISTRY = [
   { source: "auto_brief_campaigns", interval_hours: 72, system: "local-box", cadence: "daily" },
   // PR-F: session-prep regen (codebase map + state snapshot) on the box.
   { source: "session_prep", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // PR-D: backlog drains on the box (summarize_news is already registered
+  // under gh-daily — any system writing the source keeps it fresh).
+  { source: "translate_content", interval_hours: 72, system: "local-box", cadence: "daily" },
+  { source: "bill_embeddings", interval_hours: 72, system: "local-box", cadence: "daily" },
 ];
 
 const t0 = Date.now();
