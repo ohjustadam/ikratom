@@ -27,7 +27,15 @@ REM 5. Hermes auto-brief: local research agent writes campaigns.briefing for
 REM    newly auto-approved campaigns (PR-E; hermes3:8b tool-calling).
 node --env-file=.env.local scripts/auto-brief-campaigns.mjs --limit 3
 
-REM 6. Session prep (PR-F): regenerate the codebase map + state snapshot into
+REM 6. Backlog drains (PR-D): the 120/day news-summary cap was a dead Gemini
+REM    constraint - locally we drain ~1000/night (backlog gone in ~4 nights);
+REM    translations on llama3.2:3b; bill/briefing embeddings on nomic-embed.
+REM    Cloud crons keep fresh-item duty; the box does the bulk.
+node --env-file=.env.local scripts/summarize-news.mjs --limit 1000
+node --env-file=.env.local scripts/translate-content.mjs --model llama3.2:3b
+node --env-file=.env.local scripts/compute-bill-embeddings.mjs
+
+REM 7. Session prep (PR-F): regenerate the codebase map + state snapshot into
 REM    the WORKING checkout's private/session-prep/ so Claude sessions
 REM    cold-start from a fresh brief instead of re-deriving state.
 node scripts/generate-codebase-map.mjs --out C:\claude\ikratom\private\session-prep\CODEBASE_MAP.md

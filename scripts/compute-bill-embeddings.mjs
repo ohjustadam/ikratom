@@ -164,9 +164,13 @@ console.log(`✓ Ollama up at ${OLLAMA_URL} with ${MODEL}`);
 // =============================================================
 const wantBills = TARGET === "all" || TARGET === "bills";
 const wantBriefings = TARGET === "all" || TARGET === "briefings";
+const runStart = Date.now();
+
+let billsRes = { ok: 0, fail: 0 };
+let briefRes = { ok: 0, fail: 0 };
 
 if (wantBills) {
-  await embedTable(
+  billsRes = await embedTable(
     "BILLS",
     "bills",
     billEmbedText,
@@ -176,7 +180,7 @@ if (wantBills) {
 }
 
 if (wantBriefings) {
-  await embedTable(
+  briefRes = await embedTable(
     "STATE BRIEFINGS",
     "state_briefings",
     briefingEmbedText,
@@ -186,3 +190,17 @@ if (wantBriefings) {
 }
 
 console.log("\n✓ Embedding run complete.");
+
+// Self-monitoring (standing rule 6) — nightly box step since PR-D.
+try {
+  const ok = billsRes.ok + briefRes.ok;
+  const fail = billsRes.fail + briefRes.fail;
+  await sb.from("scraper_runs").insert({
+    source: "bill_embeddings",
+    started_at: new Date(runStart).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: ok === 0 && fail > 0 ? "fail" : "success",
+    rows_updated: ok,
+    notes: `embedded=${ok} failed=${fail} model=${MODEL} target=${TARGET}`,
+  });
+} catch { /* best-effort */ }
