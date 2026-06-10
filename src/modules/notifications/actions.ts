@@ -97,8 +97,10 @@ export async function updateNotificationPrefs(formData: FormData) {
 
   // Transitional: if this code deploys before migration 0194 lands, the
   // category columns don't exist — retry with the legacy field set rather
-  // than breaking the whole prefs form. Remove once 0194 is applied.
-  if (error && categoriesPresent && /notify_(bills|nonresident)/.test(error.message)) {
+  // than breaking the whole prefs form. PGRST204's message names only ONE
+  // missing column (alphabetically first — notify_announcements), so match
+  // the error class, not specific column names. Remove once 0194 is applied.
+  if (error && categoriesPresent && (error.code === "PGRST204" || /notify_\w+/.test(error.message))) {
     for (const f of categoryFields) delete update[f];
     ({ error } = await supabase
       .from("notification_preferences")

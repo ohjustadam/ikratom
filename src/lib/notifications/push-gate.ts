@@ -106,7 +106,12 @@ export function digestDue(prefs: DigestPrefs | null | undefined, nowMs: number):
   let minutesSinceBoundary = cur - 9 * 60;
   if (d === "weekly") minutesSinceBoundary += (weekdayIndexInTz(nowMs, tz) ?? 0) * 1440;
   if (minutesSinceBoundary < 0) return false; // boundary not reached yet
-  const boundaryMs = nowMs - minutesSinceBoundary * 60_000;
+  // Floor to the minute so the boundary is stable across evaluations within
+  // the same minute (sub-minute jitter could re-fire a digest whose push
+  // landed inside the boundary minute). Known accepted edges: DST fall-back
+  // can produce one extra weekly buzz per year, and a quiet window spanning
+  // 9am→midnight defers that day's digest entirely (due-ness resets daily).
+  const boundaryMs = Math.floor(nowMs / 60_000) * 60_000 - minutesSinceBoundary * 60_000;
   const last = prefs?.last_push_at ? Date.parse(prefs.last_push_at) : 0;
   return !(last >= boundaryMs);
 }

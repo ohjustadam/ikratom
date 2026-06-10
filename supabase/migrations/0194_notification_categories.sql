@@ -2,7 +2,7 @@
 -- (PR-J) + the non-resident campaign scope-out + push_send_log telemetry.
 --
 -- Users can now opt out by category of WHAT they get notified about (bills,
--- local reps, news, meetings, community, intel, announcements) — enforced at
+-- local reps, news, meetings, community, announcements) — enforced at
 -- ONE chokepoint: a BEFORE INSERT trigger on notifications. That covers every
 -- creator (SQL triggers/functions AND every service-role TS path) without
 -- touching any of them. Security/personal kinds are never gated. The gate
@@ -15,7 +15,7 @@
 -- Rollback: drop trigger notifications_category_gate on notifications;
 --   drop function notifications_category_gate(); drop function
 --   notification_category(text); alter table notification_preferences drop
---   column ... (the 8 new booleans); drop table push_send_log;
+--   column ... (the 7 new booleans); drop table push_send_log;
 --   re-create notify_users_for_campaign from 0008.
 
 -- 1. Category columns — flat booleans, default ON (opt-out model).
@@ -170,6 +170,7 @@ create index if not exists push_send_log_user_idx on public.push_send_log (user_
 
 alter table public.push_send_log enable row level security;
 
+drop policy if exists "Admins read push send log" on public.push_send_log;
 create policy "Admins read push send log"
   on public.push_send_log for select
   using (public.is_admin(auth.uid()));
