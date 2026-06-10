@@ -484,6 +484,7 @@ export default async function AutomationDashboard() {
               "gh-daily": "text-amber-300",
               "gh-weekly": "text-amber-300",
               "db-trigger": "text-violet-300",
+              "local-box": "text-sky-300",
             };
             // Sort: gh-blocked first (most-urgent), then by system, then by source.
             const ordered = [...CRON_REGISTRY].sort((a, b) => {

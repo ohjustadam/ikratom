@@ -22,7 +22,7 @@
 import { resolveCachedTenant } from "./legistar-resolver.mjs";
 import { fetchLegistarOfficials } from "./legistar-officials.mjs";
 import { searxngConfigured, searxngSearch } from "./searxng.mjs";
-import { extractArticleContent } from "./article-content.mjs";
+import { reconcileLocality } from "./geo-resolver.mjs";
 import { aiRouter } from "./ai-router.mjs";
 
 const VALID_ROLES = new Set([
@@ -33,14 +33,19 @@ const EXTRACT_SYSTEM = `You extract CURRENT elected local-government officials f
 
 Return STRICT JSON only (no prose, no markdown fences):
 {
+  "page_jurisdiction": "the government this page belongs to, exactly as the page presents it — e.g. \"City of Troy, Michigan\" or \"Fergus County, Montana\". REQUIRED.",
   "officials": [
     { "full_name": "Jane Doe", "role": "mayor"|"city_council"|"county_executive"|"county_commissioner", "title": "Mayor"|"Council Member, Ward 3"|null, "district": "Ward 3"|null, "email": "jane.doe@city.gov"|null, "phone": "555-555-5555"|null, "website": "https://..."|null, "party": "D"|"R"|"I"|null, "term_end_date": "2028-01-01"|null }
   ]
 }
 
 Rules:
+- ALWAYS fill page_jurisdiction with the government the PAGE is about (from its header/title/footer), even when returning zero officials. It is compared against the requested jurisdiction by code.
 - For a city: the Mayor + ALL current city council members. For a county: the county executive + ALL current commissioners/supervisors.
+- Village/town boards count as municipal: Village President / Town Supervisor → role "mayor"; Trustees / Select Board members → role "city_council".
 - Include ONLY people the page itself names as CURRENT officials. If the page is not a current roster (or names none), return {"officials":[]}.
+- THE JURISDICTION MUST MATCH. If the page is about a DIFFERENT government than the one named in the prompt — a same-named city in another state, a NEIGHBORING city, the county when asked for the city, a school/water/special district, or a facility/department/authority board (medical care community, road commission, DHHS, housing authority) — return {"officials":[]}.
+- full_name MUST be the person's actual name ("Jane Doe"), NEVER a title + surname ("Commissioner Doe"). If the page only gives "Commissioner Doe", omit that entry.
 - Never fabricate emails or phones — leave unknown fields null.
 - term_end_date as YYYY-MM-DD only if the page states it; else null.
 - Output ONLY the JSON object.`;
@@ -78,22 +83,20 @@ async function fetchPageText(url) {
     const ct = res.headers.get("content-type") || "";
     if (ct.includes("pdf")) return null; // no PDF extraction in this path
     const html = (await res.text()).slice(0, 600_000);
-    let text = "";
-    try {
-      const { paragraphs } = extractArticleContent(html, url);
-      text = (paragraphs ?? []).join("\n");
-    } catch { /* fall through to strip */ }
-    if (text.length < 200) {
-      // Roster pages are usually tables Readability discards — strip tags.
-      text = html
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/\s+/g, " ")
-        .trim();
-    }
+    // Always use the full tag-stripped page text, NOT Readability: rosters
+    // live in tables/sidebars that article extraction discards (verified on
+    // cityoflewistown.com — Readability kept the meeting schedule and dropped
+    // every commissioner). Noise is fine; the extractor works from raw text.
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;|&#160;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&#(\d+);/g, (_, n) => { const c = Number(n); return c >= 32 && c < 65536 ? String.fromCharCode(c) : " "; })
+      .replace(/\s+/g, " ")
+      .trim();
     return text.slice(0, 24_000);
   } catch {
     return null;
@@ -111,9 +114,30 @@ async function extractFromText({ text, city, state, level, sourceUrl }) {
   } catch {
     return { officials: [], provider: null };
   }
+  // JURISDICTION cross-check, in code: the model reliably reports what page
+  // it's reading even when it over-eagerly extracts. If the page's own
+  // jurisdiction doesn't name our locality, these are someone else's
+  // officials (the batch run pulled Troy, MI for "Hamilton, MI" off a page
+  // that merely mentioned a Hamilton street). Missing field = reject —
+  // precision over recall; the locality just stays queued.
+  const claimed = String(result.parsed?.page_jurisdiction ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const wantBare = String(city ?? "").toLowerCase().replace(/\b(county|parish|borough|village|township|city|town|of)\b/g, " ").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!claimed || (wantBare.length >= 3 && !claimed.includes(wantBare))) {
+    return { officials: [], provider: result.provider, jurisdictionMismatch: claimed || "(none reported)" };
+  }
   const raw = Array.isArray(result.parsed?.officials) ? result.parsed.officials : [];
+  // Strip leading titles the model sometimes leaves on ("Commissioner
+  // Patterson-Gladney") and drop officials without a real first+last name —
+  // a bare surname can't be reliably verified and reads as broken data.
+  const TITLE_PREFIX_RE = /^(commissioner|council\s?member|councilman|councilwoman|mayor|vice[- ]mayor|supervisor|trustee|alder(?:man|woman)|chair(?:man|woman|person)?|president|freeholder|select(?:man|woman))\.?\s+/i;
+  const cleanName = (s) => {
+    let n = String(s ?? "").trim();
+    for (let i = 0; i < 2 && TITLE_PREFIX_RE.test(n); i++) n = n.replace(TITLE_PREFIX_RE, "").trim();
+    return n;
+  };
   const officials = raw
-    .filter((o) => o && typeof o.full_name === "string" && o.full_name.trim().length >= 3)
+    .map((o) => (o && typeof o.full_name === "string" ? { ...o, full_name: cleanName(o.full_name) } : o))
+    .filter((o) => o && typeof o.full_name === "string" && o.full_name.length >= 5 && /\s/.test(o.full_name))
     .map((o) => ({
       full_name: o.full_name.trim(),
       role: VALID_ROLES.has(o.role) ? o.role : (level === "county" ? "county_commissioner" : "city_council"),
@@ -161,6 +185,11 @@ export async function findAndExtractOfficials({ sb, city, state, locality, level
   const cityName = city ?? loc.replace(/,\s*[A-Z]{2}$/i, "").trim();
   const lvl = level ?? (/\b(county|parish|borough)\b/i.test(loc) ? "county" : "municipal");
 
+  // Census-designated places are unincorporated — there IS no municipal
+  // government to find. Searching would surface some same-named real city
+  // (the Hamilton, MI → Hamilton, OH failure shape). Leave for a human.
+  if (/\bcdp\b/i.test(loc)) return { queued: true, reason: "unincorporated-cdp" };
+
   // ---- Tier 1: Legistar (authoritative clerk roster, keyless) ----
   try {
     const tenant = await resolveCachedTenant(sb, state, loc);
@@ -186,10 +215,34 @@ export async function findAndExtractOfficials({ sb, city, state, locality, level
   const candidates = pickCandidateUrls(results, cityName);
   if (!candidates.length) return { queued: true, reason: "no-gov-candidate" };
 
+  // LOCALITY-NAME gate input: the page (or its host) must actually mention
+  // the place it's supposed to govern. Without this, an unincorporated place
+  // with no site of its own resolves to SOME same-state city's page — the
+  // batch run pulled Troy, MI for "Hamilton, MI" and Portage, MI for
+  // "Mattawan, MI" (the .gov score bonus outranked the correct mattawanmi.org).
+  const bareName = cityName.toLowerCase().replace(/\b(county|parish|borough|village|township|city|town|of)\b/gi, " ").replace(/\s+/g, " ").trim();
+  const squashedName = bareName.replace(/[^a-z0-9]/g, "");
+
   let lastProvider = null;
   for (const url of candidates) {
     const text = await fetchPageText(url);
     if (!text) continue;
+    // STATE gate: the fetched page must not belong to a same-named place in
+    // another state (Hamilton, MI query → cityofhamilton.com = Hamilton,
+    // OHIO). The gazetteer resolver pins the page's state from its own text;
+    // an uncorroborated different-state pin means wrong government — skip.
+    const geo = reconcileLocality({ aiLocality: state, scopeState: state, text: text.slice(0, 16_000), title: cityName });
+    if (!geo.corroborated && /^[A-Z]{2}$/.test(geo.locality) && geo.locality !== String(state).toUpperCase()) {
+      continue; // page is about a different state's government
+    }
+    // LOCALITY-NAME gate: same-state-but-wrong-city pages don't mention the
+    // locality at all — require the name in the page text or the hostname.
+    if (bareName.length >= 3) {
+      const host = (() => { try { return new URL(url).hostname.toLowerCase().replace(/[^a-z0-9]/g, ""); } catch { return ""; } })();
+      if (!text.toLowerCase().includes(bareName) && !(squashedName && host.includes(squashedName))) {
+        continue; // page never names the locality it would be governing
+      }
+    }
     const { officials, provider } = await extractFromText({ text, city: cityName, state, level: lvl, sourceUrl: url });
     lastProvider = provider;
     if (officials.length > 0) {
