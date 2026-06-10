@@ -22,3 +22,7 @@ node --env-file=.env.local scripts/verify-local-bans.mjs --limit 60
 
 REM 4. Unified locality-intelligence sweep (law + pending measures + links).
 node --env-file=.env.local scripts/sweep-locality-intel.mjs --limit 20
+
+REM 5. Hermes auto-brief: local research agent writes campaigns.briefing for
+REM    newly auto-approved campaigns (PR-E; hermes3:8b tool-calling).
+node --env-file=.env.local scripts/auto-brief-campaigns.mjs --limit 3
