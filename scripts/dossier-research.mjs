@@ -130,85 +130,80 @@ What the platform's records DON'T yet show about this target.
 ## Sources
 Bullet list: which tools + which records each section drew from.`;
 
+// ── Deterministic research: 8B models do NOT reliably drive an agentic tool
+// loop (the florida-AG auto-run made 1 call, then ignored 2 nudges and wrote
+// a stub). So the CODE runs the target-appropriate tools — coverage is
+// GUARANTEED — and the model only SYNTHESIZES over complete data. ──
+function planFor(t) {
+  const nm = t.name.slice(0, 50);
+  if (t.kind === "state") {
+    return [
+      ["search_bills", { state: t.state }, "bills"],
+      ["search_local_bans", { state: t.state }, "confirmed_local_bans"],
+      ["search_legislators", { state: t.state }, "legislators"],
+      ["search_news", { state: t.state, days: 120 }, "recent_news"],
+      ["search_meetings", { state: t.state, days: 45 }, "upcoming_meetings"],
+      ["search_lobbying", {}, "lobbying_filings"],
+      ["search_research", {}, "research_evidence"],
+    ];
+  }
+  // org / official
+  return [
+    ["search_orgs", { query: nm }, "org_profile"],
+    ["search_lobbying", { client: nm }, "lobbying_as_client"],
+    ["search_lobbying", { registrant: nm }, "lobbying_as_registrant"],
+    ["search_donations", t.state ? { state: t.state } : { name: nm }, "campaign_finance"],
+    ["search_news", { state: t.state ?? "FED", days: 120 }, "recent_news"],
+    ["search_research", {}, "research_evidence"],
+  ];
+}
+
+const plan = planFor(target);
+let toolCalls = 0;
+const dataBlocks = [];
+console.log(`Running ${plan.length} research tools deterministically…`);
+for (const [tool, args, label] of plan) {
+  process.stdout.write(`  → ${label} (${tool})… `);
+  let result;
+  try { result = await dispatchTool(sb, tool, args); } catch (e) { result = { error: e.message }; }
+  toolCalls++;
+  const json = JSON.stringify(result);
+  console.log(json.length > 70 ? `${json.slice(0, 70)}…` : json);
+  // Keep blocks tight — a half-cores 8B chokes on a huge context (the full
+  // 7-block payload timed out at 300s). 1500 chars/block is plenty to synthesize.
+  dataBlocks.push(`### ${label} (${tool})\n${json.slice(0, 1500)}`);
+}
+
 const userPrompt =
-  `Target kind: ${target.kind}\n` +
-  `Target: ${target.name}${target.state ? ` (${target.state})` : ""}\n` +
+  `Write the dossier for this target using ONLY the research data below.\n` +
+  `Target kind: ${target.kind}\nTarget: ${target.name}${target.state ? ` (${target.state})` : ""}\n` +
   (target.hint ? `Known: ${target.hint}\n` : "") +
-  `\nResearch this target, then write the dossier. Work the checklist IN ORDER before writing:\n` +
-  `1. search_orgs (query: the target's name)\n` +
-  `2. search_lobbying with client="${target.name.slice(0, 40)}"\n` +
-  `3. search_lobbying with registrant="${target.name.slice(0, 40)}"\n` +
-  `4. search_donations${target.state ? ` (state: "${target.state}")` : " (name: a person named in the records, if any)"}\n` +
-  `5. search_news (state: "${target.state ?? "FED"}")\n` +
-  `6. search_research (no filters — the strongest evidence overall)\n` +
-  (target.kind === "state" ? `7. search_bills + search_local_bans + search_meetings (state: "${target.state}")\n` : "") +
-  `Only after completing the checklist, write the full dossier with every section.`;
+  `\n=== RESEARCH DATA (the platform's records — "count":0 means the records show nothing for that angle) ===\n` +
+  dataBlocks.join("\n\n") +
+  `\n=== END DATA ===\n\nNow write the FULL dossier with EVERY section (## Summary through ## Sources). Be specific — cite names, dates, dollar amounts, bill numbers from the data, and note which data block each claim came from. If a block is empty, say the records show nothing for that angle; never invent.`;
 
 const messages = [
   { role: "system", content: SYSTEM },
   { role: "user", content: userPrompt },
 ];
 
+// Synthesis only — NO tools (data is already gathered), so the model can't
+// loop or stall. One call + one expand-retry if the first draft is thin.
 let finalText = null;
-let toolCalls = 0;
-let nudges = 0;
-const MIN_TOOL_CALLS = 5; // an 8B model will under-research without a hard floor
-const usedTools = new Set();
-
-for (let turn = 0; turn < MAX_TURNS; turn++) {
-  process.stdout.write(`Turn ${turn + 1}/${MAX_TURNS}: `);
+for (let attempt = 0; attempt < 2; attempt++) {
+  process.stdout.write(`Synthesis attempt ${attempt + 1}/2: `);
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      tools: TOOLS_SCHEMA,
-      stream: false,
-      options: { temperature: 0.2, num_thread: OLLAMA_NUM_THREAD },
-    }),
-    signal: AbortSignal.timeout(300_000),
+    body: JSON.stringify({ model: MODEL, messages, stream: false, options: { temperature: 0.2, num_thread: OLLAMA_NUM_THREAD } }),
+    signal: AbortSignal.timeout(600_000),
   });
   if (!res.ok) { await failTelemetry(`Ollama ${res.status}: ${(await res.text()).slice(0, 150)}`); process.exit(1); }
-  const data = await res.json();
-  const msg = data.message ?? {};
-  const calls = msg.tool_calls ?? [];
-
-  if (calls.length > 0) {
-    console.log(`${calls.length} tool call${calls.length === 1 ? "" : "s"}`);
-    messages.push({ role: "assistant", content: msg.content ?? "", tool_calls: calls });
-    for (const tc of calls) {
-      const fname = tc.function?.name;
-      const fargs = tc.function?.arguments ?? {};
-      console.log(`  → ${fname}(${JSON.stringify(fargs).slice(0, 90)})`);
-      toolCalls++;
-      usedTools.add(fname);
-      const result = await dispatchTool(sb, fname, fargs);
-      // Name embedded in the JSON (multi-call turns misattribute otherwise)
-      // + the 8000-char guard the proven research-campaign loop uses.
-      messages.push({ role: "tool", content: JSON.stringify({ tool: fname, ...result }).slice(0, 8000) });
-    }
-    continue;
-  }
-
-  // Deterministic research floor: if the model tries to write the dossier
-  // after too little research (the smoke test produced a 1-call, 786-char
-  // shrug), reject the draft and send it back to the checklist. Max 2 nudges.
-  if (toolCalls < MIN_TOOL_CALLS && nudges < 2) {
-    nudges++;
-    const unused = TOOLS_SCHEMA.map((t) => t.function.name).filter((n) => !usedTools.has(n));
-    console.log(`nudge ${nudges}: only ${toolCalls} tool call(s) — sending back to the checklist`);
-    messages.push({ role: "assistant", content: msg.content ?? "" });
-    messages.push({
-      role: "user",
-      content: `Not yet — you have consulted only ${toolCalls} record set(s). Continue the checklist before writing: you have not used ${unused.slice(0, 6).join(", ")}. Call 2-4 of them now (for search_lobbying, try BOTH client and registrant set to the target's name). Then write the FULL dossier with every section.`,
-    });
-    continue;
-  }
-
-  finalText = (msg.content ?? "").trim();
-  console.log("final");
-  break;
+  const text = ((await res.json()).message?.content ?? "").trim();
+  console.log(`${text.length} chars`);
+  if (text.length >= 1200) { finalText = text; break; }
+  messages.push({ role: "assistant", content: text });
+  messages.push({ role: "user", content: "Too brief. Expand EVERY section with the specifics from the research data — names, dates, dollar amounts, bill numbers, quotes. The dossier must be thorough and complete." });
 }
 
 // A real 8-section dossier can't be under ~1200 chars — thin output fails
