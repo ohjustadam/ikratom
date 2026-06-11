@@ -58,6 +58,7 @@
     "driver.js": "^1.4.0",
     "framer-motion": "^12.40.0",
     "gray-matter": "^4.0.3",
+    "js-yaml": "^4.2.0",
     "kokoro-js": "^1.2.1",
     "libsodium-wrappers": "^0.8.4",
     "linkedom": "^0.18.12",
