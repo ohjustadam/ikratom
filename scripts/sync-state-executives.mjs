@@ -67,8 +67,11 @@ const NOW = () => new Date().toISOString();
 
 // Weekly self-gate — lives in the nightly chassis but only works Sundays-ish.
 if (!FORCE) {
+  // Exclude dry-run rows from the gate — a dry-run must never count as a real
+  // sync (it would defer the next real run by the weekly window).
   const { data } = await sb.from("scraper_runs")
     .select("finished_at").eq("source", "state_executives_sync").eq("status", "success")
+    .not("notes", "ilike", "%[dry-run]%")
     .order("finished_at", { ascending: false }).limit(1);
   const last = data?.[0]?.finished_at ? new Date(data[0].finished_at).getTime() : 0;
   if (last && Date.now() - last < 6 * 864e5) {
@@ -228,14 +231,19 @@ for (const ex of seats) {
 }
 
 console.log(`\nDone. inserted=${inserted} updated=${updated} deactivated=${deactivated}${DRY ? " [dry-run]" : ""}`);
-try {
-  await sb.from("scraper_runs").insert({
-    source: "state_executives_sync",
-    started_at: new Date(t0).toISOString(),
-    finished_at: NOW(),
-    status: seats.length === 0 ? "fail" : "success",
-    rows_updated: inserted + updated,
-    notes: `seats=${seats.length} inserted=${inserted} updated=${updated} deactivated=${deactivated}${DRY ? " [dry-run]" : ""}`,
-  });
-} catch { /* best-effort */ }
+// A dry-run writes NO telemetry — otherwise it poisons the weekly gate above
+// (a [dry-run] success row would defer the next real sync). Belt + braces:
+// the gate also excludes [dry-run] notes.
+if (!DRY) {
+  try {
+    await sb.from("scraper_runs").insert({
+      source: "state_executives_sync",
+      started_at: new Date(t0).toISOString(),
+      finished_at: NOW(),
+      status: seats.length === 0 ? "fail" : "success",
+      rows_updated: inserted + updated,
+      notes: `seats=${seats.length} inserted=${inserted} updated=${updated} deactivated=${deactivated}`,
+    });
+  } catch { /* best-effort */ }
+}
 process.exit(0);

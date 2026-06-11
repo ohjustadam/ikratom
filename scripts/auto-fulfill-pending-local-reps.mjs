@@ -17,6 +17,10 @@ import { createClient } from "@supabase/supabase-js";
 import { findAndExtractOfficials } from "./lib/officials-extract.mjs";
 
 const t0 = Date.now();
+const args = process.argv.slice(2);
+const numArg = (f, dflt) => { const i = args.indexOf(f); const n = parseInt(args[i + 1] ?? "", 10); return i >= 0 && Number.isFinite(n) && n > 0 ? n : dflt; };
+const LIMIT = numArg("--limit", 0);           // 0 = no cap
+const MAX_MINUTES = numArg("--max-minutes", 0); // 0 = no wall-clock budget
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -54,15 +58,30 @@ async function verify(fullName, sourceUrl) {
   }
 }
 
-const { data: pending } = await sb
+let pq = sb
   .from("local_rep_requests")
   .select("id, state, locality, level")
-  .eq("status", "pending");
-console.log(`pending: ${pending?.length ?? 0}`);
+  .eq("status", "pending")
+  .order("created_at", { ascending: true }); // oldest requests first
+if (LIMIT > 0) pq = pq.limit(LIMIT);
+const { data: pending, error: pendErr } = await pq;
+if (pendErr) {
+  // Surface the failure in telemetry rather than mis-reporting as "empty".
+  try {
+    await sb.from("scraper_runs").insert({
+      source: "auto_fulfill_local_reps", started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(), status: "fail", rows_added: 0,
+      notes: `pending query failed: ${pendErr.message}`.slice(0, 200),
+    });
+  } catch { /* best-effort */ }
+  console.error(pendErr.message); process.exit(1);
+}
+console.log(`pending: ${pending?.length ?? 0}${LIMIT ? ` (capped at ${LIMIT})` : ""}`);
 
 const seen = new Set();
 let totalInserted = 0;
 let totalSkipped = 0;
+let budgetHit = false;
 // Stop the run if many localities can't be resolved in a row (infra down or
 // genuinely sparse) — but never on a single miss; one bad locality shouldn't
 // strand every other pending member request behind it.
@@ -70,6 +89,11 @@ let consecutiveUnresolved = 0;
 const UNRESOLVED_STREAK_STOP = 5;
 
 for (const req of pending ?? []) {
+  if (MAX_MINUTES > 0 && Date.now() - t0 > MAX_MINUTES * 60_000) {
+    budgetHit = true;
+    console.log(`\n⏱ wall-clock budget (${MAX_MINUTES}m) reached — remaining requests drain next run`);
+    break;
+  }
   const key = `${req.state}|${req.locality}|${req.level}`;
   if (seen.has(key)) continue;
   seen.add(key);
@@ -182,6 +206,6 @@ try {
     finished_at: new Date().toISOString(),
     status: totalInserted > 0 ? "success" : (seen.size === 0 ? "empty" : "success"),
     rows_added: totalInserted,
-    notes: `${seen.size} localities processed · ${totalInserted} officials inserted · ${totalSkipped} skipped by verification`,
+    notes: `${seen.size} localities processed · ${totalInserted} officials inserted · ${totalSkipped} skipped by verification${budgetHit ? " · budget-hit" : ""}`,
   });
 } catch { /* best-effort */ }

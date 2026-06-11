@@ -33,6 +33,10 @@ const MODEL = arg("--model") || "llama3.1:8b";
 const SPECIFIC_LANG = arg("--lang");
 const SPECIFIC_TYPE = arg("--type");
 const LIMIT = parseInt(arg("--limit") ?? "200");
+// Wall-clock budget: LIMIT applies PER (source type × language), so a cold
+// cache can mean thousands of sequential CPU calls. Cap the run so the
+// nightly bulk tail can never pin the box into the owner's workday.
+const MAX_MINUTES = parseInt(arg("--max-minutes") ?? "0", 10);
 const REFRESH = args.includes("--refresh");
 
 const TARGET_LANGS = SPECIFIC_LANG
@@ -166,14 +170,18 @@ console.log();
 if (!(await checkOllama())) process.exit(1);
 
 let totalDone = 0, totalFailed = 0, totalSkipped = 0;
+let budgetHit = false;
 const tStart = Date.now();
+const overBudget = () => MAX_MINUTES > 0 && Date.now() - tStart > MAX_MINUTES * 60_000;
 
 for (const src of targetSources) {
+  if (overBudget()) { budgetHit = true; break; }
   const { data: rows, error } = await src.fetch();
   if (error) { console.error(`Fetch failed for ${src.type}:`, error.message); continue; }
   console.log(`── ${src.label} (${(rows ?? []).length} rows) ──`);
 
   for (const row of rows ?? []) {
+    if (overBudget()) { budgetHit = true; break; }
     const text = row[src.textField];
     if (!text || typeof text !== "string" || text.trim().length < 5) continue;
     const hash = sha256(text);
@@ -220,7 +228,17 @@ for (const src of targetSources) {
 }
 
 const elapsed = ((Date.now() - tStart) / 1000 / 60).toFixed(1);
-console.log(`\nDone in ${elapsed} min — ${totalDone} translated, ${totalSkipped} skipped (cached), ${totalFailed} failed.`);
+console.log(`\nDone in ${elapsed} min — ${totalDone} translated, ${totalSkipped} skipped (cached), ${totalFailed} failed.${budgetHit ? ` (stopped at ${MAX_MINUTES}m budget — remainder drains next run)` : ""}`);
+try {
+  await supabase.from("scraper_runs").insert({
+    source: "translate_content",
+    started_at: new Date(tStart).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: totalFailed > 0 && totalDone === 0 ? "fail" : "success",
+    rows_updated: totalDone,
+    notes: `translated=${totalDone} skipped=${totalSkipped} failed=${totalFailed}${budgetHit ? " budget-hit" : ""}`,
+  });
+} catch { /* best-effort */ }
 
 // Self-monitoring (standing rule 6) — nightly box step since PR-D.
 try {
