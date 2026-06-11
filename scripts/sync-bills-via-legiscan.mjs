@@ -276,7 +276,13 @@ async function syncOne(bill) {
 
   // Reconcile status: LegiScan ground-truth
   const lsStatus = STATUS_MAP[Number(detail.status)] ?? null;
-  const lsLastAction = detail.history?.[detail.history.length - 1];
+  // SORT before picking "last" — LegiScan's history array is NOT guaranteed
+// chronological (AB 1088's came back out of order, leaving last_action_at a
+// year stale while bill_actions held the real 2026 timeline).
+const lsLastAction = (detail.history ?? [])
+  .filter((h) => h?.date)
+  .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  .slice(-1)[0];
   const patch = {};
 
   // Extract current committee from the most-recent committee-mentioning
