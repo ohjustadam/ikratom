@@ -67,8 +67,8 @@ export default async function AccountPage({
         <nav className="lg:sticky lg:top-24 lg:self-start">
           <ul className="flex flex-wrap gap-1 lg:flex-col lg:gap-0 text-sm">
             <SideLink href="#identity" emoji="🪪">Identity</SideLink>
-            <SideLink href="#security-privacy" emoji="🔒">Security &amp; privacy</SideLink>
             <SideLink href="#notifications" emoji="🔔">Notifications</SideLink>
+            <SideLink href="#security-privacy" emoji="🔒">Security &amp; privacy</SideLink>
             <SideLink href="#appearance" emoji="🎨">Appearance</SideLink>
             <SideLink href="#integrations" emoji="🔌">Integrations</SideLink>
             <SideLink href="#advocacy" emoji="📣">Advocacy tools</SideLink>
@@ -99,7 +99,28 @@ export default async function AccountPage({
             />
           </Section>
 
-          {/* 2. Security & privacy */}
+          {/* 2. Notifications — directly under Identity/civic info, above recruitment */}
+          <Section
+            id="notifications"
+            title="Notifications"
+            intro="Pick which campaigns reach you, where, and how often. In-app + push live together here."
+          >
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+              <h3 className="mb-3 text-sm font-semibold">In-app preferences</h3>
+              <NotificationPrefsForm initial={notifPrefs} />
+            </div>
+
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+              <h3 className="mb-1 text-sm font-semibold">Push notifications</h3>
+              <p className="mb-3 text-xs text-zinc-500">
+                Browser/phone alert the moment a hostile bill drops in your state,
+                or when a wave you joined fires.
+              </p>
+              <PushSubscribe vapidPublicKey={vapidPublicKey} />
+            </div>
+          </Section>
+
+          {/* 3. Security & privacy */}
           <Section
             id="security-privacy"
             title="Security & privacy"
@@ -123,27 +144,6 @@ export default async function AccountPage({
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
               <h3 className="mb-3 text-sm font-semibold">Blocked users</h3>
               <BlockedUsersList blocked={blocked} />
-            </div>
-          </Section>
-
-          {/* 3. Notifications */}
-          <Section
-            id="notifications"
-            title="Notifications"
-            intro="Pick which campaigns reach you, where, and how often. In-app + push live together here."
-          >
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-              <h3 className="mb-3 text-sm font-semibold">In-app preferences</h3>
-              <NotificationPrefsForm initial={notifPrefs} />
-            </div>
-
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-              <h3 className="mb-1 text-sm font-semibold">Push notifications</h3>
-              <p className="mb-3 text-xs text-zinc-500">
-                Browser/phone alert the moment a hostile bill drops in your state,
-                or when a wave you joined fires.
-              </p>
-              <PushSubscribe vapidPublicKey={vapidPublicKey} />
             </div>
           </Section>
 
