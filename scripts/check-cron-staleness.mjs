@@ -107,6 +107,8 @@ const REGISTRY = [
   { source: "bill_embeddings", interval_hours: 72, system: "local-box", cadence: "daily" },
   // Dossier Phase 1: one Hermes deep-dive per night on the box.
   { source: "dossier_research", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // PR-K: state executives sync (weekly self-gate; lives in nightly chassis).
+  { source: "state_executives_sync", interval_hours: 216, system: "local-box", cadence: "weekly" },
 ];
 
 const t0 = Date.now();
