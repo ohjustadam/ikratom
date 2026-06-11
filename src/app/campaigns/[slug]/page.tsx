@@ -343,18 +343,23 @@ export default async function CampaignPage({
           existing ShareButtons block (further down) is the per-platform
           tracked-share for in-app metrics; this one is the rapid
           amplification surface. */}
-      <div className="mb-6">
-        <SocialBombButtons
-          url={`${APP_URL}/campaigns/${campaign.slug}`}
-          text={defaultCampaignShareText({
-            title: campaign.title,
-            state: campaign.state ?? null,
-            // Heuristic — campaign title contains "oppose"/"ban"/"schedule" implies hostile
-            isHostile: /\b(oppose|ban|schedule|prohibit|stop)\b/i.test(campaign.title),
-          })}
-          hashtags={["kratom", "iKratom", campaign.state ?? "advocacy"].filter(Boolean) as string[]}
-        />
-      </div>
+      <details open className="mb-6 rounded-lg border border-zinc-800/60 bg-zinc-950/20 p-3">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-zinc-400 hover:text-zinc-200">
+          📣 Amplify · spread the word
+        </summary>
+        <div className="mt-2">
+          <SocialBombButtons
+            url={`${APP_URL}/campaigns/${campaign.slug}`}
+            text={defaultCampaignShareText({
+              title: campaign.title,
+              state: campaign.state ?? null,
+              // Heuristic — campaign title contains "oppose"/"ban"/"schedule" implies hostile
+              isHostile: /\b(oppose|ban|schedule|prohibit|stop)\b/i.test(campaign.title),
+            })}
+            hashtags={["kratom", "iKratom", campaign.state ?? "advocacy"].filter(Boolean) as string[]}
+          />
+        </div>
+      </details>
 
       {/* Story attached banner — when ?story=<id> auto-populated the body */}
       {attachedStoryTitle && (
@@ -423,36 +428,42 @@ export default async function CampaignPage({
         campaignSlug={campaign.slug}
       />
 
-      {/* Share to your network — distributed organic mobilization */}
+      {/* Share to your network — distributed organic mobilization.
+          Deliberately KEPT alongside the top Amplify box: this one fires
+          post-action (best conversion moment) and tracks shares in-app. */}
       <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          📣 Share with your people
-        </p>
-        <p className="mt-1 text-sm text-zinc-300">
-          Post this campaign to your FB group, X, Reddit, or send to a friend.
-          Your voice on your accounts matters more than ours.
-        </p>
-        <div className="mt-3">
-          <ShareButtons
-            url={`${APP_URL}/campaigns/${campaign.slug}`}
-            title={campaign.title}
-            text={campaign.blurb ?? ""}
-            target={{ kind: "campaign", campaignId: campaign.id }}
-          />
-        </div>
+        <details open>
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
+            📣 Share with your people
+          </summary>
+          <p className="mt-1 text-sm text-zinc-300">
+            Post this campaign to your FB group, X, Reddit, or send to a friend.
+            Your voice on your accounts matters more than ours.
+          </p>
+          <div className="mt-3">
+            <ShareButtons
+              url={`${APP_URL}/campaigns/${campaign.slug}`}
+              title={campaign.title}
+              text={campaign.blurb ?? ""}
+              target={{ kind: "campaign", campaignId: campaign.id }}
+            />
+          </div>
+        </details>
       </section>
 
       {/* The ask / context */}
       {campaign.body_md && (
         <section className="mt-10">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+          <details open>
+          <summary className="mb-3 cursor-pointer text-sm font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
             Why this matters
-          </h2>
+          </summary>
           {/* body_md is MARKDOWN — render it (raw ##/** previously displayed
               as literal text; owner caught it on the AB 1088 campaign). */}
           <div className="prose prose-invert max-w-none rounded-lg border border-zinc-800 bg-zinc-950/40 p-6 text-sm leading-relaxed text-zinc-300">
             <Markdown>{campaign.body_md}</Markdown>
           </div>
+          </details>
         </section>
       )}
 

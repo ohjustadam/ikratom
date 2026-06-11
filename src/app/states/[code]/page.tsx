@@ -5,6 +5,7 @@ import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
 import { StatusHeader, type StateStatusData } from "./StatusHeader";
+import { StateOfficials } from "./StateOfficials";
 import { resolveBillHrefs } from "@/modules/state-status/evidence";
 import { STATE_NAMES } from "@/lib/state-names";
 
@@ -686,24 +687,45 @@ export default async function StatePage({ params }: Props) {
       <SignUpNudge context="state" stateCode={codeUpper} className="mb-8" />
       <EnablePushNudge context="state" stateCode={codeUpper} className="mb-8" />
 
-      {/* Active campaigns first — primary CTA */}
-      {(campaigns.data ?? []).length > 0 && (
+      {/* State bills MOVING — last 90 days of legislative activity. */}
+      {movingStateBills.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-emerald-300">
-            Active campaigns
+          <h2 className="mb-2 text-sm font-bold uppercase tracking-wider text-zinc-300">
+            State bills moving · {movingStateBills.length}
           </h2>
-          <ul className="space-y-2">
-            {(campaigns.data ?? []).map((c) => (
-              <li key={c.id}>
-                <Link
-                  href={`/campaigns/${c.slug}`}
-                  className="block rounded-md border border-emerald-700/40 bg-emerald-950/15 p-4 hover:border-emerald-500"
-                >
-                  <p className="font-semibold text-zinc-100">{c.title}</p>
-                  {c.blurb && <p className="mt-1 text-sm text-zinc-400">{c.blurb}</p>}
-                </Link>
-              </li>
-            ))}
+          <p className="mb-3 text-[11px] text-zinc-500">
+            State-scope bills with legislative activity in the last 90 days.
+          </p>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {movingStateBills.map((b) => {
+              const daysAgo = b.last_action_at ? Math.floor((Date.now() - new Date(b.last_action_at).getTime()) / 86_400_000) : null;
+              return (
+                <li key={b.id}>
+                  <Link
+                    href={`/bills/${b.id}`}
+                    className={`block rounded-md border p-3 hover:border-emerald-500 ${
+                      b.kratom_relevance === "anti"
+                        ? "border-red-700/40 bg-red-950/10"
+                        : "border-emerald-700/40 bg-emerald-950/10"
+                    }`}
+                  >
+                    <p className="flex items-baseline gap-2">
+                      <span className="font-mono text-sm font-bold text-zinc-100">{b.bill_number}</span>
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                        b.kratom_relevance === "anti" ? "bg-red-950/40 text-red-300" : "bg-emerald-950/40 text-emerald-300"
+                      }`}>
+                        {b.kratom_relevance === "anti" ? "🚫 restrictive" : "✅ supportive"}
+                      </span>
+                      <span className="ml-auto text-[10px] text-zinc-500">{b.status}{daysAgo != null && ` · ${daysAgo}d`}</span>
+                    </p>
+                    {b.title && <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{b.title}</p>}
+                    {b.last_action && (
+                      <p className="mt-1 text-[10px] text-zinc-600">{b.last_action}</p>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
@@ -756,48 +778,32 @@ export default async function StatePage({ params }: Props) {
         </section>
       )}
 
-      {/* State bills MOVING — last 90 days of legislative activity. */}
-      {movingStateBills.length > 0 && (
+      {/* Active campaigns — after the bills sections per owner spec
+          (state bills → local fights → campaigns). */}
+      {(campaigns.data ?? []).length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-2 text-sm font-bold uppercase tracking-wider text-zinc-300">
-            State bills moving · {movingStateBills.length}
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-emerald-300">
+            Active campaigns
           </h2>
-          <p className="mb-3 text-[11px] text-zinc-500">
-            State-scope bills with legislative activity in the last 90 days.
-          </p>
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {movingStateBills.map((b) => {
-              const daysAgo = b.last_action_at ? Math.floor((Date.now() - new Date(b.last_action_at).getTime()) / 86_400_000) : null;
-              return (
-                <li key={b.id}>
-                  <Link
-                    href={`/bills/${b.id}`}
-                    className={`block rounded-md border p-3 hover:border-emerald-500 ${
-                      b.kratom_relevance === "anti"
-                        ? "border-red-700/40 bg-red-950/10"
-                        : "border-emerald-700/40 bg-emerald-950/10"
-                    }`}
-                  >
-                    <p className="flex items-baseline gap-2">
-                      <span className="font-mono text-sm font-bold text-zinc-100">{b.bill_number}</span>
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
-                        b.kratom_relevance === "anti" ? "bg-red-950/40 text-red-300" : "bg-emerald-950/40 text-emerald-300"
-                      }`}>
-                        {b.kratom_relevance === "anti" ? "🚫 restrictive" : "✅ supportive"}
-                      </span>
-                      <span className="ml-auto text-[10px] text-zinc-500">{b.status}{daysAgo != null && ` · ${daysAgo}d`}</span>
-                    </p>
-                    {b.title && <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{b.title}</p>}
-                    {b.last_action && (
-                      <p className="mt-1 text-[10px] text-zinc-600">{b.last_action}</p>
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
+          <ul className="space-y-2">
+            {(campaigns.data ?? []).map((c) => (
+              <li key={c.id}>
+                <Link
+                  href={`/campaigns/${c.slug}`}
+                  className="block rounded-md border border-emerald-700/40 bg-emerald-950/15 p-4 hover:border-emerald-500"
+                >
+                  <p className="font-semibold text-zinc-100">{c.title}</p>
+                  {c.blurb && <p className="mt-1 text-sm text-zinc-400">{c.blurb}</p>}
+                </Link>
+              </li>
+            ))}
           </ul>
         </section>
       )}
+
+      {/* Your officials — collapsible directory with one-tap email/call
+          (owner spec 2026-06-11: dropdowns inside the main dropdown). */}
+      <StateOfficials state={codeUpper} stateName={stateName} />
 
       {/* State bills TRACKED but quiet — collapsed by default so the
           page leads with what's actually moving. */}

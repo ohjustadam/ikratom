@@ -1207,6 +1207,137 @@ export default async function BillDetailPage({
         </section>
       )}
 
+      {/* ── Action + reference group: Take action / past campaigns /
+          official abstracts / official versions — placed ABOVE the full
+          bill text per owner spec (2026-06-11), reference boxes
+          collapsible for small screens. ── */}
+
+      {/* Linked campaigns */}
+      {campaigns.length > 0 && campaigns.some((c) => c.active) && (
+        <section className="mb-6 rounded-lg border-2 border-emerald-700/50 bg-gradient-to-br from-emerald-950/30 to-zinc-950/40 p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
+            Take action
+          </h2>
+          <ul className="mt-3 space-y-2">
+            {campaigns
+              .filter((c) => c.active)
+              .map((c) => (
+                <li key={c.id}>
+                  <a
+                    href={`/campaigns/${c.slug}`}
+                    className="flex items-center justify-between gap-3 rounded-md border border-emerald-700/40 bg-emerald-950/20 px-4 py-3 hover:border-emerald-500"
+                  >
+                    <span className="text-sm font-medium text-zinc-100">{c.title}</span>
+                    <span className="text-xs text-emerald-300">Open campaign →</span>
+                  </a>
+                </li>
+              ))}
+          </ul>
+          {(totalActions ?? 0) > 0 && (
+            <p className="mt-3 text-xs text-zinc-500">
+              {totalActions?.toLocaleString()} action{totalActions === 1 ? "" : "s"} taken
+              across all campaigns for this bill.
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* Inactive linked campaigns (legacy, for transparency) */}
+      {campaigns.some((c) => !c.active) && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <details>
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
+              Past campaigns for this bill (inactive) ▾
+            </summary>
+            <ul className="mt-2 space-y-1">
+              {campaigns
+                .filter((c) => !c.active)
+                .map((c) => (
+                  <li key={c.id} className="text-xs text-zinc-500">
+                    <span className="font-mono">{c.slug}</span>
+                    <span className="ml-2 text-zinc-600">
+                      created {new Date(c.created_at).toLocaleDateString()}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          </details>
+        </section>
+      )}
+
+      {/* OpenStates abstracts (additional summaries) */}
+      {detail && detail.abstracts.length > 0 && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <details open>
+            <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
+              Official abstracts
+            </summary>
+            {detail.abstracts.map((a, i) => (
+              <div key={i} className="mt-3">
+                {a.note && (
+                  <p className="text-xs font-semibold text-zinc-400">{a.note}</p>
+                )}
+                <p className="mt-1 whitespace-pre-line text-sm text-zinc-300">
+                  {a.abstract}
+                </p>
+              </div>
+            ))}
+          </details>
+        </section>
+      )}
+
+      {/* DB raw summary (fallback if no live detail abstracts) */}
+      {!detail?.abstracts?.length && bill.summary && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <details open>
+            <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
+              Official abstract
+            </summary>
+            <p className="mt-2 whitespace-pre-line text-sm text-zinc-300">{bill.summary}</p>
+          </details>
+        </section>
+      )}
+
+      {/* Official versions + sources (slim — patterns/momentum stay below) */}
+      <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <details open>
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
+            Official bill versions &amp; sources
+          </summary>
+          <div className="mt-3 space-y-2">
+            {detail?.versions && detail.versions.length > 0 ? (
+              detail.versions.map((v, i) => (
+                <div key={i}>
+                  <p className="text-xs text-zinc-500">
+                    {v.note} · {v.date}
+                  </p>
+                  <ul className="mt-1 space-y-1">
+                    {v.links.map((l, j) => (
+                      <li key={j}>
+                        <a
+                          href={l.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-emerald-400 hover:underline"
+                        >
+                          {l.media_type.includes("pdf") ? "📄 " : "🔗 "}
+                          Open {l.media_type.split("/").pop() ?? "document"} ↗
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-zinc-400">
+                We don&apos;t have direct version links cached. Use the source link
+                below to navigate to the official bill text.
+              </p>
+            )}
+          </div>
+        </details>
+      </section>
+
       {/* Full bill text — every captured version, switchable via tabs.
           Lets readers compare introduced vs amended versions on-site
           instead of bouncing to the state portal. */}
@@ -1265,6 +1396,46 @@ export default async function BillDetailPage({
               </li>
             ))}
           </ul>
+
+          {/* Merged sub-list (was its own duplicate section): same-stance
+              bills active in the last 12 months, minus ones already shown
+              above as text-similarity matches. */}
+          {similar.filter((s) => !similarBills.some((m) => m.bill.id === s.id)).length > 0 && (
+            <details className="mt-4">
+              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
+                Also moving now · same stance, last 12 months ({similar.filter((s) => !similarBills.some((m) => m.bill.id === s.id)).length}) ▾
+              </summary>
+              <ul className="mt-3 space-y-2">
+                {similar.filter((s) => !similarBills.some((m) => m.bill.id === s.id)).map((s) => (
+                  <li key={s.id} className="rounded-md border border-zinc-900 bg-zinc-950 p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
+                        {s.state} · {s.bill_number}
+                      </span>
+                      {s.scope && s.scope !== "state" && (
+                        <span className="rounded bg-purple-950/40 px-1.5 py-0.5 capitalize text-purple-300">
+                          {s.scope}
+                        </span>
+                      )}
+                      {s.status && (
+                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">
+                          {STATUS_LABEL[s.status] ?? s.status}
+                        </span>
+                      )}
+                      {s.last_action_at && (
+                        <span className="ml-auto text-zinc-500">
+                          {new Date(s.last_action_at).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                    <a href={`/bills/${s.id}`} className="mt-1 block text-zinc-200 hover:text-emerald-400">
+                      {s.title ?? "(untitled)"}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </section>
       )}
 
@@ -1367,122 +1538,11 @@ export default async function BillDetailPage({
         </section>
       )}
 
-      {/* Linked campaigns */}
-      {campaigns.length > 0 && campaigns.some((c) => c.active) && (
-        <section className="mb-6 rounded-lg border-2 border-emerald-700/50 bg-gradient-to-br from-emerald-950/30 to-zinc-950/40 p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
-            Take action
-          </h2>
-          <ul className="mt-3 space-y-2">
-            {campaigns
-              .filter((c) => c.active)
-              .map((c) => (
-                <li key={c.id}>
-                  <a
-                    href={`/campaigns/${c.slug}`}
-                    className="flex items-center justify-between gap-3 rounded-md border border-emerald-700/40 bg-emerald-950/20 px-4 py-3 hover:border-emerald-500"
-                  >
-                    <span className="text-sm font-medium text-zinc-100">{c.title}</span>
-                    <span className="text-xs text-emerald-300">Open campaign →</span>
-                  </a>
-                </li>
-              ))}
-          </ul>
-          {(totalActions ?? 0) > 0 && (
-            <p className="mt-3 text-xs text-zinc-500">
-              {totalActions?.toLocaleString()} action{totalActions === 1 ? "" : "s"} taken
-              across all campaigns for this bill.
-            </p>
-          )}
-        </section>
-      )}
-
-      {/* Inactive linked campaigns (legacy, for transparency) */}
-      {campaigns.some((c) => !c.active) && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Past campaigns for this bill (inactive)
-          </h3>
-          <ul className="mt-2 space-y-1">
-            {campaigns
-              .filter((c) => !c.active)
-              .map((c) => (
-                <li key={c.id} className="text-xs text-zinc-500">
-                  <span className="font-mono">{c.slug}</span>
-                  <span className="ml-2 text-zinc-600">
-                    created {new Date(c.created_at).toLocaleDateString()}
-                  </span>
-                </li>
-              ))}
-          </ul>
-        </section>
-      )}
-
-      {/* OpenStates abstracts (additional summaries) */}
-      {detail && detail.abstracts.length > 0 && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-            Official abstracts
-          </h2>
-          {detail.abstracts.map((a, i) => (
-            <div key={i} className="mt-3">
-              {a.note && (
-                <p className="text-xs font-semibold text-zinc-400">{a.note}</p>
-              )}
-              <p className="mt-1 whitespace-pre-line text-sm text-zinc-300">
-                {a.abstract}
-              </p>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {/* DB raw summary (fallback if no live detail abstracts) */}
-      {!detail?.abstracts?.length && bill.summary && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-            Official abstract
-          </h2>
-          <p className="mt-2 whitespace-pre-line text-sm text-zinc-300">{bill.summary}</p>
-        </section>
-      )}
-
-      {/* Bill text + sources */}
+      {/* Patterns + momentum (versions/sources moved above full text) */}
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-          Official bill versions &amp; sources
+          Patterns &amp; momentum
         </h2>
-        <div className="mt-3 space-y-2">
-          {detail?.versions && detail.versions.length > 0 ? (
-            detail.versions.map((v, i) => (
-              <div key={i}>
-                <p className="text-xs text-zinc-500">
-                  {v.note} · {v.date}
-                </p>
-                <ul className="mt-1 space-y-1">
-                  {v.links.map((l, j) => (
-                    <li key={j}>
-                      <a
-                        href={l.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-emerald-400 hover:underline"
-                      >
-                        {l.media_type.includes("pdf") ? "📄 " : "🔗 "}
-                        Open {l.media_type.split("/").pop() ?? "document"} ↗
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-zinc-400">
-              We don&apos;t have direct version links cached. Use the source link
-              below to navigate to the official bill text.
-            </p>
-          )}
-        </div>
 
         {/* Coordinated-operation cluster memberships — shows that
             this bill is part of nationwide patterns, with click-through
@@ -1977,49 +2037,6 @@ export default async function BillDetailPage({
               </li>
             ))}
           </ol>
-        </section>
-      )}
-
-      {/* Similar bills (same stance, active in last 365d) */}
-      {similar.length > 0 && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-            Similar bills moving now ({similar.length})
-          </h2>
-          <p className="mt-1 text-xs text-zinc-400">
-            Other {bill.kratom_relevance}-classified bills active in the last
-            12 months. Often the same template legislation moving through
-            multiple states at once.
-          </p>
-          <ul className="mt-3 space-y-2">
-            {similar.map((s) => (
-              <li key={s.id} className="rounded-md border border-zinc-900 bg-zinc-950 p-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
-                    {s.state} · {s.bill_number}
-                  </span>
-                  {s.scope && s.scope !== "state" && (
-                    <span className="rounded bg-purple-950/40 px-1.5 py-0.5 capitalize text-purple-300">
-                      {s.scope}
-                    </span>
-                  )}
-                  {s.status && (
-                    <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">
-                      {STATUS_LABEL[s.status] ?? s.status}
-                    </span>
-                  )}
-                  {s.last_action_at && (
-                    <span className="ml-auto text-zinc-500">
-                      {new Date(s.last_action_at).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-                <a href={`/bills/${s.id}`} className="mt-1 block text-zinc-200 hover:text-emerald-400">
-                  {s.title ?? "(untitled)"}
-                </a>
-              </li>
-            ))}
-          </ul>
         </section>
       )}
 
