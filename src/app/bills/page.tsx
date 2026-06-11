@@ -30,6 +30,7 @@ type BillRow = {
   session_id: string | null;
   scope: string | null;
   locality: string | null;
+  active: boolean | null;
 };
 
 type SP = Promise<{ filter?: string }>;
@@ -40,16 +41,20 @@ export default async function BillsPage({ searchParams }: { searchParams?: SP })
   const wantsCommitteeFilter = filter === "in-my-committees";
 
   const supabase = await createClient();
+  // Both current AND past-session bills: the browser sections them by the
+  // truthful `active` flag (current session / enacted vs concluded attempts).
+  // Filtering active-only here made the "Past sessions" view impossible and
+  // recency windows rendered states like OK as "0 bills" while holding 8.
   const { data: billsRaw } = await supabase
     .from("bills")
     .select(
       "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
       "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
-      "source_url, official_url, session_id, scope, locality"
+      "source_url, official_url, session_id, scope, locality, active"
     )
-    .eq("active", true)
+    .order("active", { ascending: false })
     .order("last_action_at", { ascending: false, nullsFirst: false })
-    .limit(500);
+    .limit(1500);
   const allBills = (billsRaw ?? []) as unknown as BillRow[];
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -140,11 +145,9 @@ export default async function BillsPage({ searchParams }: { searchParams?: SP })
       <header className="mb-6">
         <h1 className="text-3xl font-bold">Bill tracker</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Every kratom + 7-OH bill across all 50 states. Synced from{" "}
-          <a href="https://openstates.org" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">
-            OpenStates
-          </a>
-          {" "}— pro/anti/neutral relevance auto-classified from bill text patterns. Human review recommended.
+          Every kratom + 7-OH bill across all 50 states — full timelines synced from LegiScan
+          {" "}+ OpenStates. Current bills on top; past sessions &amp; closed attempts in their own
+          section below. Pro/anti relevance auto-classified, human review recommended.
         </p>
       </header>
 

@@ -21,6 +21,7 @@ type Bill = {
   session_id: string | null;
   scope: string | null;
   locality: string | null;
+  active: boolean | null;
 };
 
 const RELEVANCE: Record<string, { label: string; cls: string }> = {
@@ -38,13 +39,15 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 type Sort = "recent" | "state" | "alpha";
-type Activity = "moving" | "active" | "all";
 
-const ACTIVITY_THRESHOLDS_MS: Record<Activity, number | null> = {
-  moving: 90 * 86_400_000,    // last action in past 90 days
-  active: 365 * 86_400_000,   // last action in past 12 months (DEFAULT)
-  all: null,                  // no filter — includes zombies
-};
+// A bill is "current" when its session is live or it became law — the
+// truthful `active` flag set by the LegiScan session-hygiene sync. Wall-clock
+// recency windows are WRONG for this: carryover bills sit months without
+// action while fully alive, and post-heal truthful dates made whole states
+// render "0 bills". Owner directive 2026-06-11: current bills on top, past
+// attempts below in their own section — both always visible, zero confusion.
+const isCurrent = (b: Bill) => b.active === true && b.status !== "dead";
+const MOVING_MS = 90 * 86_400_000;
 
 export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: string | null }) {
   const [stateFilter, setStateFilter] = useState<string>(userState ? "yours" : "all");
@@ -52,11 +55,6 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("recent");
-  // Owner directive 2026-05-14: 'there is no telling the difference between
-  // what is what, if anything is old, dead, etc.' Default 'active' = last
-  // action within 12 months. Users can widen to 'all' to see zombies if
-  // researching. This matches the /states/[code] filter for consistency.
-  const [activity, setActivity] = useState<Activity>("active");
 
   const statesPresent = useMemo(() => {
     return Array.from(new Set(bills.map((b) => b.state))).sort();
@@ -71,23 +69,8 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
     return c;
   }, [bills]);
 
-  // Counts for each activity window so the chip labels show what's in scope.
-  const activityCounts = useMemo(() => {
-    const now = Date.now();
-    let moving = 0, active = 0;
-    for (const b of bills) {
-      if (!b.last_action_at) continue;
-      const age = now - new Date(b.last_action_at).getTime();
-      if (age <= ACTIVITY_THRESHOLDS_MS.moving!) moving++;
-      if (age <= ACTIVITY_THRESHOLDS_MS.active!) active++;
-    }
-    return { moving, active, all: bills.length };
-  }, [bills]);
-
-  const filtered = useMemo(() => {
+  const { current, past } = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const activityCutoff = ACTIVITY_THRESHOLDS_MS[activity];
-    const now = Date.now();
     let arr = bills.filter((b) => {
       // State
       if (stateFilter === "yours" && b.state !== userState) return false;
@@ -97,14 +80,8 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
         const r = b.kratom_relevance ?? "neutral";
         if (r !== relevanceFilter) return false;
       }
-      // Status — also auto-hide 'dead' status when activity != 'all'
+      // Status
       if (statusFilter !== "all" && b.status !== statusFilter) return false;
-      if (activity !== "all" && statusFilter === "all" && b.status === "dead") return false;
-      // Activity window — drop bills whose last action is older than the cutoff
-      if (activityCutoff != null) {
-        if (!b.last_action_at) return false;
-        if (now - new Date(b.last_action_at).getTime() > activityCutoff) return false;
-      }
       // Search
       if (q) {
         const hay = `${b.bill_number} ${b.title ?? ""} ${b.summary ?? ""} ${b.last_action ?? ""}`.toLowerCase();
@@ -125,8 +102,8 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
         return b.last_action_at.localeCompare(a.last_action_at);
       });
     }
-    return arr;
-  }, [bills, stateFilter, relevanceFilter, statusFilter, query, sort, userState, activity]);
+    return { current: arr.filter(isCurrent), past: arr.filter((b) => !isCurrent(b)) };
+  }, [bills, stateFilter, relevanceFilter, statusFilter, query, sort, userState]);
 
   if (bills.length === 0) {
     return (
@@ -190,22 +167,6 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
           </select>
         </div>
 
-        {/* Activity chips — default is 'active' (last 12 months). 'Moving'
-            shows only past-90-day action; 'All' includes zombies. Inserted
-            ABOVE relevance chips because activity is the primary trust
-            signal — users need to see this isn't a stale list. */}
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <Chip active={activity === "moving"} onClick={() => setActivity("moving")} count={activityCounts.moving}>
-            ⚡ Moving (90d)
-          </Chip>
-          <Chip active={activity === "active"} onClick={() => setActivity("active")} count={activityCounts.active}>
-            Active (12mo)
-          </Chip>
-          <Chip active={activity === "all"} onClick={() => setActivity("all")} count={activityCounts.all}>
-            All (incl. dead / closed)
-          </Chip>
-        </div>
-
         {/* Relevance chips */}
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           <Chip active={relevanceFilter === "all"} onClick={() => setRelevanceFilter("all")} count={relevanceCounts.all}>
@@ -238,31 +199,63 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
         </div>
       </div>
 
-      <p className="mb-3 text-xs text-zinc-500">
-        {filtered.length} bill{filtered.length === 1 ? "" : "s"}
-        {stateFilter === "yours" && userState && <> in {userState}</>}
-        {stateFilter !== "all" && stateFilter !== "yours" && <> in {stateFilter}</>}
-      </p>
+      {/* CURRENT bills — live sessions + enacted laws. Always on top. */}
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-300">
+          Current bills · {current.length}
+        </h2>
+        <span className="text-[10px] text-zinc-500">
+          live sessions + enacted laws
+          {stateFilter === "yours" && userState && <> · {userState}</>}
+          {stateFilter !== "all" && stateFilter !== "yours" && <> · {stateFilter}</>}
+        </span>
+      </div>
 
-      {filtered.length === 0 ? (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-8 text-center text-sm text-zinc-500">
-          No bills match those filters.
+      {current.length === 0 ? (
+        <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-6 text-center text-sm text-zinc-500">
+          No current bills match those filters{past.length > 0 && <> — but there {past.length === 1 ? "is" : "are"} {past.length} past attempt{past.length === 1 ? "" : "s"} below</>}.
         </div>
       ) : (
-        <ul className="space-y-2">
-          {filtered.map((b) => {
-            const tag = RELEVANCE[b.kratom_relevance ?? "neutral"] ?? RELEVANCE.neutral;
-            const status = b.status ? (STATUS_LABELS[b.status] ?? b.status) : null;
-            const isMine = userState === b.state;
-            const daysSinceAction = b.last_action_at
-              ? Math.floor((Date.now() - new Date(b.last_action_at).getTime()) / 86400_000)
-              : null;
-            const isStale = daysSinceAction != null && daysSinceAction > 365;
-            return (
+        <ul className="mb-6 space-y-2">
+          {current.map((b) => (
+            <BillCard key={b.id} b={b} userState={userState} stale={false} />
+          ))}
+        </ul>
+      )}
+
+      {/* PAST sessions + closed attempts — their own clearly-labeled section
+          so there is never confusion about what's current. Open by default
+          when it's the only content (e.g. a state whose fights all ended). */}
+      {past.length > 0 && (
+        <details open={current.length === 0} className="rounded-lg border border-zinc-800/70 bg-zinc-950/20 p-3">
+          <summary className="cursor-pointer text-sm font-bold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
+            🗄 Past sessions &amp; closed attempts · {past.length}
+          </summary>
+          <p className="mt-2 text-[11px] text-zinc-500">
+            Bills from concluded legislative sessions, plus dead or vetoed attempts.
+            History matters — these show who pushed what before — but none of these are moving today.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {past.map((b) => (
+              <BillCard key={b.id} b={b} userState={userState} stale />
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function BillCard({ b, userState, stale }: { b: Bill; userState: string | null; stale: boolean }) {
+  const tag = RELEVANCE[b.kratom_relevance ?? "neutral"] ?? RELEVANCE.neutral;
+  const status = b.status ? (STATUS_LABELS[b.status] ?? b.status) : null;
+  const isMine = userState === b.state;
+  const isMoving = !stale && b.last_action_at != null
+    && Date.now() - new Date(b.last_action_at).getTime() <= MOVING_MS;
+  return (
               <li
-                key={b.id}
                 className={`rounded-lg border ${
-                  isStale
+                  stale
                     ? "border-zinc-900 bg-zinc-950/20 opacity-70"
                     : isMine
                     ? "border-emerald-700/40 bg-zinc-950/40"
@@ -302,15 +295,23 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
                     {status && (
                       <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">{status}</span>
                     )}
-                    {isStale && (
+                    {isMoving && (
                       <span
-                        className="rounded bg-amber-950/40 px-1.5 py-0.5 text-amber-300"
-                        title="No legislative activity in over a year — likely from a closed session"
+                        className="rounded bg-emerald-950/40 px-1.5 py-0.5 font-semibold text-emerald-300"
+                        title="Legislative action within the past 90 days"
                       >
-                        Closed session
+                        ⚡ moving
                       </span>
                     )}
-                    {isMine && !isStale && (
+                    {stale && (
+                      <span
+                        className="rounded bg-amber-950/40 px-1.5 py-0.5 text-amber-300"
+                        title="From a concluded session, or a dead/vetoed attempt"
+                      >
+                        Closed
+                      </span>
+                    )}
+                    {isMine && !stale && (
                       <span className="rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-zinc-950">
                         YOUR STATE
                       </span>
@@ -328,7 +329,7 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
                   {(b.summary_ai || b.summary) && (
                     <p className="mt-1 text-sm text-zinc-300">{b.summary_ai || b.summary}</p>
                   )}
-                  {b.advocacy_callout && !isStale && (
+                  {b.advocacy_callout && !stale && (
                     <p className="mt-2 rounded-md border border-emerald-900/30 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-200">
                       <span className="font-semibold text-emerald-400">For advocates: </span>
                       {b.advocacy_callout}
@@ -345,11 +346,6 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
                   </p>
                 </a>
               </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
   );
 }
 

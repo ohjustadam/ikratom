@@ -76,13 +76,9 @@ export default async function StatePage({ params }: Props) {
   const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const horizon = new Date(now.getTime() + 90 * 86_400_000).toISOString();
 
-  // "Truly active" threshold: last legislative action within the past 12
-  // months. Anything older is almost certainly from a closed session and
-  // showing it as 'active' is misleading. Owner directive 2026-05-14:
-  // 'are all 20 of those active bills under new york truly active bills?
-  // there is no telling the difference between what is what.'
-  const ACTIVE_WINDOW_DAYS = 365;
-  const activeSince = new Date(now.getTime() - ACTIVE_WINDOW_DAYS * 86_400_000).toISOString();
+  // 2026-06-11: the old 12-month "truly active" wall-clock window is gone —
+  // the bills.active flag (LegiScan session hygiene) is now the truth signal
+  // the 2026-05-14 owner directive wanted. Carryover bills stay visible.
   // Past-meeting window: meetings in the last 14 days are still narratively
   // 'live' — the Suffolk County vote happened 2 days ago and is the central
   // active fight in NY right now; showing it on /states/NY is essential.
@@ -101,11 +97,15 @@ export default async function StatePage({ params }: Props) {
     supabase
       .from("bills")
       .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at, scope, locality")
+      // The truthful `active` flag (LegiScan session hygiene) IS the
+      // currency signal — a wall-clock window here hid whole states whose
+      // carryover bills sat without recent action while fully alive
+      // (post-heal OK rendered zero bills). Moving-vs-quiet bucketing
+      // below still uses last_action_at for emphasis.
       .eq("state", codeUpper)
       .eq("active", true)
       .in("kratom_relevance", ["anti", "pro"])
       .neq("status", "dead")
-      .gte("last_action_at", activeSince)
       .order("last_action_at", { ascending: false, nullsFirst: false })
       .limit(40),
     supabase
