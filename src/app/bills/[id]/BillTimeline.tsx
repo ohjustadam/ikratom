@@ -35,9 +35,14 @@ const STAGES = [
 export async function BillTimeline({
   billId,
   currentStatus,
+  billActive = true,
 }: {
   billId: string;
   currentStatus: string | null;
+  /** bills.active — current session or enacted. Gates the urgency CTA so a
+   *  closed-session bill never screams "your voice matters NOW" right above
+   *  the closed-session warning (owner caught the contradiction). */
+  billActive?: boolean;
 }) {
   const sb = await createClient();
   const { data: actions } = await sb
@@ -157,8 +162,8 @@ export async function BillTimeline({
         </ol>
       </details>
 
-      {/* Action-required prompt */}
-      {currentStageKey && currentStageKey !== "enacted" && currentStageKey !== "vetoed" && currentStageKey !== "dead" && (
+      {/* Action-required prompt — ONLY for bills in a live session */}
+      {billActive && currentStageKey && currentStageKey !== "enacted" && currentStageKey !== "vetoed" && currentStageKey !== "dead" && (
         <div className="mt-4 rounded border border-emerald-700/40 bg-emerald-950/15 p-3">
           <p className="text-xs font-semibold text-emerald-300">
             ⏰ This bill is still moving. Your voice matters NOW, not after.

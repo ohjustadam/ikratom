@@ -157,7 +157,7 @@ export default async function BillDetailPage({
     .select(
       "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
       "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
-      "source_url, official_url, session_id, scope, locality, " +
+      "source_url, official_url, session_id, scope, locality, active, " +
       "enriched_at, last_synced_at, " +
       "journey_narrative, amendments_count, journey_analyzed_at, " +
       "substance_targeting, substance_targeting_analyzed_at, " +
@@ -998,7 +998,7 @@ export default async function BillDetailPage({
       {/* Per-bill timeline — surfaces the legislative-journey stage tracker
           + full action history. Lobbyists know the planned next-step
           calendar; this gives advocates the same intel + a status badge. */}
-      <BillTimeline billId={bill.id} currentStatus={bill.status} />
+      <BillTimeline billId={bill.id} currentStatus={bill.status} billActive={(bill as { active?: boolean | null }).active === true} />
 
       {/* Stale warning — most important for SB-1639-style problems */}
       {isStale && (
