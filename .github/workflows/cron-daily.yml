@@ -36,12 +36,13 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
-      - name: AI-grounded status verification (50 most-stale tracked bills)
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/verify-bill-status-ai.mjs --all
+      # RETIRED 2026-06-11: verify-bill-status-ai.mjs called grounded Gemini
+      # directly (generativelanguage.googleapis.com / gemini-2.5-flash +
+      # google_search) — a violation of the de-Gemini / free-tier-only policy
+      # (CLAUDE.md, PR-A) AND it failed 50/50 every run for days (red since
+      # ~06-08). Authoritative bill status now comes from the LegiScan sync
+      # (sync-bills-via-legiscan.mjs) once LEGISCAN_API_KEY is set — no AI
+      # grounding needed. See V2_KICKOFF "BILL-DATA HEAL".
       - name: Auto-resolve sync discrepancies that don't need admin
         # For each scraper_stale alert, check:
         #   1. Did DB catch up since the alert was created? (resolve)
