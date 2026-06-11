@@ -35,7 +35,11 @@ node --env-file=.env.local scripts/summarize-news.mjs --limit 1000
 node --env-file=.env.local scripts/translate-content.mjs --model llama3.2:3b
 node --env-file=.env.local scripts/compute-bill-embeddings.mjs
 
-REM 7. THE DOSSIER (flagship Phase 1): Hermes deep-dives ONE target per night
+REM 7. State executives (PR-K): governors/lt-gov/AG/SoS from openstates/people
+REM    (keyless public YAML) — fills the 5Calls gap. Self-gates to weekly.
+node --env-file=.env.local scripts/sync-state-executives.mjs
+
+REM 8. THE DOSSIER (flagship Phase 1): Hermes deep-dives ONE target per night
 REM    through the verified corpora into the admin-only dossiers table (0195).
 REM    Human review gates any publish.
 node --env-file=.env.local scripts/dossier-research.mjs --auto
