@@ -8,6 +8,7 @@ import { getMyWaveStatus } from "@/modules/waves/actions";
 import { CampaignAction } from "@/modules/campaigns/components/CampaignAction";
 import { LocalActionPlaybook, type LocalMeta } from "@/modules/campaigns/components/LocalActionPlaybook";
 import { ShareButtons } from "@/components/ShareButtons";
+import { Markdown } from "@/components/Markdown";
 import { RemindMeButton } from "@/components/RemindMeButton";
 import { ShareButtons as SocialBombButtons } from "@/modules/social/ShareButtons";
 import { defaultCampaignShareText } from "@/modules/social/share";
@@ -447,8 +448,10 @@ export default async function CampaignPage({
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Why this matters
           </h2>
-          <div className="prose prose-invert max-w-none whitespace-pre-line rounded-lg border border-zinc-800 bg-zinc-950/40 p-6 text-sm leading-relaxed text-zinc-300">
-            {campaign.body_md}
+          {/* body_md is MARKDOWN — render it (raw ##/** previously displayed
+              as literal text; owner caught it on the AB 1088 campaign). */}
+          <div className="prose prose-invert max-w-none rounded-lg border border-zinc-800 bg-zinc-950/40 p-6 text-sm leading-relaxed text-zinc-300">
+            <Markdown>{campaign.body_md}</Markdown>
           </div>
         </section>
       )}

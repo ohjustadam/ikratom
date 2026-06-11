@@ -18,6 +18,29 @@ export type BillTextVersion = {
   source_url: string;
 };
 
+/**
+ * Display-time cleanup of legislative-PDF artifacts (the raw text stays
+ * untouched in the DB for search + classification):
+ *  - line-number GUTTERS: state bill PDFs print 1..24 down the margin of
+ *    every page; extraction emits them as number-only lines or long
+ *    ascending integer runs ("1 2 3 … 24") — the issue the owner flagged.
+ *  - page markers ("-- 2 of 3 --") and "Req. No. … Page N" headers.
+ */
+function cleanBillText(t: string): string {
+  let s = t
+    .replace(/--\s*\d+\s+of\s+\d+\s*--/g, "\n")
+    .replace(/^\s*\d{1,2}\s*$/gm, ""); // number-only gutter lines
+  // Inline ascending integer runs of length >= 4 (single-spaced extracts)
+  s = s.replace(/(?:\b\d{1,2}\b\s+){4,}/g, (m) => {
+    const nums = m.trim().split(/\s+/).map(Number);
+    for (let i = 1; i < nums.length; i++) {
+      if (nums[i] !== nums[i - 1] + 1) return m; // not a gutter — keep
+    }
+    return " ";
+  });
+  return s.replace(/\n{3,}/g, "\n\n").replace(/[ \t]{2,}/g, " ").trim();
+}
+
 export function BillFullText({ versions }: { versions: BillTextVersion[] }) {
   // Default to the LATEST version (last in the array — that's how the
   // enrich script orders them, chronological).
@@ -85,7 +108,7 @@ export function BillFullText({ versions }: { versions: BillTextVersion[] }) {
         </summary>
         <div className="mt-2 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950 p-4">
           <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-zinc-300">
-            {active.text}
+            {cleanBillText(active.text)}
           </pre>
         </div>
         <button

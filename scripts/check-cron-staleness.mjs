@@ -109,6 +109,8 @@ const REGISTRY = [
   { source: "dossier_research", interval_hours: 72, system: "local-box", cadence: "daily" },
   // PR-K: state executives sync (weekly self-gate; lives in nightly chassis).
   { source: "state_executives_sync", interval_hours: 216, system: "local-box", cadence: "weekly" },
+  // Bill texts (the missing bill_text_versions writer; session-exact).
+  { source: "fetch_bill_texts", interval_hours: 72, system: "local-box", cadence: "daily" },
 ];
 
 const t0 = Date.now();

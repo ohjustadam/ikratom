@@ -22,6 +22,12 @@ REM ---- High-value, bounded (finish by early morning) ----
 REM 1. Grow the keyless Legistar Tier-1 (feeds step 2's tenant cache).
 node --env-file=.env.local scripts/discover-legistar-tenants.mjs --limit 300
 
+REM 1a. Bill texts + substance classification: fetch full text for bills
+REM     missing it (session-exact via legiscan_bill_id) then classify the
+REM     per-alkaloid stance on free-tier providers. Self-limits when caught up.
+node --env-file=.env.local scripts/fetch-bill-texts.mjs --limit 100
+node --env-file=.env.local scripts/classify-bill-substance.mjs --limit 100
+
 REM 1b. Bill freshness (LegiScan live refresh of active anti/pro bills): keeps
 REM     status / action timeline / votes current — the fix for stale bills like
 REM     CA AB 1088. The heavy bulk-DATASET discovery backfill (fills missing
