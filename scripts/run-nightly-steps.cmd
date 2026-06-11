@@ -22,6 +22,13 @@ REM ---- High-value, bounded (finish by early morning) ----
 REM 1. Grow the keyless Legistar Tier-1 (feeds step 2's tenant cache).
 node --env-file=.env.local scripts/discover-legistar-tenants.mjs --limit 300
 
+REM 1b. Bill freshness (LegiScan live refresh of active anti/pro bills): keeps
+REM     status / action timeline / votes current — the fix for stale bills like
+REM     CA AB 1088. The heavy bulk-DATASET discovery backfill (fills missing
+REM     bills across all sessions) is a separate weekly/manual run:
+REM     scripts/sync-legiscan-datasets.mjs --all --since 2024
+node --env-file=.env.local scripts/sync-bills-via-legiscan.mjs --all-anti
+
 REM 2. Drain pending local-rep requests (SearXNG + Ollama/free-tier). Bounded
 REM    so a deep queue can't starve the rest of the run.
 node --env-file=.env.local scripts/auto-fulfill-pending-local-reps.mjs --limit 40 --max-minutes 30
