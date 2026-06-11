@@ -82,11 +82,14 @@ const seen = new Set();
 let totalInserted = 0;
 let totalSkipped = 0;
 let budgetHit = false;
-// Stop the run if many localities can't be resolved in a row (infra down or
-// genuinely sparse) — but never on a single miss; one bad locality shouldn't
-// strand every other pending member request behind it.
-let consecutiveUnresolved = 0;
-const UNRESOLVED_STREAK_STOP = 5;
+// Circuit breaker for INFRA-down only (Ollama OOM / SearXNG flailing) — a long
+// streak of infra-flavored misses means the box is unhealthy, so abort. A
+// per-locality CONTENT miss (no roster found, WAF-blocked page like San
+// Jose/Greensboro, no candidate) must NEVER count here: otherwise a few hard
+// localities at the front of the queue strand every resolvable request behind
+// them forever (the bug that left 8 requests pending for >1 week).
+let consecutiveInfraMiss = 0;
+const INFRA_STREAK_STOP = 8;
 
 for (const req of pending ?? []) {
   if (MAX_MINUTES > 0 && Date.now() - t0 > MAX_MINUTES * 60_000) {
@@ -105,25 +108,36 @@ for (const req of pending ?? []) {
   });
 
   if (res.queued) {
-    console.log(`  ⏳ queued (${res.reason}) — left pending`);
     if (res.reason === "searxng-unconfigured") {
       console.log("  ⚠ SEARXNG_URL not configured — run this where the local search+Ollama infra is reachable. Stopping.");
       break;
     }
-    consecutiveUnresolved++;
-    if (consecutiveUnresolved >= UNRESOLVED_STREAK_STOP) {
-      console.log(`  ⚠ ${consecutiveUnresolved} localities unresolved in a row — stopping; rerun later.`);
-      break;
+    if (res.reason === "unincorporated-cdp") {
+      // A Census-designated place has no municipal government to find —
+      // mark rejected so it stops being retried every night (like Elkhorn CDP).
+      console.log("  ⊘ unincorporated CDP (no local government) — marking rejected");
+      await sb.from("local_rep_requests").update({ status: "rejected", resolved_at: new Date().toISOString() })
+        .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");
+      continue;
+    }
+    console.log(`  ⏳ queued (${res.reason}) — left pending`);
+    // Only infra-flavored reasons feed the breaker; content misses fall through.
+    if (res.reason === "no-extract" || res.reason === "searxng-empty") {
+      consecutiveInfraMiss++;
+      if (consecutiveInfraMiss >= INFRA_STREAK_STOP) {
+        console.log(`  ⚠ ${consecutiveInfraMiss} infra-misses in a row — box infra likely down; stopping.`);
+        break;
+      }
     }
     continue;
   }
   if (!res.ok || res.officials.length === 0) {
-    console.log(`  ✗ no officials: ${res.error ?? "0 returned"}`);
-    consecutiveUnresolved++;
-    if (consecutiveUnresolved >= UNRESOLVED_STREAK_STOP) break;
+    // Content miss (e.g. WAF-blocked roster) — leave pending, retried next
+    // run, but DO NOT strand the rest of the queue behind it.
+    console.log(`  ✗ no officials: ${res.error ?? "0 returned"} — left pending (queue continues)`);
     continue;
   }
-  consecutiveUnresolved = 0;
+  consecutiveInfraMiss = 0;
 
   const fromLegistar = res.source === "legistar";
   console.log(`  ${fromLegistar ? "Legistar (clerk)" : res.source}: ${res.officials.length} official(s)`);
