@@ -13,3 +13,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# time 0.3.48 (published 2026-06-12) breaks tauri-utils 2.9.2 with a trait-
+# coherence error (E0119). Pin to the last-good version until tauri ships a
+# fix; CI re-resolves the whole graph every run because Cargo.lock isn't
+# committed, so unpinned = builds break whenever upstream publishes.
+time = "=0.3.47"
