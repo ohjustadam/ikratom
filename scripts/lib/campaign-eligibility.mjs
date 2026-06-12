@@ -15,7 +15,7 @@ const ALWAYS = new Set(["bill_event", "bop_hearing"]);
 // Within fda_action/dea_action the kind can't distinguish a ban push from a
 // recall/lawsuit, so disambiguate on the title.
 const NOISE_RE =
-  /\b(recall|recalls|recalled|sue|sues|sued|lawsuit|arrest|arrested|indict|judge|court|ruling|ruled|settle|settlement|seiz|seizes|seizing|seized|seizure|cease|warn|warning|navy|military)\b/i;
+  /\b(recall|recalls|recalled|sue|sues|sued|lawsuit|arrest|arrested|indict|judge|court|ruling|ruled|settle|settlement|seiz[a-z]*|cease|warn|warning|navy|military)\b/i;
 const BAN_RE =
   /\b(ban|bans|banned|banning|schedule|scheduled|scheduling|classif|classified|prohibit|prohibits|restrict|restricts|outlaw)\b/i;
 

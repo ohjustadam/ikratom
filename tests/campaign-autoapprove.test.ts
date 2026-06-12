@@ -191,6 +191,7 @@ describe("eligibilityVetoSafe (categorical-junk auto-reject)", () => {
   it("SAFE: ag_enforcement / noise headlines / concluded events", () => {
     expect(eligibilityVetoSafe("ag_enforcement", "AG settles with kratom vendor")).toBe(true);
     expect(eligibilityVetoSafe("fda_action", "FDA recalls contaminated kratom product")).toBe(true);
+    expect(eligibilityVetoSafe("dea_action", "Feds seize 7-OH from warehouse")).toBe(true);   // base verb (0198 gap fix)
     expect(eligibilityVetoSafe("dea_action", "Feds seized 7-OH from warehouse")).toBe(true);
     expect(eligibilityVetoSafe("fda_action", "Company sued over kratom marketing")).toBe(true);
     expect(eligibilityVetoSafe("bill_event", "Kratom ban signed into law")).toBe(true);
