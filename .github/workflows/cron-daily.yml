@@ -662,6 +662,32 @@ jobs:
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
         run: node scripts/fire-meeting-reminders.mjs
 
+  fire-voting-reminders:
+    # Push reminders before every approved election in election_dates —
+    # 30d / 7d / 1d out. Geofenced: national elections (the general) → all
+    # users, state primaries/runoffs → in-state users. Per-election dedupe'd
+    # via reminder_Nd_sent_at; DND/quiet-hours respected by the push gate.
+    #
+    # Free — uses our existing VAPID keys for web push.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Fire 30d/7d/1d voting reminders
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+        run: node scripts/fire-voting-reminders.mjs
+
   scan-legistar-tenants:
     # Proactive scan of ~22 major US Legistar tenants (NYC, SF, LA
     # County, Chicago, Philadelphia, San Antonio, Atlanta, Miami,
