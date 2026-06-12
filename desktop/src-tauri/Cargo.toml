@@ -1,0 +1,15 @@
+# iKratom desktop shell — a ~5MB native window around the live web app
+# (https://www.ikratom.org) via the OS WebView2. Built ONLY in CI
+# (.github/workflows/desktop-build.yml) on desktop-v* tags; no local
+# Rust toolchain required for web development.
+[package]
+name = "ikratom-desktop"
+version = "1.0.0"
+description = "iKratom — The Advocate's Toolbelt"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

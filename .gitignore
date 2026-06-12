@@ -24,3 +24,7 @@ scripts/lib/geo/_confirmed.json
 # One-off diagnostic/fix scripts (underscore-prefixed, never committed)
 scripts/_*.mjs
 .playwright-mcp/
+desktop/src-tauri/target/
+desktop/src-tauri/icons/
+desktop/src-tauri/Cargo.lock
+desktop/src-tauri/gen/

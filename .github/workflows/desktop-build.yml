@@ -1,0 +1,51 @@
+# Builds the iKratom Windows desktop installer (Tauri NSIS .exe) and
+# attaches it to a GitHub Release. Runs ONLY on desktop-v* tags or manual
+# dispatch — zero recurring CI cost. Free GitHub windows runner; no local
+# Rust needed. NOTE: the .exe is unsigned until a code-signing cert is
+# purchased, so SmartScreen warns on first run — /install/windows points
+# users to the warning-free PWA install as the primary path.
+name: desktop-build
+
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli
+
+      - name: Generate icon set from the 1024px brand icon
+        working-directory: desktop
+        run: tauri icon ../public/ikratom-icon-1024.png
+
+      - name: Build NSIS installer
+        working-directory: desktop
+        run: tauri build
+
+      - name: Attach installer to release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: "iKratom Desktop ${{ github.ref_name }}"
+          body: |
+            iKratom for Windows — native desktop app (Tauri shell around the live platform).
+
+            **Install:** download the `-setup.exe`, run it. Windows SmartScreen will warn
+            ("unrecognized app") because the binary is not yet code-signed — click
+            **More info → Run anyway**. Prefer a warning-free install? Use the one-click
+            PWA install instead: https://www.ikratom.org/install/windows
+          files: desktop/src-tauri/target/release/bundle/nsis/*.exe
