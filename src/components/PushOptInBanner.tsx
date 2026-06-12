@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { savePushSubscription } from "@/modules/auth/actions-push";
+import { isDesktopShell, pushBlockedMessage, DESKTOP_SHELL_PUSH_MSG } from "@/lib/push/client-support";
 
 /**
  * Dashboard banner that surfaces the push opt-in to EXISTING users
@@ -97,24 +98,21 @@ export function PushOptInBanner({
       return;
     }
     if (typeof Notification === "undefined") return;
+    if (isDesktopShell()) {
+      setError(DESKTOP_SHELL_PUSH_MSG);
+      return;
+    }
     if (Notification.permission === "denied") {
       // Permission was previously denied at the browser level. We can't
-      // re-prompt — user has to manually fix in browser settings. Give
-      // specific instructions per browser since the URL bar icon varies.
-      setError(
-        "Notifications are blocked for this site. Click the 🔒 (or notification) icon in your browser's address bar, " +
-        "find 'Notifications', change it to 'Allow', then reload this page. " +
-        "On Chrome: chrome://settings/content/notifications. On Firefox: about:preferences#privacy."
-      );
+      // re-prompt — the shared message covers browser settings AND the
+      // desktop-.exe case (WebView2 auto-denies with no UI to fix it).
+      setError(pushBlockedMessage());
       return;
     }
     if (Notification.permission !== "granted") {
       const r = await Notification.requestPermission();
       if (r === "denied") {
-        setError(
-          "You blocked the notification prompt. To re-enable: click the 🔒 icon in your browser's address bar, " +
-          "find 'Notifications', change it to 'Allow', then reload."
-        );
+        setError(pushBlockedMessage());
         return;
       }
       if (r !== "granted") {
