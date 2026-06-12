@@ -70,7 +70,7 @@ COMMENT ON TABLE election_dates IS
 -- Initial seed (real, citable). Guarded so re-running the migration is a no-op
 -- once seeded — the weekly sync owns freshness thereafter.
 INSERT INTO election_dates (scope, state, locality, election_type, title, election_date, source, source_url)
-SELECT v.scope, v.state, v.locality, v.election_type, v.title, v.election_date, v.source, v.source_url
+SELECT v.scope, v.state, v.locality, v.election_type, v.title, v.election_date::date, v.source, v.source_url
 FROM (VALUES
 ('national', null::text, null::text, 'general', '2026 U.S. General Election', '2026-11-03', 'federal_seed', 'https://www.eac.gov'),
 ('state', 'AL', null, 'primary', 'Alabama 2026 Primary — most offices', '2026-05-19', 'ncsl', 'https://www.ncsl.org/elections-and-campaigns/2026-state-primary-election-dates'),
