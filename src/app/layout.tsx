@@ -286,10 +286,17 @@ export default async function RootLayout({
 
         {/* Donation strip — always visible along the bottom border
             (above the tab bar on mobile). Deliberately simple: plain
-            text, no buttons; the cashtag is select-all for easy copy. */}
+            text; the cashtag links straight to the Cash App profile. */}
         <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-emerald-900/50 bg-zinc-950/95 px-3 py-1.5 text-center text-[11px] text-zinc-400 backdrop-blur md:bottom-0">
           💚 iKratom is free &amp; community-funded — chip in on Cash App:{" "}
-          <span className="select-all font-mono font-semibold text-emerald-300">$ohjustadam</span>
+          <a
+            href="https://cash.app/$ohjustadam"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono font-semibold text-emerald-300 underline decoration-emerald-700/60 underline-offset-2 hover:text-emerald-200"
+          >
+            $ohjustadam
+          </a>
         </div>
         <RegisterSW />
         <InstallPrompt />
