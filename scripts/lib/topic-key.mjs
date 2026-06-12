@@ -73,6 +73,45 @@ export function strongTopicKey(state, title) {
   return `${state || "FED"}|${kw}|${ev}`;
 }
 
+// Federal-story key. The national FDA/DEA 7-OH push is ONE story, but outlets
+// report it with varying verbs (restrict / schedule / classify / crackdown / ban)
+// and varying keywords (7-OH / mitragynine / kratom), so strongTopicKey produces
+// a DIFFERENT FED|kw|event key per headline and they never collapse — every
+// repackage becomes its own campaign and floods the feed. This keys federal
+// kratom items COARSELY: one keyword bucket + one event bucket, so the whole
+// scheduling push collapses to a single canonical federal campaign while genuinely
+// distinct federal event TYPES (a hearing vs a repeal vs a veto) stay separate.
+//
+// Guard rails: only fires for federal/national campaigns (state null/FED/ALL),
+// the title must carry a real federal signal (FDA/DEA/DOJ/Congress/nationwide —
+// NOT bare "federal" or "Schedule I", which states use too), and it must be about
+// kratom. Returns null otherwise (then strongTopicKey/title keys apply).
+const FED_SIGNAL_RX = /\b(fda|dea|doj|justice department|congress(?:ional)?|nationwide|federal government|controlled substances act)\b/i;
+function coarseFederalEvent(t) {
+  // Leading-\b-only (prefix) matching, like EVENT_RX — so "scheduling"/"classify"/
+  // "restriction"/"repealed" match. Check the PRO-kratom / distinct event TYPES
+  // FIRST — a "move to repeal the ban" must bucket as 'repeal', not collapse into
+  // the anti-kratom 'restrict' push (it also contains "ban"/"moves to"). Order matters.
+  if (/\brepeal/i.test(t)) return "repeal";
+  if (/\bveto/i.test(t)) return "veto";
+  if (/\bhearing/i.test(t)) return "hearing";
+  if (/\b(ban|restrict|schedul|classif|prohibit|crackdown|control|outlaw|seeks? to|moves? to|recommend|urges?|pushes?)/i.test(t)) return "restrict";
+  return null;
+}
+export function federalTopicKey(state, title) {
+  const st = String(state || "").toUpperCase();
+  if (st && st !== "FED" && st !== "ALL") return null; // federal/national campaigns only
+  // Test on the RAW title (not normalize()): normalize() turns "7-OH" into "7 oh",
+  // which KW_RX (contiguous "7-?o?h") would miss — the very reason 7-OH headlines
+  // never keyed before. The regexes are all \b-anchored + case-insensitive.
+  const raw = String(title || "");
+  if (!KW_RX.test(raw)) return null;        // must be about kratom / 7-OH
+  if (!FED_SIGNAL_RX.test(raw)) return null; // must carry a federal signal
+  const ev = coarseFederalEvent(raw);
+  if (!ev) return null;
+  return `fed|kratom|${ev}`;
+}
+
 // Bill-identifier key. Legislative-action alert titles ("TX HB 1097 — Reported
 // engrossed", "UT HB 301 — Enrolled Bill Returned to House") carry NO kratom
 // keyword, so topicKey/strongTopicKey can't cluster the many procedural steps of

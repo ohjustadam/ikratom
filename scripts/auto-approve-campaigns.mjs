@@ -37,8 +37,8 @@
  *   node --env-file=.env.local scripts/auto-approve-campaigns.mjs
  */
 import { createClient } from "@supabase/supabase-js";
-import { normalizedTitleKey, strongTopicKey, billKey } from "./lib/topic-key.mjs";
-import { isCampaignWorthyAlert, isBillConcluded, fpGateDecision } from "./lib/campaign-eligibility.mjs";
+import { normalizedTitleKey, strongTopicKey, billKey, federalTopicKey } from "./lib/topic-key.mjs";
+import { isCampaignWorthyAlert, isBillConcluded, fpGateDecision, eligibilityVetoSafe } from "./lib/campaign-eligibility.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 import { APPROVE_COLUMNS, REJECT_COLUMNS, SUPERSEDE_COLUMNS } from "./lib/campaign-review-columns.mjs";
 
@@ -306,7 +306,7 @@ for (const d of decisions) {
     applied = await transition(d.c.id, { ...SUPERSEDE_COLUMNS, reviewed_at: nowIso(), reviewed_by: null, review_reason: d.reason, superseded_by: d.supersededBy ?? null });
     if (applied) await audit("campaign_auto_superseded", d);
     else d.signals = { ...(d.signals ?? {}), raceLostToHuman: true };
-  } else if (decision === "reject" && P.rejectEnabled) {
+  } else if (decision === "reject" && (P.rejectEnabled || d.signals?.safeReject)) {
     applied = await transition(d.c.id, { ...REJECT_COLUMNS, reviewed_at: nowIso(), reviewed_by: null, review_reason: d.reason });
     if (applied) await audit("campaign_auto_rejected", d);
     else d.signals = { ...(d.signals ?? {}), raceLostToHuman: true };
@@ -345,12 +345,14 @@ function decide(c) {
   const linkedBillId = c.bill_id ?? alert.bill_id ?? null;
   const linkedBill = linkedBillId ? billById.get(linkedBillId) : null;
   if (linkedBill && isBillConcluded(linkedBill)) {
-    return veto(c, key, { ...sig, billConcluded: true, billStatus: linkedBill.status, lastAction: linkedBill.last_action ?? null }, "linked bill already concluded (enacted/chaptered/in force) — moot");
+    return veto(c, key, { ...sig, billConcluded: true, billStatus: linkedBill.status, lastAction: linkedBill.last_action ?? null }, "linked bill already concluded (enacted/chaptered/in force) — moot", true);
   }
 
-  // ELIGIBILITY (the primary categorical gate for ~100% of the backlog).
+  // ELIGIBILITY (the primary categorical gate for ~100% of the backlog). Auto-
+  // reject is SAFE only for categorical junk (recall/lawsuit/enforcement news,
+  // ag_enforcement, concluded); ambiguous agency news escalates (eligibilityVetoSafe).
   if (!isCampaignWorthyAlert(alert.kind, alert.title)) {
-    return veto(c, key, sig, "alert not campaign-worthy (procedural / concluded / recall / lawsuit / news)");
+    return veto(c, key, sig, "alert not campaign-worthy (procedural / concluded / recall / lawsuit / news)", eligibilityVetoSafe(alert.kind, alert.title));
   }
 
   // DEDUP vs live/pending canonical → supersede (sends nothing; safe).
@@ -384,7 +386,14 @@ function decide(c) {
   }
 
   // LOCALITY negative veto (alert-born only; title/source text, not the AI body).
-  if (!linkedBillId) {
+  // SKIPPED for genuinely-federal campaigns: a federal kratom campaign correctly
+  // has state=null + an "FDA"/"DEA" title, which reconcileLocality would otherwise
+  // flag as "wrong-state: title names FED but campaign is null" — a FALSE veto that
+  // blocked every national 7-OH CTA from ever approving. federalTopicKey is the
+  // same guard the dedup uses (federal/national + federal signal + kratom + event).
+  const isFederalCampaign = !!federalTopicKey(c.state, alert.title);
+  sig.federal = isFederalCampaign;
+  if (!linkedBillId && !isFederalCampaign) {
     const rec = reconcileLocality({ aiLocality: c.state, text: alert.title });
     sig.locality = { claim: c.state, corroborated: rec.corroborated, named: rec.locality };
     if (rec.corroborated === false) return veto(c, key, sig, `wrong-state: title names ${rec.locality} but campaign is ${c.state}`);
@@ -420,7 +429,7 @@ function decide(c) {
     const syntheticOnly = b.targets_synthetic_only === true && b.targets_natural_leaf === false;
     const deepOk = b.deep_analyzed_at === null || b.targets_natural_leaf === true;
     if (syntheticOnly) return veto(c, key, sig, "bill targets synthetics only — not an anti-leaf campaign");
-    if (!liveStatus) return veto(c, key, sig, `bill status '${b.status}' (enacted/dead) — moot`);
+    if (!liveStatus) return veto(c, key, sig, `bill status '${b.status}' (enacted/dead) — moot`, true);
     if (!fresh) return { decision: "escalate", score: conf, reason: "bill from a closed/stale session — escalate", signals: { ...sig, stale: true }, key };
     if (conf < P.minConf || !deepOk) return { decision: "escalate", score: conf, reason: `bill confidence ${conf} < ${P.minConf} or deep-analysis ambiguous — escalate`, signals: sig, key };
   }
@@ -429,10 +438,22 @@ function decide(c) {
   return { decision: "approve", score: linkedBill?.relevance_confidence ?? null, reason: `eligible ${alert.kind}/${alert.severity}, sourced, targeted, non-duplicate, mature (${sig.ageHours}h)`, signals: sig, key };
 }
 
-// A hard veto → REJECT when auto-reject is enabled, else ESCALATE (never bury a
-// real CTA silently while reject is off).
-function veto(c, key, signals, reason) {
-  return { decision: P.rejectEnabled ? "reject" : "escalate", score: null, reason: (P.rejectEnabled ? "" : "(reject disabled→escalate) ") + reason, signals: { ...signals, veto: true }, key };
+// A hard veto. `safe=true` marks CATEGORICAL junk (recall/lawsuit/enforcement
+// news, ag_enforcement, already-concluded events, enacted/dead bills) that can
+// never be a CTA — those auto-REJECT in live mode regardless of the broad
+// campaign_auto_reject_enabled flag, so they stop piling into a manual queue.
+// `safe=false` (the asymmetric-risk cases: wrong-state, FP, synthetic-only,
+// low-confidence) only rejects when the owner has enabled broad reject; otherwise
+// it ESCALATES — never bury a possibly-real CTA.
+function veto(c, key, signals, reason, safe = false) {
+  const willReject = safe || P.rejectEnabled;
+  return {
+    decision: willReject ? "reject" : "escalate",
+    score: null,
+    reason: (willReject ? "" : "(reject disabled→escalate) ") + reason,
+    signals: { ...signals, veto: true, ...(safe ? { safeReject: true } : {}) },
+    key,
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -450,10 +471,14 @@ function keysFor(state, title) {
   const keys = [normalizedTitleKey(title)];
   const sk = strongTopicKey(state, title);
   if (sk) keys.push(sk);
+  // Coarse federal key: collapses the national FDA/DEA 7-OH push (reported with
+  // varying verbs/keywords) into ONE canonical campaign instead of one-per-headline.
+  const fk = federalTopicKey(state, title);
+  if (fk) keys.push(fk);
   return [...new Set(keys)];
 }
 function primaryKey(c) {
-  return billKey(c.state, c.title) ?? strongTopicKey(c.state, c.title) ?? normalizedTitleKey(c.title);
+  return billKey(c.state, c.title) ?? federalTopicKey(c.state, c.title) ?? strongTopicKey(c.state, c.title) ?? normalizedTitleKey(c.title);
 }
 function shortId(id) { return id ? String(id).slice(0, 8) : "?"; }
 function nowIso() { return new Date().toISOString(); }

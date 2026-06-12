@@ -94,6 +94,26 @@ export function fpGateDecision(fp, ageHours, graceHours) {
   return "pass";                              // true (classified kratom) → proceed
 }
 
+// ── Is an eligibility veto SAFE to auto-reject? ──────────────────────────────
+// When isCampaignWorthyAlert() returns false the engine vetoes. Some of those
+// vetoes are CATEGORICAL junk that can never be a CTA (safe to auto-reject so it
+// doesn't pile into a manual queue); others are AMBIGUOUS and must only escalate
+// (a wrong reject buries a real call-to-action — the asymmetric-risk rule).
+//
+//   SAFE  → ag_enforcement (always a lawsuit/settlement), a recall/lawsuit/
+//           seizure/court/cease/warning headline (NOISE_RE), or an already-
+//           concluded event (CONCLUDED_RE). Definitionally not a live CTA.
+//   UNSAFE→ an fda_action/dea_action news headline with NO ban/scheduling verb
+//           AND no noise marker (e.g. "FDA targets 7-OH"): it MIGHT be a real
+//           federal ban-push with an off-pattern headline → escalate, never bury.
+export function eligibilityVetoSafe(kind, title) {
+  const t = String(title ?? "");
+  if (kind === "ag_enforcement") return true;
+  if (CONCLUDED_RE.test(t)) return true;
+  if ((kind === "fda_action" || kind === "dea_action") && NOISE_RE.test(t)) return true;
+  return false;
+}
+
 // Exported so tests/campaign-autoapprove.test.ts can assert the patterns
 // behave AND — critically — that they contain no org names or party terms
 // (the CLAUDE.md nonpartisan hard rule, encoded as CI).

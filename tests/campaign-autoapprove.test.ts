@@ -9,8 +9,8 @@ import {
   REJECT_COLUMNS as TS_REJECT,
   SUPERSEDE_COLUMNS as TS_SUPERSEDE,
 } from "@/modules/admin/campaign-review-shared";
-import { isCampaignWorthyAlert, isBillConcluded, fpGateDecision, ELIGIBILITY_PATTERNS } from "../scripts/lib/campaign-eligibility.mjs";
-import { topicKey, normalizedTitleKey, strongTopicKey, billKey } from "../scripts/lib/topic-key.mjs";
+import { isCampaignWorthyAlert, isBillConcluded, fpGateDecision, eligibilityVetoSafe, ELIGIBILITY_PATTERNS } from "../scripts/lib/campaign-eligibility.mjs";
+import { topicKey, normalizedTitleKey, strongTopicKey, billKey, federalTopicKey } from "../scripts/lib/topic-key.mjs";
 
 /**
  * Build #3 — campaign auto-approve engine guards. The engine is a .mjs (can't
@@ -141,6 +141,63 @@ describe("fpGateDecision (FP gate: block / wait / pass)", () => {
   it("unclassified (null) past grace → pass (don't trap a genuine CTA forever)", () => {
     expect(fpGateDecision(null, 72, G)).toBe("pass");
     expect(fpGateDecision(null, 500, G)).toBe("pass");
+  });
+});
+
+/**
+ * Federal-story dedup (federalTopicKey). The national FDA/DEA 7-OH push is ONE
+ * story reported with varying verbs/keywords, so strongTopicKey produced a
+ * different FED|kw|event key per headline and they never collapsed → one campaign
+ * per outlet, flooding the feed. The coarse federal key collapses the whole push
+ * to ONE canonical campaign while keeping distinct federal event TYPES separate.
+ */
+describe("federalTopicKey (coarse federal-story dedup)", () => {
+  it("collapses the federal 7-OH scheduling push across varying headlines", () => {
+    const k = federalTopicKey(null, "FDA Moves to Restrict 7-OH Opioid Products");
+    expect(k).toBe("fed|kratom|restrict");
+    for (const t of [
+      "FDA seeks to classify 7-OH as Schedule 1 drug",
+      "The FDA recommends scheduling kratom’s 7-OH",
+      "FDA urges crackdown on 7-OH",
+      "FDA Weighs Crackdown on Kratom Products",
+      "FDA pushes to ban potent kratom derivative 7-OH",
+    ]) {
+      expect(federalTopicKey("FED", t)).toBe(k); // all collapse to the same canonical
+    }
+  });
+  it("keeps genuinely-distinct federal event TYPES separate", () => {
+    expect(federalTopicKey(null, "DEA holds federal hearing on kratom")).toBe("fed|kratom|hearing");
+    expect(federalTopicKey(null, "Congress moves to repeal federal kratom restriction")).toBe("fed|kratom|repeal");
+  });
+  it("only fires for federal/national campaigns with a real federal signal about kratom", () => {
+    expect(federalTopicKey("CA", "FDA Moves to Restrict 7-OH")).toBeNull();      // a STATE campaign, not federal
+    expect(federalTopicKey(null, "Spokane considers kratom ban")).toBeNull();    // no federal signal
+    expect(federalTopicKey(null, "FDA approves new cancer drug")).toBeNull();    // not about kratom
+    expect(federalTopicKey(null, "FDA Warns Dangers of Drug 7-OH")).toBeNull();  // no scheduling/ban event → title key applies
+  });
+  it("contains no org names or party terms (nonpartisan rule)", () => {
+    const ORG_OR_PARTY = /\b(aka|gkc|bae|mac|democrat|republican|gop|liberal|conservative|leftist|rightwing|party|partisan)\b/i;
+    // the produced key + the helper's behavior must be event-shape-based, never side-based
+    expect(ORG_OR_PARTY.test(String(federalTopicKey(null, "FDA Moves to Restrict 7-OH")))).toBe(false);
+  });
+});
+
+/**
+ * Measured auto-reject (eligibilityVetoSafe). Categorical junk (recall/lawsuit/
+ * enforcement news, ag_enforcement, concluded) is SAFE to auto-reject; ambiguous
+ * agency news must escalate (a wrong reject buries a real CTA — asymmetric risk).
+ */
+describe("eligibilityVetoSafe (categorical-junk auto-reject)", () => {
+  it("SAFE: ag_enforcement / noise headlines / concluded events", () => {
+    expect(eligibilityVetoSafe("ag_enforcement", "AG settles with kratom vendor")).toBe(true);
+    expect(eligibilityVetoSafe("fda_action", "FDA recalls contaminated kratom product")).toBe(true);
+    expect(eligibilityVetoSafe("dea_action", "Feds seized 7-OH from warehouse")).toBe(true);
+    expect(eligibilityVetoSafe("fda_action", "Company sued over kratom marketing")).toBe(true);
+    expect(eligibilityVetoSafe("bill_event", "Kratom ban signed into law")).toBe(true);
+  });
+  it("UNSAFE: an off-pattern agency headline that MIGHT be a real ban-push → escalate", () => {
+    expect(eligibilityVetoSafe("fda_action", "FDA targets 7-OH")).toBe(false);
+    expect(eligibilityVetoSafe("news_break", "Kratom debated in weekend op-ed")).toBe(false);
   });
 });
 
