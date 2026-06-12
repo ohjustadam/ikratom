@@ -1,0 +1,85 @@
+# Nightly CLOUD chassis — Phase 1 of moving compute off the owner's PC
+# (the box is a personal machine, not a server; see AGENTS.md). Every step
+# here is BOX-INDEPENDENT: keyless HTTP scrapes, LegiScan API, or free-tier
+# cloud LLMs via the ai-router (Groq/Mistral/Cloudflare/Cerebras/Gemini —
+# Ollama is simply unreachable here and the router skips it).
+#
+# The box nightly (scripts/run-nightly-steps.cmd) keeps ONLY the steps that
+# genuinely need local SearXNG (:8080) or Ollama (:11434): local-rep
+# fulfillment, ban verification, locality sweeps, dossiers, briefs,
+# translations, embeddings, session-prep.
+#
+# Required secrets (Settings → Secrets → Actions) — all present as of
+# 2026-06-12: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+# LEGISCAN_API_KEY, OPENSTATES_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY,
+# CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_TOKEN, CEREBRAS_API_KEY,
+# GEMINI_API_KEY.
+#
+# Telemetry: every script writes scraper_runs rows itself; staleness
+# monitoring lives in scripts/check-cron-staleness.mjs (system:
+# "github-actions" for these sources).
+name: Nightly cloud chassis
+
+on:
+  schedule:
+    # 08:30 UTC ≈ 3:30am ET. GitHub cron is best-effort; ±15 min is fine.
+    - cron: "30 8 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: nightly-cloud
+  cancel-in-progress: false
+
+jobs:
+  nightly-cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
+      OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci --omit=dev --ignore-scripts
+
+      # Each step is independent — continue-on-error mirrors the box
+      # chassis' crash-through behavior; scripts self-report to
+      # scraper_runs so failures surface in staleness checks, not here.
+
+      - name: Legistar tenant discovery (keyless)
+        continue-on-error: true
+        run: node scripts/discover-legistar-tenants.mjs --limit 300
+
+      - name: Bill texts (LegiScan, session-exact)
+        continue-on-error: true
+        run: node scripts/fetch-bill-texts.mjs --limit 100
+
+      - name: Substance classification (free-tier cloud LLMs)
+        continue-on-error: true
+        run: node scripts/classify-bill-substance.mjs --limit 100
+
+      - name: Live bill refresh (LegiScan, active anti/pro)
+        continue-on-error: true
+        run: node scripts/sync-bills-via-legiscan.mjs --all-anti
+
+      - name: State executives (keyless YAML, weekly self-gate)
+        continue-on-error: true
+        run: node scripts/sync-state-executives.mjs
+
+      - name: News summaries drain (cloud router)
+        continue-on-error: true
+        run: node scripts/summarize-news.mjs --limit 300

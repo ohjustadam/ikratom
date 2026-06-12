@@ -107,10 +107,12 @@ const REGISTRY = [
   { source: "bill_embeddings", interval_hours: 72, system: "local-box", cadence: "daily" },
   // Dossier Phase 1: one Hermes deep-dive per night on the box.
   { source: "dossier_research", interval_hours: 72, system: "local-box", cadence: "daily" },
-  // PR-K: state executives sync (weekly self-gate; lives in nightly chassis).
-  { source: "state_executives_sync", interval_hours: 216, system: "local-box", cadence: "weekly" },
-  // Bill texts (the missing bill_text_versions writer; session-exact).
-  { source: "fetch_bill_texts", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // ---- MOVED TO GITHUB ACTIONS (Phase 1 offload, 2026-06-12) ----
+  // cron-nightly-cloud.yml @ 08:30 UTC. The staleness checker only cares
+  // that SOMETHING wrote the source recently; system label = where it
+  // now lives.
+  { source: "state_executives_sync", interval_hours: 216, system: "github-actions", cadence: "weekly" },
+  { source: "fetch_bill_texts", interval_hours: 72, system: "github-actions", cadence: "daily" },
 ];
 
 const t0 = Date.now();
