@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { icalDate, escapeIcalText, buildIcalDocument } from "../ical";
+import { icalDate, icalDateOnly, escapeIcalText, buildIcalDocument } from "../ical";
 
 describe("icalDate", () => {
   it("formats a date as YYYYMMDDTHHMMSSZ in UTC", () => {
@@ -17,6 +17,17 @@ describe("icalDate", () => {
 
   it("handles dates near year boundary", () => {
     expect(icalDate(new Date("2025-12-31T23:59:59Z"))).toBe("20251231T235959Z");
+  });
+});
+
+describe("icalDateOnly", () => {
+  it("formats a date as YYYYMMDD in UTC (no time)", () => {
+    expect(icalDateOnly(new Date("2026-11-03T12:00:00Z"))).toBe("20261103");
+  });
+  it("uses the UTC calendar day for a noon-UTC instant", () => {
+    // noon UTC stays on the same date in every US timezone — the reason
+    // election dates are stored/parsed at noon UTC.
+    expect(icalDateOnly(new Date("2026-06-30T12:00:00Z"))).toBe("20260630");
   });
 });
 
@@ -169,6 +180,28 @@ describe("buildIcalDocument", () => {
       ],
     });
     expect(doc).toContain("CATEGORIES:Kratom,Hearing");
+  });
+
+  it("renders all-day events as VALUE=DATE (no time, DTEND = next day)", () => {
+    // Election dates are all-day: noon-UTC start keeps the calendar day stable
+    // across US timezones, and the feed must emit DATE values, not datetimes.
+    const doc = buildIcalDocument({
+      calendarName: "Elections",
+      description: "x",
+      events: [
+        {
+          uid: "election-1@ikratom.org",
+          start: new Date("2026-11-03T12:00:00Z"),
+          allDay: true,
+          title: "2026 U.S. General Election",
+          categories: ["Election", "Voting"],
+        },
+      ],
+    });
+    expect(doc).toContain("DTSTART;VALUE=DATE:20261103");
+    expect(doc).toContain("DTEND;VALUE=DATE:20261104"); // DTEND is exclusive
+    expect(doc).not.toContain("DTSTART:20261103"); // not a timed event
+    expect(doc).toContain("CATEGORIES:Election,Voting");
   });
 
   it("handles multiple events in one calendar", () => {

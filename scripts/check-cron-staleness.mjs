@@ -113,6 +113,9 @@ const REGISTRY = [
   // now lives.
   { source: "state_executives_sync", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "fetch_bill_texts", interval_hours: 72, system: "github-actions", cadence: "daily" },
+  // #19 Elections calendar: sync-elections.mjs (NCSL primaries + federal
+  // general) self-gates to weekly inside the nightly cloud chassis.
+  { source: "sync_elections", interval_hours: 216, system: "github-actions", cadence: "weekly" },
 ];
 
 const t0 = Date.now();
