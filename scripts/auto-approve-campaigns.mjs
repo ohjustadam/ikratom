@@ -38,7 +38,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { normalizedTitleKey, strongTopicKey, billKey } from "./lib/topic-key.mjs";
-import { isCampaignWorthyAlert } from "./lib/campaign-eligibility.mjs";
+import { isCampaignWorthyAlert, isBillConcluded } from "./lib/campaign-eligibility.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 import { APPROVE_COLUMNS, REJECT_COLUMNS, SUPERSEDE_COLUMNS } from "./lib/campaign-review-columns.mjs";
 
@@ -149,13 +149,20 @@ for (let i = 0; i < sourceUrls.length; i += 150) {
   }
 }
 
-// ── 6. Bills for the rare bill-linked path ────────────────────────────────────
-const billIds = [...new Set(candidates.map((c) => c.bill_id).filter(Boolean))];
+// ── 6. Bills for the bill-linked path ─────────────────────────────────────────
+// Resolve via the campaign's bill_id AND the linked alert's bill_id — many
+// news-born campaigns carry the bill only on the alert (campaign.bill_id null).
+// `last_action` + `active` power the structured concluded-bill veto (the status
+// enum lags: an enacted bill can still read status='passed_chamber').
+const billIds = [...new Set([
+  ...candidates.map((c) => c.bill_id),
+  ...[...alertByCampaign.values()].map((a) => a.bill_id),
+].filter(Boolean))];
 const billById = new Map();
 for (let i = 0; i < billIds.length; i += 200) {
   const { data } = await sb
     .from("bills")
-    .select("id, relevance_confidence, status, last_action_at, targets_natural_leaf, targets_synthetic_only, deep_analyzed_at")
+    .select("id, relevance_confidence, status, active, last_action, last_action_at, targets_natural_leaf, targets_synthetic_only, deep_analyzed_at")
     .in("id", billIds.slice(i, i + 200));
   for (const b of data ?? []) billById.set(b.id, b);
 }
@@ -309,6 +316,17 @@ function decide(c) {
   if (!alert) return { decision: "escalate", score: null, reason: "no linked policy_alert resolved — needs human eyes", signals: { ...sig, noAlert: true }, key };
   sig.kind = alert.kind; sig.severity = alert.severity;
 
+  // STRUCTURED concluded-bill veto: resolve the linked bill (campaign OR alert
+  // bill_id). If it is already enacted / dead / chaptered / in force, the event
+  // is moot — emailing officials to oppose a concluded measure is not a live
+  // CTA. Driven by bill status + official last_action, NEVER the news headline
+  // (a title regex would bury the veto-push window we keep actionable).
+  const linkedBillId = c.bill_id ?? alert.bill_id ?? null;
+  const linkedBill = linkedBillId ? billById.get(linkedBillId) : null;
+  if (linkedBill && isBillConcluded(linkedBill)) {
+    return veto(c, key, { ...sig, billConcluded: true, billStatus: linkedBill.status, lastAction: linkedBill.last_action ?? null }, "linked bill already concluded (enacted/chaptered/in force) — moot");
+  }
+
   // ELIGIBILITY (the primary categorical gate for ~100% of the backlog).
   if (!isCampaignWorthyAlert(alert.kind, alert.title)) {
     return veto(c, key, sig, "alert not campaign-worthy (procedural / concluded / recall / lawsuit / news)");
@@ -340,7 +358,7 @@ function decide(c) {
   }
 
   // LOCALITY negative veto (alert-born only; title/source text, not the AI body).
-  if (!c.bill_id) {
+  if (!linkedBillId) {
     const rec = reconcileLocality({ aiLocality: c.state, text: alert.title });
     sig.locality = { claim: c.state, corroborated: rec.corroborated, named: rec.locality };
     if (rec.corroborated === false) return veto(c, key, sig, `wrong-state: title names ${rec.locality} but campaign is ${c.state}`);
@@ -361,10 +379,12 @@ function decide(c) {
     return { decision: "escalate", score: null, reason: `too new (${Math.floor(ageHours)}h < ${P.minAgeHours}h) — letting daily sweep settle`, signals: { ...sig, tooNew: true }, key };
   }
 
-  // BILL-LINKED gate (rare; replicates auto-create.ts so approve is never looser
-  // than create). Fires on zero of today's backlog but must be correct.
-  if (c.bill_id) {
-    const b = billById.get(c.bill_id);
+  // BILL-LINKED gate (replicates auto-create.ts so approve is never looser than
+  // create). Uses the bill resolved above (campaign OR alert bill_id). The
+  // concluded check already ran; this layer adds confidence / freshness / leaf-
+  // target gates.
+  if (linkedBillId) {
+    const b = linkedBill;
     if (!b) return { decision: "escalate", score: null, reason: "bill-linked but bill not found — escalate", signals: { ...sig, billMissing: true }, key };
     const conf = b.relevance_confidence ?? 0;
     sig.relevance_confidence = conf;
@@ -380,7 +400,7 @@ function decide(c) {
   }
 
   // PASSED every gate.
-  return { decision: "approve", score: c.bill_id ? (billById.get(c.bill_id)?.relevance_confidence ?? null) : null, reason: `eligible ${alert.kind}/${alert.severity}, sourced, targeted, non-duplicate, mature (${sig.ageHours}h)`, signals: sig, key };
+  return { decision: "approve", score: linkedBill?.relevance_confidence ?? null, reason: `eligible ${alert.kind}/${alert.severity}, sourced, targeted, non-duplicate, mature (${sig.ageHours}h)`, signals: sig, key };
 }
 
 // A hard veto → REJECT when auto-reject is enabled, else ESCALATE (never bury a

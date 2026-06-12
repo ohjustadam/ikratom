@@ -51,7 +51,33 @@ export function isCampaignWorthyAlert(kind, title) {
   return false; // news_break, court_ruling, intel_tip, other → alert
 }
 
+// ── Structured "is this bill already concluded?" gate ────────────────────────
+// A bill that is already enacted / dead / chaptered / in force is MOOT — a
+// "contact your officials to oppose it" campaign isn't a live call-to-action.
+//
+// This is driven by the bill's STRUCTURED record (status + official last_action),
+// NEVER by the news headline. A title regex was deliberately rejected: it would
+// false-positive on the veto-push window we keep actionable on purpose
+// ("delivered to the governor", "passed the senate", "engrossed"). The bill's
+// last_action reflects what the legislature ACTUALLY did, so an enacted bill is
+// caught even when the status enum lags reality — observed in prod 2026-06-12:
+// AL SB 273 / TN SB 1390 / VA HB 1307 all sit at status='passed_chamber' while
+// last_action says 'Enacted' / 'became Pub. Ch. 502' / 'Acts of Assembly Chapter'.
+//
+// Critically NON-matching (these stay live CTAs): "Delivered to Governor",
+// "Transmitted to Governor", "Engrossed", "Passed Senate", "Reported favorably".
+const CONCLUDED_BILL_ACTION_RE =
+  /\benacted\b|\bchaptered\b|\bpublic chapter\b|\bbecame (a )?(public )?law\b|\bbecame pub\b|\bacts of assembly\b|\beffective date\b|\bsigned by (the )?governor\b|\bchapter\s+\d|\bpub\.?\s*ch\.?\s*\d|\bacts?,?\s+(regular|special|extraordinary)\s+session\b/i;
+
+export function isBillConcluded(bill) {
+  if (!bill) return false;
+  const status = String(bill.status ?? "").toLowerCase();
+  if (status === "enacted" || status === "dead") return true;
+  if (bill.active === false) return true;
+  return CONCLUDED_BILL_ACTION_RE.test(String(bill.last_action ?? ""));
+}
+
 // Exported so tests/campaign-autoapprove.test.ts can assert the patterns
 // behave AND — critically — that they contain no org names or party terms
 // (the CLAUDE.md nonpartisan hard rule, encoded as CI).
-export const ELIGIBILITY_PATTERNS = { NOISE_RE, BAN_RE, CONCLUDED_RE };
+export const ELIGIBILITY_PATTERNS = { NOISE_RE, BAN_RE, CONCLUDED_RE, CONCLUDED_BILL_ACTION_RE };

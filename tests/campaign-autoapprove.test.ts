@@ -9,7 +9,7 @@ import {
   REJECT_COLUMNS as TS_REJECT,
   SUPERSEDE_COLUMNS as TS_SUPERSEDE,
 } from "@/modules/admin/campaign-review-shared";
-import { isCampaignWorthyAlert, ELIGIBILITY_PATTERNS } from "../scripts/lib/campaign-eligibility.mjs";
+import { isCampaignWorthyAlert, isBillConcluded, ELIGIBILITY_PATTERNS } from "../scripts/lib/campaign-eligibility.mjs";
 import { topicKey, normalizedTitleKey, strongTopicKey, billKey } from "../scripts/lib/topic-key.mjs";
 
 /**
@@ -70,6 +70,50 @@ describe("isCampaignWorthyAlert", () => {
     expect(isCampaignWorthyAlert("fda_action", "Company sued over kratom marketing")).toBe(false);
     expect(isCampaignWorthyAlert("ag_enforcement", "AG settles with kratom vendor")).toBe(false);
     expect(isCampaignWorthyAlert("news_break", "Kratom debated in weekend op-ed")).toBe(false);
+  });
+});
+
+/**
+ * Structured concluded-bill veto (isBillConcluded). The owner-flagged bug
+ * (2026-06-12): the engine approved campaigns for ALREADY-ENACTED bills because
+ * bills.status lags reality (status='passed_chamber' while last_action='Enacted').
+ * The fix gates on STRUCTURED data (status + active + official last_action), NOT
+ * the news headline — so it must catch enacted bills even with a stale status
+ * AND must NOT veto live procedural states (the veto-push window).
+ */
+describe("isBillConcluded", () => {
+  it("is concluded by an explicit status", () => {
+    expect(isBillConcluded({ status: "enacted" })).toBe(true);
+    expect(isBillConcluded({ status: "dead" })).toBe(true);
+  });
+  it("is concluded by active=false", () => {
+    expect(isBillConcluded({ status: "passed_chamber", active: false, last_action: "Chapter 3, Acts, Regular Session, 2024" })).toBe(true);
+  });
+  it("catches enacted bills whose status enum lags (the prod bug)", () => {
+    // Real rows observed 2026-06-12, all status='passed_chamber':
+    expect(isBillConcluded({ status: "passed_chamber", active: true, last_action: "Enacted" })).toBe(true);
+    expect(isBillConcluded({ status: "passed_chamber", active: true, last_action: "Comp. became Pub. Ch. 502" })).toBe(true);
+    expect(isBillConcluded({ status: "passed_chamber", active: true, last_action: "Effective date(s) 07/01/2026" })).toBe(true);
+    expect(isBillConcluded({ status: "passed_chamber", active: true, last_action: "Acts of Assembly Chapter text (CHAP0773)" })).toBe(true);
+    expect(isBillConcluded({ status: "passed_chamber", active: true, last_action: "Signed by Governor" })).toBe(true);
+  });
+  it("does NOT veto LIVE procedural states (the veto-push window stays actionable)", () => {
+    for (const la of [
+      "Engrossed; ready for transmission to Sen.",
+      "Delivered to Governor",
+      "Transmitted to Governor",
+      "Reported favorably by committee",
+      "Passed Senate",
+      "Read first time",
+      "Referred to Committee on Health",
+    ]) {
+      expect(isBillConcluded({ status: "passed_chamber", active: true, last_action: la })).toBe(false);
+    }
+  });
+  it("handles null/empty safely", () => {
+    expect(isBillConcluded(null)).toBe(false);
+    expect(isBillConcluded({})).toBe(false);
+    expect(isBillConcluded({ status: "introduced", active: true, last_action: null })).toBe(false);
   });
 });
 
