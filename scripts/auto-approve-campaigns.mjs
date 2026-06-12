@@ -38,7 +38,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { normalizedTitleKey, strongTopicKey, billKey } from "./lib/topic-key.mjs";
-import { isCampaignWorthyAlert, isBillConcluded } from "./lib/campaign-eligibility.mjs";
+import { isCampaignWorthyAlert, isBillConcluded, fpGateDecision } from "./lib/campaign-eligibility.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 import { APPROVE_COLUMNS, REJECT_COLUMNS, SUPERSEDE_COLUMNS } from "./lib/campaign-review-columns.mjs";
 
@@ -50,6 +50,12 @@ const sb = createClient(
 );
 const t0 = Date.now();
 const STALE_SESSION_DAYS = 365;
+// How long a campaign whose source article is still un-keyword-classified
+// (body_has_kratom_keyword = null) stays in "waiting" before the engine proceeds
+// without the FP signal. ~3 nightly classifier runs — long enough that a genuine
+// classification would have landed, short enough that a never-classifiable
+// Google-News redirect doesn't trap a real CTA forever.
+const FP_STALE_GRACE_HOURS = 72;
 
 // ── 1. Policy ───────────────────────────────────────────────────────────────
 const { data: cfg } = await sb
@@ -136,17 +142,32 @@ const occupied = new Map(); // key -> canonical campaign id (earliest)
 }
 
 // ── 5. FP signal: two-hop alert.source_url -> news_items.body_has_kratom_keyword
+// Batch by CUMULATIVE URL LENGTH, not a fixed count. Alert source_urls are
+// Google-News redirects of 300-600 chars, so a .in() of 150 builds a 25KB+ query
+// string that PostgREST silently truncates → the FP join matched UNPREDICTABLY
+// (a campaign blocked on one run, slipped through the next). Cap each .in() batch
+// at ~3KB of URL text so every match is found, every run.
 const sourceUrls = [...new Set([...alertByCampaign.values()].map((a) => a.source_url).filter(Boolean))];
 const fpByUrl = new Map(); // url -> true | false | null
-for (let i = 0; i < sourceUrls.length; i += 150) {
-  const slice = sourceUrls.slice(i, i + 150);
-  for (const col of ["url", "resolved_url"]) {
-    const { data } = await sb.from("news_items").select("url, resolved_url, body_has_kratom_keyword").in(col, slice);
-    for (const n of data ?? []) {
-      const u = col === "url" ? n.url : n.resolved_url;
-      if (u && !fpByUrl.has(u)) fpByUrl.set(u, n.body_has_kratom_keyword);
+{
+  const FP_BATCH_CHARS = 3000;
+  let batch = [], chars = 0;
+  const flush = async () => {
+    if (!batch.length) return;
+    for (const col of ["url", "resolved_url"]) {
+      const { data } = await sb.from("news_items").select("url, resolved_url, body_has_kratom_keyword").in(col, batch);
+      for (const n of data ?? []) {
+        const u = col === "url" ? n.url : n.resolved_url;
+        if (u && !fpByUrl.has(u)) fpByUrl.set(u, n.body_has_kratom_keyword);
+      }
     }
+    batch = []; chars = 0;
+  };
+  for (const u of sourceUrls) {
+    if (chars + u.length > FP_BATCH_CHARS && batch.length) await flush();
+    batch.push(u); chars += u.length + 3; // +3 ≈ the ',"..."' encoding overhead
   }
+  await flush();
 }
 
 // ── 6. Bills for the bill-linked path ─────────────────────────────────────────
@@ -344,12 +365,17 @@ function decide(c) {
     return { decision: "escalate", score: null, reason: "no source_url on linked alert (require_source on)", signals: { ...sig, noSource: true }, key };
   }
 
-  // FP signal (RSS false positive). false -> reject veto; null -> not yet verified.
+  // FP signal (RSS false positive). false -> veto; null -> wait (within grace) or
+  // proceed-unverified (past grace, so a never-classifiable source can't trap a
+  // genuine CTA in "waiting" forever); true -> pass. See fpGateDecision.
   if (alert.source_url && fpByUrl.has(alert.source_url)) {
     const fp = fpByUrl.get(alert.source_url);
     sig.body_has_kratom_keyword = fp;
-    if (fp === false) return veto(c, key, sig, "linked news item flagged not-about-kratom (RSS false positive)");
-    if (fp === null) return { decision: "escalate", score: null, reason: "kratom-keyword check not yet run on the source article — waiting", signals: { ...sig, fpPending: true }, key };
+    const fpAgeH = (now - new Date(c.created_at).getTime()) / 3_600_000;
+    const fpd = fpGateDecision(fp, fpAgeH, FP_STALE_GRACE_HOURS);
+    if (fpd === "block") return veto(c, key, sig, "linked news item flagged not-about-kratom (RSS false positive)");
+    if (fpd === "wait") return { decision: "escalate", score: null, reason: `kratom-keyword check not yet run on the source article — waiting (${Math.floor(fpAgeH)}h < ${FP_STALE_GRACE_HOURS}h grace)`, signals: { ...sig, fpPending: true }, key };
+    if (fp === null) sig.fpStale = true; // passed only because the grace window elapsed — FP-unverified
   } else if (alert.source_url) {
     // Couldn't join the source URL to a news_items row (e.g. an unresolved
     // Google-News redirect). The FP check did NOT run — flag it so the owner can

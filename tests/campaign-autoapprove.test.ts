@@ -9,7 +9,7 @@ import {
   REJECT_COLUMNS as TS_REJECT,
   SUPERSEDE_COLUMNS as TS_SUPERSEDE,
 } from "@/modules/admin/campaign-review-shared";
-import { isCampaignWorthyAlert, isBillConcluded, ELIGIBILITY_PATTERNS } from "../scripts/lib/campaign-eligibility.mjs";
+import { isCampaignWorthyAlert, isBillConcluded, fpGateDecision, ELIGIBILITY_PATTERNS } from "../scripts/lib/campaign-eligibility.mjs";
 import { topicKey, normalizedTitleKey, strongTopicKey, billKey } from "../scripts/lib/topic-key.mjs";
 
 /**
@@ -114,6 +114,33 @@ describe("isBillConcluded", () => {
     expect(isBillConcluded(null)).toBe(false);
     expect(isBillConcluded({})).toBe(false);
     expect(isBillConcluded({ status: "introduced", active: true, last_action: null })).toBe(false);
+  });
+});
+
+/**
+ * FP gate grace (fpGateDecision). body_has_kratom_keyword on the linked news row
+ * gates approval. The bug (2026-06-12): a null (article not yet keyword-classified)
+ * blocked the campaign in "waiting" FOREVER when the source was a Google-News
+ * redirect whose body never extracts → 31 genuine anti-kratom CTAs stuck. Fix:
+ * a null past the grace window PASSES (proceed FP-unverified) rather than trapping
+ * a real campaign — while a confirmed false (not-about-kratom) NEVER passes.
+ */
+describe("fpGateDecision (FP gate: block / wait / pass)", () => {
+  const G = 72;
+  it("classified about-kratom (true) → pass immediately", () => {
+    expect(fpGateDecision(true, 0, G)).toBe("pass");
+  });
+  it("confirmed not-about-kratom (false) → block, regardless of age", () => {
+    expect(fpGateDecision(false, 1, G)).toBe("block");
+    expect(fpGateDecision(false, 99999, G)).toBe("block"); // grace never rescues a real FP
+  });
+  it("unclassified (null) within grace → wait", () => {
+    expect(fpGateDecision(null, 0, G)).toBe("wait");
+    expect(fpGateDecision(null, 71, G)).toBe("wait");
+  });
+  it("unclassified (null) past grace → pass (don't trap a genuine CTA forever)", () => {
+    expect(fpGateDecision(null, 72, G)).toBe("pass");
+    expect(fpGateDecision(null, 500, G)).toBe("pass");
   });
 });
 

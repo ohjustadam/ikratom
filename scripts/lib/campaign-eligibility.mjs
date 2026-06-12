@@ -77,6 +77,23 @@ export function isBillConcluded(bill) {
   return CONCLUDED_BILL_ACTION_RE.test(String(bill.last_action ?? ""));
 }
 
+// ── FP (false-positive) gate decision ───────────────────────────────────────
+// The auto-approve engine joins an alert's source_url → news_items and reads
+// body_has_kratom_keyword: true = the article IS about kratom (pass), false = an
+// RSS false-positive (block/veto), null = not yet keyword-classified.
+//
+// A null normally WAITS for the nightly classifier. But some sources (Google-News
+// redirect URLs whose body never extracts) stay null forever, which would block a
+// genuine call-to-action indefinitely. So a null that has aged past the grace
+// window PASSES — the engine proceeds WITHOUT the FP signal (flagged fpStale in
+// the ledger) rather than trapping a real campaign in "waiting" permanently.
+// Returns 'block' | 'wait' | 'pass'.
+export function fpGateDecision(fp, ageHours, graceHours) {
+  if (fp === false) return "block";          // confirmed not-about-kratom — never passes
+  if (fp === null) return Number(ageHours) < Number(graceHours) ? "wait" : "pass";
+  return "pass";                              // true (classified kratom) → proceed
+}
+
 // Exported so tests/campaign-autoapprove.test.ts can assert the patterns
 // behave AND — critically — that they contain no org names or party terms
 // (the CLAUDE.md nonpartisan hard rule, encoded as CI).
