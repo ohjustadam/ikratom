@@ -86,10 +86,13 @@ export default function InstallWindowsPage() {
           >
             GitHub Releases page ↗
           </a>
-          . Heads up: until the project buys a code-signing certificate,
-          Windows SmartScreen shows a &quot;unrecognized app&quot; warning on
-          first run (click <em>More info → Run anyway</em>). The one-click
-          install above has no such warning — it&apos;s the recommended path.
+          . Two honest caveats: (1) until the project buys a code-signing
+          certificate, Windows SmartScreen shows an &quot;unrecognized app&quot;
+          warning on first run (click <em>More info → Run anyway</em>);
+          (2) the .exe <strong>can&apos;t receive push notifications</strong> —
+          the embedded Windows WebView doesn&apos;t support web push. The
+          one-click install above has neither problem — it&apos;s the
+          recommended path.
         </p>
       </section>
 

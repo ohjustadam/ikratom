@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { savePushSubscription, deletePushSubscription } from "../actions-push";
+import { isDesktopShell, pushBlockedMessage, DESKTOP_SHELL_PUSH_MSG } from "@/lib/push/client-support";
 
 /**
  * Browser-side push opt-in. Shows three states:
@@ -66,19 +67,18 @@ export function PushSubscribe({ vapidPublicKey }: { vapidPublicKey: string | nul
       setError("Push notifications require server VAPID keys. Owner needs to set NEXT_PUBLIC_VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY in env.");
       return;
     }
+    if (isDesktopShell()) {
+      setError(DESKTOP_SHELL_PUSH_MSG);
+      return;
+    }
     if (Notification.permission === "denied") {
-      setError(
-        "Notifications are blocked for this site. Click the 🔒 (or notification) icon in your browser's address bar, " +
-        "find 'Notifications', change to 'Allow', then reload the page."
-      );
+      setError(pushBlockedMessage());
       return;
     }
     if (Notification.permission !== "granted") {
       const r = await Notification.requestPermission();
       if (r === "denied") {
-        setError(
-          "You blocked the notification prompt. To re-enable: click the 🔒 icon in your browser's address bar, find 'Notifications', set to 'Allow', then reload."
-        );
+        setError(pushBlockedMessage());
         return;
       }
       if (r !== "granted") {

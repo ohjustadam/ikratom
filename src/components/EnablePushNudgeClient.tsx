@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { savePushSubscription } from "@/modules/auth/actions-push";
+import { isDesktopShell, pushBlockedMessage, DESKTOP_SHELL_PUSH_MSG } from "@/lib/push/client-support";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -63,16 +64,18 @@ export function EnablePushNudgeClient({
   async function enable() {
     setError(null);
     if (typeof Notification === "undefined") return;
+    if (isDesktopShell()) {
+      setError(DESKTOP_SHELL_PUSH_MSG);
+      return;
+    }
     if (Notification.permission === "denied") {
-      setError(
-        "Notifications are blocked for this site. Click the 🔒 icon in your address bar, find Notifications, set to Allow, then reload."
-      );
+      setError(pushBlockedMessage());
       return;
     }
     if (Notification.permission !== "granted") {
       const r = await Notification.requestPermission();
       if (r === "denied") {
-        setError("You blocked the prompt. Click the 🔒 icon in your address bar, set Notifications to Allow, reload.");
+        setError(pushBlockedMessage());
         return;
       }
       if (r !== "granted") {
