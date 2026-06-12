@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators, type Legislator } from "@/lib/legislators";
@@ -53,6 +54,23 @@ export default async function CampaignPage({
     .single();
 
   if (!campaign) notFound();
+
+  // Linked intel — the circulatory system. Every campaign structurally
+  // links back to its bill, the alert that spawned it, and the state hub
+  // (no more hand-written body_md links to keep the circle closed).
+  const [{ data: linkedBill }, { data: linkedAlert }] = await Promise.all([
+    campaign.bill_id
+      ? supabase.from("bills").select("id, state, bill_number, title").eq("id", campaign.bill_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("policy_alerts")
+      .select("id, title, severity")
+      .eq("campaign_id", campaign.id)
+      .eq("moderation_status", "approved")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
   const {
     data: { user },
@@ -396,6 +414,37 @@ export default async function CampaignPage({
           signedIn={!!user}
           gmailConnected={gmailConnected}
         />
+      )}
+
+      {/* Linked intel strip — bill ⇄ alert ⇄ state hub, structural for
+          every campaign (internal-circle rule). */}
+      {(linkedBill || linkedAlert || campaign.state) && (
+        <div className="mb-6 flex flex-wrap gap-2 text-xs">
+          {linkedBill && (
+            <Link
+              href={`/bills/${linkedBill.id}`}
+              className="rounded-md border border-emerald-700/40 bg-emerald-950/15 px-3 py-1.5 text-emerald-300 hover:border-emerald-500"
+            >
+              ⚖ {linkedBill.state} {linkedBill.bill_number} — bill page, timeline &amp; votes
+            </Link>
+          )}
+          {linkedAlert && (
+            <Link
+              href={`/alerts/${linkedAlert.id}`}
+              className="rounded-md border border-amber-700/40 bg-amber-950/10 px-3 py-1.5 text-amber-300 hover:border-amber-500"
+            >
+              📡 The alert behind this campaign
+            </Link>
+          )}
+          {campaign.state && (
+            <Link
+              href={`/states/${campaign.state}`}
+              className="rounded-md border border-zinc-700 bg-zinc-950/40 px-3 py-1.5 text-zinc-300 hover:border-zinc-500"
+            >
+              🏛 {campaign.state} war room
+            </Link>
+          )}
+        </div>
       )}
 
       {/* Action card — the killer feature */}

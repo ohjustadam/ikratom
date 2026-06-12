@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { DraftResponsePanel } from "@/app/alerts/[id]/DraftResponsePanel";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 import { RemindMeButton } from "@/components/RemindMeButton";
 import { SignUpNudge } from "@/components/SignUpNudge";
@@ -293,19 +294,24 @@ export default async function BillDetailPage({
     localOfficials = (legs ?? []) as LocalOfficial[];
   }
 
-  // Find the alert linked to this bill so we can pass its source URL
-  // to the card as a "look up contact" fallback when officials lack
-  // direct email/phone in our DB.
-  let alertSourceUrl: string | null = null;
-  if (isLocalScope) {
-    const { data: alerts } = await supabase
-      .from("policy_alerts")
-      .select("source_url")
-      .eq("bill_id", bill.id)
-      .order("created_at", { ascending: false })
-      .limit(1);
-    alertSourceUrl = alerts?.[0]?.source_url ?? null;
-  }
+  // Alerts linked to this bill — powers (a) the "Alerts for this bill"
+  // strip + the #draft-response panel (the BillTimeline CTA used to point
+  // at an anchor that only existed on alert pages — owner-flagged), and
+  // (b) the local-card source fallback below.
+  const { data: billAlertsRaw } = await supabase
+    .from("policy_alerts")
+    .select("id, title, severity, kind, source_url, occurs_at, created_at")
+    .eq("bill_id", bill.id)
+    .eq("moderation_status", "approved")
+    .order("created_at", { ascending: false })
+    .limit(3);
+  const billAlerts = (billAlertsRaw ?? []) as Array<{
+    id: string; title: string; severity: string; kind: string;
+    source_url: string | null; occurs_at: string | null; created_at: string;
+  }>;
+  const alertSourceUrl: string | null = isLocalScope
+    ? (billAlerts[0]?.source_url ?? null)
+    : null;
 
   // News coverage — pull every news_items article linked to this bill
   // via either:
@@ -1237,6 +1243,58 @@ export default async function BillDetailPage({
             <p className="mt-3 text-xs text-zinc-500">
               {totalActions?.toLocaleString()} action{totalActions === 1 ? "" : "s"} taken
               across all campaigns for this bill.
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* Alerts for this bill + the draft-response anchor target.
+          BillTimeline's "✍ Draft response →" lands HERE now (the anchor
+          previously didn't exist on bill pages). */}
+      {(billAlerts.length > 0 || bill.active === true) && (
+        <section id="draft-response" className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
+            📡 Alerts &amp; your response
+          </h2>
+          {billAlerts.length > 0 && (
+            <ul className="mt-3 space-y-1.5">
+              {billAlerts.map((a) => (
+                <li key={a.id}>
+                  <Link
+                    href={`/alerts/${a.id}`}
+                    className="flex flex-wrap items-baseline gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs hover:border-emerald-600/60"
+                  >
+                    <span>
+                      {a.severity === "critical" ? "🚨" : a.severity === "alert" ? "⚠️" : "👁"}
+                    </span>
+                    <span className="font-medium text-zinc-100">{a.title.slice(0, 110)}</span>
+                    <span className="ml-auto text-[10px] text-zinc-500">
+                      {new Date(a.occurs_at ?? a.created_at).toLocaleDateString()}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          {viewerSignedIn && billAlerts[0] ? (
+            <div className="mt-4">
+              <DraftResponsePanel
+                alertId={billAlerts[0].id}
+                alertTitle={billAlerts[0].title}
+                sourceUrl={billAlerts[0].source_url}
+              />
+            </div>
+          ) : billAlerts[0] ? (
+            <p className="mt-3 text-xs text-zinc-400">
+              <Link href="/login" className="text-emerald-400 hover:underline">Sign in</Link> to
+              draft a personalized response letter with one click.
+            </p>
+          ) : (
+            <p className="mt-3 text-xs text-zinc-400">
+              No alerts yet for this bill. Spotted movement we missed?{" "}
+              <Link href="/alerts/submit" className="text-emerald-400 hover:underline">
+                Submit intel →
+              </Link>
             </p>
           )}
         </section>
