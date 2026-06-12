@@ -19,21 +19,11 @@ REM the box CPU can never stay pinned into the owner's workday.
 
 REM ---- High-value, bounded (finish by early morning) ----
 
-REM 1. Grow the keyless Legistar Tier-1 (feeds step 2's tenant cache).
-node --env-file=.env.local scripts/discover-legistar-tenants.mjs --limit 300
-
-REM 1a. Bill texts + substance classification: fetch full text for bills
-REM     missing it (session-exact via legiscan_bill_id) then classify the
-REM     per-alkaloid stance on free-tier providers. Self-limits when caught up.
-node --env-file=.env.local scripts/fetch-bill-texts.mjs --limit 100
-node --env-file=.env.local scripts/classify-bill-substance.mjs --limit 100
-
-REM 1b. Bill freshness (LegiScan live refresh of active anti/pro bills): keeps
-REM     status / action timeline / votes current — the fix for stale bills like
-REM     CA AB 1088. The heavy bulk-DATASET discovery backfill (fills missing
-REM     bills across all sessions) is a separate weekly/manual run:
-REM     scripts/sync-legiscan-datasets.mjs --all --since 2024
-node --env-file=.env.local scripts/sync-bills-via-legiscan.mjs --all-anti
+REM MOVED TO GITHUB ACTIONS (Phase 1 offload, 2026-06-12 — protect the box):
+REM   discover-legistar-tenants, fetch-bill-texts, classify-bill-substance,
+REM   sync-bills-via-legiscan --all-anti, sync-state-executives,
+REM   summarize-news. See .github/workflows/cron-nightly-cloud.yml (08:30
+REM   UTC). The box keeps ONLY SearXNG/Ollama-dependent + local-file steps.
 
 REM 2. Drain pending local-rep requests (SearXNG + Ollama/free-tier). Bounded
 REM    so a deep queue can't starve the rest of the run.
@@ -68,10 +58,9 @@ node --env-file=.env.local scripts/generate-state-snapshot.mjs --out C:\claude\i
 
 REM ---- Unbounded bulk drains (the overnight tail; overrun is harmless here) ----
 
-REM 9. Backlog drains (PR-D). The 120/day news-summary cap was a dead Gemini
-REM    constraint; locally we drain a chunk each night (the comment-stated plan
-REM    is ~4 nights, not one). summarize MUST run before translate+embeddings
-REM    (they read summary_ai). All three are capped so the tail self-limits.
-node --env-file=.env.local scripts/summarize-news.mjs --limit 300
+REM 9. Backlog drains (PR-D). summarize-news MOVED to the GHA cloud chassis
+REM    (it runs cloud providers anyway; translations+embeddings stay — they
+REM    need local Ollama models). GHA runs at 08:30 UTC = before this tail on
+REM    most nights, so summary_ai is fresh for translate.
 node --env-file=.env.local scripts/translate-content.mjs --model llama3.2:3b --limit 50 --max-minutes 45
 node --env-file=.env.local scripts/compute-bill-embeddings.mjs --limit 500
