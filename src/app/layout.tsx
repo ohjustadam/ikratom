@@ -231,7 +231,9 @@ export default async function RootLayout({
             indicator / Android gesture pill. The 5rem matches MobileTabBar's
             ~56px height; safe-area adds the gesture-bar offset on devices
             that need it. */}
-        <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">{children}</main>
+        {/* Bottom padding clears: mobile tab bar (3.5rem) + donation strip
+            (~1.75rem) + device safe-area; desktop just the strip. */}
+        <main className="flex-1 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-7">{children}</main>
 
         <footer className="border-t border-zinc-800 bg-zinc-950 py-8">
           <div className="mx-auto max-w-6xl px-4 text-center text-xs text-zinc-500 sm:px-6 lg:px-8">
@@ -281,6 +283,14 @@ export default async function RootLayout({
 
         <CookieBanner />
         <MobileTabBar />
+
+        {/* Donation strip — always visible along the bottom border
+            (above the tab bar on mobile). Deliberately simple: plain
+            text, no buttons; the cashtag is select-all for easy copy. */}
+        <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-emerald-900/50 bg-zinc-950/95 px-3 py-1.5 text-center text-[11px] text-zinc-400 backdrop-blur md:bottom-0">
+          💚 iKratom is free &amp; community-funded — chip in on Cash App:{" "}
+          <span className="select-all font-mono font-semibold text-emerald-300">$ohjustadam</span>
+        </div>
         <RegisterSW />
         <InstallPrompt />
         <FeedbackWidget />
