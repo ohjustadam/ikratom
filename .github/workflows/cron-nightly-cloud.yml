@@ -50,7 +50,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22+: supabase-js realtime needs native WebSocket — on Node 20
+          # every script dies at import time ("Node.js 20 detected without
+          # native WebSocket support") and continue-on-error masked it on
+          # the first run. Telemetry rows are the real success signal.
+          node-version: 22
           cache: npm
 
       - name: Install deps
