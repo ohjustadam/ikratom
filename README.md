@@ -48,3 +48,4 @@ The advocate's toolbelt. A nonpartisan political action platform for the kratom 
 - [ ] Deploy to Vercel
 
 Future (flagged off): forum, library (videos/books/TTS), news scraping, AI personalization, medical board recruitment, multistate expansion.
+
