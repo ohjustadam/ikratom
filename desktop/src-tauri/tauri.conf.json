@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "iKratom",
+  "version": "1.0.0",
+  "identifier": "org.ikratom.desktop",
+  "build": {
+    "frontendDist": "https://www.ikratom.org"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "iKratom — The Advocate's Toolbelt",
+        "url": "https://www.ikratom.org",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 380,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "publisher": "iKratom",
+    "shortDescription": "Nonpartisan kratom advocacy — bills, alerts, one-click action.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

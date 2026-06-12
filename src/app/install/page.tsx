@@ -43,6 +43,18 @@ export default function InstallIndexPage() {
           </p>
           <p className="mt-3 text-xs font-semibold text-emerald-400">Android instructions →</p>
         </Link>
+        <Link
+          href="/install/windows"
+          className="block rounded-lg border border-zinc-800 bg-zinc-950/40 p-6 hover:border-emerald-500 sm:col-span-2"
+        >
+          <p className="text-3xl">💻</p>
+          <h2 className="mt-3 text-xl font-bold">PC — Windows / Mac / Linux</h2>
+          <p className="mt-2 text-sm text-zinc-400">
+            One-click desktop app: own window, taskbar icon, push notifications.
+            10 seconds — or grab the native .exe installer.
+          </p>
+          <p className="mt-3 text-xs font-semibold text-emerald-400">PC instructions →</p>
+        </Link>
       </section>
 
       <section className="mt-8 rounded-md border border-zinc-800 bg-zinc-950/40 p-4">
