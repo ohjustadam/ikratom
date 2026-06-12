@@ -38,6 +38,7 @@ const KIND_CATEGORIES: Record<string, string[]> = {
   alert: ["Kratom", "Policy alert"],
   bill_action: ["Kratom", "Bill action"],
   state_session: ["Kratom", "Legislative session"],
+  election: ["Election", "Voting"],
 };
 
 export async function GET(req: NextRequest) {
@@ -48,9 +49,11 @@ export async function GET(req: NextRequest) {
   const sb = await createClient();
   const now = new Date();
   const horizon = new Date(now.getTime() + 90 * 86_400_000);
+  // Elections sit months out (general + many primaries) — 1-year horizon.
+  const electionHorizon = new Date(now.getTime() + 365 * 86_400_000);
 
   // Same data shape as /calendar/page.tsx, just translated to iCal events.
-  const [meetings, alerts, billActions, sessions] = await Promise.all([
+  const [meetings, alerts, billActions, sessions, elections] = await Promise.all([
     sb.from("municipal_meetings")
       .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
       .eq("moderation_status", "approved")
@@ -75,6 +78,12 @@ export async function GET(req: NextRequest) {
       .limit(80),
     sb.from("state_capital_info")
       .select("state, current_session_id, current_session_start, current_session_end, capital_city, legislature_url, hearing_schedule_url"),
+    sb.from("election_dates")
+      .select("id, scope, state, election_type, title, election_date, registration_deadline, source_url")
+      .eq("moderation_status", "approved")
+      .gte("election_date", now.toISOString().slice(0, 10))
+      .lte("election_date", electionHorizon.toISOString().slice(0, 10))
+      .order("election_date", { ascending: true }),
   ]);
 
   const events: Array<IcalEvent & { kind: string; state: string | null }> = [];
@@ -181,9 +190,39 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Apply filters
+  for (const el of elections.data ?? []) {
+    const national = el.scope === "national";
+    // noon UTC keeps the date stable across timezones; rendered all-day.
+    const start = new Date(el.election_date + "T12:00:00Z");
+    const descBits = [
+      el.registration_deadline
+        ? `Voter registration deadline: ${new Date(el.registration_deadline + "T12:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
+        : null,
+      el.source_url ? `Source: ${el.source_url}` : null,
+      `Calendar: ${SITE}/calendar`,
+    ].filter(Boolean) as string[];
+    events.push({
+      kind: "election",
+      state: national ? null : el.state,
+      uid: `election-${el.id}@ikratom.org`,
+      start,
+      allDay: true,
+      title: `🗳️ ${el.title}`,
+      description: descBits.join("\n\n"),
+      location: null,
+      url: `${SITE}/calendar`,
+      categories: KIND_CATEGORIES.election,
+    });
+  }
+
+  // Apply filters. Elections: keep national rows (state === null) visible even
+  // under a ?state= filter — they're relevant to everyone.
   let filtered = events;
-  if (stateFilter) filtered = filtered.filter((e) => e.state === stateFilter);
+  if (stateFilter) {
+    filtered = filtered.filter((e) =>
+      e.kind === "election" ? e.state === null || e.state === stateFilter : e.state === stateFilter,
+    );
+  }
   if (kindFilter) filtered = filtered.filter((e) => e.kind === kindFilter);
 
   // Build calendar metadata
@@ -192,7 +231,7 @@ export async function GET(req: NextRequest) {
     kindFilter ? `(${kindFilter})` : null,
   ].filter(Boolean).join(" ");
   const calName = `iKratom — Kratom Policy Calendar${filterSuffix ? ` ${filterSuffix}` : ""}`;
-  const calDesc = `Every upcoming public kratom-policy event we know about — municipal meetings, BoP hearings, bill actions, legislative sessions. Refreshes every 6 hours. ${SITE}/calendar`;
+  const calDesc = `Every upcoming public kratom-policy event we know about — elections + primaries, municipal meetings, BoP hearings, bill actions, legislative sessions. Refreshes every 6 hours. ${SITE}/calendar`;
 
   const body = buildIcalDocument({
     calendarName: calName,

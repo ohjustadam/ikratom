@@ -22,6 +22,12 @@ export type IcalEvent = {
   start: Date;
   /** Optional: event end in UTC. Defaults to start + 1 hour. */
   end?: Date | null;
+  /**
+   * Optional: render as an all-day event (DTSTART;VALUE=DATE) instead of a
+   * timed one. Used for elections — a date with no meaningful time-of-day.
+   * Avoids the midnight-UTC date-shift bug in western timezones.
+   */
+  allDay?: boolean;
   /** Required: short single-line title. */
   title: string;
   /** Optional: longer body. Newlines are escaped per RFC. */
@@ -36,6 +42,11 @@ export type IcalEvent = {
 
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
+}
+
+/** Format a Date as an iCalendar all-day DATE value: YYYYMMDD (UTC). */
+export function icalDateOnly(d: Date): string {
+  return d.getUTCFullYear().toString() + pad2(d.getUTCMonth() + 1) + pad2(d.getUTCDate());
 }
 
 /** Format a Date as iCalendar UTC datetime: YYYYMMDDTHHMMSSZ. */
@@ -121,14 +132,21 @@ export function buildIcalDocument(opts: {
 
   const body: string[] = [];
   for (const e of opts.events) {
-    const start = icalDate(e.start);
-    const end = icalDate(e.end ?? new Date(e.start.getTime() + 60 * 60 * 1000));
+    // All-day events use DATE values (DTEND is exclusive → start + 1 day);
+    // timed events use UTC datetimes (DTEND defaults to start + 1 hour).
+    const dtstartLine = e.allDay
+      ? `DTSTART;VALUE=DATE:${icalDateOnly(e.start)}`
+      : `DTSTART:${icalDate(e.start)}`;
+    const endDate = e.end ?? new Date(e.start.getTime() + (e.allDay ? 86_400_000 : 60 * 60 * 1000));
+    const dtendLine = e.allDay
+      ? `DTEND;VALUE=DATE:${icalDateOnly(endDate)}`
+      : `DTEND:${icalDate(endDate)}`;
     const eventLines = [
       "BEGIN:VEVENT",
       `UID:${e.uid}`,
       `DTSTAMP:${dtstamp}`,
-      `DTSTART:${start}`,
-      `DTEND:${end}`,
+      dtstartLine,
+      dtendLine,
       line("SUMMARY", escapeIcalText(e.title)),
       line("DESCRIPTION", e.description ? escapeIcalText(e.description) : null),
       line("LOCATION", e.location ? escapeIcalText(e.location) : null),

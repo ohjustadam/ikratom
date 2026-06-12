@@ -1,17 +1,19 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedAuthProfile } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
 
 export const metadata = {
   title: "Kratom policy calendar — every public event we know about",
-  description: "Upcoming city, county, state, and federal events affecting kratom policy. Zoom links, public-comment signups, hearing schedules.",
+  description: "Upcoming elections, primaries, city/county/state/federal events affecting kratom policy. Election dates, Zoom links, public-comment signups, hearing schedules.",
 };
 export const dynamic = "force-dynamic";
 
 type Event = {
-  kind: "municipal" | "alert" | "bill_action" | "state_session";
+  kind: "municipal" | "alert" | "bill_action" | "state_session" | "election";
   date: Date;
   end_date?: Date | null;
+  allDay?: boolean;
+  scope?: string | null;
   title: string;
   body?: string | null;
   state: string | null;
@@ -31,6 +33,7 @@ const KIND_BADGE: Record<string, { emoji: string; label: string; cls: string }> 
   alert: { emoji: "🚨", label: "Policy alert", cls: "bg-red-950/30 text-red-300 border-red-700/40" },
   bill_action: { emoji: "📜", label: "Bill action", cls: "bg-blue-950/30 text-blue-300 border-blue-700/40" },
   state_session: { emoji: "🏛️", label: "State session", cls: "bg-emerald-950/30 text-emerald-300 border-emerald-700/40" },
+  election: { emoji: "🗳️", label: "Election", cls: "bg-violet-950/30 text-violet-300 border-violet-700/40" },
 };
 
 export default async function CalendarPage({ searchParams }: {
@@ -43,9 +46,23 @@ export default async function CalendarPage({ searchParams }: {
   const sb = await createClient();
   const now = new Date();
   const horizon = new Date(now.getTime() + 90 * 86_400_000);  // next 90 days
+  // Elections look further out than meetings — the general election + many
+  // primaries sit months ahead — so election rows use a 1-year horizon.
+  const electionHorizon = new Date(now.getTime() + 365 * 86_400_000);
+
+  // Geofence elections to the viewer's state: an explicit ?state= wins, else
+  // the signed-in user's profile state. national-scope elections show to all;
+  // state elections only when they match (anon/stateless → national only).
+  const { userId } = await getCachedAuthProfile();
+  let userState: string | null = null;
+  if (userId) {
+    const { data: prof } = await sb.from("profiles").select("state").eq("id", userId).maybeSingle();
+    userState = prof?.state ? String(prof.state).toUpperCase() : null;
+  }
+  const viewerState = stateFilter ?? userState;
 
   // Pull from multiple sources in parallel
-  const [meetings, alerts, billActions, sessions] = await Promise.all([
+  const [meetings, alerts, billActions, sessions, elections] = await Promise.all([
     sb.from("municipal_meetings")
       .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
       .eq("moderation_status", "approved")
@@ -70,6 +87,12 @@ export default async function CalendarPage({ searchParams }: {
       .limit(80),
     sb.from("state_capital_info")
       .select("state, current_session_id, current_session_start, current_session_end, capital_city, legislature_url, hearing_schedule_url"),
+    sb.from("election_dates")
+      .select("scope, state, locality, election_type, title, election_date, registration_deadline, source_url")
+      .eq("moderation_status", "approved")
+      .gte("election_date", now.toISOString().slice(0, 10))
+      .lte("election_date", electionHorizon.toISOString().slice(0, 10))
+      .order("election_date", { ascending: true }),
   ]);
 
   const events: Event[] = [];
@@ -148,9 +171,41 @@ export default async function CalendarPage({ searchParams }: {
     }
   }
 
-  // Apply filters + sort by date
+  // Elections — geofenced. national-scope rows show to everyone; state rows
+  // only when they match the viewer's state. Rendered as all-day events.
+  for (const el of elections.data ?? []) {
+    const national = el.scope === "national";
+    if (!national && (!viewerState || el.state !== viewerState)) continue;
+    // Parse the DATE at noon UTC so it lands on the same calendar day in every
+    // US timezone (midnight UTC would shift the date west of the Atlantic).
+    const regNote = el.registration_deadline
+      ? `Register to vote by ${new Date(el.registration_deadline + "T12:00:00Z").toLocaleDateString(undefined, { month: "long", day: "numeric" })}.`
+      : null;
+    events.push({
+      kind: "election",
+      date: new Date(el.election_date + "T12:00:00Z"),
+      allDay: true,
+      scope: el.scope,
+      title: el.title,
+      body: regNote,
+      state: national ? null : el.state,
+      source_url: el.source_url,
+    });
+  }
+
+  // Whether state-scoped elections exist but are hidden because the viewer has
+  // no resolved state — drives the "set your state" nudge below.
+  const hasHiddenStateElections =
+    !viewerState && (elections.data ?? []).some((el) => el.scope !== "national");
+
+  // Apply filters + sort by date. Elections are pre-geofenced above; keep
+  // national elections (state === null) visible even under a ?state= filter.
   let filtered = events;
-  if (stateFilter) filtered = filtered.filter((e) => e.state === stateFilter);
+  if (stateFilter) {
+    filtered = filtered.filter((e) =>
+      e.kind === "election" ? e.state === null || e.state === stateFilter : e.state === stateFilter,
+    );
+  }
   if (kindFilter) filtered = filtered.filter((e) => e.kind === kindFilter);
   filtered.sort((a, b) => a.date.getTime() - b.date.getTime());
 
@@ -165,6 +220,7 @@ export default async function CalendarPage({ searchParams }: {
   // Counts for filter pills
   const stateOptions = [...new Set(events.map((e) => e.state).filter(Boolean) as string[])].sort();
   const counts = {
+    election: events.filter((e) => e.kind === "election").length,
     municipal: events.filter((e) => e.kind === "municipal").length,
     alert: events.filter((e) => e.kind === "alert").length,
     bill_action: events.filter((e) => e.kind === "bill_action").length,
@@ -179,9 +235,9 @@ export default async function CalendarPage({ searchParams }: {
         </p>
         <h1 className="mt-2 text-3xl font-bold">Every event we know about</h1>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-          City council meetings · Board of Pharmacy hearings · bill action dates ·
-          legislative session bookends. Join by Zoom, livestream, in-person, or
-          phone — links + addresses below.
+          Elections + primaries · city council meetings · Board of Pharmacy
+          hearings · bill action dates · legislative session bookends. Join by
+          Zoom, livestream, in-person, or phone — links + addresses below.
         </p>
         <p className="mt-2 text-xs text-zinc-500">
           Found something we missed? Drop the URL in <Link href="/alerts/submit" className="text-emerald-400 hover:underline">intel-tip</Link>.
@@ -201,11 +257,24 @@ export default async function CalendarPage({ searchParams }: {
         {/* Subscribe-to-calendar CTA — exposes the iCal feed users can
             add to Apple Calendar / Google Calendar / Outlook so every
             new event auto-syncs to their phone + computer. */}
-        <SubscribeCalendarPanel stateFilter={stateFilter} kindFilter={kindFilter} />
+        <SubscribeCalendarPanel stateFilter={viewerState} kindFilter={kindFilter} />
       </header>
 
       {/* Signup nudge — calendar viewers want push reminders, not just .ics */}
       <SignUpNudge context="calendar" stateCode={stateFilter ?? undefined} className="mb-6" />
+
+      {/* Election geofence nudge — explain why only national elections show
+          and point the viewer at the one setting that unlocks their primaries. */}
+      {hasHiddenStateElections && (
+        <div className="mb-6 rounded-md border border-violet-700/40 bg-violet-950/15 px-3 py-2 text-xs text-violet-200">
+          🗳️ You&apos;re seeing national election dates.{" "}
+          {userId ? (
+            <>Set your state in your <Link href="/account" className="font-semibold underline hover:text-violet-100">account</Link> to see your state&apos;s primary + local elections and get voting reminders.</>
+          ) : (
+            <>Sign in and set your state to see your primary dates and get voting reminders.</>
+          )}
+        </div>
+      )}
 
       {/* Filter pills */}
       <div className="mb-4 space-y-2">
@@ -277,7 +346,9 @@ export default async function CalendarPage({ searchParams }: {
                           </span>
                           {e.state && <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">{e.state}</span>}
                           <span className="text-[11px] text-zinc-500">
-                            {e.date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                            {e.allDay
+                              ? "All day"
+                              : e.date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                           </span>
                           {e.severity === "critical" && <span className="text-[10px] font-bold uppercase text-red-400 animate-pulse">CRITICAL</span>}
                         </div>
