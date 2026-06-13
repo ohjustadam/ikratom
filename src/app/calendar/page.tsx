@@ -1,15 +1,16 @@
 import Link from "next/link";
 import { createClient, getCachedAuthProfile } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
+import { EVENT_TYPE_LABELS } from "@/modules/events/labels";
 
 export const metadata = {
-  title: "Kratom policy calendar — every public event we know about",
-  description: "Upcoming elections, primaries, city/county/state/federal events affecting kratom policy. Election dates, Zoom links, public-comment signups, hearing schedules.",
+  title: "Community Calendar — every public kratom event",
+  description: "The kratom community calendar: elections + primaries, town halls + hearings, city/county meetings, bill actions, and legislative sessions in one place. Subscribe to the .ics feed.",
 };
 export const dynamic = "force-dynamic";
 
 type Event = {
-  kind: "municipal" | "alert" | "bill_action" | "state_session" | "election";
+  kind: "municipal" | "alert" | "bill_action" | "state_session" | "election" | "townhall";
   date: Date;
   end_date?: Date | null;
   allDay?: boolean;
@@ -34,6 +35,7 @@ const KIND_BADGE: Record<string, { emoji: string; label: string; cls: string }> 
   bill_action: { emoji: "📜", label: "Bill action", cls: "bg-blue-950/30 text-blue-300 border-blue-700/40" },
   state_session: { emoji: "🏛️", label: "State session", cls: "bg-emerald-950/30 text-emerald-300 border-emerald-700/40" },
   election: { emoji: "🗳️", label: "Election", cls: "bg-violet-950/30 text-violet-300 border-violet-700/40" },
+  townhall: { emoji: "🎤", label: "Town hall", cls: "bg-teal-950/30 text-teal-300 border-teal-700/40" },
 };
 
 export default async function CalendarPage({ searchParams }: {
@@ -62,7 +64,7 @@ export default async function CalendarPage({ searchParams }: {
   const viewerState = stateFilter ?? userState;
 
   // Pull from multiple sources in parallel
-  const [meetings, alerts, billActions, sessions, elections] = await Promise.all([
+  const [meetings, alerts, billActions, sessions, elections, townhalls] = await Promise.all([
     sb.from("municipal_meetings")
       .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
       .eq("moderation_status", "approved")
@@ -93,6 +95,12 @@ export default async function CalendarPage({ searchParams }: {
       .gte("election_date", now.toISOString().slice(0, 10))
       .lte("election_date", electionHorizon.toISOString().slice(0, 10))
       .order("election_date", { ascending: true }),
+    sb.from("legislator_events")
+      .select("id, state, locality, title, description, event_type, starts_at, venue, source_url")
+      .eq("active", true)
+      .gte("starts_at", now.toISOString())
+      .lte("starts_at", horizon.toISOString())
+      .order("starts_at", { ascending: true }),
   ]);
 
   const events: Event[] = [];
@@ -171,6 +179,22 @@ export default async function CalendarPage({ searchParams }: {
     }
   }
 
+  // Legislator town halls + hearings (hand-verified). Folded in from the old
+  // /events page, which now redirects here — this is the one community calendar.
+  for (const t of townhalls.data ?? []) {
+    const typeLabel = EVENT_TYPE_LABELS[t.event_type] ?? t.event_type;
+    events.push({
+      kind: "townhall",
+      date: new Date(t.starts_at),
+      title: t.title,
+      body: [typeLabel, t.description?.split("\n")[0]].filter(Boolean).join(" · "),
+      state: t.state,
+      locality: t.locality,
+      in_person_address: t.venue,
+      source_url: t.source_url,
+    });
+  }
+
   // Elections — geofenced. national-scope rows show to everyone; state rows
   // only when they match the viewer's state. Rendered as all-day events.
   for (const el of elections.data ?? []) {
@@ -221,6 +245,7 @@ export default async function CalendarPage({ searchParams }: {
   const stateOptions = [...new Set(events.map((e) => e.state).filter(Boolean) as string[])].sort();
   const counts = {
     election: events.filter((e) => e.kind === "election").length,
+    townhall: events.filter((e) => e.kind === "townhall").length,
     municipal: events.filter((e) => e.kind === "municipal").length,
     alert: events.filter((e) => e.kind === "alert").length,
     bill_action: events.filter((e) => e.kind === "bill_action").length,
@@ -231,13 +256,14 @@ export default async function CalendarPage({ searchParams }: {
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <header className="mb-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          📅 Kratom policy calendar
+          📅 Community Calendar
         </p>
         <h1 className="mt-2 text-3xl font-bold">Every event we know about</h1>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-          Elections + primaries · city council meetings · Board of Pharmacy
-          hearings · bill action dates · legislative session bookends. Join by
-          Zoom, livestream, in-person, or phone — links + addresses below.
+          Elections + primaries · town halls + hearings · city/county meetings ·
+          bill action dates · legislative session bookends. One place for every
+          public kratom event. Join by Zoom, livestream, in-person, or phone —
+          links + addresses below.
         </p>
         <p className="mt-2 text-xs text-zinc-500">
           Found something we missed? Drop the URL in <Link href="/alerts/submit" className="text-emerald-400 hover:underline">intel-tip</Link>.

@@ -31,7 +31,7 @@ export const CATEGORIES: Category[] = [
       { href: "/pulse", label: "Pulse", description: "Live alerts: hostile bills, BoP rules, breaking news." },
       { href: "/campaigns", label: "Campaigns", description: "One-click letters to your reps." },
       { href: "/calls", label: "📞 Call your reps", description: "Phone-tree tracker with achievement badges. Calls beat emails 10:1 for impact." },
-      { href: "/events", label: "🎤 Town halls + hearings", description: "Upcoming public-comment opportunities + legislator town halls in your state." },
+      { href: "/calendar", label: "🗓️ Community Calendar", description: "Every public kratom event in one place: elections + primaries, town halls + hearings, city/county meetings, bill actions, and sessions. Subscribe to your state's .ics feed." },
       { href: "/takeback", label: "🎯 Takeback", description: "Every banned state's repeal plan + named legislators." },
       { href: "/banned", label: "🚫 Banned tracker", description: "Every US state, county, and city where kratom is illegal." },
       { href: "/submit", label: "Submit", description: "Intel tips, stories, forum threads — central submit hub." },

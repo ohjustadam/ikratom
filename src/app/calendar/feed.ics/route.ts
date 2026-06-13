@@ -39,6 +39,7 @@ const KIND_CATEGORIES: Record<string, string[]> = {
   bill_action: ["Kratom", "Bill action"],
   state_session: ["Kratom", "Legislative session"],
   election: ["Election", "Voting"],
+  townhall: ["Kratom", "Town hall"],
 };
 
 export async function GET(req: NextRequest) {
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest) {
   const electionHorizon = new Date(now.getTime() + 365 * 86_400_000);
 
   // Same data shape as /calendar/page.tsx, just translated to iCal events.
-  const [meetings, alerts, billActions, sessions, elections] = await Promise.all([
+  const [meetings, alerts, billActions, sessions, elections, townhalls] = await Promise.all([
     sb.from("municipal_meetings")
       .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
       .eq("moderation_status", "approved")
@@ -84,6 +85,12 @@ export async function GET(req: NextRequest) {
       .gte("election_date", now.toISOString().slice(0, 10))
       .lte("election_date", electionHorizon.toISOString().slice(0, 10))
       .order("election_date", { ascending: true }),
+    sb.from("legislator_events")
+      .select("id, state, locality, title, description, event_type, starts_at, venue, source_url")
+      .eq("active", true)
+      .gte("starts_at", now.toISOString())
+      .lte("starts_at", horizon.toISOString())
+      .order("starts_at", { ascending: true }),
   ]);
 
   const events: Array<IcalEvent & { kind: string; state: string | null }> = [];
@@ -190,6 +197,22 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  for (const t of townhalls.data ?? []) {
+    const start = new Date(t.starts_at);
+    events.push({
+      kind: "townhall",
+      state: t.state,
+      uid: `townhall-${t.id}@ikratom.org`,
+      start,
+      end: new Date(start.getTime() + 2 * 60 * 60 * 1000),
+      title: t.title,
+      description: [t.description, t.source_url ? `Details: ${t.source_url}` : null, `Calendar: ${SITE}/calendar`].filter(Boolean).join("\n\n"),
+      location: t.venue ?? null,
+      url: t.source_url ?? `${SITE}/calendar`,
+      categories: KIND_CATEGORIES.townhall,
+    });
+  }
+
   for (const el of elections.data ?? []) {
     const national = el.scope === "national";
     // noon UTC keeps the date stable across timezones; rendered all-day.
@@ -231,7 +254,7 @@ export async function GET(req: NextRequest) {
     kindFilter ? `(${kindFilter})` : null,
   ].filter(Boolean).join(" ");
   const calName = `iKratom — Kratom Policy Calendar${filterSuffix ? ` ${filterSuffix}` : ""}`;
-  const calDesc = `Every upcoming public kratom-policy event we know about — elections + primaries, municipal meetings, BoP hearings, bill actions, legislative sessions. Refreshes every 6 hours. ${SITE}/calendar`;
+  const calDesc = `Every upcoming public kratom-policy event we know about — elections + primaries, town halls + hearings, municipal meetings, bill actions, legislative sessions. Refreshes every 6 hours. ${SITE}/calendar`;
 
   const body = buildIcalDocument({
     calendarName: calName,

@@ -51,9 +51,15 @@ const TASK_DEFAULTS: Record<TaskKind, ProviderName[]> = {
   translate: ["ollama", "groq"],
   officials_lookup: ["gemini"], // grounding required
   spam_classify: ["ollama", "groq"], // privacy: user content
-  moderate_chat: ["ollama"], // privacy: locked to local
+  // Moderation (owner decision D4 2026-06-13, private/GHOST_SERVER_PLAN.md §1):
+  // local-first, Groq fallback. Ollama-only routing meant moderation silently
+  // no-op'd on Vercel (Ollama unreachable) — a dead safety net is worse than
+  // an inference-only processor. Groq does not train on API inputs. Generative
+  // use of user content (not safety verdicts) stays local-only via the
+  // privacy:'local-only' constraint, which still hard-locks to ollama.
+  moderate_chat: ["ollama", "groq"],
   news_enrich: ["ollama", "groq", "gemini"],
-  story_moderate: ["ollama"], // privacy: user submitted
+  story_moderate: ["ollama", "groq"],
   general: ["ollama", "groq", "gemini"],
   // Reasoning / self-critique route through Groq (US-hosted, free tier)
   // with a reasoning-capable model override (see TASK_MODEL_OVERRIDES).
