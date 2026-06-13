@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeNewsTitle, dedupNews, type NewsItem } from "../news-dedup";
+import { normalizeNewsTitle, dedupNews, dedupNewsByOutlet, type NewsItem } from "../news-dedup";
 
 const N = (
   id: string,
@@ -125,5 +125,41 @@ describe("dedupNews", () => {
     const out = dedupNews(items);
     expect(out.length).toBe(1);
     expect(out[0].id).toBe("b");
+  });
+});
+
+describe("dedupNewsByOutlet", () => {
+  it("keeps EVERY distinct outlet that covered the same story", () => {
+    // The exact case dedupNews collapses to 1 — here we want all 3 outlets.
+    const items = [
+      N("a", "Suffolk Vote Tabled - News12 | Bronx", "News12 | Bronx", "2026-05-13T10:00:00Z"),
+      N("b", "Suffolk Vote Tabled - News12 | Long Island", "News12 | Long Island", "2026-05-13T11:00:00Z"),
+      N("c", "Suffolk Vote Tabled - Newsday", "Newsday", "2026-05-13T09:00:00Z"),
+    ];
+    expect(dedupNews(items).length).toBe(1);
+    expect(dedupNewsByOutlet(items).length).toBe(3);
+  });
+
+  it("collapses exact re-scrapes (same outlet + same story) to one", () => {
+    const items = [
+      N("first", "NC lawmakers pitch ban - AOL.com", "AOL.com", "2026-06-10T09:00:00Z"),
+      N("rescrape", "NC lawmakers pitch ban - AOL.com", "AOL.com", "2026-06-12T09:00:00Z"),
+    ];
+    const out = dedupNewsByOutlet(items);
+    expect(out.length).toBe(1);
+    expect(out[0].id).toBe("first"); // earliest copy kept
+  });
+
+  it("returns empty array for empty input", () => {
+    expect(dedupNewsByOutlet([])).toEqual([]);
+  });
+
+  it("sorts newest-first and respects the limit", () => {
+    const items = [
+      N("old", "Story - A", "A", "2026-05-01"),
+      N("new", "Story - B", "B", "2026-05-10"),
+      N("mid", "Story - C", "C", "2026-05-05"),
+    ];
+    expect(dedupNewsByOutlet(items, 2).map((n) => n.id)).toEqual(["new", "mid"]);
   });
 });

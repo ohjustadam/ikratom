@@ -92,7 +92,7 @@ export default async function AlertDetailPage({ params }: Props) {
   // that may be sitting in policy_alerts.source_url.
   const linkedNews = (await sb
     .from("news_items")
-    .select("title, source_name, url, resolved_url")
+    .select("id, duplicate_of, title, source_name, url, resolved_url")
     .eq("policy_alert_id", a.id)
     .order("published_at", { ascending: false })
     .limit(1)
@@ -101,6 +101,10 @@ export default async function AlertDetailPage({ params }: Props) {
   const sourceUrl = bestSourceUrl(linkedNews?.resolved_url, linkedNews?.url, a.source_url);
   const sourceTitle = linkedNews?.title ?? null;
   const sourcePublisher = linkedNews?.source_name ?? publisherFromUrl(sourceUrl);
+  // Internal-first: link our own /news reader (resolve duplicate → canonical
+  // so we never land on a non-canonical copy), keeping users in-app. The
+  // external publisher URL becomes the secondary "view at source" link.
+  const internalNewsHref = linkedNews ? `/news/${linkedNews.duplicate_of ?? linkedNews.id}` : null;
 
   // Linked bill (if attached)
   const linkedBill = a.bill_id
@@ -335,10 +339,34 @@ export default async function AlertDetailPage({ params }: Props) {
         </section>
       )}
 
-      {/* Source — a clean, titled publisher link (never a bare Google-News
-          redirect). Falls back to a text citation if we only have a headline
-          but no resolvable publisher URL. */}
-      {sourceUrl ? (
+      {/* Source — internal-first: link OUR /news reader so users stay in-app,
+          with the external publisher URL demoted to a secondary "view at
+          source" link. Falls back to the external link (then a text citation)
+          only when we have no internal news item yet. */}
+      {internalNewsHref ? (
+        <section className="mb-6 flex flex-wrap items-stretch gap-2">
+          <Link
+            href={internalNewsHref}
+            className="inline-flex max-w-full items-center gap-2 rounded-md border border-emerald-700/50 bg-emerald-950/20 px-4 py-2 text-sm text-emerald-200 hover:border-emerald-500"
+          >
+            <span aria-hidden>📰</span>
+            <span className="min-w-0">
+              <span className="block truncate font-medium">{sourceTitle ?? "Read our coverage"}</span>
+              <span className="block text-xs text-emerald-400/80">Read in iKratom →</span>
+            </span>
+          </Link>
+          {sourceUrl && (
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-400 hover:border-zinc-500"
+            >
+              {sourcePublisher ? `${sourcePublisher} ↗` : "View at source ↗"}
+            </a>
+          )}
+        </section>
+      ) : sourceUrl ? (
         <section className="mb-6">
           <a
             href={sourceUrl}

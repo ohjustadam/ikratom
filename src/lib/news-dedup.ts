@@ -81,3 +81,32 @@ export function dedupNews(items: NewsItem[], limit = 12): NewsItem[] {
     .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
     .slice(0, limit);
 }
+
+/**
+ * Like dedupNews, but keeps EVERY distinct OUTLET that covered the story —
+ * only collapsing exact re-scrapes (same outlet + same normalized title).
+ *
+ * Use this where comprehensiveness is the goal (a campaign's full source list:
+ * "if 10 outlets cover the same story, link all 10"), as opposed to dedupNews
+ * which collapses syndications to a single canonical for a tidy bill/state feed.
+ * Keeps the earliest-published copy per (outlet, story) and sorts newest-first.
+ */
+export function dedupNewsByOutlet(items: NewsItem[], limit = 25): NewsItem[] {
+  const seen = new Map<string, NewsItem>();
+  for (const n of items) {
+    const title = normalizeNewsTitle(n.title ?? "");
+    if (!title) continue;
+    const key = `${(n.source_name ?? "").toLowerCase().trim()}|${title}`;
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, n);
+      continue;
+    }
+    const existingTime = existing.published_at ? new Date(existing.published_at).getTime() : Infinity;
+    const newTime = n.published_at ? new Date(n.published_at).getTime() : Infinity;
+    if (newTime < existingTime) seen.set(key, n);
+  }
+  return [...seen.values()]
+    .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
+    .slice(0, limit);
+}
