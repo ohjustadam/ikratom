@@ -1516,10 +1516,8 @@ export default async function BillDetailPage({
           <ul className="mt-3 space-y-2">
             {newsCoverage.map((n) => (
               <li key={n.id}>
-                <a
-                  href={n.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <Link
+                  href={`/news/${n.id}`}
                   className="block rounded-md border border-zinc-800 bg-zinc-950/60 p-3 hover:border-emerald-500"
                 >
                   <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
@@ -1543,7 +1541,7 @@ export default async function BillDetailPage({
                       {n.summary.slice(0, 200)}
                     </p>
                   )}
-                </a>
+                </Link>
               </li>
             ))}
           </ul>

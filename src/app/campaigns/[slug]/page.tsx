@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators, type Legislator } from "@/lib/legislators";
+import { dedupNewsByOutlet, type NewsItem } from "@/lib/news-dedup";
 import { buildVars, renderTemplate } from "@/modules/campaigns/templates";
 import { getMyCampaignProgress } from "@/modules/campaigns/actions";
 import { getEmailIntegration } from "@/lib/email/user-send";
@@ -58,7 +59,7 @@ export default async function CampaignPage({
   // Linked intel — the circulatory system. Every campaign structurally
   // links back to its bill, the alert that spawned it, and the state hub
   // (no more hand-written body_md links to keep the circle closed).
-  const [{ data: linkedBill }, { data: linkedAlert }] = await Promise.all([
+  const [{ data: linkedBill }, { data: campaignAlerts }] = await Promise.all([
     campaign.bill_id
       ? supabase.from("bills").select("id, state, bill_number, title").eq("id", campaign.bill_id).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -67,10 +68,36 @@ export default async function CampaignPage({
       .select("id, title, severity")
       .eq("campaign_id", campaign.id)
       .eq("moderation_status", "approved")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .order("created_at", { ascending: false }),
   ]);
+  const linkedAlert = campaignAlerts?.[0] ?? null;
+  const alertIds = (campaignAlerts ?? []).map((x: { id: string }) => x.id);
+
+  // News coverage — every internal /news article about this campaign's story,
+  // gathered exactly like /bills/[id]: union news_items.bill_id (when the
+  // campaign is wired to a bill) with policy_alert_id IN the campaign's alerts,
+  // then dedup syndicated copies. Internal-first: render links to OUR /news
+  // reader. Because this gathers dynamically, new coverage auto-appears as the
+  // nightly scrape correlates it — no manual re-linking.
+  let newsCoverage: NewsItem[] = [];
+  {
+    const orClauses: string[] = [];
+    if (campaign.bill_id) orClauses.push(`bill_id.eq.${campaign.bill_id}`);
+    if (alertIds.length > 0) orClauses.push(`policy_alert_id.in.(${alertIds.join(",")})`);
+    if (orClauses.length > 0) {
+      const { data: news } = await supabase
+        .from("news_items")
+        .select("id, title, source_name, url, published_at, summary")
+        .or(orClauses.join(","))
+        .eq("active", true)
+        .order("published_at", { ascending: false })
+        .limit(80);
+      // Per owner directive: a campaign lists ALL outlets that covered the
+      // story (only exact re-scrapes collapse), not one canonical — so a
+      // 10-outlet story shows 10 internal /news links.
+      newsCoverage = dedupNewsByOutlet((news ?? []) as NewsItem[], 25);
+    }
+  }
 
   const {
     data: { user },
@@ -444,6 +471,41 @@ export default async function CampaignPage({
               🏛 {campaign.state} war room
             </Link>
           )}
+        </div>
+      )}
+
+      {/* News coverage — every internal /news story about this campaign,
+          deduped across syndications. Internal-first: links our own reader. */}
+      {newsCoverage.length > 0 && (
+        <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            📰 In the news · {newsCoverage.length}
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Every story we&apos;ve indexed about this campaign — read it in iKratom.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {newsCoverage.map((n) => (
+              <li key={n.id}>
+                <Link
+                  href={`/news/${n.id}`}
+                  className="flex flex-wrap items-baseline gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-sm hover:border-emerald-500"
+                >
+                  {n.source_name && (
+                    <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                      {n.source_name}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-zinc-200">{n.title}</span>
+                  {n.published_at && (
+                    <span className="text-[10px] text-zinc-500">
+                      {new Date(n.published_at).toLocaleDateString()}
+                    </span>
+                  )}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
