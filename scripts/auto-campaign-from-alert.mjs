@@ -40,6 +40,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { isCampaignWorthyAlert } from "./lib/campaign-eligibility.mjs";
+import { cleanSourceUrl } from "./lib/source-url.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -60,13 +61,11 @@ if (!SPECIFIC && !ALL_PENDING) {
 
 // ---------- templates ----------
 function templateForAlert(alert) {
-  // Never paste a Google-News redirect into a letter to an official. Use a real
-  // publisher URL if we have one; otherwise point them at our own (clean) alert
-  // page so the citation always resolves and always looks professional.
-  const cleanUrl =
-    alert.source_url && !/^https?:\/\/(news\.google\.com|(www\.)?google\.com\/url)/i.test(alert.source_url)
-      ? alert.source_url
-      : null;
+  // Never paste a Google-News redirect (or a bare video embed) into a letter to
+  // an official. Use a real publisher URL if we have one; otherwise point them
+  // at our own (clean) alert page so the citation always resolves and always
+  // looks professional. Mirrors the SQL render_template_for_alert fallback.
+  const cleanUrl = cleanSourceUrl(alert.source_url);
   const sourceRef = cleanUrl
     ? `Source: ${cleanUrl}`
     : `More detail: https://www.ikratom.org/alerts/${alert.id}`;
@@ -302,6 +301,10 @@ async function processAlert(alert) {
   const campaignRow = {
     slug,
     state: /^[A-Z]{2}$/.test(alert.locality) ? alert.locality : null,
+    // Anchor the campaign to its bill so the page can surface the full bill
+    // context + every internal /news outlet for the story (PR B union keys on
+    // bill_id). The SQL trigger already sets this; the JS safety net omitted it.
+    bill_id: alert.bill_id ?? null,
     title: alert.title.slice(0, 200),
     blurb: alert.body ? alert.body.split("\n")[0].slice(0, 260) : null,
     subject_template: tpl.subject,

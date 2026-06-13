@@ -6,6 +6,18 @@ Format: each entry is a heading. Keep them short.
 
 ---
 
+## The auto-campaign LEAK fix lives in SQL, not the JS script (PR C)
+
+News-spawned campaigns were pasting raw `news.google.com` redirect URLs into legislator letters. The obvious fix — guard the URL in `scripts/auto-campaign-from-alert.mjs` — is nearly useless, because that script is only a cron *safety net*. The **primary** campaign-creation path is the Postgres trigger `auto_campaign_on_alert`, which renders the letter body in SQL via `render_template_for_alert()`. And because `resolve-news-urls.mjs` runs *daily* while `classify-news-policy.mjs` runs *hourly*, `policy_alerts.source_url` is still a raw redirect at the instant the trigger fires. So the real fix is migration `0201`: `render_template_for_alert()` itself refuses Google redirects / video embeds and falls back to the internal `/alerts/<id>` page. The JS classifier also now stores a clean URL, and the JS safety net mirrors the same guard — but the SQL render is the load-bearing one. Don't "simplify" by removing it.
+
+---
+
+## We FILL a NULL campaign bill_id — we never reassign one (PR C)
+
+`campaigns_one_auto_per_bill_idx` (0024) allows only one auto-campaign per bill. When a *dead* duplicate (rejected/superseded) holds a bill link an *active* campaign wants, the tempting move is to "promote" — clear the dead holder, give the link to the live one. We considered it and the owner declined (2026-06-13). The right cure for a duplicate is collapsing it through the dedup/supersede system, not churning `bill_id` in a backfill. `scripts/backfill-campaign-bill-id.mjs` therefore only fills NULLs and skips any bill already held (active or dead).
+
+---
+
 ## Use `mailto:` not Resend for legislator emails (v1)
 
 **Why:** Resend is paid past 100/day. With 1,000 advocates × 2 actions/week = 8,000+/month, we'd be paying. mailto: opens the user's mail client — they hit send themselves. Slightly worse UX, but $0 + works without any sender-domain setup + the recipient sees a real human's address.
