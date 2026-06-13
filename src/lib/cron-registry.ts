@@ -334,6 +334,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "meetings",
   },
   {
+    source: "fire_voting_reminders",
+    label: "Fire voting reminders",
+    purpose: "Fire 30d/7d/1d reminders before primaries + the general (geofenced)",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "push",
+  },
+  {
     source: "scan_legistar_tenants",
     label: "Scan Legistar tenants",
     purpose: "Scan major-city Legistar tenants for kratom agenda items",

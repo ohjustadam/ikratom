@@ -62,7 +62,7 @@ const REGISTRY = [
       "senate_stock_watcher","house_stock_watcher",
       "generate_state_briefing",
       "sync_committees_openstates","draft_legislator_stance",
-      "discover_municipal_meetings","fire_meeting_reminders",
+      "discover_municipal_meetings","fire_meeting_reminders","fire_voting_reminders",
       "scan_legistar_tenants","scan_granicus_tenants","sync_research_pubmed",
       "align_bills_to_research",
       "openstates","detect_bill_clusters",

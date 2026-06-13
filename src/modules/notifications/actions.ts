@@ -12,6 +12,7 @@ export type NotificationPrefs = {
   notify_local_reps: boolean;
   notify_news: boolean;
   notify_meetings: boolean;
+  notify_voting_reminder: boolean;
   notify_community: boolean;
   notify_announcements: boolean;
   in_app: boolean;
@@ -84,7 +85,8 @@ export async function updateNotificationPrefs(formData: FormData) {
   // everything. The form sets categories_present=1 next to the group.
   const categoryFields = [
     "notify_nonresident_campaigns", "notify_bills", "notify_local_reps",
-    "notify_news", "notify_meetings", "notify_community", "notify_announcements",
+    "notify_news", "notify_meetings", "notify_voting_reminder",
+    "notify_community", "notify_announcements",
   ] as const;
   const categoriesPresent = formData.get("categories_present") === "1";
   if (categoriesPresent) {
