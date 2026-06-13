@@ -3,6 +3,8 @@
 # SearXNG runs as an ephemeral in-job container. Delete this branch after.
 name: Ghost canary
 on:
+  push:
+    branches: [ghost-canary]
   workflow_dispatch: {}
 jobs:
   canary:
