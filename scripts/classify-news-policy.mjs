@@ -27,6 +27,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { kratomRelevance } from "./lib/kratom-keywords.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
+import { bestSourceUrl } from "./lib/source-url.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -133,7 +134,7 @@ console.log(`Providers: ${avail().join(", ")}`);
 // to auto-publish items whose article body proved kratom-free. NULL
 // passes through (verifier hasn't run yet — don't blackout fresh news).
 let q = sb.from("news_items")
-  .select("id, title, url, source_name, state, published_at, summary, body_has_kratom_keyword, body_extract_excerpt")
+  .select("id, title, url, resolved_url, source_name, state, published_at, summary, body_has_kratom_keyword, body_extract_excerpt")
   .eq("active", true)
   .not("body_has_kratom_keyword", "is", false)
   .limit(LIMIT);
@@ -227,7 +228,12 @@ for (const item of items) {
           ? `${result.summary}\n\n**Source:** ${item.source_name ?? "(unknown)"}${result.advocate_action ? `\n\n**Advocate action:** ${result.advocate_action}` : ""}${result.specific_locality ? `\n**Locality:** ${result.specific_locality}` : ""}`
           : null,
         locality,
-        source_url: item.url,
+        // Store a citation-safe publisher URL — NEVER the raw Google-News
+        // redirect. resolved_url (if the daily resolver has run) wins; else the
+        // raw url only if it's already a real publisher link; else null. The
+        // alert page + campaign render both fall back to our own /alerts/<id>
+        // when this is null, so a redirect can never reach a legislator letter.
+        source_url: bestSourceUrl(item.resolved_url, item.url),
         action_required: !!(result.advocate_action && result.advocate_action.toLowerCase() !== "null"),
         occurs_at: result.occurs_at && /^\d{4}-\d{2}-\d{2}$/.test(result.occurs_at) ? `${result.occurs_at}T12:00:00Z` : null,
         moderation_status: moderationStatus,
