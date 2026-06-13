@@ -1,0 +1,63 @@
+# SearXNG settings — iKratom ghost search appliance (private, single trusted caller).
+# Engine mix is rebalanced AWAY from Google: Google captchas SearXNG on datacenter
+# IPs (searxng/searxng#2515, #4435 — verified 2026-06-12), so it is best-effort here
+# and the aggregate leans on DDG/Brave/Qwant/Startpage/Mojeek/Wikipedia.
+# Tune after the Stage-1 canary: check /config on the live Space for engine health.
+use_default_settings: true
+
+general:
+  instance_name: "ikratom ghost search"
+  enable_metrics: false
+  debug: false
+
+server:
+  # Placeholder — the official image's entrypoint replaces this with the
+  # SEARXNG_SECRET env var (set in HF Space secrets, never committed).
+  secret_key: "ultrasecretkey"
+  # Private instance, one trusted caller: the inbound limiter only fights
+  # our own batch (same lesson as the box config — limiter off there too).
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+search:
+  # json is what scripts/lib/searxng.mjs consumes; without it SearXNG 403s.
+  formats:
+    - html
+    - json
+  autocomplete: ""
+  safe_search: 0
+
+outgoing:
+  request_timeout: 8.0
+  max_request_timeout: 12.0
+  pool_connections: 20
+  pool_maxsize: 10
+
+# Engine rebalance. Names per current SearXNG defaults — verify against the
+# live instance's /config after first boot (names occasionally shift between
+# releases; anything misnamed is ignored, not fatal).
+engines:
+  - name: google
+    disabled: false   # best-effort: expect captcha walls from HF egress IPs
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: duckduckgo news
+    disabled: false
+  - name: bing news
+    disabled: false
+  - name: google news
+    disabled: false   # best-effort, same caveat as google
