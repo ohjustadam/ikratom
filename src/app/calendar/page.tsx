@@ -10,7 +10,7 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 
 type Event = {
-  kind: "municipal" | "alert" | "bill_action" | "state_session" | "election" | "townhall";
+  kind: "municipal" | "alert" | "bill_action" | "state_session" | "election" | "townhall" | "bill_effective";
   date: Date;
   end_date?: Date | null;
   allDay?: boolean;
@@ -25,7 +25,8 @@ type Event = {
   public_comment_url?: string | null;
   in_person_address?: string | null;
   source_url?: string | null;
-  detail_href?: string | null;
+  detail_href?: string | null;       // primary internal link (this event's own page)
+  bill_href?: string | null;         // secondary cross-link to the related bill
   severity?: string | null;
 };
 
@@ -36,6 +37,7 @@ const KIND_BADGE: Record<string, { emoji: string; label: string; cls: string }> 
   state_session: { emoji: "🏛️", label: "State session", cls: "bg-emerald-950/30 text-emerald-300 border-emerald-700/40" },
   election: { emoji: "🗳️", label: "Election", cls: "bg-violet-950/30 text-violet-300 border-violet-700/40" },
   townhall: { emoji: "🎤", label: "Town hall", cls: "bg-teal-950/30 text-teal-300 border-teal-700/40" },
+  bill_effective: { emoji: "⚖️", label: "Takes effect", cls: "bg-rose-950/30 text-rose-300 border-rose-700/40" },
 };
 
 export default async function CalendarPage({ searchParams }: {
@@ -64,7 +66,7 @@ export default async function CalendarPage({ searchParams }: {
   const viewerState = stateFilter ?? userState;
 
   // Pull from multiple sources in parallel
-  const [meetings, alerts, billActions, sessions, elections, townhalls] = await Promise.all([
+  const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective] = await Promise.all([
     sb.from("municipal_meetings")
       .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
       .eq("moderation_status", "approved")
@@ -72,7 +74,7 @@ export default async function CalendarPage({ searchParams }: {
       .lte("meeting_at", horizon.toISOString())
       .order("meeting_at", { ascending: true }),
     sb.from("policy_alerts")
-      .select("id, kind, severity, title, body, locality, source_url, occurs_at")
+      .select("id, kind, severity, title, body, locality, source_url, occurs_at, bill_id")
       .eq("moderation_status", "approved")
       .not("occurs_at", "is", null)
       .gte("occurs_at", now.toISOString())
@@ -96,11 +98,21 @@ export default async function CalendarPage({ searchParams }: {
       .lte("election_date", electionHorizon.toISOString().slice(0, 10))
       .order("election_date", { ascending: true }),
     sb.from("legislator_events")
-      .select("id, state, locality, title, description, event_type, starts_at, venue, source_url")
+      .select("id, state, locality, title, description, event_type, starts_at, venue, source_url, legislator_id")
       .eq("active", true)
       .gte("starts_at", now.toISOString())
       .lte("starts_at", horizon.toISOString())
       .order("starts_at", { ascending: true }),
+    // Upcoming "takes effect" dates for tracked bills — the most-asked
+    // question ("when does this hit me?"). effective_date is a date column
+    // (0029); look 1yr out like elections since laws are dated months ahead.
+    sb.from("bills")
+      .select("id, state, bill_number, title, effective_date, kratom_relevance")
+      .in("kratom_relevance", ["anti", "pro"])
+      .not("effective_date", "is", null)
+      .gte("effective_date", now.toISOString().slice(0, 10))
+      .lte("effective_date", electionHorizon.toISOString().slice(0, 10))
+      .order("effective_date", { ascending: true }),
   ]);
 
   const events: Event[] = [];
@@ -119,6 +131,7 @@ export default async function CalendarPage({ searchParams }: {
       public_comment_url: m.public_comment_signup_url,
       in_person_address: m.in_person_address,
       source_url: m.source_url,
+      detail_href: `/meetings/${m.id}`,
     });
   }
 
@@ -131,7 +144,8 @@ export default async function CalendarPage({ searchParams }: {
       state: /^[A-Z]{2}$/.test(a.locality ?? "") ? a.locality : null,
       locality: a.locality,
       source_url: a.source_url,
-      detail_href: `/pulse`,
+      detail_href: `/alerts/${a.id}`,                       // the specific alert, not generic /pulse
+      bill_href: a.bill_id ? `/bills/${a.bill_id}` : null,  // cross-link to the bill the alert is about
       severity: a.severity,
     });
   }
@@ -161,6 +175,7 @@ export default async function CalendarPage({ searchParams }: {
           body: `${s.capital_city ?? "?"} · ${s.current_session_id ?? "?"}`,
           state: s.state,
           source_url: s.legislature_url,
+          detail_href: `/states/${s.state}`,
         });
       }
     }
@@ -174,6 +189,7 @@ export default async function CalendarPage({ searchParams }: {
           body: `${s.capital_city ?? "?"} · ${s.current_session_id ?? "?"}`,
           state: s.state,
           source_url: s.legislature_url,
+          detail_href: `/states/${s.state}`,
         });
       }
     }
@@ -192,6 +208,7 @@ export default async function CalendarPage({ searchParams }: {
       locality: t.locality,
       in_person_address: t.venue,
       source_url: t.source_url,
+      detail_href: t.legislator_id ? `/legislators/${t.legislator_id}` : null,
     });
   }
 
@@ -214,6 +231,21 @@ export default async function CalendarPage({ searchParams }: {
       body: regNote,
       state: national ? null : el.state,
       source_url: el.source_url,
+    });
+  }
+
+  // "Takes effect" dates for tracked bills — when a passed/signed law actually
+  // hits. All-day, links to the bill. Answers "when does this affect me?".
+  for (const b of billsEffective.data ?? []) {
+    if (!b.effective_date) continue;
+    events.push({
+      kind: "bill_effective",
+      date: new Date(b.effective_date + "T12:00:00Z"),
+      allDay: true,
+      title: `${b.state} ${b.bill_number} takes effect`,
+      body: b.title ? b.title.slice(0, 200) : null,
+      state: b.state,
+      detail_href: `/bills/${b.id}`,
     });
   }
 
@@ -249,6 +281,7 @@ export default async function CalendarPage({ searchParams }: {
     municipal: events.filter((e) => e.kind === "municipal").length,
     alert: events.filter((e) => e.kind === "alert").length,
     bill_action: events.filter((e) => e.kind === "bill_action").length,
+    bill_effective: events.filter((e) => e.kind === "bill_effective").length,
     state_session: events.filter((e) => e.kind === "state_session").length,
   };
 
@@ -413,8 +446,17 @@ export default async function CalendarPage({ searchParams }: {
                             </span>
                           )}
                           {e.detail_href && (
-                            <Link href={e.detail_href} className="text-emerald-400 hover:underline">
-                              detail →
+                            <Link href={e.detail_href} className="rounded border border-emerald-700/40 bg-emerald-950/20 px-2.5 py-1 font-semibold text-emerald-300 hover:border-emerald-500">
+                              {e.kind === "bill_action" || e.kind === "bill_effective" ? "📜 View bill" :
+                               e.kind === "alert" ? "🔗 Open alert" :
+                               e.kind === "municipal" ? "🏛️ Meeting detail" :
+                               e.kind === "townhall" ? "👤 Legislator" :
+                               e.kind === "state_session" ? "📍 State hub" : "detail →"}
+                            </Link>
+                          )}
+                          {e.bill_href && (
+                            <Link href={e.bill_href} className="rounded border border-blue-700/40 bg-blue-950/20 px-2.5 py-1 font-semibold text-blue-300 hover:border-blue-500">
+                              📜 Related bill
                             </Link>
                           )}
                           {e.source_url && !e.detail_href && (
