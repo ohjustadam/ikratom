@@ -66,6 +66,10 @@ const TASK_DEFAULTS: Record<TaskKind, ProviderName[]> = {
   // Gemini stays as grounded-fact-check fallback.
   reasoning: ["groq", "gemini", "ollama"],
   self_critique: ["groq", "gemini"],
+  // Anti-weaponization stance screen. Runs in server actions on Vercel, so
+  // Ollama (localhost-only) is intentionally excluded — Groq primary, Gemini
+  // fallback. Both are cloud free-tier, US-hosted, inference-only.
+  email_stance_screen: ["groq", "gemini"],
 };
 
 /**
