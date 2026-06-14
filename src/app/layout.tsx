@@ -254,6 +254,7 @@ export default async function RootLayout({
               <a href="/terms" className="hover:text-emerald-400">Terms</a>
               <a href="/privacy" className="hover:text-emerald-400">Privacy</a>
               <a href="/cookies" className="hover:text-emerald-400">Cookies</a>
+              <a href="https://github.com/ohjustadam/ikratom/blob/main/LICENSE.md" target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400">Source &amp; license</a>
               <a href={`mailto:${siteConfig.links.support}`} className="hover:text-emerald-400">Contact</a>
             </nav>
             <div className="mb-4 flex items-center justify-center gap-2">
