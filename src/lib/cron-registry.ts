@@ -412,6 +412,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "news",
   },
   {
+    source: "feed_news_from_alerts",
+    label: "Seed /news from alerts",
+    purpose: "Seed + link /news entries for alerts that cite a real news article but aren't in /news yet",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "news",
+  },
+  {
     source: "detect_bill_clusters",
     label: "Detect coordinated operations",
     purpose: "Cluster active bills into coordinated-operation groups",

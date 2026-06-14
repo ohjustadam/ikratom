@@ -304,6 +304,18 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/verify-news-body.mjs --limit 200
+      - name: Seed /news from newsworthy unlinked alerts
+        # "If it's not in /news, create it." Alerts born outside the news
+        # pipeline (bill-action trigger, BoP, manual) that cite a real NEWS
+        # article get a /news row seeded + linked back. Gov/legislative/tracker
+        # sources are skipped (not news). Runs BEFORE extract+summarize so the
+        # seeded rows are enriched in the same pass. continue-on-error so a
+        # transient write hiccup doesn't fail the daily run.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/feed-news-from-alerts.mjs --apply
       - name: Extract in-app article excerpt + embedded media
         # Mines the resolved publisher HTML for a fair-use lead excerpt
         # (capped paragraphs) + embedded media (YouTube/Vimeo players,

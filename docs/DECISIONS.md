@@ -6,6 +6,12 @@ Format: each entry is a heading. Keep them short.
 
 ---
 
+## The alert→news feeder seeds REAL NEWS only, never gov/portal links (PR F)
+
+"If it's not in /news, create it" (`scripts/feed-news-from-alerts.mjs`): alerts with a `source_url` but no linked `news_item` get a /news row seeded + linked. But the unlinked population is dominated by `bill_event` alerts whose source is a legislative/gov portal (openstates.org, *.gov, nysenate.gov, leginfo…) — those are NOT news articles (they'd extract to an empty /news page and are already covered by the bill page). So the feeder applies a `NON_NEWS_HOST` denylist (gov / legislative / bill-tracker / advocacy-org) and a clean-publisher-URL check, seeding ONLY genuine news. On the first run that was 2 of 179 unlinked (130 portal-skip, 47 google-redirect-skip). Don't "fix" the low yield by removing the denylist — seeding the 130 portal alerts is the bug, not the feature. Seeded rows set `resolved_url`=the clean URL + `policy_classified_at` + `body_has_kratom_keyword=true` so the nightly extract+summarize pipeline enriches them; existing same-URL rows are linked, not duplicated (news_items.url is unique).
+
+---
+
 ## In-app news = publisher EMBEDS + bounded lead, never rehosting (PR E)
 
 Owner directive: "max in-app, ZERO legal risk." The line we hold on `/news/[id]`: we surface our own AI summary + a **bounded fair-use lead** (`PARAGRAPH_CAP=10` AND `EXCERPT_CHAR_CAP=2500` in `article-content.mjs` — the char cap is the real guard; never the full body even for long-paragraph articles) + the publisher's **own** media, then link out. Media is the publisher's served players ONLY: video (YouTube/Vimeo) + audio (SoundCloud/Spotify/Apple Podcasts) as iframes, images hotlinked from the publisher CDN. We do NOT: rehost text/images, nor hotlink raw publisher `.mp3`s into our own `<audio>` (that's closer to rehosting AND would force loosening `media-src` to `https:`). Audio extraction matches embed-iframe forms ONLY (`/embed/`, `w.soundcloud.com/player/`) — bare "follow us" profile links are deliberately ignored so a station's whole show doesn't attach to an unrelated story. Each render-side iframe src is host-gated (`page.tsx` EMBED_HOSTS, `^`-anchored) on top of CSP `frame-src`. Don't "improve" this by raising the cap to full text or adding direct-`<audio>` hotlinking.
