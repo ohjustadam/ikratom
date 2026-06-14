@@ -5,6 +5,13 @@ import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-m
 import BriefAudioButton from "./BriefAudioButton";
 import { siteConfig } from "@/config/site.config";
 
+// Civic day for the brief. The audience is a US-national advocacy community and
+// the daily MP3 is a single national render, so we anchor "today" to Eastern —
+// NOT the server/UTC clock. Server-rendered (Vercel = UTC) and the GitHub Actions
+// renderer (also UTC) were both computing "today" in UTC, which rolls to tomorrow
+// after 00:00 UTC (~8pm ET) — so all evening the brief announced the wrong day.
+const EASTERN_TZ = "America/New_York";
+
 export const metadata = {
   title: "Daily brief — what's moving in kratom policy",
   description:
@@ -232,8 +239,8 @@ export default async function BriefPage() {
     });
   } catch { /* defensive */ }
 
-  const today = new Date().toLocaleDateString(undefined, {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: EASTERN_TZ,
   });
 
   // ── AI day-summary paragraph. Cached per (scope, date) via
@@ -298,7 +305,9 @@ export default async function BriefPage() {
   let audioUrl: string | null = null;
   let audioDateLabel: string | null = null;
   for (let daysBack = 0; daysBack < 7; daysBack++) {
-    const key = new Date(Date.now() - daysBack * 86400_000).toISOString().slice(0, 10);
+    // Eastern-civic date key, matching the render script's storage path so the
+    // lookup doesn't grab tomorrow's UTC-keyed file during US evening hours.
+    const key = new Date(Date.now() - daysBack * 86400_000).toLocaleDateString("en-CA", { timeZone: EASTERN_TZ });
     const url = `${SB_URL}/storage/v1/object/public/daily-brief-audio/${key}/national.mp3`;
     try {
       const res = await fetch(url, { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(2500) });

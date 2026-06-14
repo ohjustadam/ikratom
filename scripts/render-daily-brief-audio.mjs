@@ -44,8 +44,13 @@ const sb = createClient(
   { auth: { persistSession: false } },
 );
 
+// Civic day = Eastern, not the UTC runner clock. GitHub Actions runs in UTC, so
+// a render fired by the hourly self-heal after 00:00 UTC (~8pm ET) used to label
+// + store the brief as TOMORROW's date. The /brief page reads the same Eastern
+// key, so write + read stay aligned.
+const EASTERN_TZ = "America/New_York";
 const BUCKET = "daily-brief-audio";
-const today = new Date().toISOString().slice(0, 10);
+const today = new Date().toLocaleDateString("en-CA", { timeZone: EASTERN_TZ }); // YYYY-MM-DD in ET
 const OBJECT_PATH = `${today}/national.mp3`;
 
 const t0 = Date.now();
@@ -116,7 +121,7 @@ const { data: news } = await sb.from("news_items")
   .limit(6);
 
 const dateLong = new Date().toLocaleDateString("en-US", {
-  weekday: "long", month: "long", day: "numeric", year: "numeric",
+  weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: EASTERN_TZ,
 });
 
 // Two-voice NPR style: the male anchor frames the brief + transitions; the
