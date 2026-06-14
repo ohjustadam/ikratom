@@ -251,14 +251,13 @@ jobs:
         run: node scripts/classify-bop-ai.mjs --limit 50
 
   resolve-news-urls:
-    # Phase 2 of FP defense — Playwright resolves Google News redirect
-    # URLs to publisher URLs so verify-news-body can actually fetch
-    # the article content. HTTP fetch can't follow Google's JS-based
-    # redirect; real Chromium can.
+    # Phase 2 of FP defense — resolve Google News redirect URLs to publisher
+    # URLs so verify-news-body / extract-news-content can fetch the article.
+    # KEYLESS HTTP decode (lib/google-news-decode.mjs) — no Chromium needed;
+    # ~1s/item, so a higher limit clears the historical backlog over a few runs.
     #
-    # Caches resolutions in news_items.resolved_url so we only pay the
-    # browser cost once per article. Runs BEFORE verify-news-body so
-    # the body fetcher has fresh resolved URLs to work with.
+    # Caches resolutions in news_items.resolved_url so we only resolve once per
+    # article. Runs BEFORE verify-news-body so the body fetcher has fresh URLs.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -267,15 +266,12 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-      # Full install (not --omit=dev) because we need playwright-chromium.
-      - run: npm ci --no-audit --no-fund
-      - name: Install Chromium for Playwright
-        run: npx playwright install --with-deps chromium
+      - run: npm ci --omit=dev --no-audit --no-fund
       - name: Resolve Google News redirect URLs to publisher URLs
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/resolve-news-urls.mjs --limit 100
+        run: node scripts/resolve-news-urls.mjs --limit 400
 
   verify-news-body:
     # False-positive defense — two-phase pipeline:
