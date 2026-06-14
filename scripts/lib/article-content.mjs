@@ -102,6 +102,36 @@ function abs(url, base) {
 
 const IMG_SKIP = /\b(sprite|spacer|pixel|tracking|1x1|avatar|logo|icon|favicon|ad[-_]|doubleclick|gravatar|emoji)\b/i;
 
+// Direct, browser-playable progressive video files. HLS (.m3u8) is excluded:
+// a native <video> only plays it in Safari, so emitting it would render a
+// broken player in Chrome — worse than linking out.
+const VIDEO_EXT_RE = /\.(mp4|m4v|webm|ogv|mov)$/i;
+function isPlayableVideoFile(u) {
+  try {
+    const p = new URL(u);
+    return p.protocol === "https:" && VIDEO_EXT_RE.test(p.pathname);
+  } catch { return false; }
+}
+
+/** Walk a parsed JSON-LD value, collecting every schema.org VideoObject's
+ *  contentUrl (+ poster). Handles arrays, @graph nesting, and @type-as-array.
+ *  Depth-capped: a malicious publisher can't blow the stack with deeply-nested
+ *  JSON-LD (schema.org graphs are never legitimately deep) and crash the cron. */
+function collectVideoObjects(node, out, depth = 0) {
+  if (!node || typeof node !== "object" || depth > 64) return;
+  if (Array.isArray(node)) { for (const n of node) collectVideoObjects(n, out, depth + 1); return; }
+  const t = node["@type"];
+  const isVideo = t === "VideoObject" || (Array.isArray(t) && t.includes("VideoObject"));
+  if (isVideo && typeof node.contentUrl === "string") {
+    const thumb = Array.isArray(node.thumbnailUrl) ? node.thumbnailUrl[0] : node.thumbnailUrl;
+    out.push({ url: node.contentUrl, poster: typeof thumb === "string" ? thumb : null });
+  }
+  for (const k of Object.keys(node)) {
+    if (k === "contentUrl" || k === "thumbnailUrl") continue;
+    collectVideoObjects(node[k], out, depth + 1);
+  }
+}
+
 function extractMedia(html, regionHtml, base) {
   const media = [];
   const push = (item) => {
@@ -162,6 +192,74 @@ function extractMedia(html, regionHtml, base) {
     if (media.length >= MEDIA_CAP) break;
   }
 
+  // ── Self-hosted publisher video (JSON-LD VideoObject / og:video) ─────
+  // Local-news CMSs (Gray TV's Arc "Powa" player, many WordPress sites) don't
+  // embed a YouTube/Vimeo iframe — they expose the clip as a direct MP4 via a
+  // schema.org VideoObject.contentUrl or an og:video:* meta. These are the same
+  // publisher-populated fields Google/Facebook use to surface the video, so we
+  // play them in-app via a native <video> pointed at the publisher's OWN CDN
+  // file (poster from thumbnailUrl/og:image) — shared as intended, not rehosted.
+  const videoCandidates = [];
+  const ldRe = /<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi;
+  let ld;
+  while ((ld = ldRe.exec(html)) !== null) {
+    let parsed;
+    try { parsed = JSON.parse(ld[1].trim()); } catch { continue; }
+    collectVideoObjects(parsed, videoCandidates);
+  }
+  // og:video / og:video:url / og:video:secure_url — both meta attribute orders.
+  const ogVidRe = /<meta[^>]+(?:property|name)=["']og:video(?::(?:secure_)?url)?["'][^>]+content=["']([^"']+)["']|<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:video(?::(?:secure_)?url)?["']/gi;
+  let ov;
+  while ((ov = ogVidRe.exec(html)) !== null) {
+    videoCandidates.push({ url: decodeEntities(ov[1] || ov[2]), poster: null });
+  }
+  for (const cand of videoCandidates) {
+    const u = abs(cand.url, base);
+    // Only direct, browser-playable progressive files. Candidates that point at
+    // a YouTube/Vimeo embed are handled by the iframe scans above. Candidates
+    // that point at a player IFRAME (Brightcove/JW Player) or an HLS .m3u8
+    // master (Anvato/Lura on Nexstar etc.) are INTENTIONALLY DROPPED here — not
+    // yet handled. v2: add Brightcove/JW to the iframe-embed path (+ CSP
+    // frame-src) and gate HLS behind hls.js. Do not mistake this for "handled".
+    if (!u || !isPlayableVideoFile(u)) continue;
+    const item = { type: "video_file", url: u };
+    const poster = cand.poster ? abs(cand.poster, base) : null;
+    if (poster && /^https/.test(poster)) item.poster = poster;
+    push(item);
+    if (media.length >= MEDIA_CAP) break;
+  }
+
+  // Inline self-hosted <video> in the article body — the canonical WordPress /
+  // Gutenberg core/video block (<figure class="wp-block-video"><video controls
+  // src="…mp4">) and hand-rolled Arc embeds, which often DON'T duplicate the
+  // clip into JSON-LD / og:video. Scanned from the CLEAN article region (same
+  // source + gate + dedup as the inline <img> scan below), so player chrome in
+  // nav/footer is excluded. Readability keeps <video>/<source> (it strips only
+  // scripts/iframes), so the clean region is the right place to look.
+  const videoTagRe = /<video\b([^>]*)>([\s\S]*?)<\/video>|<video\b([^>]*?)\/?>/gi;
+  let vt;
+  while ((vt = videoTagRe.exec(regionHtml)) !== null) {
+    const openAttrs = vt[1] ?? vt[3] ?? "";
+    const inner = vt[2] ?? "";
+    const posterM = openAttrs.match(/\bposter=["']([^"']+)["']/i);
+    const poster = posterM ? abs(decodeEntities(posterM[1]), base) : null;
+    const srcs = [];
+    const vsrc = openAttrs.match(/\bsrc=["']([^"']+)["']/i);
+    if (vsrc) srcs.push(vsrc[1]);
+    const srcRe = /<source\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+    let s;
+    while ((s = srcRe.exec(inner)) !== null) srcs.push(s[1]);
+    for (const raw of srcs) {
+      const u = abs(decodeEntities(raw), base);
+      if (!u || !isPlayableVideoFile(u)) continue;
+      const item = { type: "video_file", url: u };
+      if (poster && /^https/.test(poster)) item.poster = poster;
+      push(item);
+      break; // one source per <video> — don't add mp4+webm variants of one clip
+    }
+    if (media.length >= MEDIA_CAP) break;
+  }
+
   // Lead image from og:image (most reliable hero).
   const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
     || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
@@ -208,7 +306,7 @@ function readabilityExtract(html, baseUrl) {
 }
 
 /**
- * @returns {{ paragraphs: string[], media: Array<{type,url,embed_url?,video_id?,lead?}> }}
+ * @returns {{ paragraphs: string[], media: Array<{type,url,embed_url?,video_id?,poster?,lead?}> }}
  */
 export function extractArticleContent(html, baseUrl) {
   if (!html) return { paragraphs: [], media: [] };

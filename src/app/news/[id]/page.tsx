@@ -15,6 +15,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { NewsVideo } from "./NewsVideo";
 
 type Params = { id: string };
 
@@ -45,7 +46,7 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
     summary: string | null;
     body_extract_excerpt: string | null;
     body_paragraphs: string[] | null;
-    media_urls: Array<{ type: string; url: string; embed_url?: string; video_id?: string; lead?: boolean }> | null;
+    media_urls: Array<{ type: string; url: string; embed_url?: string; video_id?: string; poster?: string; lead?: boolean }> | null;
     url: string;
     resolved_url: string | null;
     source_name: string | null;
@@ -105,11 +106,14 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
     : 0;
   const externalUrl = article.resolved_url ?? article.url;
 
-  // Media split for in-app rendering. Video + audio embed via the publisher's
-  // OWN player URL; images load from their CDN (img-src https: allowed). Every
-  // iframe src is double-gated: it must (a) be in CSP frame-src AND (b) pass
-  // this host allowlist, so a malformed extracted embed_url can never render an
-  // arbitrary frame even if it slipped past the extractor.
+  // Media split for in-app rendering. Iframe embeds (YouTube/Vimeo/audio) load
+  // the publisher's OWN player; self-hosted video plays via a native <video>
+  // pointed at the publisher's CDN file (media-src https:); images load from
+  // their CDN (img-src https:). Every iframe src is double-gated: it must (a)
+  // be in CSP frame-src AND (b) pass this host allowlist, so a malformed
+  // extracted embed_url can never render an arbitrary frame even if it slipped
+  // past the extractor. Self-hosted video is re-gated to https + a known media
+  // extension (no host allowlist needed — <video> can't execute script).
   const EMBED_HOSTS: Record<string, RegExp> = {
     youtube: /^https:\/\/www\.youtube(?:-nocookie)?\.com\/embed\//,
     vimeo: /^https:\/\/player\.vimeo\.com\/video\//,
@@ -119,9 +123,17 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
   };
   const okEmbed = (m: { type: string; embed_url?: string }) =>
     !!m.embed_url && EMBED_HOSTS[m.type]?.test(m.embed_url);
+  const okVideoFile = (m: { type: string; url?: string }) => {
+    if (m.type !== "video_file" || !m.url) return false;
+    try {
+      const u = new URL(m.url);
+      return u.protocol === "https:" && /\.(mp4|m4v|webm|ogv|mov)$/i.test(u.pathname);
+    } catch { return false; }
+  };
 
   const media = Array.isArray(article.media_urls) ? article.media_urls : [];
   const videos = media.filter((m) => (m.type === "youtube" || m.type === "vimeo") && okEmbed(m));
+  const videoFiles = media.filter(okVideoFile);
   const audio = media.filter((m) => (m.type === "soundcloud" || m.type === "spotify" || m.type === "apple_podcast") && okEmbed(m));
   const images = media.filter((m) => m.type === "image" && m.url);
   const leadImage = images.find((m) => m.lead) ?? images[0] ?? null;
@@ -219,8 +231,9 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
         </figure>
       )}
 
-      {/* Embedded video(s) — watch in-app */}
-      {videos.length > 0 && (
+      {/* Embedded video(s) — watch in-app. Iframe players (YouTube/Vimeo)
+          first, then publisher self-hosted clips via a native <video>. */}
+      {(videos.length > 0 || videoFiles.length > 0) && (
         <section className="mb-6 space-y-4">
           {videos.map((v) => (
             <div key={v.embed_url} className="overflow-hidden rounded-lg border border-zinc-800">
@@ -234,6 +247,13 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
                   allowFullScreen
                   loading="lazy"
                 />
+              </div>
+            </div>
+          ))}
+          {videoFiles.map((v) => (
+            <div key={v.url} className="overflow-hidden rounded-lg border border-zinc-800">
+              <div className="relative aspect-video bg-black">
+                <NewsVideo src={v.url} poster={v.poster} sourceName={article.source_name} href={externalUrl} />
               </div>
             </div>
           ))}

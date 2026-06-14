@@ -26,11 +26,13 @@ const csp = [
   // your project) + PostHog (us.i.posthog.com / us-assets.i.posthog.com).
   `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com`.trim(),
   // Audio/video: same-origin + our Supabase project (where rendered
-  // daily-brief MP3s live) + blob: so any future fetch-to-blob fallback
-  // continues to work. Missing this directive caused Chrome to block
-  // every <audio> with "Media load rejected by URL safety check"
-  // because CSP fell back to default-src 'self'.
-  `media-src 'self' ${SUPABASE_HTTPS} blob:`.trim(),
+  // daily-brief MP3s live) + blob: (fetch-to-blob fallback) + https: so the
+  // in-app news reader can play publisher self-hosted clips (Gray TV / Arc,
+  // many WordPress sites) via a native <video> pointed at the publisher's own
+  // CDN file — same posture as img-src https: for publisher images. Missing
+  // this directive caused Chrome to block every <audio> with "Media load
+  // rejected by URL safety check" because CSP fell back to default-src 'self'.
+  `media-src 'self' ${SUPABASE_HTTPS} https: blob:`.trim(),
   `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com`.trim(),
   // No <iframe> may embed our pages
   "frame-ancestors 'none'",
