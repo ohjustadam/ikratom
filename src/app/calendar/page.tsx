@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient, getCachedAuthProfile } from "@/lib/supabase/server";
 import { SignUpNudge } from "@/components/SignUpNudge";
+import { CalendarSyncButton } from "./CalendarSyncButton";
 import { EVENT_TYPE_LABELS } from "@/modules/events/labels";
 
 export const metadata = {
@@ -285,13 +286,31 @@ export default async function CalendarPage({ searchParams }: {
     state_session: events.filter((e) => e.kind === "state_session").length,
   };
 
+  // Feed (.ics) subscribe URLs — the current state/kind filter carries through
+  // so a user subscribes to exactly the slice they're viewing.
+  const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
+  const feedQs = new URLSearchParams();
+  if (viewerState) feedQs.set("state", viewerState);
+  if (kindFilter) feedQs.set("kind", kindFilter);
+  const feedSuffix = feedQs.toString() ? `?${feedQs.toString()}` : "";
+  const feedHttps = `${SITE}/calendar/feed.ics${feedSuffix}`;
+  const feedWebcal = feedHttps.replace(/^https?:/, "webcal:");
+  const feedGoogle = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(feedHttps)}`;
+  const feedScope = [viewerState, kindFilter ? kindFilter.replace("_", " ") : null]
+    .filter(Boolean).join(" · ") || "every event";
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <header className="mb-6">
-        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          📅 Community Calendar
-        </p>
-        <h1 className="mt-2 text-3xl font-bold">Every event we know about</h1>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+              📅 Community Calendar
+            </p>
+            <h1 className="mt-2 text-3xl font-bold">Every event we know about</h1>
+          </div>
+          <CalendarSyncButton httpsUrl={feedHttps} webcalUrl={feedWebcal} googleUrl={feedGoogle} scopeLabel={feedScope} />
+        </div>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
           Elections + primaries · town halls + hearings · city/county meetings ·
           bill action dates · legislative session bookends. One place for every
@@ -313,10 +332,6 @@ export default async function CalendarPage({ searchParams }: {
           </p>
         )}
 
-        {/* Subscribe-to-calendar CTA — exposes the iCal feed users can
-            add to Apple Calendar / Google Calendar / Outlook so every
-            new event auto-syncs to their phone + computer. */}
-        <SubscribeCalendarPanel stateFilter={viewerState} kindFilter={kindFilter} />
       </header>
 
       {/* Signup nudge — calendar viewers want push reminders, not just .ics */}
@@ -489,57 +504,3 @@ function FilterPill({ label, href, active }: { label: string; href: string; acti
   );
 }
 
-/**
- * "Subscribe to this calendar" panel — exposes the iCal feed (.ics)
- * URL with current filters applied so users can subscribe in their
- * native calendar app and get every kratom policy event auto-synced.
- *
- * Apple Calendar / Outlook / Fantastical accept the `webcal://` scheme
- * which auto-prompts for subscription. Google Calendar wants an https
- * URL pasted into "Add by URL". We show both, with copy-to-clipboard.
- */
-function SubscribeCalendarPanel({ stateFilter, kindFilter }: { stateFilter: string | null; kindFilter: string | null }) {
-  const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
-  const qs = new URLSearchParams();
-  if (stateFilter) qs.set("state", stateFilter);
-  if (kindFilter) qs.set("kind", kindFilter);
-  const suffix = qs.toString() ? `?${qs.toString()}` : "";
-  const httpsUrl = `${SITE}/calendar/feed.ics${suffix}`;
-  // webcal:// is the Apple/Outlook auto-subscribe scheme — same URL but
-  // with a clickable handler. The server happily ignores the scheme.
-  const webcalUrl = httpsUrl.replace(/^https?:/, "webcal:");
-  const scopeLabel = [
-    stateFilter ? stateFilter : null,
-    kindFilter ? kindFilter.replace("_", " ") : null,
-  ].filter(Boolean).join(" · ") || "every event";
-
-  return (
-    <section className="mt-4 rounded-md border border-emerald-700/30 bg-emerald-950/10 p-3">
-      <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
-        🔔 Subscribe in your calendar app
-      </p>
-      <p className="mt-1 text-xs text-zinc-400">
-        Auto-sync <strong className="text-zinc-200">{scopeLabel}</strong> to Apple Calendar / Google Calendar / Outlook.
-        Refreshes every 6 hours. New meetings appear without you opening this page.
-      </p>
-      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-        <a href={webcalUrl}
-          className="rounded bg-emerald-600 px-2.5 py-1 font-semibold text-zinc-950 hover:bg-emerald-500">
-          📅 Add to Apple / Outlook
-        </a>
-        <a href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(httpsUrl)}`}
-          target="_blank" rel="noopener noreferrer"
-          className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
-          📅 Add to Google Calendar
-        </a>
-        <a href={httpsUrl} download="ikratom.ics"
-          className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
-          ⬇ Download .ics
-        </a>
-      </div>
-      <p className="mt-2 break-all font-mono text-[10px] text-zinc-600">
-        {httpsUrl}
-      </p>
-    </section>
-  );
-}
