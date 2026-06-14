@@ -1,0 +1,65 @@
+name: News backfill burst
+
+# One-shot, manually-dispatched backfill that bursts through the historical
+# backlog of unresolved Google-News URLs + unextracted article bodies, using
+# GitHub Actions' clean IPs (the owner box's IP gets rate-limited by Google
+# after ~1.5-2k resolves in a window; GHA runners are fresh).
+#
+# - Resolve: keyless HTTP decode (lib/google-news-decode.mjs), no Chromium.
+#   Transient failures (incl. Google throttling a runner mid-run) are left
+#   unstamped and retried by the next round / the nightly cron — never stranded.
+# - Extract: same script the nightly cron uses, --days 3650 to reach old items.
+#   No Chromium (matches the cron job; plain fetch + keyless MSN path ≈ 98%).
+#
+# Safe to re-dispatch: each round re-queries "still NULL" newest-first, so reruns
+# pick up wherever the last left off (and a fresh runner IP if Google throttled).
+
+on:
+  workflow_dispatch:
+    inputs:
+      resolve_rounds:
+        description: "Resolve rounds (1000 URLs each)"
+        default: "4"
+      extract_rounds:
+        description: "Extract rounds (1000 bodies each)"
+        default: "7"
+
+# Don't let two bursts (or a burst + the nightly cron's news steps) write at once.
+concurrency:
+  group: news-backfill
+  cancel-in-progress: false
+
+jobs:
+  burst:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Resolve Google News redirect URLs (keyless, clean GHA IP)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          for i in $(seq 1 ${{ github.event.inputs.resolve_rounds }}); do
+            echo "::group::resolve round $i"
+            node scripts/resolve-news-urls.mjs --limit 1000 --delay 250 || true
+            echo "::endgroup::"
+          done
+      - name: Extract in-app article excerpt + embedded media (historical)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          for i in $(seq 1 ${{ github.event.inputs.extract_rounds }}); do
+            echo "::group::extract round $i"
+            node scripts/extract-news-content.mjs --days 3650 --limit 1000 || true
+            echo "::endgroup::"
+          done
+      # NOTE: AI summaries are intentionally left to the nightly summarize cron,
+      # which is free-tier quota-paced — bursting thousands here could blow the
+      # Groq/Gemini daily limits. Bodies + media are what this burst fills.
