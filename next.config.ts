@@ -34,9 +34,11 @@ const csp = [
   `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com`.trim(),
   // No <iframe> may embed our pages
   "frame-ancestors 'none'",
-  // No <iframe> may be embedded by us either (admins can opt into specific
-  // sources later via library embed_html, which is admin-only).
-  "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com",
+  // Allowed <iframe> sources: publisher-served media players embedded in-app on
+  // /news/[id] (video: YouTube/Vimeo; audio: SoundCloud/Spotify/Apple Podcasts)
+  // + admin library embed_html. Each render-side iframe src is also host-gated
+  // (src/app/news/[id]/page.tsx EMBED_HOSTS) so this list is the outer wall.
+  "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com https://w.soundcloud.com https://open.spotify.com https://embed.podcasts.apple.com",
   "base-uri 'self'",
   "form-action 'self'",
   // Disable Adobe Flash etc. (legacy plugin types)
