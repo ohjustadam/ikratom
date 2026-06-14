@@ -12,6 +12,12 @@ News-spawned campaigns were pasting raw `news.google.com` redirect URLs into leg
 
 ---
 
+## News-story alert dedup keys carry NO day; bill-action keys do (PR D)
+
+`compute_policy_alert_dedupe_key` (0079) keyed news-story alerts on `news:{title}:{locality}:{day}`. The trailing day let a syndicated story re-published a day or two later evade the unique index → one story spawned many alerts (a TN ban = 13, NC under-21 = 6) and /pulse showed it repeatedly. Migration 0202 drops the day from the **news-story branch only**: a re-publish of the same headline now collides regardless of date. The `bill:{bill_id}:{day}`, `bop:`, `stale:`, `intel:`, and fallback branches KEEP the day on purpose — a bill action on two different days is two genuinely different events. Don't "consistency-fix" by re-adding the day to news or removing it from bill. Title-based dedup only collapses same-headline re-publishes; cross-headline same-event clustering is the news_items.duplicate_of layer's job, not this. Existing dups were collapsed earliest-wins by `scripts/merge-duplicate-alerts.mjs` (matches the unique index's first-insert-wins).
+
+---
+
 ## We FILL a NULL campaign bill_id — we never reassign one (PR C)
 
 `campaigns_one_auto_per_bill_idx` (0024) allows only one auto-campaign per bill. When a *dead* duplicate (rejected/superseded) holds a bill link an *active* campaign wants, the tempting move is to "promote" — clear the dead holder, give the link to the live one. We considered it and the owner declined (2026-06-13). The right cure for a duplicate is collapsing it through the dedup/supersede system, not churning `bill_id` in a backfill. `scripts/backfill-campaign-bill-id.mjs` therefore only fills NULLs and skips any bill already held (active or dead).
