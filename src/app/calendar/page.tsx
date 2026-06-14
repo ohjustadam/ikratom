@@ -41,12 +41,17 @@ const KIND_BADGE: Record<string, { emoji: string; label: string; cls: string }> 
   bill_effective: { emoji: "⚖️", label: "Takes effect", cls: "bg-rose-950/30 text-rose-300 border-rose-700/40" },
 };
 
+// Eastern calendar day for an instant (NOT UTC). A 9pm-ET event must land on the
+// right day for US users — see memory civic-dates-anchor-eastern.
+const etYmd = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+
 export default async function CalendarPage({ searchParams }: {
-  searchParams?: Promise<{ state?: string; kind?: string }>;
+  searchParams?: Promise<{ state?: string; kind?: string; view?: string; month?: string; day?: string }>;
 }) {
   const sp = (await searchParams) ?? {};
   const stateFilter = sp.state?.toUpperCase() ?? null;
   const kindFilter = sp.kind ?? null;
+  const view: "list" | "month" = sp.view === "month" ? "month" : "list";
 
   const sb = await createClient();
   const now = new Date();
@@ -266,13 +271,23 @@ export default async function CalendarPage({ searchParams }: {
   if (kindFilter) filtered = filtered.filter((e) => e.kind === kindFilter);
   filtered.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  // Group by day for the list view
+  // Bucket by Eastern calendar day — drives both the list groups and the month
+  // grid cells (same source of truth so the two views always agree).
   const groups = new Map<string, Event[]>();
   for (const e of filtered) {
-    const dayKey = e.date.toISOString().slice(0, 10);
-    if (!groups.has(dayKey)) groups.set(dayKey, []);
-    groups.get(dayKey)!.push(e);
+    const k = etYmd(e.date);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(e);
   }
+
+  // Month-view state: displayed month (?month=YYYY-MM) + selected day (?day=).
+  const todayYmd = etYmd(now);
+  const displayMonth = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : todayYmd.slice(0, 7);
+  const selectedDay =
+    /^\d{4}-\d{2}-\d{2}$/.test(sp.day ?? "") && sp.day!.startsWith(displayMonth) ? sp.day! :
+    todayYmd.startsWith(displayMonth) ? todayYmd : `${displayMonth}-01`;
+  const monthBuckets = new Map<string, Event[]>();
+  for (const [k, es] of groups) if (k.startsWith(displayMonth)) monthBuckets.set(k, es);
 
   // Counts for filter pills
   const stateOptions = [...new Set(events.map((e) => e.state).filter(Boolean) as string[])].sort();
@@ -298,6 +313,24 @@ export default async function CalendarPage({ searchParams }: {
   const feedGoogle = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(feedHttps)}`;
   const feedScope = [viewerState, kindFilter ? kindFilter.replace("_", " ") : null]
     .filter(Boolean).join(" · ") || "every event";
+
+  // Build a /calendar href preserving the current state/kind/view/month, with
+  // per-call overrides. Pass null to clear a param (e.g. view:null → list).
+  const mkHref = (o: { view?: "list" | "month" | null; kind?: string | null; state?: string | null; month?: string | null; day?: string | null } = {}) => {
+    const st = o.state !== undefined ? o.state : stateFilter;
+    const k = o.kind !== undefined ? o.kind : kindFilter;
+    const v = o.view !== undefined ? o.view : (view === "month" ? "month" : null);
+    const mo = o.month !== undefined ? o.month : (v === "month" ? displayMonth : null);
+    const dy = o.day !== undefined ? o.day : null;
+    const p = new URLSearchParams();
+    if (st) p.set("state", st);
+    if (k) p.set("kind", k);
+    if (v) p.set("view", v);
+    if (mo) p.set("month", mo);
+    if (dy) p.set("day", dy);
+    const s = p.toString();
+    return `/calendar${s ? `?${s}` : ""}`;
+  };
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -350,36 +383,44 @@ export default async function CalendarPage({ searchParams }: {
         </div>
       )}
 
-      {/* Filter pills */}
+      {/* View toggle + filter pills */}
       <div className="mb-4 space-y-2">
+        <nav className="flex flex-wrap items-center gap-2 text-xs" aria-label="Calendar layout">
+          <span className="text-[11px] uppercase tracking-wider text-zinc-500">View</span>
+          <FilterPill label="☰ List" href={mkHref({ view: null, day: null })} active={view === "list"} />
+          <FilterPill label="▦ Month" href={mkHref({ view: "month", month: displayMonth, day: null })} active={view === "month"} />
+        </nav>
         <nav className="flex flex-wrap gap-2 text-xs">
-          <FilterPill label={`All kinds (${events.length})`} href={`/calendar${stateFilter ? `?state=${stateFilter}` : ""}`} active={!kindFilter} />
+          <FilterPill label={`All kinds (${events.length})`} href={mkHref({ kind: null })} active={!kindFilter} />
           {Object.entries(counts).map(([k, n]) => n > 0 && (
             <FilterPill
               key={k}
               label={`${KIND_BADGE[k].emoji} ${KIND_BADGE[k].label} (${n})`}
-              href={`/calendar?kind=${k}${stateFilter ? `&state=${stateFilter}` : ""}`}
+              href={mkHref({ kind: k })}
               active={kindFilter === k}
             />
           ))}
         </nav>
         {stateOptions.length > 0 && (
           <nav className="flex flex-wrap gap-2 text-xs">
-            <FilterPill label="All states" href={`/calendar${kindFilter ? `?kind=${kindFilter}` : ""}`} active={!stateFilter} />
+            <FilterPill label="All states" href={mkHref({ state: null })} active={!stateFilter} />
             {stateOptions.map((s) => (
-              <FilterPill
-                key={s}
-                label={s}
-                href={`/calendar?state=${s}${kindFilter ? `&kind=${kindFilter}` : ""}`}
-                active={stateFilter === s}
-              />
+              <FilterPill key={s} label={s} href={mkHref({ state: s })} active={stateFilter === s} />
             ))}
           </nav>
         )}
       </div>
 
-      {/* Day-grouped list */}
-      {groups.size === 0 ? (
+      {/* Events — month grid or day-grouped list */}
+      {view === "month" ? (
+        <MonthGrid
+          displayMonth={displayMonth}
+          todayYmd={todayYmd}
+          selectedDay={selectedDay}
+          buckets={monthBuckets}
+          mkHref={mkHref}
+        />
+      ) : groups.size === 0 ? (
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-10 text-center">
           <p className="text-3xl">📅</p>
           <p className="mt-2 text-sm text-zinc-400">
@@ -394,95 +435,19 @@ export default async function CalendarPage({ searchParams }: {
       ) : (
         <div className="space-y-6">
           {[...groups.entries()].map(([day, es]) => {
-            const dayDate = new Date(day + "T00:00:00");
-            const days = Math.ceil((dayDate.getTime() - now.getTime()) / 86_400_000);
-            const isToday = days === 0;
+            const rel = Math.round((Date.parse(day + "T12:00:00Z") - Date.parse(todayYmd + "T12:00:00Z")) / 86_400_000);
             return (
               <section key={day}>
                 <h2 className="mb-2 flex items-baseline gap-3 border-b border-zinc-800 pb-1">
                   <span className="text-base font-bold text-zinc-100">
-                    {dayDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+                    {new Date(day + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" })}
                   </span>
                   <span className="text-xs text-zinc-500">
-                    {isToday ? "today" : days === 1 ? "tomorrow" : days === -1 ? "yesterday" : days < 0 ? `${Math.abs(days)}d ago` : `in ${days}d`}
+                    {rel === 0 ? "today" : rel === 1 ? "tomorrow" : rel === -1 ? "yesterday" : rel < 0 ? `${Math.abs(rel)}d ago` : `in ${rel}d`}
                   </span>
                 </h2>
                 <ul className="space-y-2">
-                  {es.map((e, i) => {
-                    const meta = KIND_BADGE[e.kind];
-                    return (
-                      <li key={i} className={`rounded-md border p-3 ${
-                        e.severity === "critical" ? "border-red-700/50 bg-red-950/10" : "border-zinc-800 bg-zinc-950/40"
-                      }`}>
-                        <div className="flex flex-wrap items-baseline gap-2">
-                          <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${meta.cls}`}>
-                            {meta.emoji} {meta.label}
-                          </span>
-                          {e.state && <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">{e.state}</span>}
-                          <span className="text-[11px] text-zinc-500">
-                            {e.allDay
-                              ? "All day"
-                              : e.date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                          </span>
-                          {e.severity === "critical" && <span className="text-[10px] font-bold uppercase text-red-400 animate-pulse">CRITICAL</span>}
-                        </div>
-                        <h3 className="mt-1 text-sm font-semibold text-zinc-100">{e.title}</h3>
-                        {e.body && (
-                          <p className="mt-1 line-clamp-3 text-xs text-zinc-400">{e.body}</p>
-                        )}
-                        <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                          {e.zoom_url && (
-                            <a href={e.zoom_url} target="_blank" rel="noopener noreferrer"
-                              className="rounded bg-emerald-600 px-2.5 py-1 font-semibold text-zinc-950 hover:bg-emerald-500">
-                              📹 Join Zoom
-                            </a>
-                          )}
-                          {e.livestream_url && (
-                            <a href={e.livestream_url} target="_blank" rel="noopener noreferrer"
-                              className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
-                              📺 Livestream
-                            </a>
-                          )}
-                          {e.public_comment_url && (
-                            <a href={e.public_comment_url} target="_blank" rel="noopener noreferrer"
-                              className="rounded border border-amber-700/60 bg-amber-950/30 px-2.5 py-1 text-amber-200 hover:border-amber-500">
-                              🎤 Sign up to speak
-                            </a>
-                          )}
-                          {e.agenda_url && (
-                            <a href={e.agenda_url} target="_blank" rel="noopener noreferrer"
-                              className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
-                              📄 Agenda
-                            </a>
-                          )}
-                          {e.in_person_address && (
-                            <span className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-zinc-400">
-                              📍 {e.in_person_address.slice(0, 80)}
-                            </span>
-                          )}
-                          {e.detail_href && (
-                            <Link href={e.detail_href} className="rounded border border-emerald-700/40 bg-emerald-950/20 px-2.5 py-1 font-semibold text-emerald-300 hover:border-emerald-500">
-                              {e.kind === "bill_action" || e.kind === "bill_effective" ? "📜 View bill" :
-                               e.kind === "alert" ? "🔗 Open alert" :
-                               e.kind === "municipal" ? "🏛️ Meeting detail" :
-                               e.kind === "townhall" ? "👤 Legislator" :
-                               e.kind === "state_session" ? "📍 State hub" : "detail →"}
-                            </Link>
-                          )}
-                          {e.bill_href && (
-                            <Link href={e.bill_href} className="rounded border border-blue-700/40 bg-blue-950/20 px-2.5 py-1 font-semibold text-blue-300 hover:border-blue-500">
-                              📜 Related bill
-                            </Link>
-                          )}
-                          {e.source_url && !e.detail_href && (
-                            <a href={e.source_url} target="_blank" rel="noopener noreferrer" className="text-zinc-500 hover:text-emerald-400">
-                              source ↗
-                            </a>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
+                  {es.map((e, i) => <EventCard key={i} e={e} />)}
                 </ul>
               </section>
             );
@@ -497,6 +462,7 @@ function FilterPill({ label, href, active }: { label: string; href: string; acti
   return (
     <Link
       href={href}
+      aria-current={active ? "true" : undefined}
       className={`rounded px-3 py-1.5 ${active ? "bg-emerald-600 text-zinc-950" : "border border-zinc-800 bg-zinc-950/40 hover:border-emerald-500"}`}
     >
       {label}
@@ -504,3 +470,194 @@ function FilterPill({ label, href, active }: { label: string; href: string; acti
   );
 }
 
+/** One event row — shared by the day-grouped list and the month-view day detail. */
+function EventCard({ e }: { e: Event }) {
+  const meta = KIND_BADGE[e.kind];
+  return (
+    <li className={`rounded-md border p-3 ${
+      e.severity === "critical" ? "border-red-700/50 bg-red-950/10" : "border-zinc-800 bg-zinc-950/40"
+    }`}>
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${meta.cls}`}>
+          {meta.emoji} {meta.label}
+        </span>
+        {e.state && <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">{e.state}</span>}
+        <span className="text-[11px] text-zinc-500">
+          {e.allDay
+            ? "All day"
+            : e.date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+        </span>
+        {e.severity === "critical" && <span className="text-[10px] font-bold uppercase text-red-400 animate-pulse">CRITICAL</span>}
+      </div>
+      <h3 className="mt-1 text-sm font-semibold text-zinc-100">{e.title}</h3>
+      {e.body && (
+        <p className="mt-1 line-clamp-3 text-xs text-zinc-400">{e.body}</p>
+      )}
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+        {e.zoom_url && (
+          <a href={e.zoom_url} target="_blank" rel="noopener noreferrer"
+            className="rounded bg-emerald-600 px-2.5 py-1 font-semibold text-zinc-950 hover:bg-emerald-500">
+            📹 Join Zoom
+          </a>
+        )}
+        {e.livestream_url && (
+          <a href={e.livestream_url} target="_blank" rel="noopener noreferrer"
+            className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
+            📺 Livestream
+          </a>
+        )}
+        {e.public_comment_url && (
+          <a href={e.public_comment_url} target="_blank" rel="noopener noreferrer"
+            className="rounded border border-amber-700/60 bg-amber-950/30 px-2.5 py-1 text-amber-200 hover:border-amber-500">
+            🎤 Sign up to speak
+          </a>
+        )}
+        {e.agenda_url && (
+          <a href={e.agenda_url} target="_blank" rel="noopener noreferrer"
+            className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
+            📄 Agenda
+          </a>
+        )}
+        {e.in_person_address && (
+          <span className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-zinc-400">
+            📍 {e.in_person_address.slice(0, 80)}
+          </span>
+        )}
+        {e.detail_href && (
+          <Link href={e.detail_href} className="rounded border border-emerald-700/40 bg-emerald-950/20 px-2.5 py-1 font-semibold text-emerald-300 hover:border-emerald-500">
+            {e.kind === "bill_action" || e.kind === "bill_effective" ? "📜 View bill" :
+             e.kind === "alert" ? "🔗 Open alert" :
+             e.kind === "municipal" ? "🏛️ Meeting detail" :
+             e.kind === "townhall" ? "👤 Legislator" :
+             e.kind === "state_session" ? "📍 State hub" : "detail →"}
+          </Link>
+        )}
+        {e.bill_href && (
+          <Link href={e.bill_href} className="rounded border border-blue-700/40 bg-blue-950/20 px-2.5 py-1 font-semibold text-blue-300 hover:border-blue-500">
+            📜 Related bill
+          </Link>
+        )}
+        {e.source_url && !e.detail_href && (
+          <a href={e.source_url} target="_blank" rel="noopener noreferrer" className="text-zinc-500 hover:text-emerald-400">
+            source ↗
+          </a>
+        )}
+      </div>
+    </li>
+  );
+}
+
+type MkHref = (o?: { view?: "list" | "month" | null; month?: string | null; day?: string | null }) => string;
+
+/** Month grid (7-col weeks) + prev/next nav + the selected day's events. */
+function MonthGrid({ displayMonth, todayYmd, selectedDay, buckets, mkHref }: {
+  displayMonth: string;
+  todayYmd: string;
+  selectedDay: string;
+  buckets: Map<string, Event[]>;
+  mkHref: MkHref;
+}) {
+  const [yy, mm] = displayMonth.split("-").map(Number);
+  const daysInMonth = new Date(Date.UTC(yy, mm, 0)).getUTCDate();           // mm is 1-based → day 0 of next month
+  const firstWeekday = new Date(Date.UTC(yy, mm - 1, 1)).getUTCDay();        // 0=Sun
+  const monthLabel = new Date(Date.UTC(yy, mm - 1, 1)).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
+  const nextMonth = mm === 12 ? `${yy + 1}-01` : `${yy}-${String(mm + 1).padStart(2, "0")}`;
+  const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(`${displayMonth}-${String(d).padStart(2, "0")}`);
+  while (cells.length % 7 !== 0) cells.push(null);
+  // Chunk into weeks so the grid has a valid ARIA structure (grid > row > cell).
+  const weeks: (string | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+  return (
+    <section aria-label={`Month view, ${monthLabel}`}>
+      <div className="mb-3 flex items-center justify-between">
+        <Link href={mkHref({ view: "month", month: prevMonth, day: null })} aria-label="Previous month"
+          className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1 text-sm hover:border-emerald-500">←</Link>
+        <h2 className="text-base font-bold text-zinc-100">{monthLabel}</h2>
+        <Link href={mkHref({ view: "month", month: nextMonth, day: null })} aria-label="Next month"
+          className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1 text-sm hover:border-emerald-500">→</Link>
+      </div>
+
+      <div role="grid" aria-label={`${monthLabel} calendar`} className="grid grid-cols-7 gap-1">
+        {/* display:contents rows give a valid grid>row>cell ARIA tree while the
+            cells still flow into the parent's CSS grid columns. */}
+        <div role="row" className="contents">
+          {WEEKDAYS.map((w) => (
+            <div key={w} role="columnheader" className="pb-1 text-center text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              <span className="hidden sm:inline">{w}</span><span className="sm:hidden">{w[0]}</span>
+            </div>
+          ))}
+        </div>
+        {weeks.map((week, wi) => (
+          <div key={wi} role="row" className="contents">
+            {week.map((key, i) => {
+              if (!key) return <div key={`b${wi}-${i}`} role="gridcell" aria-hidden="true" className="min-h-[3.25rem] rounded bg-zinc-950/20 sm:min-h-[5.5rem]" />;
+              const d = Number(key.slice(-2));
+              const evs = buckets.get(key) ?? [];
+              const isToday = key === todayYmd;
+              const isSelected = key === selectedDay;
+              return (
+                // gridcell wraps the <Link> so the anchor keeps its native link role.
+                <div key={key} role="gridcell" aria-current={isSelected ? "date" : undefined}>
+                  <Link
+                    href={mkHref({ view: "month", month: displayMonth, day: key })}
+                    aria-label={`${monthLabel} ${d}${isToday ? ", today" : ""}, ${evs.length} event${evs.length === 1 ? "" : "s"}`}
+                    className={`flex h-full min-h-[3.25rem] flex-col overflow-hidden rounded border p-1 text-left transition sm:min-h-[5.5rem] ${
+                      isSelected ? "border-emerald-400 bg-emerald-950/40 ring-1 ring-emerald-400"
+                      : isToday ? "border-emerald-600/60 bg-emerald-950/15"
+                      : "border-zinc-800 bg-zinc-950/40 hover:border-emerald-600/50"
+                    }`}
+                  >
+                    <span className={`text-[11px] font-semibold ${isToday ? "text-emerald-300" : "text-zinc-400"}`}>{d}</span>
+                    {/* chips with titles on sm+ */}
+                    <span className="mt-0.5 hidden flex-col gap-0.5 sm:flex">
+                      {evs.slice(0, 3).map((e, j) => (
+                        <span key={j} className={`truncate rounded border px-1 text-[9px] leading-tight ${KIND_BADGE[e.kind].cls}`}>
+                          {KIND_BADGE[e.kind].emoji} {e.title}
+                        </span>
+                      ))}
+                      {evs.length > 3 && <span className="text-[9px] text-zinc-500">+{evs.length - 3} more</span>}
+                    </span>
+                    {/* compact emoji dots on mobile */}
+                    {evs.length > 0 && (
+                      <span className="mt-auto flex flex-wrap gap-0.5 sm:hidden" aria-hidden="true">
+                        {evs.slice(0, 4).map((e, j) => <span key={j} className="text-[9px]">{KIND_BADGE[e.kind].emoji}</span>)}
+                        {evs.length > 4 && <span className="text-[8px] text-zinc-500">+{evs.length - 4}</span>}
+                      </span>
+                    )}
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      <DayDetail day={selectedDay} events={buckets.get(selectedDay) ?? []} />
+    </section>
+  );
+}
+
+/** The selected day's events below the month grid. */
+function DayDetail({ day, events }: { day: string; events: Event[] }) {
+  const label = new Date(day + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
+  return (
+    <section className="mt-5" aria-live="polite">
+      <h3 className="mb-2 border-b border-zinc-800 pb-1 text-sm font-bold text-zinc-100">{label}</h3>
+      {events.length === 0 ? (
+        <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-6 text-center text-xs text-zinc-500">
+          No events on this day. Tap another day above, or switch to <span className="text-zinc-400">List</span> to see everything upcoming.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {events.map((e, i) => <EventCard key={i} e={e} />)}
+        </ul>
+      )}
+    </section>
+  );
+}
