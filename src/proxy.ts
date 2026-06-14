@@ -46,8 +46,10 @@ const BLOCKED_UA_RE = /(GPTBot|ClaudeBot|Claude-Web|anthropic-ai|CCBot|Google-Ex
  *     analytics/speed-insights, our own R2 bucket public base. STRICT
  *     — narrows the exfiltration surface dramatically.
  *   - img-src: 'self' data: blob: https: (user-supplied thumbnails).
- *   - frame-src: YouTube + Vimeo only — matches the embed-safety.ts
- *     allowlist.
+ *   - frame-src: publisher media players embedded on /news/[id] — video
+ *     (YouTube/Vimeo) + audio (SoundCloud/Spotify/Apple Podcasts). Broader
+ *     than embed-safety.ts (which gates ADMIN-pasted library iframes to
+ *     YouTube/Vimeo); the news render builds its own host-gated iframes.
  *   - frame-ancestors: 'none' (no embedding us).
  *   - object-src: 'none' — defeats legacy plugin-based XSS.
  *   - base-uri / form-action: 'self'.
@@ -107,9 +109,13 @@ function buildCspHeader(nonce: string): string {
     ].filter(Boolean),
     "frame-src": [
       "'self'",
+      // Video + audio embeds on /news/[id] (publisher-served players).
       "https://www.youtube.com",
       "https://www.youtube-nocookie.com",
       "https://player.vimeo.com",
+      "https://w.soundcloud.com",
+      "https://open.spotify.com",
+      "https://embed.podcasts.apple.com",
     ],
     "media-src": ["'self'", "blob:", "https:"],
     "worker-src": ["'self'", "blob:"],

@@ -105,15 +105,30 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
     : 0;
   const externalUrl = article.resolved_url ?? article.url;
 
-  // Media split for in-app rendering. Videos embed via the publisher's
-  // own player URL (CSP frame-src already allows youtube-nocookie +
-  // vimeo); images load from their CDN (img-src https: allowed).
+  // Media split for in-app rendering. Video + audio embed via the publisher's
+  // OWN player URL; images load from their CDN (img-src https: allowed). Every
+  // iframe src is double-gated: it must (a) be in CSP frame-src AND (b) pass
+  // this host allowlist, so a malformed extracted embed_url can never render an
+  // arbitrary frame even if it slipped past the extractor.
+  const EMBED_HOSTS: Record<string, RegExp> = {
+    youtube: /^https:\/\/www\.youtube(?:-nocookie)?\.com\/embed\//,
+    vimeo: /^https:\/\/player\.vimeo\.com\/video\//,
+    soundcloud: /^https:\/\/w\.soundcloud\.com\/player\//,
+    spotify: /^https:\/\/open\.spotify\.com\/embed\//,
+    apple_podcast: /^https:\/\/embed\.podcasts\.apple\.com\//,
+  };
+  const okEmbed = (m: { type: string; embed_url?: string }) =>
+    !!m.embed_url && EMBED_HOSTS[m.type]?.test(m.embed_url);
+
   const media = Array.isArray(article.media_urls) ? article.media_urls : [];
-  const videos = media.filter((m) => (m.type === "youtube" || m.type === "vimeo") && m.embed_url);
+  const videos = media.filter((m) => (m.type === "youtube" || m.type === "vimeo") && okEmbed(m));
+  const audio = media.filter((m) => (m.type === "soundcloud" || m.type === "spotify" || m.type === "apple_podcast") && okEmbed(m));
   const images = media.filter((m) => m.type === "image" && m.url);
   const leadImage = images.find((m) => m.lead) ?? images[0] ?? null;
   const galleryImages = images.filter((m) => m !== leadImage).slice(0, 4);
   const paragraphs = Array.isArray(article.body_paragraphs) ? article.body_paragraphs : [];
+  // Per-provider iframe heights tuned to each player's chrome.
+  const AUDIO_HEIGHT: Record<string, number> = { soundcloud: 166, spotify: 232, apple_podcast: 175 };
 
   const TOPIC_COLORS: Record<string, string> = {
     legislation: "bg-emerald-950/40 text-emerald-300",
@@ -225,6 +240,28 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
         </section>
       )}
 
+      {/* Embedded audio (podcast / clip) — listen in-app via the publisher's
+          own player. CSP frame-src allows soundcloud/spotify/apple. */}
+      {audio.length > 0 && (
+        <section className="mb-6 space-y-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+            🎧 Listen
+          </p>
+          {audio.map((a) => (
+            <iframe
+              key={a.embed_url}
+              src={a.embed_url}
+              title="Embedded audio"
+              className="w-full rounded-lg border border-zinc-800"
+              height={AUDIO_HEIGHT[a.type] ?? 180}
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              referrerPolicy="strict-origin-when-cross-origin"
+              loading="lazy"
+            />
+          ))}
+        </section>
+      )}
+
       {/* Fair-use lead excerpt — paragraphs preferred, fallback to the
           short kratom-verification excerpt. Plain text only (rendered as
           React <p> — no publisher HTML), capped, with link-out below. */}
@@ -279,7 +316,7 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
           {article.source_name ? `Read at ${article.source_name}` : "Read the full article"} ↗
         </a>
         <p className="mt-2 text-[10px] text-zinc-500">
-          Articles are not republished in full to respect publisher copyright. We surface our AI summary + a short excerpt, then link out.
+          Articles are not republished in full, to respect publisher copyright. We surface our AI summary, a fair-use lead excerpt, and the publisher&apos;s own embedded media (video/audio served by their player, images from their CDN) — then link out for the full piece.
         </p>
       </section>
 

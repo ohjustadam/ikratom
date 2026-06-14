@@ -6,6 +6,12 @@ Format: each entry is a heading. Keep them short.
 
 ---
 
+## In-app news = publisher EMBEDS + bounded lead, never rehosting (PR E)
+
+Owner directive: "max in-app, ZERO legal risk." The line we hold on `/news/[id]`: we surface our own AI summary + a **bounded fair-use lead** (`PARAGRAPH_CAP=10` AND `EXCERPT_CHAR_CAP=2500` in `article-content.mjs` — the char cap is the real guard; never the full body even for long-paragraph articles) + the publisher's **own** media, then link out. Media is the publisher's served players ONLY: video (YouTube/Vimeo) + audio (SoundCloud/Spotify/Apple Podcasts) as iframes, images hotlinked from the publisher CDN. We do NOT: rehost text/images, nor hotlink raw publisher `.mp3`s into our own `<audio>` (that's closer to rehosting AND would force loosening `media-src` to `https:`). Audio extraction matches embed-iframe forms ONLY (`/embed/`, `w.soundcloud.com/player/`) — bare "follow us" profile links are deliberately ignored so a station's whole show doesn't attach to an unrelated story. Each render-side iframe src is host-gated (`page.tsx` EMBED_HOSTS, `^`-anchored) on top of CSP `frame-src`. Don't "improve" this by raising the cap to full text or adding direct-`<audio>` hotlinking.
+
+---
+
 ## The auto-campaign LEAK fix lives in SQL, not the JS script (PR C)
 
 News-spawned campaigns were pasting raw `news.google.com` redirect URLs into legislator letters. The obvious fix — guard the URL in `scripts/auto-campaign-from-alert.mjs` — is nearly useless, because that script is only a cron *safety net*. The **primary** campaign-creation path is the Postgres trigger `auto_campaign_on_alert`, which renders the letter body in SQL via `render_template_for_alert()`. And because `resolve-news-urls.mjs` runs *daily* while `classify-news-policy.mjs` runs *hourly*, `policy_alerts.source_url` is still a raw redirect at the instant the trigger fires. So the real fix is migration `0201`: `render_template_for_alert()` itself refuses Google redirects / video embeds and falls back to the internal `/alerts/<id>` page. The JS classifier also now stores a clean URL, and the JS safety net mirrors the same guard — but the SQL render is the load-bearing one. Don't "simplify" by removing it.

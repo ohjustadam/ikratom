@@ -6,8 +6,9 @@
  * We keep a LEAD excerpt (first few paragraphs, capped) for in-app
  * reading + always link out to the source for the full piece — the
  * standard news-aggregator fair-use pattern. Embedded media (YouTube /
- * Vimeo players, article images) are surfaced via their own embed URLs,
- * which is how publishers intend them to be shared — not rehosted.
+ * Vimeo video, SoundCloud / Spotify / Apple Podcasts audio, article images)
+ * are surfaced via the publishers' OWN embed URLs / CDN links, which is how
+ * publishers intend them to be shared — not rehosted.
  *
  * Output is plain text + validated URLs only. No publisher HTML is
  * passed through, so the rendering side never needs dangerouslySetInnerHTML.
@@ -22,8 +23,9 @@
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 
-const PARAGRAPH_CAP = 6;     // lead paragraphs to keep (fair-use excerpt)
-const PARA_MIN_CHARS = 40;   // drop nav-y/cruft one-liners
+const PARAGRAPH_CAP = 10;        // lead paragraphs to keep (fair-use excerpt)
+const EXCERPT_CHAR_CAP = 2500;   // hard cumulative cap — a LEAD, never the full body, even for long ¶s
+const PARA_MIN_CHARS = 40;       // drop nav-y/cruft one-liners
 const MEDIA_CAP = 8;
 
 function decodeEntities(s) {
@@ -77,15 +79,19 @@ function extractParagraphs(regionHtml) {
     if (text.length >= PARA_MIN_CHARS) paras.push(text);
     if (paras.length >= PARAGRAPH_CAP * 3) break; // scan cap
   }
-  // De-dupe consecutive repeats, keep the lead.
+  // De-dupe consecutive repeats, keep the lead. Bounded by BOTH a paragraph
+  // count and a cumulative char cap so the excerpt stays a lead (never the full
+  // body) regardless of how long individual paragraphs run.
   const seen = new Set();
   const out = [];
+  let chars = 0;
   for (const p of paras) {
     const k = p.slice(0, 80).toLowerCase();
     if (seen.has(k)) continue;
     seen.add(k);
     out.push(p);
-    if (out.length >= PARAGRAPH_CAP) break;
+    chars += p.length;
+    if (out.length >= PARAGRAPH_CAP || chars >= EXCERPT_CHAR_CAP) break;
   }
   return out;
 }
@@ -118,6 +124,41 @@ function extractMedia(html, regionHtml, base) {
   while ((v = vRe.exec(html)) !== null) {
     const id = v[1] || v[2];
     push({ type: "vimeo", video_id: id, embed_url: `https://player.vimeo.com/video/${id}`, url: `https://vimeo.com/${id}` });
+    if (media.length >= MEDIA_CAP) break;
+  }
+
+  // ── Audio embeds (podcasts / clips) ──────────────────────────────
+  // Scanned from the FULL html (Readability strips <iframe> from the cleaned
+  // article region, same reason YouTube/Vimeo above scan `html`). We match ONLY
+  // the publisher's own embed-iframe forms (/embed/, /player/) — NOT bare
+  // profile/follow links (open.spotify.com/show/… in a footer), which would
+  // falsely attach a station's whole show to an unrelated story. Publisher-
+  // served embed, shared as intended — no rehosting.
+
+  // SoundCloud — the player widget iframe (w.soundcloud.com/player/?url=…).
+  const scRe = /https?:\/\/w\.soundcloud\.com\/player\/\?url=[^"'\s<>]+/gi;
+  let sc;
+  while ((sc = scRe.exec(html)) !== null) {
+    const embed = sc[0].replace(/&amp;/g, "&");
+    push({ type: "soundcloud", embed_url: embed, url: embed });
+    if (media.length >= MEDIA_CAP) break;
+  }
+
+  // Spotify — embed iframe only (open.spotify.com/embed/{kind}/{id}).
+  const spRe = /open\.spotify\.com\/embed\/(episode|track|show|playlist)\/([A-Za-z0-9]+)/gi;
+  let sp;
+  while ((sp = spRe.exec(html)) !== null) {
+    const kind = sp[1].toLowerCase(), sid = sp[2];
+    push({ type: "spotify", embed_url: `https://open.spotify.com/embed/${kind}/${sid}`, url: `https://open.spotify.com/${kind}/${sid}` });
+    if (media.length >= MEDIA_CAP) break;
+  }
+
+  // Apple Podcasts — embed iframe only (embed.podcasts.apple.com/…).
+  const apRe = /https?:\/\/embed\.podcasts\.apple\.com\/[^\s"'<>]+/gi;
+  let ap;
+  while ((ap = apRe.exec(html)) !== null) {
+    const embed = ap[0].replace(/&amp;/g, "&");
+    push({ type: "apple_podcast", embed_url: embed, url: embed.replace(/^https:\/\/embed\.podcasts\.apple\.com/i, "https://podcasts.apple.com") });
     if (media.length >= MEDIA_CAP) break;
   }
 
