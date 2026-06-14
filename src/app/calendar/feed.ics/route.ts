@@ -40,6 +40,7 @@ const KIND_CATEGORIES: Record<string, string[]> = {
   state_session: ["Kratom", "Legislative session"],
   election: ["Election", "Voting"],
   townhall: ["Kratom", "Town hall"],
+  bill_effective: ["Kratom", "Bill takes effect"],
 };
 
 export async function GET(req: NextRequest) {
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
   const electionHorizon = new Date(now.getTime() + 365 * 86_400_000);
 
   // Same data shape as /calendar/page.tsx, just translated to iCal events.
-  const [meetings, alerts, billActions, sessions, elections, townhalls] = await Promise.all([
+  const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective] = await Promise.all([
     sb.from("municipal_meetings")
       .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
       .eq("moderation_status", "approved")
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
       .lte("meeting_at", horizon.toISOString())
       .order("meeting_at", { ascending: true }),
     sb.from("policy_alerts")
-      .select("id, kind, severity, title, body, locality, source_url, occurs_at, expires_at")
+      .select("id, kind, severity, title, body, locality, source_url, occurs_at, expires_at, bill_id")
       .eq("moderation_status", "approved")
       .not("occurs_at", "is", null)
       .gte("occurs_at", now.toISOString())
@@ -86,11 +87,18 @@ export async function GET(req: NextRequest) {
       .lte("election_date", electionHorizon.toISOString().slice(0, 10))
       .order("election_date", { ascending: true }),
     sb.from("legislator_events")
-      .select("id, state, locality, title, description, event_type, starts_at, venue, source_url")
+      .select("id, state, locality, title, description, event_type, starts_at, venue, source_url, legislator_id")
       .eq("active", true)
       .gte("starts_at", now.toISOString())
       .lte("starts_at", horizon.toISOString())
       .order("starts_at", { ascending: true }),
+    sb.from("bills")
+      .select("id, state, bill_number, title, effective_date, kratom_relevance")
+      .in("kratom_relevance", ["anti", "pro"])
+      .not("effective_date", "is", null)
+      .gte("effective_date", now.toISOString().slice(0, 10))
+      .lte("effective_date", electionHorizon.toISOString().slice(0, 10))
+      .order("effective_date", { ascending: true }),
   ]);
 
   const events: Array<IcalEvent & { kind: string; state: string | null }> = [];
@@ -135,10 +143,11 @@ export async function GET(req: NextRequest) {
       start,
       end,
       title: a.title,
-      description: [a.body, a.source_url ? `Source: ${a.source_url}` : null, `Live feed: ${SITE}/pulse`]
+      description: [a.body, a.source_url ? `Source: ${a.source_url}` : null,
+        a.bill_id ? `Bill: ${SITE}/bills/${a.bill_id}` : null, `Open alert: ${SITE}/alerts/${a.id}`]
         .filter(Boolean).join("\n\n"),
       location: null,
-      url: `${SITE}/pulse`,
+      url: `${SITE}/alerts/${a.id}`,
       categories: KIND_CATEGORIES.alert,
     });
   }
@@ -173,7 +182,7 @@ export async function GET(req: NextRequest) {
           title: `${s.state} legislative session begins`,
           description: [`${s.capital_city ?? ""} · ${s.current_session_id ?? ""}`, s.legislature_url ?? null, `State briefing: ${SITE}/briefings/state/${s.state}`].filter(Boolean).join("\n\n"),
           location: s.capital_city ?? null,
-          url: s.legislature_url ?? `${SITE}/briefings/state/${s.state}`,
+          url: `${SITE}/states/${s.state}`,
           categories: KIND_CATEGORIES.state_session,
         });
       }
@@ -190,7 +199,7 @@ export async function GET(req: NextRequest) {
           title: `${s.state} legislative session ends — last day to act`,
           description: [`${s.capital_city ?? ""} · ${s.current_session_id ?? ""}`, s.legislature_url ?? null, `State briefing: ${SITE}/briefings/state/${s.state}`].filter(Boolean).join("\n\n"),
           location: s.capital_city ?? null,
-          url: s.legislature_url ?? `${SITE}/briefings/state/${s.state}`,
+          url: `${SITE}/states/${s.state}`,
           categories: KIND_CATEGORIES.state_session,
         });
       }
@@ -206,9 +215,10 @@ export async function GET(req: NextRequest) {
       start,
       end: new Date(start.getTime() + 2 * 60 * 60 * 1000),
       title: t.title,
-      description: [t.description, t.source_url ? `Details: ${t.source_url}` : null, `Calendar: ${SITE}/calendar`].filter(Boolean).join("\n\n"),
+      description: [t.description, t.source_url ? `Details: ${t.source_url}` : null,
+        t.legislator_id ? `Legislator: ${SITE}/legislators/${t.legislator_id}` : null, `Calendar: ${SITE}/calendar`].filter(Boolean).join("\n\n"),
       location: t.venue ?? null,
-      url: t.source_url ?? `${SITE}/calendar`,
+      url: t.legislator_id ? `${SITE}/legislators/${t.legislator_id}` : (t.source_url ?? `${SITE}/calendar`),
       categories: KIND_CATEGORIES.townhall,
     });
   }
@@ -235,6 +245,22 @@ export async function GET(req: NextRequest) {
       location: null,
       url: `${SITE}/calendar`,
       categories: KIND_CATEGORIES.election,
+    });
+  }
+
+  for (const b of billsEffective.data ?? []) {
+    if (!b.effective_date) continue;
+    events.push({
+      kind: "bill_effective",
+      state: b.state,
+      uid: `bill-effective-${b.id}@ikratom.org`,
+      start: new Date(b.effective_date + "T12:00:00Z"),
+      allDay: true,
+      title: `⚖️ ${b.state} ${b.bill_number} takes effect`,
+      description: [b.title, `Track: ${SITE}/bills/${b.id}`].filter(Boolean).join("\n\n"),
+      location: null,
+      url: `${SITE}/bills/${b.id}`,
+      categories: KIND_CATEGORIES.bill_effective,
     });
   }
 
