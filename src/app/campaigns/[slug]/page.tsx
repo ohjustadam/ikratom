@@ -56,33 +56,44 @@ export default async function CampaignPage({
 
   if (!campaign) notFound();
 
-  // Linked intel — the circulatory system. Every campaign structurally
-  // links back to its bill, the alert that spawned it, and the state hub
-  // (no more hand-written body_md links to keep the circle closed).
+  // Linked intel — the circulatory system. Every campaign links back to its
+  // bill, the alert(s) that spawned it, and the state hub.
+  //
+  // IMPORTANT: the news gather below uses ALL of the campaign's alerts (any
+  // moderation_status), not just approved ones. The autonomy engine auto-
+  // REJECTS categorical news alerts (recall/advisory/enforcement), but the
+  // news_items those alerts spawned are still real, active coverage that
+  // belongs on the campaign. Tying the gather to approved-only alerts silently
+  // zeroed out the news on every campaign whose alerts were auto-rejected
+  // (e.g. the MI regulation campaign: 4 active articles, 0 surfaced). Only the
+  // "alert behind this campaign" CHIP stays approved-only — we never deep-link
+  // a rejected alert (its /alerts/[id] page won't render).
   const [{ data: linkedBill }, { data: campaignAlerts }] = await Promise.all([
     campaign.bill_id
       ? supabase.from("bills").select("id, state, bill_number, title").eq("id", campaign.bill_id).maybeSingle()
       : Promise.resolve({ data: null }),
     supabase
       .from("policy_alerts")
-      .select("id, title, severity")
+      .select("id, title, severity, bill_id, moderation_status")
       .eq("campaign_id", campaign.id)
-      .eq("moderation_status", "approved")
       .order("created_at", { ascending: false }),
   ]);
-  const linkedAlert = campaignAlerts?.[0] ?? null;
-  const alertIds = (campaignAlerts ?? []).map((x: { id: string }) => x.id);
+  const allAlerts = (campaignAlerts ?? []) as Array<{ id: string; title: string; severity: string; bill_id: string | null; moderation_status: string }>;
+  const linkedAlert = allAlerts.find((a) => a.moderation_status === "approved") ?? null;
+  const alertIds = allAlerts.map((a) => a.id);
+  // Every bill the campaign OR its alerts resolve to — the story's bill(s).
+  const billIds = [...new Set([campaign.bill_id, ...allAlerts.map((a) => a.bill_id)].filter(Boolean))] as string[];
 
   // News coverage — every internal /news article about this campaign's story,
-  // gathered exactly like /bills/[id]: union news_items.bill_id (when the
-  // campaign is wired to a bill) with policy_alert_id IN the campaign's alerts,
-  // then dedup syndicated copies. Internal-first: render links to OUR /news
-  // reader. Because this gathers dynamically, new coverage auto-appears as the
-  // nightly scrape correlates it — no manual re-linking.
+  // gathered like /bills/[id]: union news_items.bill_id (the campaign's bill or
+  // its alerts' bill) with policy_alert_id IN the campaign's alerts (regardless
+  // of moderation), then dedup. Internal-first: render links to OUR /news
+  // reader. Gathers dynamically, so new coverage auto-appears as the nightly
+  // scrape correlates it — no manual re-linking.
   let newsCoverage: NewsItem[] = [];
   {
     const orClauses: string[] = [];
-    if (campaign.bill_id) orClauses.push(`bill_id.eq.${campaign.bill_id}`);
+    for (const bid of billIds) orClauses.push(`bill_id.eq.${bid}`);
     if (alertIds.length > 0) orClauses.push(`policy_alert_id.in.(${alertIds.join(",")})`);
     if (orClauses.length > 0) {
       const { data: news } = await supabase
