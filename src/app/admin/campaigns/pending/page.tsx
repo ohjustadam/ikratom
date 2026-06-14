@@ -123,7 +123,7 @@ export default async function PendingCampaignsPage({
         <h1 className="text-3xl font-bold">Campaigns awaiting review</h1>
         <p className="mt-2 text-sm text-zinc-400">
           <strong className="text-zinc-200">{count ?? 0}</strong> match{count === 1 ? "" : "es"} the current filter
-          {showSuperseded && " (incl. superseded)"}. Auto-generated campaigns surface
+          {showSuperseded && " (incl. superseded)"}. Auto-generated and stance-flagged campaigns surface
           here for admin approval — bulk-select with the checkbox column, then use
           the action bar at the bottom.
         </p>
