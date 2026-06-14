@@ -74,6 +74,7 @@ const REGISTRY = [
       "render_daily_brief_audio",
       "extract_news_content",
       "summarize_news",
+      "feed_news_from_alerts",
       "queue_due_state_flips",
       "daily_stale_campaign_cleanup",
       "cleanup_pending_campaigns",
