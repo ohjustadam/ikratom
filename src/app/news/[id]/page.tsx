@@ -16,6 +16,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NewsVideo } from "./NewsVideo";
+import { AudioReader } from "@/components/AudioReader";
 
 type Params = { id: string };
 
@@ -139,6 +140,12 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
   const leadImage = images.find((m) => m.lead) ?? images[0] ?? null;
   const galleryImages = images.filter((m) => m !== leadImage).slice(0, 4);
   const paragraphs = Array.isArray(article.body_paragraphs) ? article.body_paragraphs : [];
+  // Read-aloud text — title + AI summary + fair-use excerpt (falls back to the
+  // short verification excerpt). Composed so Listen works on EVERY article,
+  // including ones we only have a title + summary for. Zero-cost browser TTS.
+  const listenText = [article.title, article.summary, ...paragraphs]
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .join("\n\n") || (article.body_extract_excerpt ?? "");
   // Per-provider iframe heights tuned to each player's chrome.
   const AUDIO_HEIGHT: Record<string, number> = { soundcloud: 166, spotify: 232, apple_podcast: 175 };
 
@@ -203,6 +210,12 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
           )}
         </div>
       </header>
+
+      {listenText && (
+        <div className="mb-6">
+          <AudioReader id={`news-${article.id}`} text={listenText} label="Listen to this article" />
+        </div>
+      )}
 
       {article.summary && (
         <section className="mb-6 rounded-lg border border-emerald-700/30 bg-gradient-to-br from-emerald-950/20 to-zinc-950/40 p-4">
