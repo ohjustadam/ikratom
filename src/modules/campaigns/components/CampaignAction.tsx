@@ -123,7 +123,11 @@ export function CampaignAction({
         await logCampaignAction({
           campaignId,
           legislatorIds: targets.map((t) => t.id),
-          method: method === "copy" ? "mailto" : "mailto", // schema only allows mailto/platform_email/call
+          // External / self-managed sends (gmail-web, outlook-web, mailto,
+          // copy) all log as the unverified "mailto" channel; only the in-app
+          // one-click path logs "platform_email" — our verified, on-the-record
+          // send. (Schema allows mailto/platform_email/call.)
+          method: "mailto",
           subject,
           body,
           isNonResident,
@@ -477,11 +481,11 @@ export function CampaignAction({
       {!allAlreadySent && !gmailConnected && sentVia === null && (
         <div className="mt-6 rounded-lg border-2 border-dashed border-emerald-700/50 bg-emerald-950/10 p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-emerald-300">
-            {emailNeedsReconnect ? "⚠ Reconnect your email" : "⚡ One-click send (optional)"}
+            {emailNeedsReconnect ? "⚠ Reconnect your email" : "⚡ One-click send (recommended)"}
           </p>
           <p className="mt-1 text-sm text-zinc-300">
             {emailNeedsReconnect ? (
-              <>Your email connection expired (Google revoked the token), so one-click send is paused. Reconnect below to resume — or use the manual send options above, which need no connection.</>
+              <>Your email connection expired (Google revoked the token), so one-click send is paused. Reconnect below to resume — or use the &ldquo;Send from your own email&rdquo; options below, which need no connection.</>
             ) : (
               <>Connect your email once and the {targetsWithEmail.length} email{targetsWithEmail.length === 1 ? "" : "s"} below send in a single click — each from <strong>your</strong> address, each in your Sent folder.</>
             )}
@@ -520,7 +524,7 @@ export function CampaignAction({
             </ul>
           </div>
           <p className="mt-2 text-xs text-zinc-500">
-            Prefer to skip? Use the manual options below — same emails, just one at a time.
+            No Gmail or Outlook? Use &ldquo;Send from your own email&rdquo; below — same emails, sent by you, one client at a time.
           </p>
         </div>
       )}
@@ -602,55 +606,66 @@ export function CampaignAction({
         </div>
       )}
 
-      {/* Send options — three reliable paths. Gated on having ≥1 sendable
-          recipient (a real, non-cooldown email); without this guard the buttons
-          opened a compose window with an empty "To" field when everyone was in
-          cooldown or had only contact forms. Calls below have their own gate. */}
+      {/* Advanced fallback — external / self-managed send. These open the
+          user's OWN email client or web compose, so iKratom can neither screen
+          nor verify what actually goes out: this is the unscreened path,
+          deliberately demoted below the one-click in-app send (the blessed,
+          on-the-record path). Kept reachable for users who haven't connected
+          one-click send, or can't yet (Proton / Yahoo / iCloud). Expanded by
+          default only when there's no one-click option. Gated on ≥1 sendable
+          recipient — without it the buttons opened an empty-"To" compose. */}
       {targetsWithEmail.length > 0 && (
-      <div className="mt-6">
-        <p className="mb-2 text-xs uppercase tracking-wider text-zinc-500">
-          {gmailConnected ? "Or send manually" : "Pick how to send"}
-        </p>
-        <div className="grid gap-2 sm:grid-cols-3">
-          <SendOption
-            href={buildGmailUrl()}
-            target="_blank"
-            label="Open in Gmail"
-            sub="Web compose tab"
-            primary={!gmailConnected}
-            onClick={() => logAction("gmail")}
-            done={sentVia === "gmail"}
-          />
-          <SendOption
-            href={buildOutlookUrl()}
-            target="_blank"
-            label="Open in Outlook"
-            sub="Web compose tab"
-            onClick={() => logAction("outlook")}
-            done={sentVia === "outlook"}
-          />
-          <SendOption
-            href={buildMailto()}
-            label="Default email app"
-            sub="Apple Mail / Thunderbird"
-            onClick={() => logAction("mailto")}
-            done={sentVia === "mailto"}
-          />
-        </div>
-
-        <button
-          onClick={copyAll}
-          className="mt-3 w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-4 py-2.5 text-sm text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
-        >
-          {copied ? "✓ Copied — paste anywhere" : "Or copy the whole message"}
-        </button>
-
-        {sentVia && (
-          <p className="mt-4 rounded-md border border-emerald-900/40 bg-emerald-950/30 px-3 py-2 text-center text-sm text-emerald-300">
-            ✓ Compose window opened. Hit Send in there to add your voice to the record.
+      <details className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40" open={!gmailConnected}>
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-300 hover:text-emerald-300">
+          {gmailConnected ? "Other ways to send" : "Send from your own email"}
+        </summary>
+        <div className="border-t border-zinc-800 px-4 py-3">
+          <p className="mb-3 text-xs text-zinc-500">
+            These open your own email app or web compose — you send the message
+            yourself, so it&apos;s{" "}
+            <strong className="text-zinc-400">not screened or recorded as a verified iKratom send</strong>.
+            Best if you haven&apos;t connected one-click send.
           </p>
-        )}
-      </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <SendOption
+              href={buildGmailUrl()}
+              target="_blank"
+              label="Open in Gmail"
+              sub="Web compose tab"
+              onClick={() => logAction("gmail")}
+              done={sentVia === "gmail"}
+            />
+            <SendOption
+              href={buildOutlookUrl()}
+              target="_blank"
+              label="Open in Outlook"
+              sub="Web compose tab"
+              onClick={() => logAction("outlook")}
+              done={sentVia === "outlook"}
+            />
+            <SendOption
+              href={buildMailto()}
+              label="Default email app"
+              sub="Apple Mail / Thunderbird"
+              onClick={() => logAction("mailto")}
+              done={sentVia === "mailto"}
+            />
+          </div>
+
+          <button
+            onClick={copyAll}
+            className="mt-3 w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-4 py-2.5 text-sm text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+          >
+            {copied ? "✓ Copied — paste anywhere" : "Or copy the whole message"}
+          </button>
+
+          {sentVia && sentVia !== "platform_gmail" && (
+            <p className="mt-4 rounded-md border border-emerald-900/40 bg-emerald-950/30 px-3 py-2 text-center text-sm text-emerald-300">
+              ✓ Compose window opened. Hit Send in there to add your voice to the record.
+            </p>
+          )}
+        </div>
+      </details>
       )}
 
       {targetsWithEmail.length > 0 && (
