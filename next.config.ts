@@ -28,7 +28,7 @@ const csp = [
   // Kokoro TTS model weights and jsDelivr for the onnxruntime-web .wasm — the
   // "Listen" read-aloud feature (src/lib/kokoro-tts-client.ts) runs the same
   // neural voice as the daily brief entirely client-side, $0.
-  `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net`.trim(),
+  `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.aws.cdn.hf.co https://cdn.jsdelivr.net`.trim(),
   // Audio/video: same-origin + our Supabase project (where rendered
   // daily-brief MP3s live) + blob: (fetch-to-blob fallback) + https: so the
   // in-app news reader can play publisher self-hosted clips (Gray TV / Arc,

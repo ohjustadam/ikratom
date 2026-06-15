@@ -111,6 +111,7 @@ function buildCspHeader(nonce: string): string {
       "https://huggingface.co",
       "https://*.huggingface.co",
       "https://*.hf.co",
+      "https://*.aws.cdn.hf.co", // HF Xet CDN — model weights redirect here (us.aws.cdn.hf.co)
       "https://cdn.jsdelivr.net",
     ].filter(Boolean),
     "frame-src": [
