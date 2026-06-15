@@ -57,10 +57,12 @@ export async function createWave(input: CreateWaveInput) {
 
   const supabase = await createClient();
 
-  // Verify campaign exists + is active
+  // Verify campaign exists + is active. Pull the template + targets too so
+  // we can SNAPSHOT them onto the wave — fire time must use what existed at
+  // wave creation, not a (possibly tampered) live template (mig 0204).
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, slug, active, state")
+    .select("id, slug, active, state, subject_template, body_template, target_legislator_ids, target_roles")
     .eq("id", input.campaignId)
     .single();
   if (!campaign) return { error: "Campaign not found." };
@@ -75,6 +77,11 @@ export async function createWave(input: CreateWaveInput) {
       scheduled_at: scheduledAt.toISOString(),
       target_signups: targetSignups,
       created_by: ctx.userId,
+      // Freeze the message + targets at creation — anti-tamper (mig 0204).
+      subject_template_snapshot: campaign.subject_template,
+      body_template_snapshot: campaign.body_template,
+      target_legislator_ids_snapshot: campaign.target_legislator_ids,
+      target_roles_snapshot: campaign.target_roles,
     })
     .select("id")
     .single();

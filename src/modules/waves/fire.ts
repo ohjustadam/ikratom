@@ -50,7 +50,7 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
   // Pull due, unfired waves
   const { data: waves, error: wavesErr } = await supabase
     .from("campaign_waves")
-    .select("id, campaign_id, title, scheduled_at, fired_at, active")
+    .select("id, campaign_id, title, scheduled_at, fired_at, active, subject_template_snapshot, body_template_snapshot, target_legislator_ids_snapshot, target_roles_snapshot")
     .eq("active", true)
     .is("fired_at", null)
     .lte("scheduled_at", nowIso)
@@ -88,13 +88,22 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
       continue;
     }
 
+    // Anti-tamper (mig 0204): fire from the wave's snapshot, frozen at
+    // creation. Fall back to the live campaign only for pre-0204 waves whose
+    // snapshot columns are null. A post-signup template/target swap can no
+    // longer change what joiners send.
+    const effSubject = wave.subject_template_snapshot ?? campaign.subject_template;
+    const effBody = wave.body_template_snapshot ?? campaign.body_template;
+    const effLegislatorIds = wave.target_legislator_ids_snapshot ?? campaign.target_legislator_ids;
+    const effRoles = wave.target_roles_snapshot ?? campaign.target_roles;
+
     // Resolve targets — explicit IDs take precedence over role-based
     let waveTargets: Legislator[] = [];
-    if (campaign.target_legislator_ids && campaign.target_legislator_ids.length > 0) {
+    if (effLegislatorIds && effLegislatorIds.length > 0) {
       const { data: t } = await supabase
         .from("legislators")
         .select("id,state,role,district,full_name,party,email,phone,office_address,website,level,locality,body,title")
-        .in("id", campaign.target_legislator_ids)
+        .in("id", effLegislatorIds)
         .eq("active", true);
       waveTargets = (t ?? []) as Legislator[];
     }
@@ -159,7 +168,7 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
           // Role-based resolution against this user's reps
           const { getUserLegislators } = await import("@/lib/legislators");
           const myReps = profile ? await getUserLegislators(supabase, profile) : [];
-          userTargets = myReps.filter((r) => campaign.target_roles?.includes(r.role));
+          userTargets = myReps.filter((r) => effRoles?.includes(r.role));
         }
 
         const sendable = userTargets.filter((t) => !!t.email && !t.email.startsWith("http"));
@@ -175,8 +184,8 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
         for (const target of sendable) {
           try {
             const vars = buildVars(profile ?? null, target, sendable);
-            const subject = renderTemplate(campaign.subject_template, vars);
-            const body = renderTemplate(campaign.body_template, vars);
+            const subject = renderTemplate(effSubject, vars);
+            const body = renderTemplate(effBody, vars);
             await sendOnUserBehalf({
               integration,
               fromName: profile?.full_name ?? null,

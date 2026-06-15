@@ -93,11 +93,21 @@ export async function createCampaign(formData: FormData): Promise<CampaignFormRe
   const supabase = await createClient();
   const { data: row, error } = await supabase
     .from("campaigns")
-    .insert(data)
+    .insert({ ...data, created_by: ctx.userId })
     .select("id, slug")
     .single();
 
   if (error) return { error: error.message };
+
+  // Append-only template provenance (mig 0204): record the initial template
+  // so a later swap-then-revert is reconstructable — the audit log alone
+  // never captured the template text. Best-effort; don't block creation.
+  await supabase.from("campaign_template_versions").insert({
+    campaign_id: row.id,
+    subject_template: data.subject_template,
+    body_template: data.body_template,
+    edited_by: ctx.userId,
+  });
 
   await recordAdminAction({
     action: "campaign_created",
@@ -124,6 +134,15 @@ export async function updateCampaign(
   if (err) return { error: err };
 
   const supabase = await createClient();
+
+  // Snapshot the prior template so we can tell whether this edit actually
+  // changed the message (and record the new state in append-only history).
+  const { data: prev } = await supabase
+    .from("campaigns")
+    .select("subject_template, body_template")
+    .eq("id", id)
+    .maybeSingle();
+
   const { data: row, error } = await supabase
     .from("campaigns")
     .update(data)
@@ -133,11 +152,30 @@ export async function updateCampaign(
 
   if (error) return { error: error.message };
 
+  const templateChanged =
+    !prev ||
+    prev.subject_template !== data.subject_template ||
+    prev.body_template !== data.body_template;
+  if (templateChanged) {
+    await supabase.from("campaign_template_versions").insert({
+      campaign_id: id,
+      subject_template: data.subject_template,
+      body_template: data.body_template,
+      edited_by: ctx.userId,
+    });
+  }
+
   await recordAdminAction({
     action: "campaign_updated",
     targetType: "campaign",
     targetId: id,
-    details: { slug: row.slug, title: data.title, state: data.state, active: data.active },
+    details: {
+      slug: row.slug,
+      title: data.title,
+      state: data.state,
+      active: data.active,
+      template_changed: templateChanged,
+    },
   });
 
   redirect(`/campaigns/${row.slug}`);
