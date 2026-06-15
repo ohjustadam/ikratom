@@ -1,4 +1,4 @@
--- 0205_news_fulltext_search.sql
+-- 0206_news_fulltext_search.sql
 -- Real corpus-wide search for /news.
 --
 -- Before: /news search was a CLIENT-SIDE filter over only the latest ~250 rows,

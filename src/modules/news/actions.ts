@@ -82,7 +82,7 @@ export async function listAllRecentNews(limit = 50): Promise<NewsListItem[]> {
  * article BODY, not the old client-side title filter over the latest 250.
  *
  * Primary: Postgres full-text search over the `search_tsv` GIN index (migration
- * 0205) via websearch_to_tsquery — Google-style multi-word / quoted / -excluded
+ * 0206) via websearch_to_tsquery — Google-style multi-word / quoted / -excluded
  * terms, stemmed + ranked-by-recency. Falls back to a corpus-wide ILIKE over
  * title/summary/body_extract_excerpt if `search_tsv` isn't present yet (so the
  * feature works the instant it deploys, before the migration is applied).
