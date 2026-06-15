@@ -77,6 +77,45 @@ export async function listAllRecentNews(limit = 50): Promise<NewsListItem[]> {
   return (data ?? []) as unknown as NewsListItem[];
 }
 
+/**
+ * Corpus-wide news search — the WHOLE archive (6k+ items), title + summary +
+ * article BODY, not the old client-side title filter over the latest 250.
+ *
+ * Primary: Postgres full-text search over the `search_tsv` GIN index (migration
+ * 0205) via websearch_to_tsquery — Google-style multi-word / quoted / -excluded
+ * terms, stemmed + ranked-by-recency. Falls back to a corpus-wide ILIKE over
+ * title/summary/body_extract_excerpt if `search_tsv` isn't present yet (so the
+ * feature works the instant it deploys, before the migration is applied).
+ */
+export async function searchNews(rawQuery: string, limit = 100): Promise<NewsListItem[]> {
+  const q = rawQuery.trim();
+  if (q.length < 2) return [];
+  const supabase = await createClient();
+  const base = () =>
+    supabase
+      .from("news_items")
+      .select(NEWS_FIELDS)
+      .eq("active", true)
+      .is("duplicate_of", null)
+      .not("body_has_kratom_keyword", "is", false);
+
+  const fts = await base()
+    .textSearch("search_tsv", q, { type: "websearch", config: "english" })
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  if (!fts.error) return (fts.data ?? []) as unknown as NewsListItem[];
+
+  // Fallback: strip PostgREST or()-filter metacharacters, then substring-match
+  // the whole corpus across title / summary / lead excerpt.
+  const safe = q.replace(/[,()*%\\:]/g, " ").trim();
+  if (!safe) return [];
+  const { data } = await base()
+    .or(`title.ilike.*${safe}*,summary.ilike.*${safe}*,body_extract_excerpt.ilike.*${safe}*`)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  return (data ?? []) as unknown as NewsListItem[];
+}
+
 export async function flagNewsItem(input: { id: string; reason: string }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
