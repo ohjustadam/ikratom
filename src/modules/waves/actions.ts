@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
-import { requireMfaForMutation } from "@/modules/admin/mfa";
+import { requireMfaForMutation, requireMfaEnrolled } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { accountAgeOk } from "@/modules/auth/trust-tier";
 
 /**
  * Coordinated wave sends — coalition mode.
@@ -30,7 +31,10 @@ export type CreateWaveInput = {
 export async function createWave(input: CreateWaveInput) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to create a wave." };
-  const mfaErr = requireMfaForMutation(ctx);
+  // MFA mandatory for leader authoring (PR4); admins/owner keep the soft gate.
+  const mfaErr = ctx.isLeader && !ctx.isAdmin && !ctx.isOwner
+    ? requireMfaEnrolled(ctx)
+    : requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
   // Defense-in-depth: bound wave creation even for a (compromised) leader.
   if (!(await checkRateLimit(`wave:create:${ctx.userId}`, 30, 3600))) {
@@ -111,6 +115,13 @@ export async function joinWave(waveId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in to join a wave." };
+
+  // Anti-Sybil moat (PR4): coordinated waves are an amplification surface, so
+  // a brand-new account can't join one until it's 48h old. Basic "email your
+  // reps" stays open immediately — only amplification is gated.
+  if (!accountAgeOk(user.created_at)) {
+    return { error: "New accounts can join coordinated waves 48 hours after signing up. In the meantime you can email your legislators directly right now." };
+  }
 
   // Verify the wave is still joinable
   const { data: wave } = await supabase
