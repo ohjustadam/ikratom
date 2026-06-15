@@ -106,6 +106,12 @@ function buildCspHeader(nonce: string): string {
       // Vercel Analytics + Speed Insights
       "https://vitals.vercel-insights.com",
       "https://va.vercel-scripts.com",
+      // In-browser Kokoro TTS ("Listen"): model weights from HuggingFace CDN
+      // + onnxruntime-web .wasm from jsDelivr.
+      "https://huggingface.co",
+      "https://*.huggingface.co",
+      "https://*.hf.co",
+      "https://cdn.jsdelivr.net",
     ].filter(Boolean),
     "frame-src": [
       "'self'",

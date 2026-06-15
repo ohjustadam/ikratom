@@ -1,33 +1,29 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  KokoroPlayer,
+  KOKORO_VOICES,
+  DEFAULT_KOKORO_VOICE,
+  kokoroSupported,
+  type KokoroState,
+} from "@/lib/kokoro-tts-client";
 
 /**
- * AudioReader — zero-cost browser TTS via window.speechSynthesis.
+ * AudioReader — site-wide "Listen" (read-aloud) for any text.
  *
- * Sanctuary Vision Phase 5 owner directive: 'audio reading capabilities
- * to anything on the site that would require it... if we can have the
- * ability to add actual audio reading capabilities to anything on the
- * site that would require it (not basics stuff) then lets add that.'
+ * PRIMARY engine: in-browser Kokoro-82M neural TTS (the SAME model + voices as
+ * the daily-brief audio) via @/lib/kokoro-tts-client — natural "NPR-anchor"
+ * voice, $0, runs on the user's device (WebGPU/WASM). The ~90MB weights download
+ * once on the first Listen click and are cached by the browser thereafter.
  *
- * This is the FREE tier. Real per-paper pre-rendered audio (ElevenLabs
- * / OpenAI TTS) requires budget approval — see SANCTUARY_VISION.md.
- * Until then, browser TTS gets us 80% of the value at $0.
+ * FALLBACK engine: window.speechSynthesis (the old robotic OS voice) — used
+ * automatically on browsers without WASM/AudioContext, if the Kokoro model
+ * fails to load/run, and offered as an "⚡ instant" option while the model is
+ * still downloading on first use.
  *
- * Voice quality varies by OS:
- *   - macOS / iOS: excellent (system voices are high-quality)
- *   - Windows: decent (the David / Zira voices)
- *   - Linux: rough (espeak fallback)
- *
- * Voice picker (added 2026-05-15 per owner ask):
- *   - Lists every installed system voice. macOS users typically have
- *     30+. Choice persists per-browser via localStorage so the next
- *     page that mounts AudioReader picks up the user's preference.
- *   - Defaults to a "Premium / Natural / Neural" English voice if
- *     available; otherwise the first en-US voice; otherwise the first
- *     English voice; otherwise the system default.
- *   - In compact mode, the picker is hidden — the parent surface can
- *     show its own voice picker once and have it apply globally.
+ * Voice choice persists per-browser via localStorage so every page that mounts
+ * AudioReader picks up the user's preference.
  */
 
 type Props = {
@@ -36,17 +32,13 @@ type Props = {
   id: string;
   /** Display label for the play button (defaults to "Listen"). */
   label?: string;
-  /** Compact mode: just the button, no extra text. */
+  /** Compact mode: just the button, no extra controls. */
   compact?: boolean;
-  /** Hide the voice picker even in non-compact mode. Useful if the
-   *  parent surface owns a single global voice picker. */
+  /** Hide the voice picker even in non-compact mode. */
   hideVoicePicker?: boolean;
 };
 
 const ALKALOID_HINTS: Record<string, string> = {
-  // We don't have full SSML support in browsers, so this is a fallback
-  // text-replace pass that swaps tricky names for more phonetically
-  // forgiving spellings before sending to the engine.
   mitragynine: "mit-rah-GAI-neen",
   pseudoindoxyl: "soo-doh-in-DOK-sil",
   "7-hydroxymitragynine": "seven hydroxy mit-rah-GAI-neen",
@@ -62,242 +54,264 @@ function phoneticize(s: string): string {
   return out;
 }
 
-const VOICE_STORAGE = "audio-reader:voice";
+const KVOICE_STORAGE = "audio-reader:kvoice"; // Kokoro voice id
+const SSVOICE_STORAGE = "audio-reader:voice"; // system speechSynthesis voice name
 
-/** Heuristic ranking: higher = better. Used for the default pick. */
 function voiceQualityScore(v: SpeechSynthesisVoice): number {
   let s = 0;
   if (/premium|enhanced|neural|natural/i.test(v.name)) s += 10;
   if (v.lang.startsWith("en-US")) s += 3;
   else if (v.lang.startsWith("en")) s += 2;
-  if (v.localService) s += 1; // local voices are usually higher quality + private
+  if (v.localService) s += 1;
   if (v.default) s += 1;
   return s;
 }
 
 export function AudioReader({ text, id, label = "Listen", compact = false, hideVoicePicker = false }: Props) {
-  const [supported, setSupported] = useState<boolean | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const [paused, setPaused] = useState(false);
+  // null = SSR / not yet determined. "kokoro" = neural primary. "browser" = OS TTS fallback.
+  const [engine, setEngine] = useState<"kokoro" | "browser" | null>(null);
   const [rate, setRate] = useState(1.0);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceName, setSelectedVoiceName] = useState<string | null>(null);
+
+  // ── Kokoro state ──────────────────────────────────────────────────
+  const [kState, setKState] = useState<KokoroState>("idle");
+  const [kPct, setKPct] = useState(0); // model download fraction, 0..1
+  const [kVoice, setKVoice] = useState<string>(DEFAULT_KOKORO_VOICE);
+  const playerRef = useRef<KokoroPlayer | null>(null);
+
+  // ── speechSynthesis (fallback) state ──────────────────────────────
+  const [ssVoices, setSsVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [ssVoiceName, setSsVoiceName] = useState<string | null>(null);
+  const [ssPlaying, setSsPlaying] = useState(false);
+  const [ssPaused, setSsPaused] = useState(false);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
+  // Decide engine + load persisted prefs after mount (client only).
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setSupported("speechSynthesis" in window);
+    const ss = "speechSynthesis" in window;
+    setEngine(kokoroSupported() ? "kokoro" : ss ? "browser" : null);
     try {
-      const stored = localStorage.getItem(VOICE_STORAGE);
-      if (stored) setSelectedVoiceName(stored);
+      const kv = localStorage.getItem(KVOICE_STORAGE);
+      if (kv) setKVoice(kv);
+      const sv = localStorage.getItem(SSVOICE_STORAGE);
+      if (sv) setSsVoiceName(sv);
     } catch { /* ignore */ }
   }, []);
 
-  // Voices load asynchronously in most browsers — listen for the
-  // voiceschanged event AND call getVoices() once on mount in case
-  // the event fired before we attached.
+  // Load system voices for the fallback path.
   useEffect(() => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     const load = () => {
       const list = window.speechSynthesis.getVoices();
-      if (list && list.length > 0) setVoices(list);
+      if (list && list.length > 0) setSsVoices(list);
     };
     load();
     window.speechSynthesis.addEventListener("voiceschanged", load);
     return () => window.speechSynthesis.removeEventListener("voiceschanged", load);
   }, []);
 
-  // Cleanup on unmount — don't leave audio playing when user navigates away
+  // Stop everything on unmount.
   useEffect(() => {
     return () => {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      playerRef.current?.stop();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     };
   }, []);
 
-  /** Best voice given current state. Selected → quality-ranked. */
-  const activeVoice = useMemo<SpeechSynthesisVoice | undefined>(() => {
-    if (voices.length === 0) return undefined;
-    if (selectedVoiceName) {
-      const match = voices.find((v) => v.name === selectedVoiceName);
-      if (match) return match;
+  const activeSsVoice = useMemo<SpeechSynthesisVoice | undefined>(() => {
+    if (ssVoices.length === 0) return undefined;
+    if (ssVoiceName) {
+      const m = ssVoices.find((v) => v.name === ssVoiceName);
+      if (m) return m;
     }
-    // Fall back to quality ranking
-    return [...voices].sort((a, b) => voiceQualityScore(b) - voiceQualityScore(a))[0];
-  }, [voices, selectedVoiceName]);
+    return [...ssVoices].sort((a, b) => voiceQualityScore(b) - voiceQualityScore(a))[0];
+  }, [ssVoices, ssVoiceName]);
 
-  /** Group voices by language label for the picker. */
-  const voiceGroups = useMemo(() => {
-    const groups = new Map<string, SpeechSynthesisVoice[]>();
-    for (const v of voices) {
-      const lang = v.lang || "?";
-      if (!groups.has(lang)) groups.set(lang, []);
-      groups.get(lang)!.push(v);
-    }
-    // English first, then alphabetical
-    return [...groups.entries()].sort(([a], [b]) => {
-      const aEn = a.startsWith("en");
-      const bEn = b.startsWith("en");
-      if (aEn && !bEn) return -1;
-      if (!aEn && bEn) return 1;
-      return a.localeCompare(b);
-    });
-  }, [voices]);
-
-  function onVoiceChange(name: string) {
-    setSelectedVoiceName(name || null);
-    try {
-      if (name) localStorage.setItem(VOICE_STORAGE, name);
-      else localStorage.removeItem(VOICE_STORAGE);
-    } catch { /* ignore */ }
-  }
-
-  function play() {
-    if (!supported) return;
-    window.speechSynthesis.cancel(); // stop any existing
+  // ── speechSynthesis controls ──────────────────────────────────────
+  function browserPlay() {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(phoneticize(text));
-    u.rate = rate;
-    u.pitch = 1.0;
-    u.volume = 1.0;
-    if (activeVoice) u.voice = activeVoice;
-    u.onend = () => { setPlaying(false); setPaused(false); };
-    u.onerror = () => { setPlaying(false); setPaused(false); };
+    u.rate = rate; u.pitch = 1.0; u.volume = 1.0; u.lang = "en-US";
+    if (activeSsVoice) u.voice = activeSsVoice;
+    u.onend = () => { setSsPlaying(false); setSsPaused(false); };
+    u.onerror = () => { setSsPlaying(false); setSsPaused(false); };
     utteranceRef.current = u;
     window.speechSynthesis.speak(u);
-    setPlaying(true);
-    setPaused(false);
+    setSsPlaying(true); setSsPaused(false);
+  }
+  function browserStop() {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    setSsPlaying(false); setSsPaused(false);
   }
 
-  function pause() {
-    if (!supported) return;
-    window.speechSynthesis.pause();
-    setPaused(true);
+  // ── Kokoro controls ───────────────────────────────────────────────
+  function kokoroPlay() {
+    const player = new KokoroPlayer();
+    playerRef.current = player;
+    player.onprogress = (f) => setKPct(f);
+    player.onstate = (s) => {
+      setKState(s);
+      if (s === "ended" || s === "idle") playerRef.current = null;
+    };
+    setKState("loading"); setKPct(0);
+    player.play(phoneticize(text), kVoice, rate).catch(() => {
+      // Model load/runtime failure → fall back to the OS voice and play it.
+      playerRef.current = null;
+      setKState("idle");
+      setEngine("browser");
+      browserPlay();
+    });
   }
-
-  function resume() {
-    if (!supported) return;
-    window.speechSynthesis.resume();
-    setPaused(false);
-  }
-
-  function stop() {
-    if (!supported) return;
-    window.speechSynthesis.cancel();
-    setPlaying(false);
-    setPaused(false);
-  }
+  function kokoroStop() { playerRef.current?.stop(); playerRef.current = null; setKState("idle"); }
 
   function changeRate(r: number) {
     setRate(r);
-    if (playing) {
-      stop();
-      // Brief delay so the cancel completes before restart
-      setTimeout(() => play(), 50);
+    if (engine === "kokoro" && playerRef.current && (kState === "playing" || kState === "paused" || kState === "loading")) {
+      playerRef.current.stop(); playerRef.current = null;
+      setTimeout(() => kokoroPlay(), 60);
+    } else if (engine === "browser" && ssPlaying) {
+      browserStop();
+      setTimeout(() => browserPlay(), 60);
     }
   }
 
-  function previewVoice() {
-    if (!supported) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance("Kratom advocacy, peer-reviewed research, read aloud.");
-    u.rate = rate;
-    if (activeVoice) u.voice = activeVoice;
-    window.speechSynthesis.speak(u);
+  function switchToBrowserAndPlay() {
+    kokoroStop();
+    setEngine("browser");
+    browserPlay();
   }
 
-  if (supported === false) {
-    return compact ? null : (
-      <p className="text-[10px] text-zinc-500">Audio reading isn&apos;t supported in this browser.</p>
-    );
+  function setKokoroVoice(v: string) {
+    setKVoice(v);
+    try { localStorage.setItem(KVOICE_STORAGE, v); } catch { /* ignore */ }
   }
-  if (supported === null) return null; // SSR initial render
+  function setSystemVoice(name: string) {
+    setSsVoiceName(name || null);
+    try { if (name) localStorage.setItem(SSVOICE_STORAGE, name); else localStorage.removeItem(SSVOICE_STORAGE); } catch { /* ignore */ }
+  }
 
-  return (
-    <div className={compact ? "inline-flex items-center gap-2" : "flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2"}>
-      {!playing ? (
-        <button
-          onClick={play}
-          aria-label={label}
-          className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-zinc-950 hover:bg-emerald-500"
-        >
-          🔊 {label}
-        </button>
-      ) : (
-        <>
-          {paused ? (
-            <button
-              onClick={resume}
-              aria-label="Resume"
-              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-zinc-950 hover:bg-emerald-500"
-            >
-              ▶ Resume
-            </button>
-          ) : (
-            <button
-              onClick={pause}
-              aria-label="Pause"
-              className="inline-flex items-center gap-1 rounded-md border border-emerald-700 bg-zinc-900 px-3 py-1 text-xs text-emerald-300 hover:border-emerald-500"
-            >
-              ⏸ Pause
-            </button>
-          )}
-          <button
-            onClick={stop}
-            aria-label="Stop"
-            className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500"
-          >
-            ⏹
-          </button>
-        </>
-      )}
-      {!compact && (
-        <select
-          value={rate}
-          onChange={(e) => changeRate(parseFloat(e.target.value))}
-          aria-label="Speed"
-          className="rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300"
-        >
-          <option value="0.85">0.85x</option>
-          <option value="1">1x</option>
-          <option value="1.25">1.25x</option>
-          <option value="1.5">1.5x</option>
-          <option value="2">2x</option>
-        </select>
-      )}
-      {!compact && !hideVoicePicker && voices.length > 0 && (
-        <>
+  if (engine === null) return null; // SSR / unsupported
+
+  const wrap = compact
+    ? "inline-flex flex-wrap items-center gap-2"
+    : "flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2";
+  const btnPrimary = "inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-zinc-950 hover:bg-emerald-500";
+  const btnGhost = "inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500";
+  const btnAccent = "inline-flex items-center gap-1 rounded-md border border-emerald-700 bg-zinc-900 px-3 py-1 text-xs text-emerald-300 hover:border-emerald-500";
+
+  const rateSelect = !compact && (
+    <select
+      value={rate}
+      onChange={(e) => changeRate(parseFloat(e.target.value))}
+      aria-label="Speed"
+      className="rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300"
+    >
+      <option value="0.85">0.85x</option>
+      <option value="1">1x</option>
+      <option value="1.25">1.25x</option>
+      <option value="1.5">1.5x</option>
+      <option value="2">2x</option>
+    </select>
+  );
+
+  // ── KOKORO (neural, primary) ──────────────────────────────────────
+  if (engine === "kokoro") {
+    const downloading = kState === "loading" && kPct > 0 && kPct < 1;
+    return (
+      <div className={wrap}>
+        {kState === "idle" || kState === "ended" ? (
+          <button onClick={kokoroPlay} aria-label={label} className={btnPrimary}>🔊 {label}</button>
+        ) : kState === "loading" ? (
+          <>
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-3 py-1 text-xs font-semibold text-zinc-300">
+              ⏳ {downloading ? `Loading natural voice… ${Math.round(kPct * 100)}%` : "Generating audio…"}
+            </span>
+            <button onClick={kokoroStop} aria-label="Cancel" className={btnGhost}>⏹</button>
+          </>
+        ) : (
+          <>
+            {kState === "paused" ? (
+              <button onClick={() => playerRef.current?.resume()} aria-label="Resume" className={btnPrimary}>▶ Resume</button>
+            ) : (
+              <button onClick={() => playerRef.current?.pause()} aria-label="Pause" className={btnAccent}>⏸ Pause</button>
+            )}
+            <button onClick={kokoroStop} aria-label="Stop" className={btnGhost}>⏹</button>
+          </>
+        )}
+        {rateSelect}
+        {!compact && !hideVoicePicker && (
           <select
-            value={selectedVoiceName ?? ""}
-            onChange={(e) => onVoiceChange(e.target.value)}
+            value={kVoice}
+            onChange={(e) => setKokoroVoice(e.target.value)}
             aria-label="Voice"
-            title={activeVoice ? `Current: ${activeVoice.name} (${activeVoice.lang})` : "Voice"}
-            className="max-w-[180px] rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300"
+            className="max-w-[200px] rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300"
           >
-            <option value="">Auto · best available</option>
-            {voiceGroups.map(([lang, vs]) => (
-              <optgroup key={lang} label={lang}>
-                {vs.map((v) => (
-                  <option key={v.name} value={v.name}>
-                    {v.name}{v.default ? " · default" : ""}{v.localService ? " · local" : ""}
-                  </option>
-                ))}
-              </optgroup>
+            {KOKORO_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>{v.label}</option>
             ))}
           </select>
-          <button
-            onClick={previewVoice}
-            aria-label="Preview voice"
-            className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] text-zinc-300 hover:border-emerald-500"
-            type="button"
-          >
-            ▶ test
-          </button>
+        )}
+        {!compact && (
+          <span className="text-[10px] text-zinc-600">
+            Natural voice · runs on your device.{" "}
+            {downloading && (
+              <button onClick={switchToBrowserAndPlay} className="text-emerald-400 underline-offset-2 hover:underline">
+                ⚡ play instantly instead
+              </button>
+            )}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // ── BROWSER speechSynthesis (fallback) ────────────────────────────
+  const ssGroups = (() => {
+    const groups = new Map<string, SpeechSynthesisVoice[]>();
+    for (const v of ssVoices) { const l = v.lang || "?"; if (!groups.has(l)) groups.set(l, []); groups.get(l)!.push(v); }
+    return [...groups.entries()].sort(([a], [b]) => (a.startsWith("en") ? -1 : 0) - (b.startsWith("en") ? -1 : 0) || a.localeCompare(b));
+  })();
+
+  return (
+    <div className={wrap}>
+      {!ssPlaying ? (
+        <button onClick={browserPlay} aria-label={label} className={btnPrimary}>🔊 {label}</button>
+      ) : (
+        <>
+          {ssPaused ? (
+            <button onClick={() => { window.speechSynthesis.resume(); setSsPaused(false); }} aria-label="Resume" className={btnPrimary}>▶ Resume</button>
+          ) : (
+            <button onClick={() => { window.speechSynthesis.pause(); setSsPaused(true); }} aria-label="Pause" className={btnAccent}>⏸ Pause</button>
+          )}
+          <button onClick={browserStop} aria-label="Stop" className={btnGhost}>⏹</button>
         </>
       )}
+      {rateSelect}
+      {!compact && !hideVoicePicker && ssVoices.length > 0 && (
+        <select
+          value={ssVoiceName ?? ""}
+          onChange={(e) => setSystemVoice(e.target.value)}
+          aria-label="Voice"
+          className="max-w-[180px] rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300"
+        >
+          <option value="">Auto · best available</option>
+          {ssGroups.map(([lang, vs]) => (
+            <optgroup key={lang} label={lang}>
+              {vs.map((v) => <option key={v.name} value={v.name}>{v.name}{v.default ? " · default" : ""}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      )}
       {!compact && (
-        <span className="text-[10px] text-zinc-600" data-resume-id={id}>
-          Browser TTS (free). {voices.length} voice{voices.length === 1 ? "" : "s"} available.
+        <span className="text-[10px] text-zinc-600">
+          {kokoroSupported() ? (
+            <button onClick={() => { browserStop(); setEngine("kokoro"); }} className="text-emerald-400 underline-offset-2 hover:underline">
+              🎙 switch to natural voice
+            </button>
+          ) : (
+            <>Browser voice (robotic). {ssVoices.length} available.</>
+          )}
         </span>
       )}
     </div>

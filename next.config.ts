@@ -23,8 +23,12 @@ const csp = [
   // wildcard — limits exfiltration to one specific origin.
   // Allow Supabase + Vercel telemetry + Sentry ingest (subdomain wildcard
   // because Sentry uses *.ingest.sentry.io / *.ingest.us.sentry.io tied to
-  // your project) + PostHog (us.i.posthog.com / us-assets.i.posthog.com).
-  `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com`.trim(),
+  // your project) + PostHog (us.i.posthog.com / us-assets.i.posthog.com)
+  // + HuggingFace CDN (huggingface.co / *.hf.co LFS+Xet) for the in-browser
+  // Kokoro TTS model weights and jsDelivr for the onnxruntime-web .wasm — the
+  // "Listen" read-aloud feature (src/lib/kokoro-tts-client.ts) runs the same
+  // neural voice as the daily brief entirely client-side, $0.
+  `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net`.trim(),
   // Audio/video: same-origin + our Supabase project (where rendered
   // daily-brief MP3s live) + blob: (fetch-to-blob fallback) + https: so the
   // in-app news reader can play publisher self-hosted clips (Gray TV / Arc,
@@ -34,6 +38,9 @@ const csp = [
   // rejected by URL safety check" because CSP fell back to default-src 'self'.
   `media-src 'self' ${SUPABASE_HTTPS} https: blob:`.trim(),
   `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com`.trim(),
+  // onnxruntime-web (Kokoro TTS) may spin a WASM worker from a blob URL when
+  // threads are available; allow it (default-src would otherwise block it).
+  "worker-src 'self' blob:",
   // No <iframe> may embed our pages
   "frame-ancestors 'none'",
   // Allowed <iframe> sources: publisher-served media players embedded in-app on
