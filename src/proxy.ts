@@ -80,8 +80,10 @@ function buildCspHeader(nonce: string): string {
     "script-src": [
       "'self'",
       "'unsafe-inline'",
+      "'wasm-unsafe-eval'", // in-browser Kokoro TTS compiles a WASM module (onnxruntime-web)
       "https://va.vercel-scripts.com",
       "https://vitals.vercel-insights.com",
+      "https://cdn.jsdelivr.net", // onnxruntime-web WASM glue for in-browser Kokoro TTS
     ],
     "style-src": ["'self'", "'unsafe-inline'"],
     "img-src": [
@@ -106,6 +108,13 @@ function buildCspHeader(nonce: string): string {
       // Vercel Analytics + Speed Insights
       "https://vitals.vercel-insights.com",
       "https://va.vercel-scripts.com",
+      // In-browser Kokoro TTS ("Listen"): model weights from HuggingFace CDN
+      // + onnxruntime-web .wasm from jsDelivr.
+      "https://huggingface.co",
+      "https://*.huggingface.co",
+      "https://*.hf.co",
+      "https://*.aws.cdn.hf.co", // HF Xet CDN — model weights redirect here (us.aws.cdn.hf.co)
+      "https://cdn.jsdelivr.net",
     ].filter(Boolean),
     "frame-src": [
       "'self'",

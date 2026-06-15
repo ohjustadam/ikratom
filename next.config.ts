@@ -15,7 +15,7 @@ const csp = [
   // Tailwind/Next.js inline some bootstrap styles; scripts use 'unsafe-inline'
   // because Next 16's RSC payload requires inline script. Tightening to nonces
   // requires Next-side support; tracked as a future upgrade.
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com https://cdn.jsdelivr.net",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
@@ -23,8 +23,12 @@ const csp = [
   // wildcard — limits exfiltration to one specific origin.
   // Allow Supabase + Vercel telemetry + Sentry ingest (subdomain wildcard
   // because Sentry uses *.ingest.sentry.io / *.ingest.us.sentry.io tied to
-  // your project) + PostHog (us.i.posthog.com / us-assets.i.posthog.com).
-  `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com`.trim(),
+  // your project) + PostHog (us.i.posthog.com / us-assets.i.posthog.com)
+  // + HuggingFace CDN (huggingface.co / *.hf.co LFS+Xet) for the in-browser
+  // Kokoro TTS model weights and jsDelivr for the onnxruntime-web .wasm — the
+  // "Listen" read-aloud feature (src/lib/kokoro-tts-client.ts) runs the same
+  // neural voice as the daily brief entirely client-side, $0.
+  `connect-src 'self' ${SUPABASE_HTTPS} ${SUPABASE_WSS} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.aws.cdn.hf.co https://cdn.jsdelivr.net`.trim(),
   // Audio/video: same-origin + our Supabase project (where rendered
   // daily-brief MP3s live) + blob: (fetch-to-blob fallback) + https: so the
   // in-app news reader can play publisher self-hosted clips (Gray TV / Arc,
@@ -33,7 +37,13 @@ const csp = [
   // this directive caused Chrome to block every <audio> with "Media load
   // rejected by URL safety check" because CSP fell back to default-src 'self'.
   `media-src 'self' ${SUPABASE_HTTPS} https: blob:`.trim(),
-  `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com`.trim(),
+  // cdn.jsdelivr.net: onnxruntime-web loads its WASM glue (.mjs) as a script
+  // element here for the in-browser Kokoro TTS. script-src-elem is explicitly
+  // set (no fallback to script-src), so jsDelivr must be listed here too.
+  `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com https://cdn.jsdelivr.net`.trim(),
+  // onnxruntime-web (Kokoro TTS) may spin a WASM worker from a blob URL when
+  // threads are available; allow it (default-src would otherwise block it).
+  "worker-src 'self' blob:",
   // No <iframe> may embed our pages
   "frame-ancestors 'none'",
   // Allowed <iframe> sources: publisher-served media players embedded in-app on
