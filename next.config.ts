@@ -15,7 +15,7 @@ const csp = [
   // Tailwind/Next.js inline some bootstrap styles; scripts use 'unsafe-inline'
   // because Next 16's RSC payload requires inline script. Tightening to nonces
   // requires Next-side support; tracked as a future upgrade.
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com https://cdn.jsdelivr.net",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
@@ -37,7 +37,10 @@ const csp = [
   // this directive caused Chrome to block every <audio> with "Media load
   // rejected by URL safety check" because CSP fell back to default-src 'self'.
   `media-src 'self' ${SUPABASE_HTTPS} https: blob:`.trim(),
-  `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com`.trim(),
+  // cdn.jsdelivr.net: onnxruntime-web loads its WASM glue (.mjs) as a script
+  // element here for the in-browser Kokoro TTS. script-src-elem is explicitly
+  // set (no fallback to script-src), so jsDelivr must be listed here too.
+  `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com https://cdn.jsdelivr.net`.trim(),
   // onnxruntime-web (Kokoro TTS) may spin a WASM worker from a blob URL when
   // threads are available; allow it (default-src would otherwise block it).
   "worker-src 'self' blob:",

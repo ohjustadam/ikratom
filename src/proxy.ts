@@ -80,8 +80,10 @@ function buildCspHeader(nonce: string): string {
     "script-src": [
       "'self'",
       "'unsafe-inline'",
+      "'wasm-unsafe-eval'", // in-browser Kokoro TTS compiles a WASM module (onnxruntime-web)
       "https://va.vercel-scripts.com",
       "https://vitals.vercel-insights.com",
+      "https://cdn.jsdelivr.net", // onnxruntime-web WASM glue for in-browser Kokoro TTS
     ],
     "style-src": ["'self'", "'unsafe-inline'"],
     "img-src": [
