@@ -142,7 +142,10 @@ for (const item of items) {
   const attempts = (item.body_extract_attempts ?? 0) + 1;
   const gotBody = paragraphs.length > 0;
   const update = { body_extract_attempts: attempts };
-  if (gotBody) update.body_paragraphs = paragraphs;
+  // A fuller body invalidates any prior digest — clear digest_generated_at so
+  // generate-news-digest re-queues it (also un-sticks items that were marked
+  // digest-processed while still thin, once extraction finally yields a body).
+  if (gotBody) { update.body_paragraphs = paragraphs; update.digest_generated_at = null; }
   if (media.length > 0) update.media_urls = media;
   if (gotBody || attempts >= RETRY_CAP) update.body_extracted_at = new Date().toISOString();
 
