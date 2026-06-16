@@ -94,4 +94,4 @@ jobs:
 
       - name: News digests — full in-app write-up (cloud router)
         continue-on-error: true
-        run: node scripts/generate-news-digest.mjs --limit 200
+        run: node scripts/generate-news-digest.mjs --limit 300 --days 90

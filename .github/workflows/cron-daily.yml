@@ -322,7 +322,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/extract-news-content.mjs --limit 80
+        run: node scripts/extract-news-content.mjs --limit 300
       - name: Summarize news articles (our AI synthesis for /news/[id])
         # Guarantees every classified article has OUR 2-3 sentence summary even
         # when body extraction fails on JS-heavy sources (MSN/Yahoo) — so the
@@ -338,6 +338,22 @@ jobs:
           CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/summarize-news.mjs --limit 120
+      - name: Generate in-app news digests (full write-up)
+        # FINAL enrichment step — runs AFTER extract+summarize so a brand-new
+        # article embeds end-to-end (body + summary + our original full digest)
+        # in ONE daily cycle instead of a day late. Our copyright-safe synthesis
+        # (4-7¶) from the just-extracted source text; free-tier AI router.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/generate-news-digest.mjs --limit 300 --days 90
 
   sync-usaspending-kratom:
     # Federal awards (grants + contracts) from USAspending.gov.
