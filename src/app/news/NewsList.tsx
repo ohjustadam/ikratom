@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { searchNews } from "@/modules/news/actions";
 
 type NewsItem = {
   id: string;
@@ -68,6 +69,12 @@ export function NewsList({ items, userState }: { items: NewsItem[]; userState: s
   const [view, setView] = useState<View>("list");
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
+  // Server-side corpus search: when the user types a query we search the WHOLE
+  // news archive (title + summary + article body) on the server, not just the
+  // ~250 rows loaded for browsing. null = no active query → browse the loaded set.
+  const [serverResults, setServerResults] = useState<NewsItem[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const searchSeq = useRef(0);
 
   // Hydrate persisted picks once on mount.
   useEffect(() => {
@@ -83,6 +90,24 @@ export function NewsList({ items, userState }: { items: NewsItem[]; userState: s
   // Reset to page 1 when filters change.
   useEffect(() => { setPage(1); }, [stateFilter, topic, query, sort, pageSize]);
 
+  // Debounced corpus-wide server search. <2 chars → clear (back to browse mode).
+  // searchSeq guards against out-of-order responses (stale query winning).
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setServerResults(null); setSearching(false); return; }
+    setSearching(true);
+    const seq = ++searchSeq.current;
+    const t = setTimeout(async () => {
+      try {
+        const res = await searchNews(q, 100);
+        if (seq === searchSeq.current) { setServerResults(res); setSearching(false); }
+      } catch {
+        if (seq === searchSeq.current) { setServerResults(null); setSearching(false); }
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [query]);
+
   const counts = useMemo(() => {
     const yourState = userState ? items.filter((i) => i.state === userState).length : 0;
     const federal = items.filter((i) => i.state === null).length;
@@ -96,15 +121,20 @@ export function NewsList({ items, userState }: { items: NewsItem[]; userState: s
   }, [items]);
 
   const filtered = useMemo(() => {
+    // When a server search is active, work over the corpus-wide results (already
+    // matched on title + summary + body via FTS) and SKIP the client text filter.
+    // Otherwise browse the loaded set with the old client-side substring match.
+    const usingServer = serverResults !== null;
+    const source = serverResults ?? items;
     const q = query.trim().toLowerCase();
-    let arr = items.filter((i) => {
+    let arr = source.filter((i) => {
       if (stateFilter === "yours" && i.state !== userState) return false;
       if (stateFilter === "federal" && i.state !== null) return false;
       if (stateFilter !== "all" && stateFilter !== "yours" && stateFilter !== "federal") {
         if (i.state !== stateFilter) return false;
       }
       if (topic !== "all" && i.kratom_topic !== topic) return false;
-      if (q) {
+      if (!usingServer && q) {
         const hay = `${i.title} ${i.summary ?? ""} ${i.source_name ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
@@ -127,7 +157,7 @@ export function NewsList({ items, userState }: { items: NewsItem[]; userState: s
       });
     }
     return arr;
-  }, [items, stateFilter, topic, query, sort, userState]);
+  }, [items, serverResults, stateFilter, topic, query, sort, userState]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -160,9 +190,12 @@ export function NewsList({ items, userState }: { items: NewsItem[]; userState: s
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search title, summary, source…"
-              className="w-full rounded-md border border-zinc-800 bg-zinc-950 py-2 pl-9 pr-3 text-sm focus:border-emerald-500 focus:outline-none"
+              placeholder="Search all news — title, summary & article text…"
+              className="w-full rounded-md border border-zinc-800 bg-zinc-950 py-2 pl-9 pr-20 text-sm focus:border-emerald-500 focus:outline-none"
             />
+            {searching && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-emerald-400">searching…</span>
+            )}
           </div>
           <select
             value={stateFilter}
@@ -230,12 +263,15 @@ export function NewsList({ items, userState }: { items: NewsItem[]; userState: s
         {stateFilter !== "all" && stateFilter !== "yours" && stateFilter !== "federal" && <> in {stateFilter}</>}
         {stateFilter === "federal" && " (federal)"}
         {topic !== "all" && <> · topic: {topic}</>}
+        {serverResults !== null && <> · across all news</>}
         {totalPages > 1 && <> · page {currentPage} of {totalPages}</>}
       </p>
 
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-8 text-center text-sm text-zinc-500">
-          No items match those filters.
+          {serverResults !== null
+            ? <>No news found for &ldquo;{query.trim()}&rdquo;{(stateFilter !== "all" || topic !== "all") && " with those filters"}.</>
+            : "No items match those filters."}
         </div>
       ) : (
         <NewsItems items={pageItems} view={view} />
