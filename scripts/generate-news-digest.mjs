@@ -29,6 +29,7 @@ const DRY = args.includes("--dry-run");
 const REFRESH = args.includes("--refresh");
 const LIMIT = parseInt(arg("--limit") ?? "60", 10);
 const DAYS = parseInt(arg("--days") ?? "21", 10);
+const CONCURRENCY = parseInt(arg("--concurrency") ?? "1", 10);
 
 // Minimum real source text (chars) before we'll synthesize a digest. Below
 // this we'd be padding a headline into a fake article — skip it and let the
@@ -65,16 +66,26 @@ if (!REFRESH) q = q.is("digest_generated_at", null);
 const { data: items, error } = await q;
 if (error) { console.error(error.message); process.exit(1); }
 console.log(`Providers: ${listAvailableProviders().join(", ")}`);
-console.log(`${items.length} candidate(s)${DRY ? " [DRY]" : ""}`);
+console.log(`${items.length} candidate(s)${DRY ? " [DRY]" : ""} · concurrency ${CONCURRENCY}`);
 
 let done = 0, failed = 0, skipped = 0;
-for (const it of items) {
+let idx = 0, stop = false;
+
+async function processItem(it) {
   const source = Array.isArray(it.body_paragraphs) && it.body_paragraphs.length
     ? it.body_paragraphs.join("\n\n")
     : (it.body_extract_excerpt || "");
   if (source.trim().length < MIN_SOURCE_CHARS) {
     skipped++;
-    continue; // not enough real text — don't fabricate; the extractor retries
+    // Stamp digest_generated_at (paragraphs stay null) so this permanently-thin
+    // item LEAVES the candidate pool. Under PostgREST's 1000-row fetch cap,
+    // un-marked thin items pile up at the top of the newest-first window and
+    // plug it — starving older digestable items (they never get fetched).
+    // extract-news-content clears digest_generated_at whenever it writes a
+    // fuller body, so genuine enrichment re-queues the item. We never fabricate
+    // a digest from <240 chars of source ("real data only").
+    if (!DRY) await sb.from("news_items").update({ digest_generated_at: new Date().toISOString() }).eq("id", it.id);
+    return;
   }
   const loc = it.state ? `\nState: ${it.state}` : "";
   const user = `Title: ${it.title}\nSource: ${it.source_name || "?"}${loc}\n\nSource text:\n${source.slice(0, 6000)}`;
@@ -91,8 +102,8 @@ for (const it of items) {
   } catch (e) {
     console.log(`  ✗ ${it.id.slice(0, 8)} ${String(e.message ?? e).slice(0, 50)}`);
     failed++;
-    if (guard.fail(e)) { console.log("  circuit breaker — stopping early"); break; }
-    continue;
+    if (guard.fail(e)) { console.log("  circuit breaker — stopping early"); stop = true; }
+    return;
   }
 
   // Cap: at most 8 paragraphs / ~4500 chars total — bounded + fair-use safe.
@@ -105,17 +116,31 @@ for (const it of items) {
   }
   paragraphs = capped.slice(0, 8);
 
-  if (paragraphs.length === 0) { console.log(`  ∅ ${it.id.slice(0, 8)} empty`); failed++; continue; }
+  if (paragraphs.length === 0) { console.log(`  ∅ ${it.id.slice(0, 8)} empty`); failed++; return; }
   console.log(`  ${it.id.slice(0, 8)} → ${paragraphs.length}¶ via ${provider}`);
-  if (DRY) { done++; continue; }
+  if (DRY) { done++; return; }
   const { error: upErr } = await sb.from("news_items").update({
     digest_paragraphs: paragraphs,
     digest_generated_at: new Date().toISOString(),
   }).eq("id", it.id);
-  if (upErr) { console.log(`     ⚠ ${upErr.message?.slice(0, 60)}`); failed++; continue; }
+  if (upErr) { console.log(`     ⚠ ${upErr.message?.slice(0, 60)}`); failed++; return; }
   done++;
-  await new Promise((r) => setTimeout(r, 150));
 }
+
+// Bounded-concurrency worker pool. Each 1400-token digest is latency-bound
+// (~5-10s waiting on the model), and the free-tier router fails over across
+// providers, so N concurrent calls give near-linear speedup until rate limits
+// bite. --concurrency defaults to 1 so the nightly cron behavior is unchanged;
+// the on-box backfill passes a higher value. idx++ is atomic (no await between
+// read and increment) so workers never grab the same item.
+async function worker() {
+  while (!stop) {
+    const i = idx++;
+    if (i >= items.length) break;
+    await processItem(items[i]);
+  }
+}
+await Promise.all(Array.from({ length: Math.max(1, CONCURRENCY) }, () => worker()));
 
 console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — digested ${done}, skipped ${skipped} (thin), failed ${failed}`);
 if (!DRY) {

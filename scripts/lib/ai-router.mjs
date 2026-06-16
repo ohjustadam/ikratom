@@ -201,13 +201,13 @@ async function callCerebras(sys, user, maxTokens) {
     method: "POST",
     headers: { Authorization: `Bearer ${CEREBRAS_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      // Cerebras retired the old "llama3.1-8b" id (it 404s now, which made
-      // this provider a silent no-op fallthrough). Default to their current
-      // free Llama 3.3 70B id, served on Cerebras silicon at thousands of
-      // tok/sec — fast enough as a classification fallback when Groq + Gemini
-      // are in cooldown. Override with CEREBRAS_MODEL if your account exposes
-      // a different/bigger model id.
-      model: process.env.CEREBRAS_MODEL || "llama-3.3-70b",
+      // Model ids on Cerebras drift; "llama-3.3-70b" 404s on this account
+      // (verified 2026-06-16: account exposes only gpt-oss-120b + zai-glm-4.7),
+      // which silently made this provider a dead 404 no-op across the whole
+      // rotation. Default to gpt-oss-120b — OpenAI open-weights (MIT), US-hosted
+      // on Cerebras silicon at thousands of tok/sec, the same model we already
+      // trust for reasoning via Groq. Override with CEREBRAS_MODEL.
+      model: process.env.CEREBRAS_MODEL || "gpt-oss-120b",
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       temperature: 0.1,
       max_tokens: maxTokens,
