@@ -119,6 +119,57 @@ jobs:
         # realistic backlog across a few ticks, and the script's circuit
         # breaker (scripts/lib/batch-guard.mjs) stops early if providers die.
         run: node scripts/classify-news-policy.mjs --limit 80
+      # ── Same-tick in-app enrichment ─────────────────────────────────────
+      # Build the full in-app article (resolve → extract body+media →
+      # summarize → digest) in the SAME hourly tick the item was scraped, so
+      # a new story reads + listens completely on /news within ~1h of going
+      # live instead of waiting up to 24h for the daily cron. Each step
+      # self-gates to unprocessed rows and is bounded by --limit so the hourly
+      # tick stays light; the daily/nightly runs remain the deep-backlog drain.
+      - name: Resolve Google redirect URLs (fresh items)
+        # Clean GHA IP — the owner box gets Google-throttled. Gives extract a
+        # real publisher URL to fetch this hour, not a day later.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/resolve-news-urls.mjs --limit 120
+      - name: Extract article body + embedded media (fresh items)
+        # Fair-use lead excerpt + publisher embeds. No AI (HTTP fetch only);
+        # bounded retry (body_extract_attempts) self-heals JS/robots walls.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/extract-news-content.mjs --limit 100
+      - name: Summarize fresh articles (our AI synthesis)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/summarize-news.mjs --limit 80
+      - name: Generate full in-app digest for fresh articles
+        # The full original write-up so a new article reads + listens completely
+        # the same hour it goes live. --concurrency keeps the tick fast; it +
+        # thin-item marking land with #630 (graceful no-op on main until merged).
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/generate-news-digest.mjs --limit 100 --concurrency 6
+      # ────────────────────────────────────────────────────────────────────
       - name: Auto-push approved critical alerts to in-state users
         # Runs after the classifier so any newly-approved alerts this
         # hour get pushed in the same cron tick. Whitelist of kinds
