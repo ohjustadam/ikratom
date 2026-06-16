@@ -14,6 +14,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import FeedbackWidget from "@/components/FeedbackWidget";
+import ShareBanner from "@/components/ShareBanner";
 import { ChatPopup } from "@/modules/chat/ChatPopup";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
@@ -233,7 +234,7 @@ export default async function RootLayout({
             that need it. */}
         {/* Bottom padding clears: mobile tab bar (3.5rem) + donation strip
             (~1.75rem) + device safe-area; desktop just the strip. */}
-        <main className="flex-1 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-7">{children}</main>
+        <main className="flex-1 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-7"><ShareBanner />{children}</main>
 
         <footer className="border-t border-zinc-800 bg-zinc-950 py-8">
           <div className="mx-auto max-w-6xl px-4 text-center text-xs text-zinc-500 sm:px-6 lg:px-8">

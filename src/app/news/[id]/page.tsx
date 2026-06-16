@@ -47,6 +47,7 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
     summary: string | null;
     body_extract_excerpt: string | null;
     body_paragraphs: string[] | null;
+    digest_paragraphs: string[] | null;
     media_urls: Array<{ type: string; url: string; embed_url?: string; video_id?: string; poster?: string; lead?: boolean }> | null;
     url: string;
     resolved_url: string | null;
@@ -66,7 +67,7 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
   const { data: rawArticle } = await sb
     .from("news_items")
     .select(
-      "id, state, title, summary, body_extract_excerpt, body_paragraphs, media_urls, url, resolved_url, " +
+      "id, state, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
       "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
       "duplicate_count, policy_alert_id, bill_id, " +
       "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
@@ -140,10 +141,13 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
   const leadImage = images.find((m) => m.lead) ?? images[0] ?? null;
   const galleryImages = images.filter((m) => m !== leadImage).slice(0, 4);
   const paragraphs = Array.isArray(article.body_paragraphs) ? article.body_paragraphs : [];
-  // Read-aloud text — title + AI summary + fair-use excerpt (falls back to the
-  // short verification excerpt). Composed so Listen works on EVERY article,
-  // including ones we only have a title + summary for. Zero-cost browser TTS.
-  const listenText = [article.title, article.summary, ...paragraphs]
+  const digest = Array.isArray(article.digest_paragraphs) ? article.digest_paragraphs : [];
+  // Read-aloud text — title + AI summary + the full in-app body (our original
+  // digest when we have one, else the fair-use excerpt). Composed so Listen
+  // reads the WHOLE story on every article, not just a headline. Falls back to
+  // the short verification snippet. Zero-cost browser TTS.
+  const readBody = digest.length > 0 ? digest : paragraphs;
+  const listenText = [article.title, article.summary, ...readBody]
     .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
     .join("\n\n") || (article.body_extract_excerpt ?? "");
   // Per-provider iframe heights tuned to each player's chrome.
@@ -292,6 +296,26 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
               loading="lazy"
             />
           ))}
+        </section>
+      )}
+
+      {/* iKratom digest — our ORIGINAL plain-English write-up (free-tier AI),
+          synthesized from the source so the full story reads in-app. Copyright-
+          safe (our words, not the publisher's); the fair-use excerpt + source
+          link sit below it. */}
+      {digest.length > 0 && (
+        <section className="mb-6">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
+            📖 The full story · iKratom write-up
+          </p>
+          <div className="space-y-3 text-[15px] leading-relaxed text-zinc-200">
+            {digest.map((p, i) => (
+              <p key={i}>{p}</p>
+            ))}
+          </div>
+          <p className="mt-2 text-[10px] text-zinc-500">
+            Written by iKratom from the source reporting — our own words, not the publisher&apos;s text. The full article is at the source below.
+          </p>
         </section>
       )}
 
