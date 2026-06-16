@@ -91,3 +91,7 @@ jobs:
       - name: News summaries drain (cloud router)
         continue-on-error: true
         run: node scripts/summarize-news.mjs --limit 300
+
+      - name: News digests — full in-app write-up (cloud router)
+        continue-on-error: true
+        run: node scripts/generate-news-digest.mjs --limit 300 --days 90

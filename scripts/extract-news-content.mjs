@@ -36,6 +36,11 @@ const DRY = args.includes("--dry-run");
 const REFRESH = args.includes("--refresh");
 const LIMIT = parseInt(arg("--limit") ?? "40", 10);
 const DAYS = parseInt(arg("--days") ?? "21", 10);
+// Bounded retry for pages that fetch OK but yield zero paragraphs (JS shells,
+// robots walls). Below the cap we leave body_extracted_at unstamped so a later
+// run — when headless render or the source itself recovers — can try again; at
+// the cap we give up and stamp, so a permanently-broken source stops retrying.
+const RETRY_CAP = 4;
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -66,7 +71,7 @@ console.log(`Extract-news-content${DRY ? " [DRY]" : ""}${REFRESH ? " [REFRESH]" 
 const since = new Date(Date.now() - DAYS * 86400_000).toISOString();
 let q = sb
   .from("news_items")
-  .select("id, title, resolved_url, url, source_name")
+  .select("id, title, resolved_url, url, source_name, body_extract_attempts")
   .not("policy_classified_at", "is", null)
   .not("resolved_url", "is", null)
   .is("duplicate_of", null)
@@ -75,7 +80,12 @@ let q = sb
   .gte("scraped_at", since)
   .order("published_at", { ascending: false, nullsFirst: false })
   .limit(LIMIT);
-if (!REFRESH) q = q.is("body_extracted_at", null);
+// Re-pick not just unprocessed items (body_extracted_at IS NULL) but also ones
+// we fetched before yet got zero paragraphs from — bounded by RETRY_CAP so a
+// permanently-unextractable source eventually stops retrying.
+if (!REFRESH) {
+  q = q.or(`body_extracted_at.is.null,and(body_paragraphs.is.null,body_extract_attempts.lt.${RETRY_CAP})`);
+}
 const { data: items, error } = await q;
 if (error) { console.error("query failed:", error.message); process.exit(1); }
 console.log(`  ${items.length} article(s) to extract`);
@@ -124,11 +134,19 @@ for (const item of items) {
 
   if (DRY) { processed++; continue; }
 
-  const { error: upErr } = await sb.from("news_items").update({
-    body_paragraphs: paragraphs.length > 0 ? paragraphs : null,
-    media_urls: media.length > 0 ? media : null,
-    body_extracted_at: new Date().toISOString(),
-  }).eq("id", item.id);
+  // Stamp body_extracted_at when we got a body, OR once bounded retries are
+  // exhausted (give up on a permanently-unextractable source). A fetched-but-
+  // empty page below the cap is left unstamped so a later run can try again —
+  // fixing the old trap where one empty fetch killed the article forever. Only
+  // overwrite paragraphs/media when this run actually found some.
+  const attempts = (item.body_extract_attempts ?? 0) + 1;
+  const gotBody = paragraphs.length > 0;
+  const update = { body_extract_attempts: attempts };
+  if (gotBody) update.body_paragraphs = paragraphs;
+  if (media.length > 0) update.media_urls = media;
+  if (gotBody || attempts >= RETRY_CAP) update.body_extracted_at = new Date().toISOString();
+
+  const { error: upErr } = await sb.from("news_items").update(update).eq("id", item.id);
   if (upErr) { console.log(`     ⚠ update failed: ${upErr.message?.slice(0, 80)}`); failed++; continue; }
   processed++;
 
