@@ -6,6 +6,7 @@ import { recordAdminAction } from "@/lib/audit";
 import { getCreatorContext } from "./actions";
 import { requireMfaForMutation, requireMfaEnrolled } from "./mfa";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { screenCampaignTemplate } from "@/modules/campaigns/screen-content";
 
 const ROLE_OPTIONS = ["us_senate", "us_house", "state_senate", "state_house"] as const;
 
@@ -76,6 +77,34 @@ function validate(d: ReturnType<typeof readForm>): string | null {
   return null;
 }
 
+/**
+ * Stance gate (anti-weaponization PR3). Returns campaign-column overrides
+ * that route a flagged template to the review queue, or {} to publish as
+ * submitted. Only PURE advocate leaders are gated — admins/owner are the
+ * trusted tier and skip the screen (their edits are still recorded in the
+ * template version history from mig 0204).
+ */
+async function screenForReview(
+  ctx: { isLeader: boolean; isAdmin: boolean; isOwner: boolean },
+  data: { title: string; subject_template: string; body_template: string },
+): Promise<{ active?: boolean; review_state?: string; review_reason?: string }> {
+  if (!ctx.isLeader || ctx.isAdmin || ctx.isOwner) return {};
+  const screen = await screenCampaignTemplate({
+    title: data.title,
+    subject: data.subject_template,
+    body: data.body_template,
+  });
+  if (screen.pass) return {};
+  return {
+    active: false,
+    review_state: "pending_review",
+    review_reason: (
+      `AI stance screen: ${screen.verdict.stance} (${screen.verdict.confidence.toFixed(2)})` +
+      `${screen.errored ? " [screener unavailable]" : ""} — ${screen.verdict.reason}`
+    ).slice(0, 500),
+  };
+}
+
 export async function createCampaign(formData: FormData): Promise<CampaignFormResult> {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
@@ -93,10 +122,15 @@ export async function createCampaign(formData: FormData): Promise<CampaignFormRe
   const err = validate(data);
   if (err) return { error: err };
 
+  // Stance screen (PR3): never publish a leader-authored campaign whose
+  // message undermines kratom — a flagged template lands in the review queue
+  // (active=false) instead of going live.
+  const review = await screenForReview(ctx, data);
+
   const supabase = await createClient();
   const { data: row, error } = await supabase
     .from("campaigns")
-    .insert({ ...data, created_by: ctx.userId })
+    .insert({ ...data, ...review, created_by: ctx.userId })
     .select("id, slug")
     .single();
 
@@ -139,6 +173,10 @@ export async function updateCampaign(
   const err = validate(data);
   if (err) return { error: err };
 
+  // Stance screen (PR3): a leader editing into off-mission / anti-kratom text
+  // is bounced to the review queue rather than published live.
+  const review = await screenForReview(ctx, data);
+
   const supabase = await createClient();
 
   // Snapshot the prior template so we can tell whether this edit actually
@@ -151,7 +189,7 @@ export async function updateCampaign(
 
   const { data: row, error } = await supabase
     .from("campaigns")
-    .update(data)
+    .update({ ...data, ...review })
     .eq("id", id)
     .select("slug")
     .single();

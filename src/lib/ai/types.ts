@@ -27,7 +27,10 @@ export type TaskKind =
   /** Complex multi-step reasoning. Prefers DeepSeek R1 Distill 70B via Groq for chain-of-thought quality at $0 cost. */
   | "reasoning"
   /** "Did this AI output miss anything?" Phase 3 D5 self-critique target. R1's CoT is well-suited. */
-  | "self_critique";
+  | "self_critique"
+  /** Anti-weaponization: classify whether a campaign email's POSITION
+   *  supports or undermines kratom, to gate leader-authored templates. */
+  | "email_stance_screen";
 
 /**
  * Caller-supplied constraints. Empty defaults are fine for most tasks;
