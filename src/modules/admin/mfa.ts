@@ -31,3 +31,26 @@ export function requireMfaForMutation(ctx: {
   }
   return null;
 }
+
+/**
+ * Stricter gate (anti-weaponization PR4): MFA is MANDATORY, not optional.
+ * Used for high-leverage authoring by advocate leaders — the tier most
+ * exposed to infiltration. Unlike requireMfaForMutation, a leader with NO
+ * factors enrolled is blocked (not grace-allowed) and told to enroll.
+ * Admins/owner keep the softer gate so an un-enrolled owner can't lock
+ * themselves out of authoring (flip them over once all admins have 2FA).
+ */
+export function requireMfaEnrolled(ctx: {
+  aal: "aal1" | "aal2" | null;
+  aalNext: "aal1" | "aal2" | null;
+  mfaBypass?: boolean;
+}): string | null {
+  if (ctx.mfaBypass) return null;
+  if (ctx.aalNext !== "aal2") {
+    return "Two-factor authentication is required to author campaigns or waves. Enroll at /account/security, then try again.";
+  }
+  if (ctx.aal !== "aal2") {
+    return "Two-factor verification required. Visit /login/mfa to enter your code, then try again.";
+  }
+  return null;
+}

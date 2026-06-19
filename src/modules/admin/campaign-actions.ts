@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { recordAdminAction } from "@/lib/audit";
 import { getCreatorContext } from "./actions";
-import { requireMfaForMutation } from "./mfa";
+import { requireMfaForMutation, requireMfaEnrolled } from "./mfa";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 const ROLE_OPTIONS = ["us_senate", "us_house", "state_senate", "state_house"] as const;
@@ -79,7 +79,10 @@ function validate(d: ReturnType<typeof readForm>): string | null {
 export async function createCampaign(formData: FormData): Promise<CampaignFormResult> {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
-  const mfaErr = requireMfaForMutation(ctx);
+  // MFA mandatory for leader authoring (PR4); admins/owner keep the soft gate.
+  const mfaErr = ctx.isLeader && !ctx.isAdmin && !ctx.isOwner
+    ? requireMfaEnrolled(ctx)
+    : requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
   // Defense-in-depth: bound campaign creation even for a (compromised) leader.
   if (!(await checkRateLimit(`campaign:create:${ctx.userId}`, 30, 3600))) {
@@ -125,7 +128,10 @@ export async function updateCampaign(
 ): Promise<CampaignFormResult> {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
-  const mfaErr = requireMfaForMutation(ctx);
+  // MFA mandatory for leader authoring (PR4); admins/owner keep the soft gate.
+  const mfaErr = ctx.isLeader && !ctx.isAdmin && !ctx.isOwner
+    ? requireMfaEnrolled(ctx)
+    : requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
   if (!id) return { error: "Missing id." };
 

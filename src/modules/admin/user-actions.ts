@@ -7,6 +7,7 @@ import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAdminContext } from "./actions";
 import { requireMfaForMutation } from "./mfa";
+import { verifyUserForPromotion } from "@/modules/auth/trust-tier";
 
 /**
  * Set a user's role flags.
@@ -52,6 +53,18 @@ export async function setUserRoles(input: {
   const newlyLeader = !!input.isLeader && !prev?.is_advocate_leader;
   const newlyAdmin = !!input.isAdmin && !prev?.is_admin;
   const newlyOwner = ctx.isOwner && input.isOwner === true && !prev?.is_owner;
+
+  // Anti-infiltration gate (PR4): don't hand the campaign-authoring +
+  // wave-amplification keys to a thin/unvetted account. Promotion to
+  // Advocate Leader requires the target to be a "verified" user first
+  // (confirmed email + complete profile + 2FA enrolled + account >= 48h).
+  // Admin/owner grants are owner-driven trust and aren't gated here.
+  if (newlyLeader) {
+    const v = await verifyUserForPromotion(input.userId);
+    if (!v.ok) {
+      return { error: `Can't promote to leader yet — this user must first complete: ${v.missing.join(", ")}.` };
+    }
+  }
 
   const fullUpdate: Record<string, unknown> = { ...updates };
   if (newlyLeader) fullUpdate.leader_tour_pending = true;
