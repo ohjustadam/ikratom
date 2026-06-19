@@ -49,3 +49,18 @@ The advocate's toolbelt. A nonpartisan political action platform for the kratom 
 
 Future (flagged off): forum, library (videos/books/TTS), news scraping, AI personalization, medical board recruitment, multistate expansion.
 
+## License
+
+iKratom is **source-available, not open source.** This repository is
+public for transparency and to run continuous integration on free
+infrastructure tiers — that is *not* a grant to reuse the code.
+
+You may read the source and fork it to submit contributions back to the
+project. You may **not** mirror, redistribute, redeploy, or stand up a
+competing/look-alike instance, and you may **not** use the code to train
+AI models, without prior written permission. The "iKratom" name and brand
+are reserved trademarks and are not licensed.
+
+Full terms govern in [`LICENSE.md`](./LICENSE.md). Licensing inquiries:
+ohjustadam@proton.me.
+

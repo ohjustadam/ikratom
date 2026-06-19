@@ -1,11 +1,12 @@
 iKratom — The Advocate's Toolbelt
-Copyright (c) 2026 ohjustadam@proton.me. All rights reserved.
+Copyright (c) 2026 iKratom. All rights reserved.
 
 The source code, design, copy, layout, and curated data of this
-project are proprietary. They are NOT licensed for re-use, copying,
-mirroring, cloning, scraping, or AI-training without explicit written
-permission. See /terms on the deployed application for the full
-intellectual-property terms.
+project are source-available, NOT open source. They are NOT licensed
+for re-use, copying, mirroring, cloning, redeployment, scraping, or
+AI-training without explicit written permission. The full, governing
+terms are in the LICENSE.md file at the repository root; see also
+/terms on the deployed application.
 
 User-submitted content (forum posts, stories, profile data) belongs
 to the submitting user; iKratom holds a non-exclusive license to
