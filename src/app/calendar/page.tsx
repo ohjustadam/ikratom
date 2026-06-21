@@ -11,7 +11,7 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 
 type Event = {
-  kind: "municipal" | "alert" | "bill_action" | "state_session" | "election" | "townhall" | "bill_effective";
+  kind: "municipal" | "alert" | "bill_action" | "state_session" | "election" | "townhall" | "bill_effective" | "bill_sunset" | "local_vote";
   date: Date;
   end_date?: Date | null;
   allDay?: boolean;
@@ -39,6 +39,8 @@ const KIND_BADGE: Record<string, { emoji: string; label: string; cls: string }> 
   election: { emoji: "🗳️", label: "Election", cls: "bg-violet-950/30 text-violet-300 border-violet-700/40" },
   townhall: { emoji: "🎤", label: "Town hall", cls: "bg-teal-950/30 text-teal-300 border-teal-700/40" },
   bill_effective: { emoji: "⚖️", label: "Takes effect", cls: "bg-rose-950/30 text-rose-300 border-rose-700/40" },
+  bill_sunset: { emoji: "⏳", label: "Expires", cls: "bg-orange-950/30 text-orange-300 border-orange-700/40" },
+  local_vote: { emoji: "🗳️", label: "Local vote", cls: "bg-cyan-950/30 text-cyan-300 border-cyan-700/40" },
 };
 
 // Eastern calendar day for an instant (NOT UTC). A 9pm-ET event must land on the
@@ -72,7 +74,7 @@ export default async function CalendarPage({ searchParams }: {
   const viewerState = stateFilter ?? userState;
 
   // Pull from multiple sources in parallel
-  const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective] = await Promise.all([
+  const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective, billsSunset, localVotes] = await Promise.all([
     sb.from("municipal_meetings")
       .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
       .eq("moderation_status", "approved")
@@ -119,6 +121,23 @@ export default async function CalendarPage({ searchParams }: {
       .gte("effective_date", now.toISOString().slice(0, 10))
       .lte("effective_date", electionHorizon.toISOString().slice(0, 10))
       .order("effective_date", { ascending: true }),
+    // Upcoming sunset/expiration dates — when a law's kratom provision auto-
+    // repeals (0209). Sparse (most bans are permanent); 1-yr horizon like effective.
+    sb.from("bills")
+      .select("id, state, bill_number, title, sunset_date, kratom_relevance")
+      .in("kratom_relevance", ["anti", "pro"])
+      .not("sunset_date", "is", null)
+      .gte("sunset_date", now.toISOString().slice(0, 10))
+      .lte("sunset_date", electionHorizon.toISOString().slice(0, 10))
+      .order("sunset_date", { ascending: true }),
+    // Local (city/county) kratom vote OUTCOMES (0210) — past events, so a
+    // backward window; they populate calendar history + the month grid with a
+    // pass/fail badge the raw alert never carried.
+    sb.from("local_vote_outcomes")
+      .select("id, state, locality, vote_date, outcome, measure, source_url, policy_alert_id")
+      .gte("vote_date", new Date(now.getTime() - 180 * 86_400_000).toISOString().slice(0, 10))
+      .order("vote_date", { ascending: false })
+      .limit(200),
   ]);
 
   const events: Event[] = [];
@@ -255,6 +274,35 @@ export default async function CalendarPage({ searchParams }: {
     });
   }
 
+  // Sunset/expiration dates — when a law auto-repeals. All-day, links to bill.
+  for (const b of billsSunset.data ?? []) {
+    if (!b.sunset_date) continue;
+    events.push({
+      kind: "bill_sunset",
+      date: new Date(b.sunset_date + "T12:00:00Z"),
+      allDay: true,
+      title: `${b.state} ${b.bill_number} expires`,
+      body: b.title ? b.title.slice(0, 200) : null,
+      state: b.state,
+      detail_href: `/bills/${b.id}`,
+    });
+  }
+
+  // Local vote outcomes — past city/county kratom votes with a pass/fail badge.
+  for (const v of localVotes.data ?? []) {
+    events.push({
+      kind: "local_vote",
+      date: new Date(v.vote_date + "T12:00:00Z"),
+      allDay: true,
+      title: `${v.locality}${v.state ? ", " + v.state : ""} — local vote ${v.outcome}`,
+      body: v.measure,
+      state: v.state,
+      locality: v.locality,
+      source_url: v.source_url,
+      detail_href: v.policy_alert_id ? `/alerts/${v.policy_alert_id}` : null,
+    });
+  }
+
   // Whether state-scoped elections exist but are hidden because the viewer has
   // no resolved state — drives the "set your state" nudge below.
   const hasHiddenStateElections =
@@ -298,6 +346,8 @@ export default async function CalendarPage({ searchParams }: {
     alert: events.filter((e) => e.kind === "alert").length,
     bill_action: events.filter((e) => e.kind === "bill_action").length,
     bill_effective: events.filter((e) => e.kind === "bill_effective").length,
+    bill_sunset: events.filter((e) => e.kind === "bill_sunset").length,
+    local_vote: events.filter((e) => e.kind === "local_vote").length,
     state_session: events.filter((e) => e.kind === "state_session").length,
   };
 
