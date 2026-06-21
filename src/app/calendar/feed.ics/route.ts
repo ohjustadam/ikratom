@@ -41,6 +41,8 @@ const KIND_CATEGORIES: Record<string, string[]> = {
   election: ["Election", "Voting"],
   townhall: ["Kratom", "Town hall"],
   bill_effective: ["Kratom", "Bill takes effect"],
+  bill_sunset: ["Kratom", "Bill expires"],
+  local_vote: ["Kratom", "Local vote"],
 };
 
 export async function GET(req: NextRequest) {
@@ -55,7 +57,7 @@ export async function GET(req: NextRequest) {
   const electionHorizon = new Date(now.getTime() + 365 * 86_400_000);
 
   // Same data shape as /calendar/page.tsx, just translated to iCal events.
-  const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective] = await Promise.all([
+  const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective, billsSunset, localVotes] = await Promise.all([
     sb.from("municipal_meetings")
       .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
       .eq("moderation_status", "approved")
@@ -99,6 +101,18 @@ export async function GET(req: NextRequest) {
       .gte("effective_date", now.toISOString().slice(0, 10))
       .lte("effective_date", electionHorizon.toISOString().slice(0, 10))
       .order("effective_date", { ascending: true }),
+    sb.from("bills")
+      .select("id, state, bill_number, title, sunset_date, kratom_relevance")
+      .in("kratom_relevance", ["anti", "pro"])
+      .not("sunset_date", "is", null)
+      .gte("sunset_date", now.toISOString().slice(0, 10))
+      .lte("sunset_date", electionHorizon.toISOString().slice(0, 10))
+      .order("sunset_date", { ascending: true }),
+    sb.from("local_vote_outcomes")
+      .select("id, state, locality, vote_date, outcome, measure, source_url")
+      .gte("vote_date", new Date(now.getTime() - 180 * 86_400_000).toISOString().slice(0, 10))
+      .order("vote_date", { ascending: false })
+      .limit(200),
   ]);
 
   const events: Array<IcalEvent & { kind: string; state: string | null }> = [];
@@ -261,6 +275,37 @@ export async function GET(req: NextRequest) {
       location: null,
       url: `${SITE}/bills/${b.id}`,
       categories: KIND_CATEGORIES.bill_effective,
+    });
+  }
+
+  for (const b of billsSunset.data ?? []) {
+    if (!b.sunset_date) continue;
+    events.push({
+      kind: "bill_sunset",
+      state: b.state,
+      uid: `bill-sunset-${b.id}@ikratom.org`,
+      start: new Date(b.sunset_date + "T12:00:00Z"),
+      allDay: true,
+      title: `⏳ ${b.state} ${b.bill_number} expires`,
+      description: [b.title, `Track: ${SITE}/bills/${b.id}`].filter(Boolean).join("\n\n"),
+      location: null,
+      url: `${SITE}/bills/${b.id}`,
+      categories: KIND_CATEGORIES.bill_sunset,
+    });
+  }
+
+  for (const v of localVotes.data ?? []) {
+    events.push({
+      kind: "local_vote",
+      state: v.state,
+      uid: `local-vote-${v.id}@ikratom.org`,
+      start: new Date(v.vote_date + "T12:00:00Z"),
+      allDay: true,
+      title: `🗳️ ${v.locality}${v.state ? ", " + v.state : ""} — local vote ${v.outcome}`,
+      description: [v.measure, v.source_url].filter(Boolean).join("\n\n"),
+      location: v.locality ?? null,
+      url: v.source_url || `${SITE}/calendar`,
+      categories: KIND_CATEGORIES.local_vote,
     });
   }
 
