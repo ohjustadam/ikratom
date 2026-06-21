@@ -268,6 +268,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
   },
   {
+    source: "extract_local_vote_outcomes",
+    label: "Derive local vote outcomes",
+    purpose: "Restructure city/county kratom vote results from alerts → local_vote_outcomes",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "meetings",
+  },
+  {
     source: "scrape_utah_lobbyist_registry",
     label: "Utah lobbyist registry",
     purpose: "Scrape Utah's public lobbyist registry (Mac Haddow et al.)",
