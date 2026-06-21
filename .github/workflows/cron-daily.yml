@@ -312,6 +312,17 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/feed-news-from-alerts.mjs --apply
+      - name: Derive local vote outcomes from alerts
+        # Restructures local (city/county) kratom VOTE results from policy_alerts
+        # into the local_vote_outcomes table (passed/failed/tabled) for /calendar
+        # history + the .ics feed. Runs after feed-news so new local-vote alerts
+        # are present. Idempotent (skips already-derived alerts); continue-on-error
+        # so a write hiccup doesn't fail the daily run.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/extract-local-vote-outcomes.mjs --apply
       - name: Extract in-app article excerpt + embedded media
         # Mines the resolved publisher HTML for a fair-use lead excerpt
         # (capped paragraphs) + embedded media (YouTube/Vimeo players,

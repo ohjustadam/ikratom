@@ -118,6 +118,8 @@ const REGISTRY = [
   // #19 Elections calendar: sync-elections.mjs (NCSL primaries + federal
   // general) self-gates to weekly inside the nightly cloud chassis.
   { source: "sync_elections", interval_hours: 216, system: "github-actions", cadence: "weekly" },
+  // #19 calendar-completeness: derive local_vote_outcomes from alerts (cron-daily).
+  { source: "extract_local_vote_outcomes", interval_hours: 72, system: "github-actions", cadence: "daily" },
 ];
 
 const t0 = Date.now();
