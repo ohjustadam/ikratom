@@ -8,7 +8,8 @@
  *     A second run with the same slug is a no-op — we check for an
  *     existing notification per user.
  *   - Targets ALL users with active push_subscriptions OR all profiles
- *     when --all-users is set. Default: push-subscribed users only.
+ *     when --all-users is set, OR only users with no state set when
+ *     --stateless is set (#19c nudge). Default: push-subscribed users only.
  *   - --dry-run prints the count without inserting.
  *
  * Security guardrail: the patch-note body in the notification is the
@@ -35,6 +36,7 @@ const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1
 const SLUG = arg("--slug");
 const DRY_RUN = args.includes("--dry-run");
 const ALL_USERS = args.includes("--all-users");
+const STATELESS = args.includes("--stateless");
 
 if (!SLUG) {
   console.error("Usage: --slug 2026-05-17-update [--all-users] [--dry-run]");
@@ -70,7 +72,14 @@ console.log(`Summary: ${summary}`);
 
 // Target user set
 let users;
-if (ALL_USERS) {
+if (STATELESS) {
+  // #19c "activate stateless users" nudge: users who never set their state.
+  // Setting it unlocks geofenced elections/primaries, voting reminders, and
+  // per-legislator kratom stance. Targeted, not a blast to everyone.
+  const { data } = await sb.from("profiles").select("id").is("state", null).limit(50000);
+  users = (data ?? []).map((r) => r.id);
+  console.log(`\nTarget: ${users.length} stateless profiles (state IS NULL)`);
+} else if (ALL_USERS) {
   // Every profile row (Supabase Auth handles email verification; if
   // there's a profile row we treat them as a notifiable user).
   const { data } = await sb.from("profiles").select("id").limit(50000);
