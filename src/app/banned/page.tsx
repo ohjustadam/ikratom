@@ -79,6 +79,22 @@ export default async function BannedPage() {
     .select("state, admin_leaf_status, admin_note")
     .eq("admin_leaf_status", "banned");
 
+  // Hopeful counterpoint: LOCAL bans communities DEFEATED. In local_vote_outcomes,
+  // outcome='passed' = the ban PASSED (a loss — those bans show in the lists below);
+  // 'failed'/'tabled' = the community rejected/shelved it. This is the one surface
+  // /banned can show that proves a ban isn't inevitable. (See memory:
+  // local-vote-outcomes-semantics — never frame 'passed' as a win.)
+  const { data: defeatedRaw } = await sb
+    .from("local_vote_outcomes")
+    .select("id, state, locality, vote_date, outcome, measure, policy_alert_id")
+    .in("outcome", ["failed", "tabled"])
+    .order("vote_date", { ascending: false })
+    .range(0, 999);
+  const defeated = (defeatedRaw ?? []) as Array<{
+    id: string; state: string; locality: string | null; vote_date: string | null;
+    outcome: string; measure: string | null; policy_alert_id: string | null;
+  }>;
+
   // Link each banned state to its enacting state bill when we have one (else
   // we link to the state hub). First enacted state-scope anti bill per state.
   const stateBill = new Map<string, BanRow>();
@@ -155,6 +171,51 @@ export default async function BannedPage() {
         <Stat label="Banning counties" value={enactedCounties.length.toString()} tone="red" />
         <Stat label="Banning cities" value={enactedCities.length.toString()} tone="red" />
       </section>
+
+      {/* Communities that fought back — proof a ban isn't inevitable. ONLY
+          failed/tabled local votes (a 'passed' vote = the ban won → shown in the
+          ban lists below, never here). Grows as the daily extractor finds more. */}
+      {defeated.length > 0 && (
+        <section className="mb-8 rounded-lg border-2 border-emerald-700/50 bg-emerald-950/20 p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-300">
+            ✊ Communities that beat a ban ({defeated.length})
+          </h2>
+          <p className="mt-1 text-[11px] text-emerald-200/80">
+            A kratom ban isn&apos;t inevitable — these cities and counties rejected or shelved one. Proof it can be done, and a playbook to borrow.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {defeated.map((d) => {
+              const inner = (
+                <>
+                  <div className="flex flex-wrap items-baseline gap-2 text-[12px]">
+                    <span className="font-mono font-semibold text-emerald-200">
+                      {d.locality ? `${d.locality}, ` : ""}{d.state}
+                    </span>
+                    <span className="rounded bg-emerald-950/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-300">
+                      {d.outcome === "tabled" ? "shelved" : "rejected"}
+                    </span>
+                    {d.vote_date && (
+                      <span className="text-[10px] text-zinc-500">{new Date(d.vote_date).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                  {d.measure && <p className="mt-1 text-sm font-medium text-zinc-100">{d.measure}</p>}
+                </>
+              );
+              return (
+                <li key={d.id}>
+                  {d.policy_alert_id ? (
+                    <Link href={`/alerts/${d.policy_alert_id}`} className="block rounded border border-emerald-800/40 bg-zinc-950/40 p-3 hover:border-emerald-500">
+                      {inner}
+                    </Link>
+                  ) : (
+                    <div className="rounded border border-emerald-800/40 bg-zinc-950/40 p-3">{inner}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {/* Imminent state bans pinned at top — actionable */}
       {imminentStates.length > 0 && (
