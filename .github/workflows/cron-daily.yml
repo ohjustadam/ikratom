@@ -550,6 +550,18 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/reject-wrongstate-pending-alerts.mjs --apply
+      # Intel-queue cluster-janitor — collapse cross-outlet duplicates of one
+      # story (the national FDA/DEA 7-OH push lands as ~16 near-identical alerts)
+      # and re-scrapes of already-public stories, so the pending intel queue
+      # doesn't pile up. The sibling of cleanup-pending-campaigns for the campaign
+      # queue. Conservative (federalTopicKey + outlet-stripped title only; never
+      # touches AKA alerts). Logs to scraper_runs as 'dedupe_pending_alerts'.
+      - name: Auto-dedupe the pending intel queue
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/dedupe-pending-alerts.mjs --apply
       # Locality<->state DRIFT MONITOR: re-check every geo-tagged row against the
       # authoritative US gazetteer (scripts/lib/geo-resolver.mjs) and report any
       # mismatch via scraper_runs telemetry. DETECT-ONLY by design — it does NOT
