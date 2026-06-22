@@ -12,6 +12,8 @@
  *   - ai_relevance_score >= 0.85 (high bar)
  *   - state IS NOT NULL (must be state-specific)
  *   - published_at >= now() - 12h (fresh — don't push old news)
+ *   - body_extracted_at IS NOT NULL (content-ready — never notify about an
+ *     article whose body + media haven't been extracted/attached yet)
  *   - auto_pushed_at IS NULL (per-item dedupe via migration 0122)
  *   - NOT linked to a policy_alert that's already been auto_pushed
  *     (avoids double-push when news promotes to alert)
@@ -42,6 +44,7 @@ const { data: items, error } = await sb
   .gte("published_at", since)
   .not("state", "is", null)
   .not("body_has_kratom_keyword", "is", false)
+  .not("body_extracted_at", "is", null)
   .is("auto_pushed_at", null)
   .order("published_at", { ascending: false })
   .limit(10);

@@ -139,13 +139,17 @@ jobs:
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
       - name: Resolve Google redirect URLs (fresh items)
-        # Clean GHA IP — the owner box gets Google-throttled.
+        # Clean GHA IP — the owner box gets Google-throttled. Higher limit keeps
+        # fresh items resolving fast AND drains the resolve backlog (newest-first).
         continue-on-error: true
-        run: node scripts/resolve-news-urls.mjs --limit 120
+        run: node scripts/resolve-news-urls.mjs --limit 200
       - name: Extract article body + embedded media (fresh items)
         # HTTP fetch only; bounded retry (body_extract_attempts) self-heals walls.
+        # Runs before the slow AI steps below, so it always gets its budget.
+        # Limit raised to keep the content-ready gate (news only shows once
+        # body+media are extracted) opening fast + drain the extract backlog.
         continue-on-error: true
-        run: node scripts/extract-news-content.mjs --limit 100
+        run: node scripts/extract-news-content.mjs --limit 200
       - name: Summarize fresh articles (our AI synthesis)
         continue-on-error: true
         run: node scripts/summarize-news.mjs --limit 80

@@ -49,7 +49,11 @@ export async function listNewsForState(state: string | null, limit = 20): Promis
     .select(NEWS_FIELDS)
     .eq("active", true)
     .is("duplicate_of", null)
-    .not("body_has_kratom_keyword", "is", false);
+    .not("body_has_kratom_keyword", "is", false)
+    // Content-ready gate: only surface an article once extraction has run
+    // (body + media attached, or retries exhausted). Hides the during-pipeline
+    // "scraped but empty" window so users never see a half-baked article.
+    .not("body_extracted_at", "is", null);
 
   if (state === null) {
     q = q.is("state", null);
@@ -72,6 +76,7 @@ export async function listAllRecentNews(limit = 50): Promise<NewsListItem[]> {
     .eq("active", true)
     .is("duplicate_of", null)
     .not("body_has_kratom_keyword", "is", false)
+    .not("body_extracted_at", "is", null) // content-ready only (see listNewsForState)
     .order("published_at", { ascending: false, nullsFirst: false })
     .limit(limit);
   return (data ?? []) as unknown as NewsListItem[];
@@ -97,7 +102,8 @@ export async function searchNews(rawQuery: string, limit = 100): Promise<NewsLis
       .select(NEWS_FIELDS)
       .eq("active", true)
       .is("duplicate_of", null)
-      .not("body_has_kratom_keyword", "is", false);
+      .not("body_has_kratom_keyword", "is", false)
+      .not("body_extracted_at", "is", null); // content-ready only (see listNewsForState)
 
   const fts = await base()
     .textSearch("search_tsv", q, { type: "websearch", config: "english" })
