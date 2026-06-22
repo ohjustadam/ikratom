@@ -11,6 +11,7 @@ import {
   vercelCount,
   dbTriggerCount,
   type CronEntry,
+  type CronCadence,
 } from "@/lib/cron-registry";
 
 export const metadata = { title: "Automation health" };
@@ -39,71 +40,30 @@ export const dynamic = "force-dynamic";
  * file is a code-review point that catches schedule drift.
  */
 
-// Expected interval per source. Used to flag staleness on the
-// freshness table. Conservative — we expect a 1h job to run at least
-// every 4h after retries; a daily job every 36h; a weekly every 9d.
-const EXPECTED: Record<string, { interval_hours: number; cadence: string; system: string }> = {
-  // Hourly (GH Actions cron-hourly.yml)
-  sync_news_rss:               { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  classify_news_policy:        { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  push_critical_alerts:        { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  push_state_news:             { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  push_bill_actions_to_actors: { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  auto_campaign_from_alert:    { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  promote_alert_to_bill:       { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  extract_local_meta:          { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  seed_bill_officials:         { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  auto_post_bills_to_forum:    { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  sync_bills_legiscan_priority:{ interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  post_bill_alerts_to_discord: { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  fan_out_bill_subscriptions:  { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  fire_custom_reminders:       { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  scrape_protectkratom_org:    { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  correlate_news_to_bills:     { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  resolve_news_urls:           { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  verify_news_body:            { interval_hours: 4,  cadence: "hourly", system: "GitHub Actions" },
-  // Daily (GH Actions cron-daily.yml)
-  sync_bill_sponsors:                { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  detect_bill_clusters:              { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  draft_legislator_stance:           { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  sync_legislator_donors:            { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  classify_donor_industries:         { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  sync_federal_trades:               { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  sync_lda_kratom:                   { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  scrape_bop_findings:               { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  parse_bop_pdfs:                    { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  classify_bop_findings_ai:          { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  sync_federal_awards:               { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  sync_federal_rulemaking:           { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  sync_courtlistener_cases:          { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  generate_state_briefing:           { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  audit_briefings_self_critique:     { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  intel_coverage_matrix:             { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  daily_data_quality:                { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  sync_committees_openstates:        { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  discover_municipal_meetings:       { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  fire_meeting_reminders:            { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  scan_legistar_tenants:             { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  scan_granicus_tenants:             { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  sync_research_pubmed:              { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  ai_evaluate_papers:                { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  legiscan_full_sweep:               { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  openstates_vote_sync:              { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  backfill_current_committee:        { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  index_legislator_news_mentions:    { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  ai_correlate_news_to_bills:        { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  re_enrich_stale_bill_journeys:     { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  scrape_utah_lobbyist_registry:     { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  ai_grounded_status_verification:   { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  auto_resolve_sync_discrepancies:   { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  openfec_donor_sync:                { interval_hours: 36, cadence: "daily",  system: "GitHub Actions" },
-  // Weekly (GH Actions cron-weekly.yml)
-  sync_nonprofit_990s:               { interval_hours: 216, cadence: "weekly", system: "GitHub Actions" },
-  broadcast_whats_new:               { interval_hours: 216, cadence: "weekly", system: "GitHub Actions" },
-  weekly_committee_sync:             { interval_hours: 216, cadence: "weekly", system: "GitHub Actions" },
-  weekly_patch_note_draft:           { interval_hours: 216, cadence: "weekly", system: "GitHub Actions" },
-  weekly_digest_broadcast:           { interval_hours: 216, cadence: "weekly", system: "GitHub Actions" },
+// Expected interval per source — DERIVED from the single source of truth
+// (CRON_REGISTRY) instead of a hand-maintained copy. The old duplicate map
+// drifted: its source keys (sync_federal_awards, sync_courtlistener_cases,
+// legiscan_full_sweep, …) no longer matched the strings the scripts actually
+// write to scraper_runs.source (usaspending, courtlistener, sync_bills_legiscan_all,
+// …), so real jobs rendered "untracked" and dead keys flagged false silence.
+// Deriving from CRON_REGISTRY means there's now ONE place to keep accurate.
+// Cadence → conservative staleness interval (a 30-min/hourly job should run at
+// least every 4h after retries; daily every 36h; weekly every 9d). Realtime
+// (db-trigger) jobs have no staleness window.
+const CADENCE_INTERVAL_H: Record<CronCadence, number | null> = {
+  "every-30min": 4,
+  hourly: 4,
+  daily: 36,
+  weekly: 216,
+  realtime: null,
 };
+const EXPECTED: Record<string, { interval_hours: number; cadence: string; system: string }> = {};
+for (const c of CRON_REGISTRY) {
+  if (!c.source) continue;
+  const ih = CADENCE_INTERVAL_H[c.cadence];
+  if (ih == null) continue; // realtime / no staleness window
+  EXPECTED[c.source] = { interval_hours: ih, cadence: c.cadence, system: c.system };
+}
 
 const CRON_SYSTEMS = [
   {

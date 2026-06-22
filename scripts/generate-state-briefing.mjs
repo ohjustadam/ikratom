@@ -781,7 +781,8 @@ for (const s of targets) {
 }
 
 const ok = results.filter(r => r.status === "ok").length;
-const errored = results.filter(r => r.status?.includes("error")).length;
+const erroredRuns = results.filter(r => r.status?.includes("error"));
+const errored = erroredRuns.length;
 const revisedRuns = results.filter(r => (r.revisions ?? 0) > 0).length;
 const totalRevisions = results.reduce((acc, r) => acc + (r.revisions ?? 0), 0);
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
@@ -790,13 +791,24 @@ if (!NO_CRITIQUE && MAX_REVISIONS > 0) {
   console.log(`Critique: ${revisedRuns}/${ok} briefing(s) revised by reasoning critic (${totalRevisions} total revisions)`);
 }
 
+// Summarize per-state failures so the telemetry row records WHY — previously
+// error_message was never set, so /admin/automation showed a blank error and a
+// recurring failure was undiagnosable without a manual re-run.
+const errSummary = erroredRuns
+  .slice(0, 6)
+  .map(r => `${r.state}:${r.status}${r.error ? ` ${String(r.error).slice(0, 60)}` : ""}`)
+  .join(" | ");
+
 try {
   await sb.from("scraper_runs").insert({
     source: "generate_state_briefing",
     started_at: new Date(t0).toISOString(),
     finished_at: new Date().toISOString(),
-    status: errored > results.length / 2 ? "error" : "success",
+    // "partial" when some briefings generated despite failures; only a run that
+    // produced NOTHING is a hard error (matches the partial-success convention).
+    status: ok === 0 && errored > 0 ? "error" : errored > 0 ? "partial" : "success",
     rows_added: ok,
+    error_message: errored > 0 ? errSummary.slice(0, 500) : null,
     notes: `${ok} generated, ${errored} errored` + (STATE ? ` (state=${STATE})` : " (all states)"),
   });
 } catch { /* best-effort */ }

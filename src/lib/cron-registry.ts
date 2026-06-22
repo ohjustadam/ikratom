@@ -187,6 +187,24 @@ export const CRON_REGISTRY: CronEntry[] = [
     purpose: "Verify article bodies for false-positive defense",
     system: "gh-hourly", cadence: "every-30min", runs_per_day: 48, category: "news",
   },
+  {
+    source: "extract_news_content",
+    label: "Extract article body + media",
+    purpose: "Fetch publisher article → body paragraphs + embedded media (gates /news visibility)",
+    system: "gh-hourly", cadence: "every-30min", runs_per_day: 48, category: "news",
+  },
+  {
+    source: "summarize_news",
+    label: "Summarize fresh articles",
+    purpose: "AI 2-3 sentence summary for each classified article",
+    system: "gh-hourly", cadence: "every-30min", runs_per_day: 48, category: "news",
+  },
+  {
+    source: "generate_news_digest",
+    label: "Generate in-app news digest",
+    purpose: "Original AI write-up so the full story reads in-app (copyright-safe)",
+    system: "gh-hourly", cadence: "every-30min", runs_per_day: 48, category: "news",
+  },
 
   // ─── GH Daily (cron-daily.yml — once per day) ──────────────
   {
@@ -250,19 +268,19 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
   },
   {
-    source: "sync_federal_awards",
+    source: "usaspending",
     label: "USAspending kratom awards",
     purpose: "Sync federal grants + contracts mentioning kratom",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
   },
   {
-    source: "sync_federal_rulemaking",
+    source: "regulations.gov",
     label: "Federal rulemaking sync",
     purpose: "Sync FDA/DEA/HHS rulemaking + open public comment periods",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
   },
   {
-    source: "sync_courtlistener_cases",
+    source: "courtlistener",
     label: "CourtListener cases",
     purpose: "Sync industry lawsuits + state-ban court challenges",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
@@ -388,7 +406,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "research",
   },
   {
-    source: "legiscan_wide_pass",
+    source: "sync_bills_legiscan_all",
     label: "LegiScan full sweep",
     purpose: "Full LegiScan sweep across all active anti + pro bills",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "bills",
