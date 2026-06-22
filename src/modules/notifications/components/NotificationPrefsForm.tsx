@@ -12,6 +12,7 @@ const CATEGORY_FIELDS = [
   { name: "notify_news", label: "News + alerts", hint: "policy alerts and state news that affect you" },
   { name: "notify_meetings", label: "Meetings + hearings", hint: "council meetings, hearings, reminders" },
   { name: "notify_voting_reminder", label: "Election reminders", hint: "primary + election dates in your state — 30/7/1 days out" },
+  { name: "notify_state_briefings", label: "State daily briefings", hint: "a heads-up when your state's field-work briefing refreshes — tap Listen to hear it" },
   { name: "notify_community", label: "Community", hint: "forum threads and replies" },
   { name: "notify_announcements", label: "Announcements", hint: "platform updates + what's-new posts" },
 ] as const;
