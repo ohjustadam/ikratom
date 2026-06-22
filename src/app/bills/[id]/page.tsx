@@ -17,6 +17,8 @@ import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillL
 import { findSimilarBillsCached } from "@/lib/bill-similarity";
 import { IntelTipForm } from "./IntelTipForm";
 import { Markdown } from "@/components/Markdown";
+import { mdToPlainText } from "@/lib/markdown";
+import { AudioReader } from "@/components/AudioReader";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
@@ -953,33 +955,50 @@ export default async function BillDetailPage({
           adjacent. Only fires when at least one column is populated, which is
           by-design only for the 7 banning states + imminent TN. */}
       {(bill.opposition_summary_md || bill.repeal_plan_md) && (
-        <section className="mb-6 rounded-lg border-2 border-amber-700/40 bg-gradient-to-br from-zinc-950/60 to-amber-950/15 p-5">
-          <div className="mb-3 flex flex-wrap items-baseline gap-2">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-300">
+        <details open className="group mb-6 rounded-lg border-2 border-amber-700/40 bg-gradient-to-br from-zinc-950/60 to-amber-950/15 p-5">
+          <summary className="flex cursor-pointer list-none flex-wrap items-baseline gap-2 [&::-webkit-details-marker]:hidden">
+            <span className="inline-block text-[10px] text-amber-300/70 transition-transform group-open:rotate-90">▸</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-300">
               🎯 Takeback intel
-            </p>
+            </span>
             <span className="text-[10px] text-zinc-500">
               who pushed this · what the political trail looks like · how to repeal
             </span>
-          </div>
-          <p className="text-[11px] leading-relaxed text-zinc-400">
+          </summary>
+          <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">
             Editorial-curated political-action intel for this {bill.status === "enacted" ? "enacted ban" : "imminent ban"}. Sources, named legislators, and a phased repeal plan. Most of the work of repealing a state ban is naming the right allies and constraints — that&apos;s what this section is for.
           </p>
 
           {bill.opposition_summary_md && (
             <div className="mt-4 rounded-md border border-red-800/40 bg-red-950/15 p-4">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-red-300">
-                ⚠ Who pushed this ban
-              </p>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-red-300">
+                  ⚠ Who pushed this ban
+                </p>
+                <AudioReader
+                  id={`bill-${bill.id}-opposition`}
+                  text={mdToPlainText(bill.opposition_summary_md)}
+                  label="Listen"
+                  compact
+                />
+              </div>
               <Markdown>{bill.opposition_summary_md}</Markdown>
             </div>
           )}
 
           {bill.repeal_plan_md && (
             <div className="mt-4 rounded-md border border-emerald-800/40 bg-emerald-950/15 p-4">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
-                🛠 Repeal action plan
-              </p>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
+                  🛠 Repeal action plan
+                </p>
+                <AudioReader
+                  id={`bill-${bill.id}-repeal`}
+                  text={mdToPlainText(bill.repeal_plan_md)}
+                  label="Listen"
+                  compact
+                />
+              </div>
               <Markdown>{bill.repeal_plan_md}</Markdown>
             </div>
           )}
@@ -987,7 +1006,7 @@ export default async function BillDetailPage({
           <p className="mt-4 text-[10px] uppercase tracking-wider text-zinc-600">
             Editorial — submit corrections + additional intel via the &quot;Add local intel&quot; button on the people-of-interest section below.
           </p>
-        </section>
+        </details>
       )}
 
       {/* "YOUR REP IS DECIDING THIS BILL" — district-level urgency.
@@ -1115,20 +1134,29 @@ export default async function BillDetailPage({
           once, show the full trajectory (introduced → each amendment →
           current state → cumulative impact). */}
       {bill.journey_narrative && (bill.amendments_count ?? 0) >= 2 && (
-        <section className="mb-6 rounded-lg border border-emerald-900/40 bg-gradient-to-br from-zinc-950/40 to-emerald-950/10 p-5">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+        <details open className="group mb-6 rounded-lg border border-emerald-900/40 bg-gradient-to-br from-zinc-950/40 to-emerald-950/10 p-5">
+          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 [&::-webkit-details-marker]:hidden">
+            <span className="inline-block text-[10px] text-emerald-300/70 transition-transform group-open:rotate-90">▸</span>
             <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
               Bill journey
             </h2>
             <span className="rounded-full bg-emerald-950/40 px-2 py-0.5 text-[10px] font-mono uppercase text-emerald-300">
               {bill.amendments_count} versions tracked
             </span>
-          </div>
-          <p className="mb-3 text-[11px] text-zinc-500">
+          </summary>
+          <p className="mb-3 mt-3 text-[11px] text-zinc-500">
             How the bill evolved from introduction through every amendment to the current
             text. Helps you see what was kept, removed, and added — instead of only
             reading the latest snapshot.
           </p>
+          <div className="mb-3">
+            <AudioReader
+              id={`bill-${bill.id}-journey`}
+              text={bill.journey_narrative}
+              label="Listen"
+              compact
+            />
+          </div>
           <div className="space-y-3 text-sm leading-relaxed text-zinc-200">
             {bill.journey_narrative
               .split(/\n\s*\n/)
@@ -1143,7 +1171,7 @@ export default async function BillDetailPage({
               last analyzed {new Date(bill.journey_analyzed_at).toLocaleDateString()}
             </p>
           )}
-        </section>
+        </details>
       )}
 
       {/* Substantive briefing-grade summary (200-300 words). When
