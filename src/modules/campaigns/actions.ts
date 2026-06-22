@@ -10,6 +10,11 @@ import {
 } from "@/lib/email/user-send";
 import { renderTemplate, buildVars } from "./templates";
 import type { Legislator } from "@/lib/legislators";
+import {
+  legislatorInCampaignScope,
+  filterIdsInCampaignScope,
+  type CampaignScope,
+} from "./scope";
 
 /**
  * Read the embed referral cookie set by the proxy when a user arrived
@@ -95,6 +100,48 @@ export async function getMyCampaignProgress(campaignId: string) {
   return { sentLegislatorIds, lastSentAt };
 }
 
+/**
+ * Load the campaign's recipient-scope fields for server-side membership
+ * validation. Returns null if the campaign doesn't exist.
+ */
+async function loadCampaignScope(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaignId: string,
+): Promise<CampaignScope | null> {
+  const { data } = await supabase
+    .from("campaigns")
+    .select("target_legislator_ids, target_roles, state, target_locality")
+    .eq("id", campaignId)
+    .maybeSingle();
+  return (data ?? null) as CampaignScope | null;
+}
+
+/**
+ * Re-derive a campaign's allowed recipients server-side and return the subset
+ * of `candidateIds` that are in scope. Mirrors campaigns/[slug]/page.tsx so a
+ * crafted id array can't repurpose a campaign to reach arbitrary officials.
+ * For role-based campaigns this loads the candidates' role/state/locality.
+ */
+async function scopeIdsToCampaign(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaign: CampaignScope,
+  candidateIds: string[],
+): Promise<string[]> {
+  // Explicit-target campaigns are a pure ID-set intersection — no row load.
+  if (campaign.target_legislator_ids && campaign.target_legislator_ids.length > 0) {
+    return filterIdsInCampaignScope(candidateIds, [], campaign);
+  }
+  const { data: legRows } = await supabase
+    .from("legislators")
+    .select("id, role, state, locality")
+    .in("id", candidateIds);
+  return filterIdsInCampaignScope(
+    candidateIds,
+    (legRows ?? []) as Array<{ id: string; role: string; state: string | null; locality: string | null }>,
+    campaign,
+  );
+}
+
 export async function logCampaignAction(input: {
   campaignId: string;
   legislatorIds: string[];
@@ -117,6 +164,16 @@ export async function logCampaignAction(input: {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
+  // Membership guard (defense-in-depth): only log actions to officials that
+  // actually belong to this campaign's scope. The action otherwise trusts a
+  // client-supplied id array; this re-derives the allowed set server-side.
+  const campaign = await loadCampaignScope(supabase, campaignId);
+  if (!campaign) return { error: "Campaign not found." };
+  const scopedIds = await scopeIdsToCampaign(supabase, campaign, legislatorIds);
+  if (scopedIds.length === 0) {
+    return { error: "None of the selected officials are part of this campaign." };
+  }
+
   // Daily cap
   const dailyCount = await getDailyActionCount(supabase, user.id);
   if (dailyCount >= DAILY_SEND_CAP) {
@@ -125,7 +182,7 @@ export async function logCampaignAction(input: {
 
   // Skip targets already contacted for this campaign in the cooldown window
   const alreadySent = await getRecentlySentTargets(supabase, user.id, campaignId);
-  const newTargets = legislatorIds.filter((id) => !alreadySent.has(id));
+  const newTargets = scopedIds.filter((id) => !alreadySent.has(id));
 
   if (newTargets.length === 0) {
     return { error: `Already sent this campaign to all selected legislators in the last ${Math.round(RESEND_COOLDOWN_HOURS / 24)} days.` };
@@ -146,7 +203,7 @@ export async function logCampaignAction(input: {
 
   const { error } = await supabase.from("campaign_actions").insert(rows);
   if (error) return { error: error.message };
-  return { count: rows.length, skipped: legislatorIds.length - rows.length };
+  return { count: rows.length, skipped: scopedIds.length - rows.length };
 }
 
 /**
@@ -174,6 +231,12 @@ export async function sendCampaignViaGmail(input: {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+
+  // Membership guard (defense-in-depth): re-derive this campaign's allowed
+  // recipients server-side so a crafted targetIds array can't email officials
+  // outside the campaign's scope. Applied to the loaded target rows below.
+  const campaign = await loadCampaignScope(supabase, campaignId);
+  if (!campaign) return { error: "Campaign not found." };
 
   // Profile for from-name + template vars
   const { data: profile } = await supabase
@@ -211,7 +274,15 @@ export async function sendCampaignViaGmail(input: {
     .in("id", freshTargetIds)
     .eq("active", true);
 
-  const validTargets = ((targets ?? []) as Legislator[]).filter(
+  // Drop any target not in the campaign's scope before sending.
+  const scopedTargets = ((targets ?? []) as Legislator[]).filter((t) =>
+    legislatorInCampaignScope(t, campaign),
+  );
+  if (scopedTargets.length === 0) {
+    return { error: "None of the selected officials are part of this campaign." };
+  }
+
+  const validTargets = scopedTargets.filter(
     (t): t is Legislator & { email: string } =>
       !!t.email && !t.email.startsWith("http") // skip contact-form-only
   );
