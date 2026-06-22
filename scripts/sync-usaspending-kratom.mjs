@@ -217,5 +217,9 @@ for (let i = 0; i < deduped.length; i += BATCH) {
 }
 
 const failed = fetchFails + batchFails;
-await logRun(failed > 0 ? "error" : "success", written, `${deduped.length} awards, ${written} upserted, ${failed} error(s)`);
+// "partial" (not "error") when some rows landed despite a few award-group fetch
+// or batch hiccups — the run did its job. Only a run that wrote NOTHING is a
+// real error. Keeps /admin/automation's failure list signal, not noise.
+const usaStatus = failed > 0 ? (written > 0 ? "partial" : "error") : "success";
+await logRun(usaStatus, written, `${deduped.length} awards, ${written} upserted, ${failed} error(s)`);
 console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${written} rows upserted${failed > 0 ? `, ${failed} error(s)` : ""}.`);

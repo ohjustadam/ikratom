@@ -425,7 +425,11 @@ try {
     source: PRIORITY ? "sync_bills_legiscan_priority" : "sync_bills_legiscan_all",
     started_at: new Date().toISOString(),
     finished_at: new Date().toISOString(),
-    status: fail > 0 ? "error" : (ok === 0 && skip === 0 ? "empty" : "success"),
+    // "partial" when some bills synced despite a few LegiScan hiccups (429s /
+    // timeouts on individual bills) — only a run that synced NOTHING is a real
+    // error. De-noises the automation dashboard (this job ran ~hourly and a
+    // single transient bill failure was flagging the whole run red).
+    status: fail > 0 ? (ok > 0 ? "partial" : "error") : (ok === 0 && skip === 0 ? "empty" : "success"),
     rows_updated: ok,
     notes: `${ok} synced, ${skip} skipped, ${fail} failed`,
   });
