@@ -19,7 +19,7 @@ export default async function EditCampaignPage({
   const { data: campaignRaw } = await supabase
     .from("campaigns")
     .select(
-      "id, title, slug, blurb, body_md, state, target_roles, subject_template, body_template, active, briefing, briefing_generated_at"
+      "id, title, slug, blurb, body_md, state, target_roles, subject_template, body_template, active, is_standing, briefing, briefing_generated_at"
     )
     .eq("id", id)
     .single();

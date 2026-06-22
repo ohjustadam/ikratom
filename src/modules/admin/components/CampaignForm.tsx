@@ -28,6 +28,7 @@ type Initial = {
   subject_template?: string;
   body_template?: string;
   active?: boolean;
+  is_standing?: boolean;
 };
 
 export function CampaignForm({ initial }: { initial?: Initial }) {
@@ -105,6 +106,15 @@ export function CampaignForm({ initial }: { initial?: Initial }) {
             className="h-4 w-4 rounded border-zinc-700 bg-zinc-950"
           />
           Active (visible on /campaigns)
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="is_standing"
+            defaultChecked={initial?.is_standing ?? false}
+            className="h-4 w-4 rounded border-zinc-700 bg-zinc-950"
+          />
+          Standing (permanent — never auto-expired by the rotating-campaign janitor)
         </label>
       </Section>
 
