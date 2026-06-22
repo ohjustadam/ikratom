@@ -71,6 +71,16 @@ describe("isCampaignWorthyAlert", () => {
     expect(isCampaignWorthyAlert("ag_enforcement", "AG settles with kratom vendor")).toBe(false);
     expect(isCampaignWorthyAlert("news_break", "Kratom debated in weekend op-ed")).toBe(false);
   });
+  it("vetoes syndicated national-trend roundups (the per-state fan-out source)", () => {
+    expect(isCampaignWorthyAlert("bill_event", "Why 2 more states will soon ban kratom")).toBe(false);
+    expect(isCampaignWorthyAlert("bill_event", "Doctors call kratom next crisis as more US states push bans")).toBe(false);
+    expect(isCampaignWorthyAlert("fda_action", "Gas station heroin banned in another state amid nationwide crackdowns")).toBe(false);
+    // a single named state's own action must NOT be vetoed
+    expect(isCampaignWorthyAlert("bill_event", "Delaware bill to regulate kratom clears House")).toBe(true);
+    expect(isCampaignWorthyAlert("bill_event", "SB123 would ban kratom sales statewide")).toBe(true);
+    // national roundup is categorical junk → safe to auto-reject, not escalate
+    expect(eligibilityVetoSafe("bill_event", "Why 2 more states will soon ban kratom")).toBe(true);
+  });
 });
 
 /**
