@@ -342,6 +342,13 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
             {article.body_extract_excerpt}
           </blockquote>
         </section>
+      ) : digest.length === 0 ? (
+        // Reached before the pipeline finished (lists/notifications gate on
+        // body_extracted_at, so this is rare — a direct/sibling link to a
+        // not-yet-extracted item). Don't show a blank body; point to the source.
+        <section className="mb-6 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-sm text-zinc-400">
+          We&apos;re still preparing the full article for in-app reading. You can read it now at the source below.
+        </section>
       ) : null}
 
       {/* Image gallery (non-lead) */}

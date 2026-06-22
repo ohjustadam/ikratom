@@ -246,6 +246,7 @@ export default async function BriefPage({
       .gte("published_at", cutoff36hDate)
       .lte("published_at", anchorISO)
       .not("policy_classified_at", "is", null)
+      .not("body_extracted_at", "is", null) // content-ready only
       .order("published_at", { ascending: false })
       .limit(15);
     if (viewerState) nq = nq.or(`state.eq.${viewerState},state.is.null,state.eq.FED`);
@@ -271,6 +272,7 @@ export default async function BriefPage({
       .gte("published_at", cutoff36hDate)
       .lte("published_at", anchorISO)
       .not("policy_classified_at", "is", null)
+      .not("body_extracted_at", "is", null) // content-ready only
       .order("published_at", { ascending: false })
       .limit(15);
     if (viewerState) nq = nq.neq("state", viewerState);
