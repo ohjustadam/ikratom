@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderMarkdown, __testing__ } from "../markdown";
+import { renderMarkdown, mdToPlainText, __testing__ } from "../markdown";
 
 const { sanitize, decodeEntities } = __testing__;
 
@@ -181,5 +181,45 @@ describe("sanitize — advanced bypass attempts", () => {
     const out = sanitize('<img src="https://x.com/a.jpg" alt="my cat photo" title="a-b c">');
     expect(out).toContain('alt="my cat photo"');
     expect(out).toContain('title="a-b c"');
+  });
+});
+
+describe("mdToPlainText — TTS-friendly stripping", () => {
+  it("drops bold/italic/heading markers so they aren't spoken", () => {
+    const out = mdToPlainText("# Heading\n\n**bold** and *italic* text");
+    expect(out).toContain("Heading");
+    expect(out).toContain("bold and italic text");
+    expect(out).not.toContain("*");
+    expect(out).not.toContain("#");
+  });
+
+  it("keeps link text but drops the URL", () => {
+    const out = mdToPlainText("See [the source](https://example.com/page) here.");
+    expect(out).toContain("the source");
+    expect(out).not.toContain("https://example.com");
+    expect(out).not.toContain("](");
+  });
+
+  it("renders list items as separate lines (natural pauses), no bullet chars", () => {
+    const out = mdToPlainText("- first point\n- second point");
+    expect(out).toContain("first point");
+    expect(out).toContain("second point");
+    expect(out).toMatch(/first point\n+second point/);
+    expect(out).not.toMatch(/[-*•]/);
+  });
+
+  it("decodes entities so ampersands aren't read as '&amp;'", () => {
+    const out = mdToPlainText("Tax & spend > nothing");
+    expect(out).toContain("Tax & spend");
+    expect(out).not.toContain("&amp;");
+    expect(out).not.toContain("&gt;");
+  });
+
+  it("collapses excess whitespace and trims", () => {
+    expect(mdToPlainText("\n\n  hello   world  \n\n\n")).toBe("hello world");
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(mdToPlainText("")).toBe("");
   });
 });
