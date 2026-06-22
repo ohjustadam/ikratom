@@ -3,6 +3,7 @@ import { getAdminContext } from "@/modules/admin/actions";
 import { listPendingCoverageRequests } from "@/modules/local-reps/actions";
 import { RejectButton } from "./RejectButton";
 import { LocalRepRequestRow } from "./LocalRepRequestRow";
+import { ResolveQueueButton } from "./ResolveQueueButton";
 
 /**
  * /admin/local-rep-requests — queue of user-requested local rep coverage.
@@ -45,6 +46,7 @@ export default async function LocalRepRequestsPage() {
             Legacy bulk-suggest page →
           </a>
         </p>
+        <ResolveQueueButton />
       </header>
 
       {rows.length === 0 ? (
