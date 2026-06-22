@@ -34,6 +34,7 @@ import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { complete } from "@/lib/ai/router";
 import { lookupByDoi, extractDoi, isAbstractPlaceholder } from "@/lib/research-doi-lookup";
+import { safeFetch } from "@/lib/url-safety";
 
 function admin() {
   return createServiceClient(
@@ -120,10 +121,13 @@ export async function autofillResearchPaperAbstract(paperId: string): Promise<Au
   // can't reach because we're not subject to their referrer/cookie policies.
   let pageText: string;
   try {
-    const r = await fetch(url, {
+    // SSRF-safe (validates URL + each redirect hop).
+    const f = await safeFetch(url, {
       signal: AbortSignal.timeout(20_000),
       headers: { "User-Agent": "iKratom Research Bot (research@ikratom.org)" },
     });
+    if (!f.ok) return { ok: false, error: `Can't fetch that URL: ${f.reason}` };
+    const r = f.response;
     if (!r.ok) return { ok: false, error: `Source URL returned HTTP ${r.status}.` };
     const html = await r.text();
     if (html.length < MIN_FETCH_BYTES) {

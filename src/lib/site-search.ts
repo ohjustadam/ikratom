@@ -43,8 +43,14 @@ const PER_TABLE_LIMIT = 6;
 function buildPattern(q: string): string | null {
   const trimmed = q.trim();
   if (trimmed.length < 2 || trimmed.length > 80) return null;
-  // Escape the ilike meta-chars % and _ as well as \ used for ilike escape
-  const esc = trimmed.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+  // This pattern is interpolated into PostgREST `.or(...)` filter STRINGS
+  // (bills/papers/campaigns/threads below). The separators `,` `(` `)` `:` and
+  // the wildcard/escape chars `* % \` would otherwise let a crafted query inject
+  // extra OR predicates (a column oracle). Strip the structural chars, then
+  // escape the remaining ilike meta-char `_`. (Mirror of news/actions.ts.)
+  const cleaned = trimmed.replace(/[,():*%\\]/g, " ").replace(/\s+/g, " ").trim();
+  if (cleaned.length < 2) return null;
+  const esc = cleaned.replace(/_/g, "\\_");
   return `%${esc}%`;
 }
 

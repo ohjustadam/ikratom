@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { marked } from "marked";
 import { createClient } from "@/lib/supabase/server";
-import { mdToPlainText } from "@/lib/markdown";
+import { mdToPlainText, renderMarkdown } from "@/lib/markdown";
 import { AudioReader } from "@/components/AudioReader";
 
 export const metadata = { title: "State briefing" };
@@ -93,7 +92,10 @@ export default async function StateBriefingPage({
     const combined = briefing.manual_addendum_md
       ? `${briefing.manual_addendum_md}\n\n---\n\n${briefing.body_md}`
       : briefing.body_md;
-    bodyHtml = await marked.parse(combined, { gfm: true, breaks: false });
+    // Sanitized render — body_md is AI-generated, so route it through the
+    // allowlist sanitizer (not raw marked.parse) to neutralize any HTML/script
+    // an LLM prompt-injection could smuggle into the briefing.
+    bodyHtml = renderMarkdown(combined);
     bodyText = mdToPlainText(combined);
   }
 

@@ -15,7 +15,11 @@ const csp = [
   // Tailwind/Next.js inline some bootstrap styles; scripts use 'unsafe-inline'
   // because Next 16's RSC payload requires inline script. Tightening to nonces
   // requires Next-side support; tracked as a future upgrade.
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com https://cdn.jsdelivr.net",
+  // 'wasm-unsafe-eval' (NOT full 'unsafe-eval') lets the in-browser Kokoro TTS
+  // compile its WASM while denying arbitrary eval()/new Function() — shrinks the
+  // XSS blast radius. 'unsafe-inline' is still required by Next 16's RSC inline
+  // bootstrap script (nonces need Next-side support; tracked as a future upgrade).
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://va.vercel-scripts.com https://cdn.jsdelivr.net",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",

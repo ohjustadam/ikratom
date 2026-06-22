@@ -142,3 +142,44 @@ export function isSafePublicUrl(raw: string): UrlSafetyResult {
 
   return { ok: true, url };
 }
+
+export type SafeFetchResult =
+  | { ok: true; response: Response }
+  | { ok: false; reason: string };
+
+/**
+ * SSRF-safe wrapper around fetch for any server path that fetches a
+ * user/admin-supplied URL (research/library enrichment, etc.).
+ *
+ * Validates the URL with isSafePublicUrl, then fetches with manual redirect
+ * handling — re-validating each redirect hop's Location so a public URL that
+ * 30x-redirects to an internal address (the bypass `isSafePublicUrl` alone
+ * can't catch) is still rejected. Returns the final Response on success.
+ *
+ * Callers MUST pass their own AbortSignal/timeout + headers in `init`.
+ * `init.redirect` is ignored — redirects are always handled manually here.
+ */
+export async function safeFetch(
+  raw: string,
+  init: RequestInit = {},
+  maxRedirects = 4,
+): Promise<SafeFetchResult> {
+  let current = raw;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    const chk = isSafePublicUrl(current);
+    if (!chk.ok) return { ok: false, reason: chk.reason };
+    const res = await fetch(chk.url.toString(), { ...init, redirect: "manual" });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc) return { ok: true, response: res };
+      try {
+        current = new URL(loc, chk.url).toString();
+      } catch {
+        return { ok: false, reason: "Bad redirect target." };
+      }
+      continue; // re-validate the next hop before following it
+    }
+    return { ok: true, response: res };
+  }
+  return { ok: false, reason: "Too many redirects." };
+}
