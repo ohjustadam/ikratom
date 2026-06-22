@@ -27,7 +27,6 @@ export function CampaignAction({
   userCity,
   userCounty,
   campaignLocality,
-  allowNonResidents,
   bodyTemplate,
   gmailConnected,
   gmailEmail,
@@ -50,7 +49,6 @@ export function CampaignAction({
   userCity?: string | null;
   userCounty?: string | null;
   campaignLocality?: string | null;
-  allowNonResidents?: boolean;
   bodyTemplate: string;
   gmailConnected: boolean;
   gmailEmail: string | null;
@@ -86,7 +84,12 @@ export function CampaignAction({
   const [personalizeChanges, setPersonalizeChanges] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  // Geography gates — bypassed entirely when campaign allows non-residents.
+  // Geography context. Every campaign is actionable by every user regardless
+  // of where they live (owner policy 2026-06-22) — we no longer block out-of-
+  // area advocates. We DO still tell them they're not a constituent
+  // (legislators weight constituent mail most), and for role-based state
+  // campaigns route them through a picker of the campaign-state's officials
+  // (pickableStateReps) rather than auto-blasting a whole legislature.
   const userCityLocality = userCity && userState ? `${userCity}, ${userState}` : null;
   const userCountyLocality = userCounty && userState ? `${userCounty}, ${userState}` : null;
 
@@ -96,11 +99,9 @@ export function CampaignAction({
     campaignLocality !== userCityLocality &&
     campaignLocality !== userCountyLocality;
 
-  const wrongState = stateMismatch && !allowNonResidents;
-  const wrongLocality = localityMismatch && !allowNonResidents;
-  // Show non-resident notice when the user is out-of-scope but the campaign accepts them
-  const isNonResident = (stateMismatch || localityMismatch) && !!allowNonResidents;
-  const noProfile = targets.length === 0 && !wrongState && !wrongLocality;
+  // Out-of-area advocate — show the honest "not a constituent" notice.
+  const isNonResident = stateMismatch || localityMismatch;
+  const noProfile = targets.length === 0;
 
   // Build the right URL / payload for each method.
   // Exclude contact-form-only "emails" (stored as http(s) URLs) — they're not
@@ -208,51 +209,44 @@ export function CampaignAction({
     }
   }
 
-  if (wrongState) {
-    return (
-      <Card>
-        <h2 className="text-lg font-semibold text-amber-300">
-          This campaign is for {campaignState} residents
-        </h2>
-        <p className="mt-2 text-sm text-zinc-400">
-          You&apos;re registered in {userState}. Find a campaign for your state.
-        </p>
-        <a
-          href="/campaigns"
-          className="mt-4 inline-block rounded-md border border-zinc-700 px-4 py-2 text-sm hover:border-emerald-500"
-        >
-          Browse campaigns →
-        </a>
-      </Card>
-    );
-  }
-
-  if (wrongLocality) {
-    return (
-      <Card>
-        <h2 className="text-lg font-semibold text-amber-300">
-          This campaign is local to {campaignLocality}
-        </h2>
-        <p className="mt-2 text-sm text-zinc-400">
-          You&apos;re registered in {userCityLocality ?? userState ?? "another area"}.
-          Local campaigns target specific city or county officials — they only fire for
-          residents of that locality.
-        </p>
-        <a
-          href="/campaigns"
-          className="mt-4 inline-block rounded-md border border-zinc-700 px-4 py-2 text-sm hover:border-emerald-500"
-        >
-          Browse campaigns →
-        </a>
-      </Card>
-    );
-  }
-
   if (noProfile) {
-    // Distinguish "no address typed yet" from "address typed but Census
-    // didn't have it." Old copy lied to users who'd actually entered
-    // their full address (2/8 users hit by the Census-geocoder gap as
-    // of 2026-05-16, mostly rural / unincorporated).
+    const showPicker = pickableStateReps.length > 0;
+    // The state whose officials the picker offers (campaign's own, falling
+    // back to the user's) — used for copy + the "browse legislators" link.
+    const pickerScope = campaignState ?? userState;
+
+    // Out-of-area advocate on a state/local campaign: not a constituent, so we
+    // can't auto-pick "their" reps. Offer the campaign-state's officials and
+    // let them choose who to contact — no auto-blast of a whole legislature,
+    // no torching the advocate's own email reputation. (This branch comes
+    // first: an out-of-state user has their OWN districts, so the Census-gap
+    // branch below would never fire for them.)
+    if (showPicker && isNonResident) {
+      return (
+        <Card>
+          <h2 className="text-lg font-semibold text-emerald-300">
+            Add your voice to the {pickerScope ?? "this"} fight
+          </h2>
+          <p className="mt-2 text-sm text-zinc-400">
+            You&apos;re not registered in {campaignLocality ?? campaignState}, but this
+            campaign welcomes voices from anywhere. Pick which official
+            {pickableStateReps.length === 1 ? "" : "s"} you want to contact below —
+            legislators weight constituent mail most, so lead with{" "}
+            <em>why this matters to you</em>, even from out of state.
+          </p>
+          <StateRepPicker
+            reps={pickableStateReps}
+            campaignSlug={campaignSlug}
+            targetRoles={targetRoles}
+          />
+        </Card>
+      );
+    }
+
+    // Resident with an address on file but Census couldn't map the district.
+    // Old copy lied to users who'd actually entered their full address (2/8
+    // users hit by the Census-geocoder gap as of 2026-05-16, mostly rural /
+    // unincorporated).
     if (hasStreet && !hasDistricts) {
       return (
         <Card>
@@ -296,6 +290,55 @@ export function CampaignAction({
         </Card>
       );
     }
+    // No address set yet, but a state campaign offers a picker — let the user
+    // choose who to contact now, and nudge them to add their address so future
+    // sends are one-click. (Federal campaigns have no picker → fall through.)
+    if (showPicker) {
+      return (
+        <Card>
+          <h2 className="text-lg font-semibold text-amber-300">
+            Pick which {pickerScope ?? ""} reps to contact
+          </h2>
+          <p className="mt-2 text-sm text-zinc-400">
+            Add your full address in{" "}
+            <a href="/account" className="text-emerald-400 hover:underline">your account</a>{" "}
+            and we&apos;ll auto-match your specific reps for true one-click sends. For
+            now, choose who to email below.
+          </p>
+          <StateRepPicker
+            reps={pickableStateReps}
+            campaignSlug={campaignSlug}
+            targetRoles={targetRoles}
+          />
+        </Card>
+      );
+    }
+    // Address IS on file but we still found no targets and have no picker to
+    // offer — i.e. the user is outside this campaign's area and we don't have
+    // its officials listed. Don't tell them to "fix" an address that's fine.
+    if (hasStreet) {
+      return (
+        <Card>
+          <h2 className="text-lg font-semibold text-amber-300">
+            You&apos;re outside this campaign&apos;s area
+          </h2>
+          <p className="mt-2 text-sm text-zinc-400">
+            This campaign targets {pickerScope ?? campaignLocality ?? "specific"} officials,
+            and we don&apos;t have a contactable list for them yet. You can still help — find
+            and contact officials directly.
+          </p>
+          <a
+            href={`/legislators${campaignState ? `?state=${campaignState}` : ""}`}
+            className="mt-4 inline-block rounded-md border border-zinc-700 px-4 py-2 text-sm hover:border-emerald-500"
+          >
+            Browse legislators →
+          </a>
+        </Card>
+      );
+    }
+
+    // Genuinely missing an address — needed to find the user's own reps
+    // (federal / their-own-state campaigns).
     return (
       <Card>
         <h2 className="text-lg font-semibold text-amber-300">

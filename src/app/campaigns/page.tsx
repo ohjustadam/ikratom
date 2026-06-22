@@ -17,13 +17,17 @@ export default async function CampaignsPage() {
   ]);
 
   let userState: string | null = null;
+  let emailConnected = false;
   if (user) {
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("state")
-      .eq("id", user.id)
-      .single();
+    const [{ data: prof }, { data: integ }] = await Promise.all([
+      supabase.from("profiles").select("state").eq("id", user.id).single(),
+      // Light self-read (RLS allows own row) to drive the "sync your email"
+      // nudge banner. The per-campaign action card does the authoritative
+      // valid-token check (and a reconnect prompt if the token was revoked).
+      supabase.from("email_integrations").select("account_email").eq("user_id", user.id).maybeSingle(),
+    ]);
     userState = prof?.state ?? null;
+    emailConnected = !!integ?.account_email;
   }
 
   // Per-campaign action counts (for social proof)
@@ -116,6 +120,8 @@ export default async function CampaignsPage() {
       campaigns={enriched}
       userState={userState}
       actionCounts={counts}
+      signedIn={!!user}
+      emailConnected={emailConnected}
     />
   );
 }

@@ -2,7 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 
 /**
  * Compact list of campaigns the user can act on right now.
- * Filters to the user's state + federal-scope campaigns; capped at 5.
+ * Every campaign is actionable regardless of the user's state (owner policy
+ * 2026-06-22), so this teaser no longer HIDES out-of-state campaigns — it just
+ * leads with what's closest to home (the user's state + federal) and fills the
+ * rest with the most recent. Capped at 5; the "all →" link shows everything.
  */
 export async function ActiveCampaignsWidget({ userState }: { userState: string | null }) {
   const supabase = await createClient();
@@ -10,11 +13,21 @@ export async function ActiveCampaignsWidget({ userState }: { userState: string |
     .from("campaigns")
     .select("id, slug, title, state, blurb, created_at")
     .eq("active", true)
-    .or(userState ? `state.eq.${userState},state.is.null` : `state.is.null`)
     .order("created_at", { ascending: false })
-    .limit(5);
+    .limit(20);
 
   if (!data || data.length === 0) return null;
+
+  // Float the user's state + federal campaigns to the top, then fill with the
+  // most recent of the rest (already newest-first within each group).
+  const top = [...data]
+    .sort((a, b) => {
+      const aClose = a.state === userState || a.state === null;
+      const bClose = b.state === userState || b.state === null;
+      if (aClose !== bClose) return aClose ? -1 : 1;
+      return 0;
+    })
+    .slice(0, 5);
 
   return (
     <section className="rounded-lg border border-zinc-800 bg-zinc-950/40">
@@ -28,7 +41,7 @@ export async function ActiveCampaignsWidget({ userState }: { userState: string |
         </a>
       </div>
       <ul className="divide-y divide-zinc-900">
-        {data.map((c) => (
+        {top.map((c) => (
           <li key={c.id}>
             <a
               href={`/campaigns/${c.slug}`}
