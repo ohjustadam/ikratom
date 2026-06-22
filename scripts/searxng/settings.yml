@@ -1,0 +1,57 @@
+# SearXNG settings — iKratom cloud resolution appliance.
+#
+# Used by the in-job SearXNG container in .github/workflows/cron-localreps-cloud.yml
+# (mounted read-only at /etc/searxng/settings.yml). Mirrors the owner-box config:
+# JSON output ON (scripts/lib/searxng.mjs requires it, else 403), limiter OFF
+# (single trusted caller — our own batch), Google left enabled but best-effort
+# (datacenter IPs get captcha'd: searxng/searxng#2515 — the aggregate leans on
+# DDG/Brave/Qwant/Startpage/Mojeek/Wikipedia/Bing).
+use_default_settings: true
+
+general:
+  instance_name: "ikratom cloud search"
+  enable_metrics: false
+  debug: false
+
+server:
+  # Placeholder — the official image's entrypoint overwrites this with the
+  # SEARXNG_SECRET env var (generated per-run in the workflow, never committed).
+  secret_key: "ultrasecretkey"
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+search:
+  # json is what scripts/lib/searxng.mjs consumes; without it SearXNG 403s.
+  formats:
+    - html
+    - json
+  autocomplete: ""
+  safe_search: 0
+
+outgoing:
+  request_timeout: 8.0
+  max_request_timeout: 12.0
+  pool_connections: 20
+  pool_maxsize: 10
+
+# Engine mix leaning away from Google (best-effort on datacenter egress IPs).
+# Misnamed engines are ignored, not fatal — verify against /config if tuning.
+engines:
+  - name: google
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: bing
+    disabled: false

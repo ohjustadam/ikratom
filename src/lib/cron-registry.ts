@@ -365,9 +365,9 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
   {
     source: "auto_fulfill_local_reps",
-    label: "Auto-fulfill local reps (owner box)",
-    purpose: "Drain pending local-rep requests via SearXNG + local Ollama/free-tier extract — runs as a scheduled task on the owner box where the self-hosted infra lives",
-    system: "local-box", cadence: "daily", runs_per_day: 1, category: "legislators",
+    label: "Auto-fulfill local reps (cloud + box)",
+    purpose: "Drain pending local-rep requests via SearXNG + free-tier extract. Primary: GitHub Actions (cron-localreps-cloud.yml) every 6h + on-demand — in-job SearXNG container + headless Chromium, no box dependency. Owner box nightly is the fallback.",
+    system: "gh-daily", cadence: "daily", runs_per_day: 4, category: "legislators",
   },
   {
     source: "sync_research_pubmed",

@@ -22,13 +22,46 @@
 import { resolveCachedTenant } from "./legistar-resolver.mjs";
 import { fetchLegistarOfficials } from "./legistar-officials.mjs";
 import { searxngConfigured, searxngSearch } from "./searxng.mjs";
-import { reconcileLocality } from "./geo-resolver.mjs";
+import { reconcileLocality, STATE_NAMES, STATE_ABBRS } from "./geo-resolver.mjs";
 import { aiRouter } from "./ai-router.mjs";
 import { fetchPageText } from "./page-text.mjs";
 
 const VALID_ROLES = new Set([
   "mayor", "city_council", "county_executive", "county_commissioner", "school_board", "other_local",
 ]);
+
+// Map a model-reported page_jurisdiction ("City of Lakewood, Washington",
+// "Cuyahoga County, Ohio") to its US-state abbr, or null when no state is
+// confidently named. The trailing comma-segment IS the state by the extractor's
+// own output convention ("City of Troy, Michigan"); a longest-first full-name
+// scan is the fallback for the no-comma case. Exported for unit testing.
+const JURIS_NAME_TO_ABBR = new Map(
+  Object.entries(STATE_NAMES).map(([abbr, name]) => [name.toLowerCase(), abbr]),
+);
+const JURIS_NAME_ENTRIES = [...JURIS_NAME_TO_ABBR.entries()].sort((a, b) => b[0].length - a[0].length);
+export function stateFromJurisdiction(pageJurisdiction) {
+  const raw = String(pageJurisdiction ?? "").trim();
+  if (!raw) return null;
+  // 1) Trailing segment after the last comma — the state, by convention.
+  const segs = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (segs.length > 1) {
+    const tail = segs[segs.length - 1];
+    const tailLc = tail.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
+    if (JURIS_NAME_TO_ABBR.has(tailLc)) return JURIS_NAME_TO_ABBR.get(tailLc);
+    if (tailLc === "dc" || tailLc === "d c" || tailLc === "washington dc") return "DC";
+    const up = tail.toUpperCase().replace(/[^A-Z]/g, "");
+    if (up.length === 2 && STATE_ABBRS.has(up)) return up;
+  }
+  // 2) Fallback: a single unambiguous full state name anywhere in the string.
+  //    Longest-first + blank-on-match so "West Virginia" yields only WV.
+  let scan = ` ${raw.toLowerCase()} `;
+  const hits = new Set();
+  for (const [name, abbr] of JURIS_NAME_ENTRIES) {
+    const re = new RegExp(`(^|[^a-z])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z]|$)`, "i");
+    if (re.test(scan)) { hits.add(abbr); scan = scan.split(name).join(" ".repeat(name.length)); }
+  }
+  return hits.size === 1 ? [...hits][0] : null;
+}
 
 const EXTRACT_SYSTEM = `You extract CURRENT elected local-government officials from the text of ONE government web page that was already fetched for you. Work ONLY from the page text provided — do NOT use outside knowledge and do NOT invent anyone.
 
@@ -83,7 +116,7 @@ async function extractFromText({ text, city, state, level, sourceUrl }) {
     // Prefer local Ollama (keyless, unlimited); aiRouter falls back through
     // the free-tier cloud providers (Groq/Cerebras/…) on its own. This is
     // plain JSON extraction from text we already fetched — NO grounding.
-    result = await aiRouter({ systemPrompt: EXTRACT_SYSTEM, userPrompt: user, maxTokens: 4096, providerOverride: "ollama", verbose: false });
+    result = await aiRouter({ systemPrompt: EXTRACT_SYSTEM, userPrompt: user, maxTokens: 4096, providerOverride: process.env.OFFICIALS_EXTRACT_PROVIDER || "ollama", verbose: false });
   } catch {
     return { officials: [], provider: null };
   }
@@ -93,10 +126,21 @@ async function extractFromText({ text, city, state, level, sourceUrl }) {
   // officials (the batch run pulled Troy, MI for "Hamilton, MI" off a page
   // that merely mentioned a Hamilton street). Missing field = reject —
   // precision over recall; the locality just stays queued.
-  const claimed = String(result.parsed?.page_jurisdiction ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const claimedRaw = String(result.parsed?.page_jurisdiction ?? "");
+  const claimed = claimedRaw.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
   const wantBare = String(city ?? "").toLowerCase().replace(/\b(county|parish|borough|village|township|city|town|of)\b/g, " ").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
   if (!claimed || (wantBare.length >= 3 && !claimed.includes(wantBare))) {
     return { officials: [], provider: result.provider, jurisdictionMismatch: claimed || "(none reported)" };
+  }
+  // STATE gate: the page's own jurisdiction must not name a DIFFERENT US state.
+  // The city-name check above can't catch a same-named city in another state
+  // (Lakewood, OH vs Lakewood, WA — both "lakewood"); this does. Only rejects
+  // when a state is read confidently AND differs — an unstated state never
+  // rejects (precision over recall; the locality just stays queued).
+  const wantState = String(state ?? "").toUpperCase();
+  const claimedState = stateFromJurisdiction(claimedRaw);
+  if (claimedState && /^[A-Z]{2}$/.test(wantState) && claimedState !== wantState) {
+    return { officials: [], provider: result.provider, jurisdictionStateMismatch: `${claimedState} != ${wantState}` };
   }
   const raw = Array.isArray(result.parsed?.officials) ? result.parsed.officials : [];
   // Strip leading titles the model sometimes leaves on ("Commissioner
