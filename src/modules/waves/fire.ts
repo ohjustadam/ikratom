@@ -70,7 +70,7 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
     // Load campaign + targets once per wave
     const { data: campaign } = await supabase
       .from("campaigns")
-      .select("id, slug, state, target_roles, target_legislator_ids, subject_template, body_template, active")
+      .select("id, slug, state, target_locality, target_roles, target_legislator_ids, subject_template, body_template, active")
       .eq("id", wave.campaign_id)
       .maybeSingle();
     if (!campaign || !campaign.active) {
@@ -169,6 +169,20 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
           const { getUserLegislators } = await import("@/lib/legislators");
           const myReps = profile ? await getUserLegislators(supabase, profile) : [];
           userTargets = myReps.filter((r) => effRoles?.includes(r.role));
+          // Scope to the campaign's state/locality. getUserLegislators returns
+          // the joiner's OWN reps, so an out-of-state (or out-of-locality)
+          // advocate who joined the wave would otherwise be sent the campaign's
+          // message addressed to their own wrong-state officials. Out-of-area
+          // joiners resolve to zero targets here and are skipped below — waves
+          // fire unattended, so there's no interactive campaign-state picker
+          // like the per-user action card offers. (Mirrors campaigns/[slug].)
+          if (campaign.state) {
+            userTargets = userTargets.filter((r) => r.state === campaign.state);
+          }
+          if (campaign.target_locality) {
+            const tl = campaign.target_locality.toLowerCase();
+            userTargets = userTargets.filter((r) => (r.locality ?? "").toLowerCase() === tl);
+          }
         }
 
         const sendable = userTargets.filter((t) => !!t.email && !t.email.startsWith("http"));

@@ -50,7 +50,7 @@ export default async function CampaignPage({
 
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, slug, title, blurb, body_md, state, bill_id, target_locality, target_roles, target_legislator_ids, subject_template, body_template, active, ends_at, allow_non_residents")
+    .select("id, slug, title, blurb, body_md, state, bill_id, target_locality, target_roles, target_legislator_ids, subject_template, body_template, active, ends_at")
     .eq("slug", slug)
     .single();
 
@@ -151,34 +151,46 @@ export default async function CampaignPage({
   const gmailIntegration = validIntegration; // alias for existing prop names below
   const emailNeedsReconnect = !validIntegration && !!rawIntegration?.account_email;
 
+  // The state this campaign acts on. Drives who an out-of-area advocate
+  // contacts: a CA-bill campaign should reach CA legislators, not the OK reps
+  // of an OK user who opened it. `null` = federal — every user contacts their
+  // own delegation. (Owner policy 2026-06-22: every campaign is actionable by
+  // every user regardless of where they live; for role-based state campaigns
+  // an out-of-state advocate picks from the campaign-state officials below
+  // rather than auto-blasting a whole legislature.)
+  const targetState: string | null = campaign.state;
+
   // Resolve recipients — three modes:
   // 1. Explicit `target_legislator_ids` (campaign creator picked specific officials)
   // 2. `target_locality` (only users in that locality can act; recipients = officials there matching roles)
   // 3. Role-based (user's specific reps matching target_roles + state)
   let targets: Legislator[] = [];
-  // Manual override — when district auto-detection fails (Census gap),
-  // the user can pick their state reps explicitly. Encoded as
-  // ?manual_targets=id1,id2,id3 in the URL.
+  // Manual override — when district auto-detection fails (Census gap) or an
+  // out-of-state advocate picks who to contact, the targets are passed
+  // explicitly. Encoded as ?manual_targets=id1,id2,id3 in the URL.
   const manualTargetIds = sp.manual_targets
     ? sp.manual_targets.split(",").map((s) => s.trim()).filter((s) => /^[0-9a-f-]{36}$/i.test(s)).slice(0, 20)
     : [];
 
   if (manualTargetIds.length > 0) {
-    // User-picked targets. We still verify they're in the user's state
-    // + match the campaign's target_roles to prevent open-redirect-style
-    // mistakes (e.g. an LA user accidentally emailing TX state reps).
+    // User-picked targets. Verify they belong to the state this campaign acts
+    // on (the campaign's state for state/local campaigns, else the user's own
+    // state) + match the campaign's target_roles — prevents an accidental
+    // ?manual_targets=… landing on the wrong state's officials.
     const { data: manualTargets } = await supabase
       .from("legislators")
       .select("id,state,role,district,full_name,party,email,phone,office_address,website,level,locality,body,title")
       .in("id", manualTargetIds)
       .eq("active", true);
+    const validState = targetState ?? profile?.state ?? null;
     targets = ((manualTargets ?? []) as Legislator[]).filter((t) => {
       if (!campaign.target_roles.includes(t.role)) return false;
-      if (profile?.state && t.state !== profile.state && !campaign.allow_non_residents) return false;
+      if (validState && t.state !== validState) return false;
       return true;
     });
   } else if (campaign.target_legislator_ids && campaign.target_legislator_ids.length > 0) {
     // Mode 1: Fetch the exact legislators by ID. Filter to ones with email/contact.
+    // Explicit-target campaigns are one-click for everyone, in or out of state.
     const { data: explicitTargets } = await supabase
       .from("legislators")
       .select("id,state,role,district,full_name,party,email,phone,office_address,website,level,locality,body,title")
@@ -186,11 +198,28 @@ export default async function CampaignPage({
       .eq("active", true);
     targets = (explicitTargets ?? []) as Legislator[];
   } else {
-    // Mode 2 + 3: Use user's matched reps filtered by target_roles
+    // Mode 2 + 3: role-based. Start from the user's own matched reps.
     const myReps: Legislator[] = profile
       ? await getUserLegislators(supabase, profile)
       : [];
     targets = myReps.filter((r) => campaign.target_roles.includes(r.role));
+    // For a state/local campaign, only the campaign-state's officials are the
+    // right recipients. getUserLegislators returns the user's OWN reps, so an
+    // out-of-state advocate would otherwise be handed their own (wrong) reps.
+    // Drop those — the campaign-state picker (pickableStateReps below) then
+    // lets the non-resident choose who to contact.
+    if (targetState) {
+      targets = targets.filter((r) => r.state === targetState);
+    }
+    // Local campaign: also require the official's locality to match the
+    // campaign's. getUserLegislators matched the user's OWN city/county, so a
+    // same-state user in a DIFFERENT city would otherwise be handed their own
+    // local officials (wrong desk). Out-of-locality users fall through to the
+    // locality picker (pickableStateReps below).
+    if (campaign.target_locality) {
+      const tl = campaign.target_locality.toLowerCase();
+      targets = targets.filter((r) => (r.locality ?? "").toLowerCase() === tl);
+    }
   }
 
   // Per-target intel signals — surfaced as chips next to each
@@ -245,25 +274,51 @@ export default async function CampaignPage({
     }
   }
 
-  // Fallback list: when targets came back empty AND the user has no
-  // district fields (Census gap), fetch ALL state-level legislators in
-  // their state that match target_roles so the CampaignAction card can
-  // render a manual picker. Capped at 200 (no state has more).
+  // Manual-picker fallback: when we couldn't auto-resolve the user's specific
+  // reps, fetch the campaign's officials so the CampaignAction card can render
+  // a picker. Three scopes, in priority order:
+  //   - Local campaign  → the target locality's officials matching roles.
+  //   - State campaign  → the campaign-state's officials matching roles
+  //                       (covers out-of-state advocates + Census-gap residents;
+  //                       no role gate, so a us_senate-only state campaign works).
+  //   - Federal district campaign → the user's OWN state's district reps to pick
+  //                       from when Census couldn't map their district.
+  // Capped at 200 (no scope has more).
   let pickableStateReps: Legislator[] = [];
-  if (
-    targets.length === 0 &&
-    profile?.state &&
-    !manualTargetIds.length &&
-    campaign.target_roles.some((r: string) => r === "state_senate" || r === "state_house" || r === "us_house")
-  ) {
-    const { data: stateLevel } = await supabase
-      .from("legislators")
-      .select("id,state,role,district,full_name,party,email,phone,office_address,website,level,locality,body,title")
-      .eq("state", profile.state)
-      .eq("active", true)
-      .in("role", campaign.target_roles)
-      .limit(200);
-    pickableStateReps = (stateLevel ?? []) as Legislator[];
+  if (targets.length === 0 && !manualTargetIds.length) {
+    const PICK_COLS =
+      "id,state,role,district,full_name,party,email,phone,office_address,website,level,locality,body,title";
+    if (campaign.target_locality) {
+      const { data } = await supabase
+        .from("legislators")
+        .select(PICK_COLS)
+        .ilike("locality", campaign.target_locality)
+        .eq("active", true)
+        .in("role", campaign.target_roles)
+        .limit(200);
+      pickableStateReps = (data ?? []) as Legislator[];
+    } else if (targetState) {
+      const { data } = await supabase
+        .from("legislators")
+        .select(PICK_COLS)
+        .eq("state", targetState)
+        .eq("active", true)
+        .in("role", campaign.target_roles)
+        .limit(200);
+      pickableStateReps = (data ?? []) as Legislator[];
+    } else if (
+      profile?.state &&
+      campaign.target_roles.some((r: string) => r === "state_senate" || r === "state_house" || r === "us_house")
+    ) {
+      const { data } = await supabase
+        .from("legislators")
+        .select(PICK_COLS)
+        .eq("state", profile.state)
+        .eq("active", true)
+        .in("role", campaign.target_roles)
+        .limit(200);
+      pickableStateReps = (data ?? []) as Legislator[];
+    }
   }
 
   // Pre-render subject/body using the user's profile + first target as
@@ -531,7 +586,6 @@ export default async function CampaignPage({
         userCity={profile?.city ?? null}
         userCounty={profile?.county ?? null}
         campaignLocality={campaign.target_locality}
-        allowNonResidents={!!campaign.allow_non_residents}
         bodyTemplate={campaign.body_template}
         gmailConnected={gmailConnected}
         gmailEmail={gmailIntegration?.account_email ?? null}

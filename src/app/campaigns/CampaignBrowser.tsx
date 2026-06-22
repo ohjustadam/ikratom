@@ -39,13 +39,20 @@ export function CampaignBrowser({
   campaigns,
   userState,
   actionCounts,
+  signedIn = false,
+  emailConnected = false,
 }: {
   campaigns: Campaign[];
   userState: string | null;
   actionCounts: Record<string, number>;
+  signedIn?: boolean;
+  emailConnected?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [scope, setScope] = useState<ScopeFilter>(userState ? "yours" : "all");
+  // Default to "All" so every campaign is visible to everyone regardless of
+  // state (owner policy 2026-06-22); the urgency sort still floats the user's
+  // own state to the top, and the "Your state" chip is one tap away.
+  const [scope, setScope] = useState<ScopeFilter>("all");
   const [stance, setStance] = useState<StanceFilter>("all");
   const [sort, setSort] = useState<SortMode>("urgency");
   // State picker — independent of the scope chips. "" = no state filter.
@@ -108,6 +115,20 @@ export function CampaignBrowser({
     return arr;
   }, [filtered, sort, actionCounts, userState]);
 
+  // The single highest-leverage campaign right now — independent of the
+  // user's chosen sort. Drives the "take action" half of the nudge banner.
+  const mostUrgent = useMemo(() => {
+    if (campaigns.length === 0) return null;
+    return [...campaigns].sort((a, b) => {
+      const sa = SEV_RANK[a.severity ?? ""] ?? 0;
+      const sb = SEV_RANK[b.severity ?? ""] ?? 0;
+      if (sa !== sb) return sb - sa;
+      if (a.state === userState && b.state !== userState) return -1;
+      if (b.state === userState && a.state !== userState) return 1;
+      return b.created_at.localeCompare(a.created_at);
+    })[0];
+  }, [campaigns, userState]);
+
   // Counts per chip — computed off the unfiltered list
   const counts = useMemo(() => {
     const c = {
@@ -130,10 +151,13 @@ export function CampaignBrowser({
       <header className="mb-6">
         <h1 className="text-3xl font-bold">Active campaigns</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Each campaign is a one-click action. Your info auto-fills. The email goes from
-          your real address — what legislators actually read.
+          Every campaign is a one-click action you can take from anywhere — wherever you
+          live. Your info auto-fills, and the email goes from your real address, which is
+          what legislators actually read.
         </p>
       </header>
+
+      <ActionNudge signedIn={signedIn} emailConnected={emailConnected} topCampaign={mostUrgent} />
 
       {/* Sticky search + filters */}
       <div className="sticky top-0 z-10 -mx-4 mb-6 border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
@@ -423,6 +447,108 @@ function SearchIcon() {
     >
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+/**
+ * Top-of-page nudge that ties together the two things that turn a browser into
+ * an advocate: (1) connect your email once → one-click sends everywhere, and
+ * (2) take action on the campaign that matters most right now. Adapts to the
+ * visitor: anon → join; signed-in but no email → connect; ready → act.
+ */
+function ActionNudge({
+  signedIn,
+  emailConnected,
+  topCampaign,
+}: {
+  signedIn: boolean;
+  emailConnected: boolean;
+  topCampaign: Campaign | null;
+}) {
+  // Anon — can't connect email without an account, so nudge to join.
+  if (!signedIn) {
+    return (
+      <div className="mb-6 rounded-lg border border-emerald-700/40 bg-emerald-950/15 p-4">
+        <p className="text-sm font-semibold text-emerald-200">
+          📣 Every campaign here is one click — for everyone, in any state.
+        </p>
+        <p className="mt-1 text-sm text-zinc-400">
+          Create a free account and your letters auto-fill with your info, sent from your
+          own address — what legislators actually read.
+        </p>
+        <a
+          href="/signup"
+          className="mt-3 inline-block rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
+        >
+          Join free → start taking action
+        </a>
+      </div>
+    );
+  }
+
+  // Signed in but no email connected — the highest-leverage nudge.
+  if (!emailConnected) {
+    return (
+      <div className="mb-6 rounded-lg border-2 border-dashed border-emerald-700/50 bg-emerald-950/10 p-4">
+        <p className="text-xs font-bold uppercase tracking-widest text-emerald-300">
+          ⚡ Sync your email once — then send in one click
+        </p>
+        <p className="mt-1 text-sm text-zinc-300">
+          Connect your email and any campaign below sends in a single click — each message
+          from <strong>your</strong> address, each in your Sent folder. Narrowest scope only
+          (send-only); we never read your inbox.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <a
+            href="/api/oauth/google/start"
+            className="inline-flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100"
+          >
+            <GoogleGlyph /> Connect Gmail →
+          </a>
+          <a
+            href="/api/oauth/outlook/start"
+            className="inline-flex items-center gap-2 rounded-md bg-[#0078D4] px-4 py-2 text-sm font-semibold text-white hover:bg-[#106EBE]"
+          >
+            Connect Outlook →
+          </a>
+          <span className="text-xs text-zinc-500">
+            No Gmail / Outlook? You can still send from your own email on any campaign.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Signed in + connected — nudge to act on the campaign that matters most.
+  if (topCampaign) {
+    const urgent = topCampaign.severity === "critical" || topCampaign.severity === "alert";
+    return (
+      <a
+        href={`/campaigns/${topCampaign.slug}`}
+        className="mb-6 block rounded-lg border border-emerald-700/40 bg-emerald-950/15 p-4 hover:border-emerald-500"
+      >
+        <p className="text-xs font-bold uppercase tracking-widest text-emerald-300">
+          ✓ Email connected · one-click ready{urgent ? " · 🔴 urgent" : ""}
+        </p>
+        <p className="mt-1 text-sm text-zinc-200">
+          Take action now: <strong>{topCampaign.title}</strong>
+        </p>
+        <p className="mt-0.5 text-xs text-emerald-400">Open campaign → send in one click →</p>
+      </a>
+    );
+  }
+
+  return null;
+}
+
+function GoogleGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" />
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
     </svg>
   );
 }
