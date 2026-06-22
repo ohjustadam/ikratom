@@ -33,6 +33,7 @@ function readForm(formData: FormData) {
   const subjectTemplate = String(formData.get("subject_template") ?? "").trim().slice(0, 200);
   const bodyTemplate = String(formData.get("body_template") ?? "").trim().slice(0, 20000);
   const active = formData.get("active") === "on";
+  const is_standing = formData.get("is_standing") === "on";
   const slugRaw = String(formData.get("slug") ?? "").trim().toLowerCase();
 
   const targetRoles = ROLE_OPTIONS.filter((r) => formData.get(`role_${r}`) === "on");
@@ -56,6 +57,7 @@ function readForm(formData: FormData) {
     subject_template: subjectTemplate,
     body_template: bodyTemplate,
     active,
+    is_standing,
     slug: slugRaw || slugify(title),
     target_roles: targetRoles,
     target_locality: targetLocality,

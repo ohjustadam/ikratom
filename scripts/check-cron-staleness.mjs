@@ -81,6 +81,7 @@ const REGISTRY = [
       "cleanup_pending_campaigns",
       "reject_wrongstate_pending_alerts",
       "dedupe_pending_alerts",
+      "expire_rotating_campaigns",
       "locality_state_audit",
      ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
 

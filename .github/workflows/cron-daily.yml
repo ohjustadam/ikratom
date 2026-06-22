@@ -533,6 +533,16 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/cleanup-stale-active-campaigns.mjs --apply
+      # Rotating-campaign expiry (owner timeout model): stamp a 90d shelf-life on
+      # auto-generated, non-standing campaigns + retire ORPHAN ones that are >90d
+      # old AND 60d-quiet. Standing (is_standing) + manual + bill-linked campaigns
+      # are never touched. Logs to scraper_runs as 'expire_rotating_campaigns'.
+      - name: Expire stale rotating campaigns
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/expire-rotating-campaigns.mjs --apply
       # Auto-dedupe (topic-cluster collapse) + reject stale/FP-derived pending
       # auto-campaigns so the review queue doesn't fill with junk. Live mode.
       - name: Auto-clean the pending-campaign queue
