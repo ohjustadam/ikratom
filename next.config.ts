@@ -10,16 +10,20 @@ const SUPABASE_HOST = (() => {
 const SUPABASE_HTTPS = SUPABASE_HOST ? `https://${SUPABASE_HOST}` : "";
 const SUPABASE_WSS = SUPABASE_HOST ? `wss://${SUPABASE_HOST}` : "";
 
+// React's DEVELOPMENT runtime uses eval() for debugging (callstack
+// reconstruction, hot-reload); a CSP without 'unsafe-eval' breaks `next dev`
+// (and the Next dev-tools), throwing "eval() is not supported in this
+// environment" on every page. PRODUCTION React never uses eval(), so prod keeps
+// the tighter 'wasm-unsafe-eval' — enough for the in-browser Kokoro TTS WASM,
+// but denies arbitrary eval()/new Function() (the XSS-containment win from #660).
+const SCRIPT_EVAL = process.env.NODE_ENV === "production" ? "'wasm-unsafe-eval'" : "'unsafe-eval'";
+
 const csp = [
   "default-src 'self'",
-  // Tailwind/Next.js inline some bootstrap styles; scripts use 'unsafe-inline'
-  // because Next 16's RSC payload requires inline script. Tightening to nonces
-  // requires Next-side support; tracked as a future upgrade.
-  // 'wasm-unsafe-eval' (NOT full 'unsafe-eval') lets the in-browser Kokoro TTS
-  // compile its WASM while denying arbitrary eval()/new Function() — shrinks the
-  // XSS blast radius. 'unsafe-inline' is still required by Next 16's RSC inline
-  // bootstrap script (nonces need Next-side support; tracked as a future upgrade).
-  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://va.vercel-scripts.com https://cdn.jsdelivr.net",
+  // 'unsafe-inline' is required by Next 16's RSC inline bootstrap script (nonces
+  // need Next-side support; tracked as a future upgrade). Script eval is env-gated
+  // above: tight 'wasm-unsafe-eval' in prod, 'unsafe-eval' in dev for React tooling.
+  `script-src 'self' 'unsafe-inline' ${SCRIPT_EVAL} https://va.vercel-scripts.com https://cdn.jsdelivr.net`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
