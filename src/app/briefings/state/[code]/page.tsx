@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { marked } from "marked";
 import { createClient } from "@/lib/supabase/server";
+import { mdToPlainText } from "@/lib/markdown";
+import { AudioReader } from "@/components/AudioReader";
 
 export const metadata = { title: "State briefing" };
 export const dynamic = "force-dynamic";
@@ -86,11 +88,13 @@ export default async function StateBriefingPage({
   const ageHrs = generatedAt ? Math.round((Date.now() - generatedAt.getTime()) / 3_600_000) : null;
 
   let bodyHtml = "";
+  let bodyText = ""; // plain-text version for the Kokoro "Listen" reader
   if (briefing?.body_md) {
     const combined = briefing.manual_addendum_md
       ? `${briefing.manual_addendum_md}\n\n---\n\n${briefing.body_md}`
       : briefing.body_md;
     bodyHtml = await marked.parse(combined, { gfm: true, breaks: false });
+    bodyText = mdToPlainText(combined);
   }
 
   return (
@@ -119,6 +123,16 @@ export default async function StateBriefingPage({
           </p>
         )}
       </header>
+
+      {bodyText && (
+        <div className="mb-6">
+          <AudioReader
+            id={`state-briefing-${code}`}
+            text={`${stateName} field-work briefing. ${bodyText}`}
+            label="Listen to this briefing"
+          />
+        </div>
+      )}
 
       {!briefing ? (
         <div className="rounded-md border border-amber-700/40 bg-amber-950/15 p-6 text-sm text-amber-200">
