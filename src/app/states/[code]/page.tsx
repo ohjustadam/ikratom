@@ -148,8 +148,9 @@ export default async function StatePage({ params }: Props) {
       .limit(5),
     supabase
       .from("state_briefings")
-      .select("state, published_at")
+      .select("state, generated_at")
       .eq("state", codeUpper)
+      .eq("is_active", true)
       .maybeSingle(),
     supabase
       .from("news_items")
@@ -606,7 +607,7 @@ export default async function StatePage({ params }: Props) {
               ⚠ No active signals in {codeUpper} right now — quiet is good.
             </span>
           )}
-          {briefing.data?.published_at && (
+          {briefing.data?.generated_at && (
             <Link
               href={`/briefings/state/${codeUpper}`}
               className="rounded border border-emerald-700/40 bg-emerald-950/15 px-3 py-1 text-emerald-300 hover:border-emerald-500"
