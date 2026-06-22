@@ -1,0 +1,88 @@
+# Local-rep CLOUD resolution — drains pending local_rep_requests WITHOUT the
+# owner box. Phase-1 offload (see cron-nightly-cloud.yml): the box used to be
+# the ONLY place SearXNG (:8080) + a roster-rendering browser existed, so the
+# live "AI suggest" button could never resolve a non-Legistar locality and the
+# queue only drained overnight. This runs the same idempotent script in CI with:
+#   - an ephemeral in-job SearXNG container (the box's :8080 equivalent), and
+#   - headless Chromium, so JS-rendered county/city rosters (Cuyahoga County /
+#     San Jose / Greensboro class) resolve in the cloud too.
+# Extraction routes through the free-tier ai-router (Groq/Cerebras/Gemini —
+# Ollama is unreachable here and skipped via OFFICIALS_EXTRACT_PROVIDER).
+#
+# Triggers: every 6h (auto-drain) + workflow_dispatch (on-demand — an admin can
+# kick a run from the Actions tab or `gh workflow run cron-localreps-cloud.yml`).
+# This dispatch endpoint is what the planned in-app "Resolve now" admin button
+# will call via the GitHub API.
+#
+# Required secrets (all present since 2026-06-12, see cron-nightly-cloud.yml):
+#   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GROQ_API_KEY,
+#   CEREBRAS_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY,
+#   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_TOKEN.
+name: Local reps — cloud resolution
+
+on:
+  schedule:
+    - cron: "20 */6 * * *" # every 6h at :20 (GitHub cron is best-effort)
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max localities to process this run"
+        required: false
+        default: "40"
+
+concurrency:
+  group: localreps-cloud
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      # No Ollama in CI — pick a cloud provider first instead of burning one
+      # connection-refused attempt per extraction. Router still falls through
+      # to the others (Cerebras/Gemini/…) if Groq is cooling down.
+      OFFICIALS_EXTRACT_PROVIDER: groq
+      SEARXNG_URL: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install deps
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Install headless Chromium (JS-rendered rosters)
+        # Uses the version-matched local playwright-chromium CLI (prod dep).
+        run: npx playwright install --with-deps chromium
+
+      - name: Start in-job SearXNG container
+        run: |
+          docker run -d --name searxng -p 8080:8080 \
+            -e SEARXNG_SECRET="$(openssl rand -hex 32)" \
+            -v "${{ github.workspace }}/scripts/searxng/settings.yml:/etc/searxng/settings.yml:ro" \
+            searxng/searxng:latest
+          echo "waiting for searxng JSON API..."
+          for i in $(seq 1 45); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/search?q=test&format=json" || true)
+            if [ "$code" = "200" ]; then echo "ready after ${i}s"; break; fi
+            sleep 2
+          done
+
+      - name: Drain pending local-rep requests
+        run: node scripts/auto-fulfill-pending-local-reps.mjs --limit ${{ github.event.inputs.limit || '40' }} --max-minutes 22
+
+      - name: SearXNG container logs (always)
+        if: always()
+        run: docker logs searxng 2>&1 | tail -40 || true

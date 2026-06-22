@@ -91,10 +91,12 @@ const REGISTRY = [
   // vercel (different system, but still monitorable)
   { source: "vercel_daily_sync", interval_hours: 36, system: "vercel", cadence: "daily" },
 
-  // owner-box scheduled task (SearXNG + Ollama live there — the long-tail
-  // officials drain). Lenient 72h interval: a 3×72h silence (~9 days) alerts,
-  // tolerating reboots/short downtime without crying wolf.
-  { source: "auto_fulfill_local_reps", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // Long-tail officials drain. Primary runtime is now GitHub Actions
+  // (cron-localreps-cloud.yml, every 6h, in-job SearXNG + headless Chromium);
+  // the owner box nightly still writes this source as a fallback. 12h interval
+  // → a 3×12h (~36h) silence across BOTH runtimes alerts; the box alone keeps
+  // it under 24h, so this only cries wolf if cloud AND box are both down.
+  { source: "auto_fulfill_local_reps", interval_hours: 12, system: "github-actions", cadence: "daily" },
   // PR-A: local-ban verification + the unified locality-intelligence sweep
   // both run on the box too (SearXNG find → fetch → local/free-tier extract).
   { source: "verify_local_bans", interval_hours: 72, system: "local-box", cadence: "daily" },

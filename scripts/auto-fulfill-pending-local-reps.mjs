@@ -15,6 +15,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { findAndExtractOfficials } from "./lib/officials-extract.mjs";
+import { fetchPageText } from "./lib/page-text.mjs";
 
 const t0 = Date.now();
 const args = process.argv.slice(2);
@@ -27,35 +28,31 @@ const sb = createClient(
   { auth: { persistSession: false } },
 );
 
-function stripHtml(html) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 // Two-source gate: confirm an extracted official's name actually appears on
-// its cited source page before we publish the row.
+// its cited source page before we publish the row. Uses the shared
+// render-capable fetchPageText (headless-Chromium fallback for JS-built
+// rosters — Cuyahoga County / San Jose / Greensboro class), so a JS-rendered
+// roster no longer hard-fails verification and strands the locality on a thin
+// static shell. Per-URL cache: an 11-member council shares one source page, so
+// it costs one fetch/render, not eleven.
+const _verifyTextCache = new Map();
+async function pageTextForVerify(url) {
+  if (_verifyTextCache.has(url)) return _verifyTextCache.get(url);
+  const text = await fetchPageText(url); // null on hard failure / PDF / WAF
+  const lc = text ? text.toLowerCase() : null;
+  _verifyTextCache.set(url, lc);
+  return lc;
+}
 async function verify(fullName, sourceUrl) {
   if (!sourceUrl) return { ok: false, reason: "no-url" };
-  try {
-    const r = await fetch(sourceUrl, {
-      signal: AbortSignal.timeout(12_000),
-      headers: { "User-Agent": "iKratom Civic Verifier (research@ikratom.org)" },
-    });
-    if (!r.ok) return { ok: false, reason: `fetch ${r.status}` };
-    const text = stripHtml(await r.text()).toLowerCase();
-    if (text.includes(fullName.toLowerCase())) return { ok: true, snippet: text.slice(Math.max(0, text.indexOf(fullName.toLowerCase()) - 60), text.indexOf(fullName.toLowerCase()) + 120) };
-    const last = fullName.split(/\s+/).pop()?.toLowerCase();
-    if (last && last.length >= 4 && text.includes(last)) return { ok: true, snippet: `(last-name match: ${last})` };
-    return { ok: false, reason: "name-not-found" };
-  } catch (e) {
-    return { ok: false, reason: e.message };
-  }
+  const text = await pageTextForVerify(sourceUrl);
+  if (!text) return { ok: false, reason: "fetch-failed" };
+  const fn = fullName.toLowerCase();
+  const at = text.indexOf(fn);
+  if (at >= 0) return { ok: true, snippet: text.slice(Math.max(0, at - 60), at + 120) };
+  const last = fullName.split(/\s+/).pop()?.toLowerCase();
+  if (last && last.length >= 4 && text.includes(last)) return { ok: true, snippet: `(last-name match: ${last})` };
+  return { ok: false, reason: "name-not-found" };
 }
 
 let pq = sb
