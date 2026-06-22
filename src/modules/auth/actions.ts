@@ -354,15 +354,18 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
     let friendly = error.message;
     let hint: string | undefined;
 
-    if (msg.includes("email not confirmed") || msg.includes("not been confirmed")) {
-      friendly = "Your email isn't confirmed yet.";
-      hint = "Check your inbox (and spam folder) for our confirmation link — or request a new one via the 'Forgot password' link to reset access.";
-    } else if (msg.includes("invalid login credentials") || msg.includes("invalid_credentials")) {
+    if (
+      msg.includes("email not confirmed") || msg.includes("not been confirmed") ||
+      msg.includes("invalid login credentials") || msg.includes("invalid_credentials") ||
+      msg.includes("user not found") || msg.includes("user_not_found")
+    ) {
+      // Email-enumeration defense (pen-test #11): "email not confirmed" only
+      // fires for a REAL account, so distinguishing it from "wrong password" let
+      // an attacker probe which emails are registered. Return ONE identical
+      // response for all three, with a hint that generically covers the
+      // unconfirmed case without confirming the account exists.
       friendly = "Email or password is incorrect.";
-      hint = "Double-check your email is typed right and the password matches. If you forgot the password, click 'Forgot password' below to reset it. If you signed up via a leader's invite, use that email exactly.";
-    } else if (msg.includes("user not found") || msg.includes("user_not_found")) {
-      friendly = "Email or password is incorrect.";
-      hint = "We couldn't match that combo. Try 'Forgot password' if you've signed up before, or 'Sign up' if you're new.";
+      hint = "Double-check your email and password. If you signed up but never confirmed your email, check your inbox and spam for the link — otherwise use 'Forgot password' to reset access, or 'Sign up' if you're new.";
     } else if (msg.includes("rate limit") || msg.includes("too many")) {
       friendly = "Too many attempts. Try again in a few minutes.";
     } else if (msg.includes("captcha")) {
@@ -476,11 +479,20 @@ export async function signInInline(formData: FormData): Promise<AuthResult & { m
       email, ip: ip ?? null,
     });
     const msg = error.message?.toLowerCase() ?? "";
-    if (msg.includes("email not confirmed") || msg.includes("not been confirmed")) {
-      return { error: "Your email isn't confirmed yet.", hint: "Check your inbox + spam for the confirmation link.", errorCode: "email_not_confirmed" };
-    }
-    if (msg.includes("invalid login credentials") || msg.includes("invalid_credentials") || msg.includes("user not found")) {
-      return { error: "Email or password is incorrect.", hint: "Try 'Forgot password' if you've signed up before.", errorCode: "invalid_credentials" };
+    // Email-enumeration defense (pen-test #11): collapse "email not confirmed"
+    // (fires only for a real account) into the generic incorrect-credentials
+    // response so the two are indistinguishable to a probing attacker. The hint
+    // covers the unconfirmed case generically.
+    if (
+      msg.includes("email not confirmed") || msg.includes("not been confirmed") ||
+      msg.includes("invalid login credentials") || msg.includes("invalid_credentials") ||
+      msg.includes("user not found")
+    ) {
+      return {
+        error: "Email or password is incorrect.",
+        hint: "If you signed up but never confirmed your email, check your inbox and spam for the link; otherwise use 'Forgot password'.",
+        errorCode: "invalid_credentials",
+      };
     }
     return { error: error.message, errorCode: error.code ?? null };
   }
@@ -586,8 +598,24 @@ export async function setNewPassword(formData: FormData): Promise<AuthResult> {
     return { error: "Not signed in. The reset link may have expired." };
   }
 
+  // Recovery-origin gate (pen-test #8): only a session that arrived via the
+  // emailed recovery link may set a new password WITHOUT the current one. The
+  // recovery callback (/auth/callback?next=/reset-password) stamps an httpOnly
+  // pw_recovery marker bound to this user id. A stolen NORMAL session lacks it,
+  // so it can't silently take the account over here — it must change the
+  // password from Account → Security, which re-auths with the current password.
+  const recoveryMarker = (await cookies()).get("pw_recovery")?.value;
+  if (recoveryMarker !== user.id) {
+    return {
+      error:
+        "For your security, set a new password using the link we email you (Forgot password). To change it while signed in, use Account → Security.",
+    };
+  }
+
   const { error } = await supabase.auth.updateUser({ password });
   if (error) return { error: error.message };
+  // One-time marker — consume it so a captured reset session can't be replayed.
+  (await cookies()).delete("pw_recovery");
 
   // Parity with changePassword — same followups that flow needs:
   //   1. Audit-log for privileged accounts (so an admin's reset is

@@ -54,5 +54,24 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Password recovery: stamp an httpOnly marker proving this session arrived via
+  // the emailed recovery link, bound to the user id. setNewPassword requires it
+  // (pen-test #8) so a stolen NORMAL session can't silently reset the password
+  // via /reset-password without the current one.
+  if (safeNext === "/reset-password") {
+    const { data: { user } } = await supabase.auth.getUser();
+    const res = NextResponse.redirect(new URL(safeNext, request.url));
+    if (user) {
+      res.cookies.set("pw_recovery", user.id, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 1800, // 30 min — ample to set the new password
+      });
+    }
+    return res;
+  }
+
   return NextResponse.redirect(new URL(safeNext, request.url));
 }
