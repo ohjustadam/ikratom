@@ -34,10 +34,24 @@ const BAN_RE =
 const CONCLUDED_RE =
   /signed into law|signed by (the )?governor|\benacted\b|\bchaptered\b|takes effect|effective date|\bnow law\b|becomes law|\bapplauds\b|\brebuttal\b/i;
 
+// NATIONAL-SYNDICATION veto (0211 trigger mirrors this exactly). A syndicated
+// national trend/roundup headline — "Why 2 more states will soon ban kratom",
+// "...as more US states push bans", "banned in another state amid nationwide
+// crackdowns" — gets auto-tagged to a state by the per-state RSS and then fans
+// out into one near-identical campaign PER state, none tied to a specific local
+// bill/action. That single article → 7 campaigns is the dominant queue-noise
+// source (2026-06-22 audit). These are awareness, not a state CTA. CONSERVATIVE:
+// fires only on explicit multi-state / nationwide framing — never on a single
+// named state's own action ("Delaware bill clears House", "MI HB 5537 passed").
+const NATIONAL_SYNDICATION_RE =
+  /\b\d+\s+more\s+states\b|\bmore\s+(?:u\.?s\.?\s+)?states\b|\banother\s+state\b|\bnationwide\s+(?:ban|crackdown|crackdowns)\b|\bacross\s+the\s+(?:us|u\.s\.|country|nation)\b/i;
+
 export function isCampaignWorthyAlert(kind, title) {
   const t = String(title ?? "");
   // Negative veto: already-concluded events + commentary are never a live CTA.
   if (CONCLUDED_RE.test(t)) return false;
+  // Negative veto: a syndicated national roundup is not a state-specific CTA.
+  if (NATIONAL_SYNDICATION_RE.test(t)) return false;
   // ag_enforcement is an AG lawsuit/settlement/cease-letter — informational,
   // never a constituent CTA. Explicit so the script's anchored-kinds gate and
   // this function can't disagree (the documented gate#2-vs-gate#3 drift).
@@ -110,6 +124,7 @@ export function eligibilityVetoSafe(kind, title) {
   const t = String(title ?? "");
   if (kind === "ag_enforcement") return true;
   if (CONCLUDED_RE.test(t)) return true;
+  if (NATIONAL_SYNDICATION_RE.test(t)) return true; // national roundup, never a state CTA → safe to auto-reject
   if ((kind === "fda_action" || kind === "dea_action") && NOISE_RE.test(t)) return true;
   return false;
 }
@@ -117,4 +132,4 @@ export function eligibilityVetoSafe(kind, title) {
 // Exported so tests/campaign-autoapprove.test.ts can assert the patterns
 // behave AND — critically — that they contain no org names or party terms
 // (the CLAUDE.md nonpartisan hard rule, encoded as CI).
-export const ELIGIBILITY_PATTERNS = { NOISE_RE, BAN_RE, CONCLUDED_RE, CONCLUDED_BILL_ACTION_RE };
+export const ELIGIBILITY_PATTERNS = { NOISE_RE, BAN_RE, CONCLUDED_RE, NATIONAL_SYNDICATION_RE, CONCLUDED_BILL_ACTION_RE };
