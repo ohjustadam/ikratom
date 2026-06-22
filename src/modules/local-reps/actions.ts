@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { normalizeLocality } from "@/lib/locality";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * User-driven local rep coverage requests.
@@ -204,4 +205,73 @@ export async function rejectCoverageRequest(input: {
   });
   revalidatePath("/admin/local-rep-requests");
   return { ok: true };
+}
+
+/**
+ * Kick the cloud resolution workflow on demand
+ * (.github/workflows/cron-localreps-cloud.yml). The scheduled run drains the
+ * pending queue every 6h via an in-job SearXNG container + headless Chromium +
+ * free-tier extract; this lets an admin run it NOW instead of waiting — the
+ * missing manual lever that made the live "AI suggest" button feel dead for
+ * non-Legistar localities (it can't reach the box; this reaches the cloud).
+ *
+ * Auth: admin-gated + rate-limited. Token: a fine-grained GitHub PAT
+ * (GITHUB_DISPATCH_TOKEN — Actions: read+write, this repo ONLY) stored
+ * server-side in Vercel env. Never NEXT_PUBLIC; never returned to the client.
+ */
+export async function triggerCloudResolution(): Promise<
+  { ok: true; runsUrl: string } | { error: string }
+> {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admins only." };
+
+  const token = process.env.GITHUB_DISPATCH_TOKEN;
+  const repo = process.env.GITHUB_DISPATCH_REPO || "ohjustadam/ikratom";
+  if (!token) {
+    return { error: "Cloud resolution isn't wired up yet — set GITHUB_DISPATCH_TOKEN (fine-grained PAT, Actions: read+write) in the server env." };
+  }
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return { error: "GITHUB_DISPATCH_REPO is malformed." };
+
+  // A run takes minutes; stacking more is pointless and just churns Actions.
+  // 3 kicks / 10 min per admin.
+  const allowed = await checkRateLimit(`cloud-resolve:${ctx.userId}`, 3, 600);
+  if (!allowed) {
+    return { error: "Already kicked it a few times — give the current run a couple minutes to finish." };
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://api.github.com/repos/${repo}/actions/workflows/cron-localreps-cloud.yml/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+          "User-Agent": "iKratom-admin",
+        },
+        body: JSON.stringify({ ref: "main", inputs: { limit: "40" } }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+  } catch (e) {
+    return { error: `Couldn't reach GitHub: ${(e as Error).message}` };
+  }
+
+  if (res.status === 204) {
+    try {
+      await recordAdminAction({ action: "local_reps.cloud_resolve_dispatch", details: { repo } });
+    } catch { /* non-fatal */ }
+    return { ok: true, runsUrl: `https://github.com/${repo}/actions/workflows/cron-localreps-cloud.yml` };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return { error: "GitHub rejected the token — check GITHUB_DISPATCH_TOKEN has Actions: read+write on this repo." };
+  }
+  if (res.status === 404) {
+    return { error: "Workflow not found — it must exist on the default branch (main)." };
+  }
+  const body = await res.text().catch(() => "");
+  return { error: `GitHub dispatch failed (${res.status}). ${body.slice(0, 120)}` };
 }
