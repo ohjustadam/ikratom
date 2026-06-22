@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { recordAdminAction } from "@/lib/audit";
+import { safeFetch } from "@/lib/url-safety";
 import {
   ALLOWED_UPLOAD_EXT,
   filenameExt,
@@ -224,11 +225,14 @@ export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult>
   let abstractLikelyTruncated = false;
   let html: string | null = null;
   try {
-    const r = await fetch(url, {
+    // SSRF-safe (validates URL + each redirect hop). Best-effort: on a blocked
+    // or failed fetch we leave title=URL/abstract=null for the admin to edit.
+    const f = await safeFetch(url, {
       signal: AbortSignal.timeout(15_000),
       headers: { "User-Agent": "iKratom Research Bot (research@ikratom.org)" },
     });
-    if (r.ok) {
+    const r = f.ok ? f.response : null;
+    if (r && r.ok) {
       html = await r.text();
       const meta = extractResearchMetaFromHtml(html);
       title = meta.title ?? url;

@@ -2,6 +2,7 @@
 
 import { getCreatorContext } from "@/modules/admin/actions";
 import { complete } from "@/lib/ai";
+import { safeFetch } from "@/lib/url-safety";
 
 /**
  * Enrich a library item from a URL — single-button "fetch metadata"
@@ -150,7 +151,9 @@ async function enrichYouTube(url: string): Promise<EnrichResult> {
 async function enrichGenericWeb(url: string): Promise<EnrichResult> {
   let html: string;
   try {
-    const r = await fetch(url, {
+    // SSRF-safe: validates the URL + re-validates each redirect hop, blocking
+    // internal/metadata targets even via a public-URL → private-IP redirect.
+    const f = await safeFetch(url, {
       signal: AbortSignal.timeout(15_000),
       headers: {
         // Pretending to be a normal browser — many sites block default
@@ -160,8 +163,11 @@ async function enrichGenericWeb(url: string): Promise<EnrichResult> {
           "Mozilla/5.0 (compatible; ikratom-library-enrich/1.0; +https://www.ikratom.org)",
         Accept: "text/html,application/xhtml+xml",
       },
-      redirect: "follow",
     });
+    if (!f.ok) {
+      return { ok: false, error: `Can't fetch that URL: ${f.reason}` };
+    }
+    const r = f.response;
     if (!r.ok) {
       return {
         ok: false,
