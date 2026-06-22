@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getOrGenerateBriefSummary } from "@/modules/brief/summary";
 import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
 import BriefAudioButton from "./BriefAudioButton";
+import BriefScopePicker from "./BriefScopePicker";
+import { AudioReader } from "@/components/AudioReader";
+import { STATE_NAMES } from "@/lib/state-names";
 import { siteConfig } from "@/config/site.config";
 
 // Civic day for the brief. The audience is a US-national advocacy community and
@@ -43,12 +46,17 @@ export const dynamic = "force-dynamic";
  * delivery (cron writes the digest to a daily_briefs table + fires
  * web-push to opted-in users with a deep link to the snapshot).
  */
-export default async function BriefPage() {
+export default async function BriefPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ state?: string; date?: string }>;
+}) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
+  const sp = await searchParams;
 
-  // Viewer state — defaults a lot of the digest scope. Anon → null.
-  let viewerState: string | null = null;
+  // Viewer's home state + name (signed-in only).
+  let profileState: string | null = null;
   let viewerName: string | null = null;
   if (user) {
     const { data } = await sb
@@ -57,15 +65,50 @@ export default async function BriefPage() {
       .eq("id", user.id)
       .maybeSingle();
     if (data) {
-      viewerState = (data as { state: string | null }).state;
+      profileState = (data as { state: string | null }).state;
       viewerName = (data as { full_name: string | null }).full_name;
     }
   }
 
-  // 7-day cutoff used by multiple sections
+  // ── Scope (state) selection. ?state= overrides the profile; the literal
+  // "national" forces the national view. The effective scope is ALWAYS
+  // validated to a clean 2-letter code (or null) before it touches a query —
+  // PostgREST .or()/.eq() filters interpolate this string, so an unvalidated
+  // value (param OR a malformed profile field) would be a filter-injection
+  // vector. viewerState is the effective scope used by every section below.
+  const stateParam = (sp.state ?? "").trim();
+  const explicitNational = stateParam.toLowerCase() === "national";
+  const paramState = /^[A-Za-z]{2}$/.test(stateParam) ? stateParam.toUpperCase() : null;
+  const rawScope = explicitNational ? null : (paramState ?? profileState);
+  const viewerState: string | null =
+    rawScope && /^[A-Z]{2}$/.test(rawScope) && STATE_NAMES[rawScope] ? rawScope : null;
+
+  // ── Day selection. Civic days are Eastern (see EASTERN_TZ note above). A
+  // past day re-windows every section to "what was fresh as of that day" and
+  // loads that day's archived audio. Range capped to the last 30 days.
+  const MIN_DAYS_BACK = 30;
+  const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: EASTERN_TZ });
+  const minKey = new Date(Date.now() - MIN_DAYS_BACK * 86400_000).toLocaleDateString("en-CA", { timeZone: EASTERN_TZ });
+  const dateParam = (sp.date ?? "").trim();
+  const validDate =
+    /^\d{4}-\d{2}-\d{2}$/.test(dateParam) && dateParam <= todayKey && dateParam >= minKey
+      ? dateParam
+      : todayKey;
+  const isToday = validDate === todayKey;
+
+  // Anchor = upper bound of the chosen civic day. "Today" anchors to the live
+  // clock (preserves the original always-current behavior); a past day anchors
+  // to end-of-day Eastern (EDT offset — ≤1h DST slop on the window is
+  // immaterial for a "what was fresh that day" read).
+  const anchorMs = isToday ? Date.now() : Date.parse(`${validDate}T23:59:59-04:00`);
+  const anchorISO = new Date(anchorMs).toISOString();
+  const anchorDateKey = validDate; // upper bound for date-typed columns
+
+  // Cutoffs (relative to the anchor, not the live clock).
   const ALERT_HORIZON = 7;
-  const cutoff7 = new Date(Date.now() - ALERT_HORIZON * 86400 * 1000).toISOString();
-  const cutoff30 = new Date(Date.now() - 30 * 86400 * 1000).toISOString().slice(0, 10);
+  const cutoff7 = new Date(anchorMs - ALERT_HORIZON * 86400 * 1000).toISOString();
+  const cutoff30 = new Date(anchorMs - 30 * 86400 * 1000).toISOString().slice(0, 10);
+  const cutoff36hDate = new Date(anchorMs - 36 * 3600 * 1000).toISOString().slice(0, 10);
 
   // ── 1. State alerts (critical + alert severity, last 7 days)
   type Alert = { id: string; kind: string; severity: string; title: string; locality: string; created_at: string; source_url: string | null };
@@ -76,6 +119,7 @@ export default async function BriefPage() {
       .in("severity", ["critical", "alert"])
       .eq("moderation_status", "approved")
       .gte("created_at", cutoff7)
+      .lte("created_at", anchorISO)
       .order("created_at", { ascending: false })
       .limit(20);
     if (viewerState) q = q.eq("locality", viewerState);
@@ -92,6 +136,7 @@ export default async function BriefPage() {
       .in("severity", ["critical", "alert"])
       .eq("moderation_status", "approved")
       .gte("created_at", cutoff7)
+      .lte("created_at", anchorISO)
       .order("created_at", { ascending: false })
       .limit(12);
     if (viewerState) q = q.neq("locality", viewerState);
@@ -128,6 +173,7 @@ export default async function BriefPage() {
           .select("id, state, bill_number, title, status, last_action, last_action_at, kratom_relevance, current_committee_name, active")
           .in("id", billIds)
           .gte("last_action_at", cutoff7.slice(0, 10))
+          .lte("last_action_at", anchorDateKey)
           .order("last_action_at", { ascending: false });
         watchedBills = (data ?? []) as WatchedBill[];
       }
@@ -141,7 +187,8 @@ export default async function BriefPage() {
     let q = sb.from("bill_cluster_members")
       .select("bill_clusters!inner(slug, name, posture), bills!inner(state, last_action_at, active)")
       .eq("bills.active", true)
-      .gte("bills.last_action_at", cutoff30);
+      .gte("bills.last_action_at", cutoff30)
+      .lte("bills.last_action_at", anchorDateKey);
     if (viewerState) q = q.eq("bills.state", viewerState);
     const { data } = await q;
     type Row = {
@@ -191,13 +238,13 @@ export default async function BriefPage() {
     state: string | null; published_at: string; summary: string | null;
   };
   let freshNews: NewsItem[] = [];
-  const cutoff36hDate = new Date(Date.now() - 36 * 3600 * 1000).toISOString().slice(0, 10);
   try {
     let nq = sb.from("news_items")
       .select("id, title, url, source_name, state, published_at, summary")
       .eq("active", true)
       .not("body_has_kratom_keyword", "is", false)
       .gte("published_at", cutoff36hDate)
+      .lte("published_at", anchorISO)
       .not("policy_classified_at", "is", null)
       .order("published_at", { ascending: false })
       .limit(15);
@@ -222,6 +269,7 @@ export default async function BriefPage() {
       .eq("active", true)
       .not("body_has_kratom_keyword", "is", false)
       .gte("published_at", cutoff36hDate)
+      .lte("published_at", anchorISO)
       .not("policy_classified_at", "is", null)
       .order("published_at", { ascending: false })
       .limit(15);
@@ -239,24 +287,16 @@ export default async function BriefPage() {
     });
   } catch { /* defensive */ }
 
-  const today = new Date().toLocaleDateString("en-US", {
+  // Display label for the chosen civic day (parse at noon UTC so the Eastern
+  // render keeps the same calendar date).
+  const today = new Date(`${validDate}T12:00:00Z`).toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: EASTERN_TZ,
   });
 
-  // ── AI day-summary paragraph. Cached per (scope, date) via
-  // daily_brief_summaries table so we hit the LLM at most once per
-  // scope per day. Defensive — if generation fails we render
-  // without the paragraph rather than blocking the whole page.
-  const STATE_NAMES: Record<string, string> = {
-    AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",CT:"Connecticut",
-    DE:"Delaware",DC:"District of Columbia",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",IL:"Illinois",
-    IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",
-    MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",
-    NH:"New Hampshire",NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",
-    OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",
-    SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",
-    WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",
-  };
+  // ── AI day-summary paragraph. Cached per (scope, brief_date) via the
+  // daily_brief_summaries table (≤1 LLM call per scope per day). For a past
+  // day we only READ the cache (allowGenerate:false) so we never fabricate a
+  // fresh summary for history. Defensive — render without it if absent.
   const aiScope = viewerState ?? "national";
   const aiSummary = await getOrGenerateBriefSummary({
     scope: aiScope,
@@ -269,9 +309,13 @@ export default async function BriefPage() {
       `${b.state} ${b.bill_number} — ${b.status ?? "—"} (${b.last_action_at ?? "—"})`),
     active_ops: activeOps.length,
     active_op_names: activeOps.slice(0, 5).map((op) => op.name.split("—")[0].trim().split("(")[0].trim()),
-  });
+  }, { briefDate: validDate, allowGenerate: isToday });
 
-  const greeting = viewerName?.trim()
+  const greeting = !isToday
+    ? viewerState
+      ? `${viewerState} brief`
+      : "National brief"
+    : viewerName?.trim()
     ? `Good morning, ${viewerName.trim().split(" ")[0]}`
     : viewerState
     ? `Today in ${viewerState}`
@@ -296,27 +340,32 @@ export default async function BriefPage() {
   audioParts.push("That's the brief. Tap a card to dive deeper, or visit ikratom.org for the full picture.");
   const audioScript = audioParts.join(" ");
 
-  // Pre-rendered MP3 lookup. Walk back up to 7 days so a missed daily
-  // render doesn't leave users on robot-voice fallback indefinitely.
-  // Using a direct HEAD fetch (not sb.storage.list) because the public
-  // bucket only has SELECT-on-object RLS, not LIST — list() returns
-  // empty under the user's auth even when objects are publicly readable.
+  // Pre-rendered MP3 lookup. The daily render is the NATIONAL brief only, so
+  // we only look one up on the national scope; state scopes (and days with no
+  // pre-render) fall through to client-side Kokoro reading the script.
+  // For "today" we walk back up to 7 days so a missed render still plays the
+  // latest; for a specific past day we load exactly that day's file (the user
+  // picked it). HEAD fetch (not sb.storage.list) because the public bucket
+  // only has SELECT-on-object RLS, not LIST.
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   let audioUrl: string | null = null;
   let audioDateLabel: string | null = null;
-  for (let daysBack = 0; daysBack < 7; daysBack++) {
-    // Eastern-civic date key, matching the render script's storage path so the
-    // lookup doesn't grab tomorrow's UTC-keyed file during US evening hours.
-    const key = new Date(Date.now() - daysBack * 86400_000).toLocaleDateString("en-CA", { timeZone: EASTERN_TZ });
-    const url = `${SB_URL}/storage/v1/object/public/daily-brief-audio/${key}/national.mp3`;
-    try {
-      const res = await fetch(url, { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(2500) });
-      if (res.ok) {
-        audioUrl = url;
-        audioDateLabel = daysBack === 0 ? null : `${daysBack}d ago`;
-        break;
-      }
-    } catch { /* network hiccup — try next day */ }
+  if (viewerState === null) {
+    const tries = isToday ? 7 : 1;
+    for (let daysBack = 0; daysBack < tries; daysBack++) {
+      const key = isToday
+        ? new Date(Date.now() - daysBack * 86400_000).toLocaleDateString("en-CA", { timeZone: EASTERN_TZ })
+        : validDate;
+      const url = `${SB_URL}/storage/v1/object/public/daily-brief-audio/${key}/national.mp3`;
+      try {
+        const res = await fetch(url, { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(2500) });
+        if (res.ok) {
+          audioUrl = url;
+          audioDateLabel = isToday && daysBack > 0 ? `${daysBack}d ago` : null;
+          break;
+        }
+      } catch { /* network hiccup — try next day */ }
+    }
   }
 
   const isEmpty =
@@ -336,12 +385,22 @@ export default async function BriefPage() {
         </p>
         <div className="mt-2 flex flex-wrap items-baseline justify-between gap-3">
           <h1 className="text-3xl font-bold sm:text-4xl">{greeting}</h1>
-          <BriefAudioButton script={audioScript} audioUrl={audioUrl} audioDateLabel={audioDateLabel} />
+          {audioUrl ? (
+            <BriefAudioButton script={audioScript} audioUrl={audioUrl} audioDateLabel={audioDateLabel} />
+          ) : (
+            <AudioReader id={`brief-${aiScope}-${validDate}`} text={audioScript} label="Listen to this brief" compact />
+          )}
         </div>
         <p className="mt-2 text-sm text-zinc-400">{today}</p>
+        <BriefScopePicker scope={viewerState ?? "national"} date={validDate} today={todayKey} minDate={minKey} />
+        {!isToday && (
+          <p className="mt-2 text-[11px] text-amber-300/80">
+            📅 Viewing an archived brief — sections show what was fresh as of this day.
+          </p>
+        )}
         {!user && (
           <p className="mt-3 rounded-md border border-amber-700/40 bg-amber-950/10 p-3 text-[11px] text-amber-200">
-            💡 <Link href="/login" className="font-semibold underline">Sign in</Link> for a state-scoped, watched-bill-aware version. Anon sees national-scope signals only.
+            💡 <Link href="/login" className="font-semibold underline">Sign in</Link> for a brief that defaults to your state and tracks your watched bills. Anyone can switch state or day above.
           </p>
         )}
       </header>

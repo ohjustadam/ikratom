@@ -67,13 +67,23 @@ function renderInput(s: BriefSignals): string {
  */
 export async function getOrGenerateBriefSummary(
   signals: BriefSignals,
+  opts?: {
+    /** Civic day (Eastern) the summary is for, YYYY-MM-DD. Defaults to UTC today
+     *  for back-compat, but callers should pass the page's Eastern civic date. */
+    briefDate?: string;
+    /** When false, only READ the cache (never spend an LLM call). Used for
+     *  historical days — we surface the summary that was generated that day,
+     *  or nothing, rather than fabricating a fresh one for the past. */
+    allowGenerate?: boolean;
+  },
 ): Promise<{ summary: string; cached: boolean; provider?: string } | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return null;
   const sb = createServiceClient(url, serviceKey);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = opts?.briefDate ?? new Date().toISOString().slice(0, 10);
+  const allowGenerate = opts?.allowGenerate ?? true;
 
   // 1. Cache lookup
   const { data: cached } = await sb
@@ -85,6 +95,9 @@ export async function getOrGenerateBriefSummary(
   if (cached) {
     return { summary: (cached as { summary_md: string }).summary_md, cached: true, provider: (cached as { provider: string | null }).provider ?? undefined };
   }
+
+  // Historical day with no cached summary — don't fabricate one for the past.
+  if (!allowGenerate) return null;
 
   // 2. Avoid wasting an LLM call on completely empty days — generate
   //    a static "quiet" line instead.
