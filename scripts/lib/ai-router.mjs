@@ -43,7 +43,9 @@ const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 //   SAMBANOVA_API_KEY   — cloud.sambanova.ai (free tier, very fast Llama 3.3).
 //   OPENROUTER_API_KEY  — openrouter.ai (use ":free" models; US-hosted only).
 //   NVIDIA_API_KEY      — build.nvidia.com (free credits; Llama/Nemotron).
-const GITHUB_MODELS_TOKEN = process.env.GITHUB_MODELS_TOKEN;
+// GitHub Actions FORBIDS secret names starting with GITHUB_, so the CI secret
+// must be named GH_MODELS_TOKEN; locally GITHUB_MODELS_TOKEN works too. Accept either.
+const GITHUB_MODELS_TOKEN = process.env.GITHUB_MODELS_TOKEN || process.env.GH_MODELS_TOKEN;
 const SAMBANOVA_API_KEY = process.env.SAMBANOVA_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
