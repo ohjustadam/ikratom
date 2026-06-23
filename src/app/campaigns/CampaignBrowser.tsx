@@ -20,6 +20,7 @@ export type Campaign = {
   stance: Stance;
   bill_status: string | null;
   severity: string | null;       // routine | watch | alert | critical | null
+  is_standing: boolean;          // always-on per-state backbone (no expiry)
 };
 
 type ScopeFilter = "all" | "yours" | "federal" | "state" | "local";
@@ -284,6 +285,11 @@ function CampaignCard({ c, actions, isMine }: { c: Campaign; actions: number; is
       >
         <div className="flex flex-wrap items-center gap-2">
           <ScopeBadge campaign={c} isMine={isMine} />
+          {c.is_standing && (
+            <span className="rounded bg-indigo-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase text-indigo-300" title="Always-on campaign — no end date">
+              📌 Standing
+            </span>
+          )}
           {c.stance === "anti" && (
             <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-300">
               🚫 Restrictive
