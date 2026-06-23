@@ -17,8 +17,19 @@ export async function GET(request: NextRequest) {
   const error = url.searchParams.get("error");
   const errorDescription = url.searchParams.get("error_description");
 
-  // Validate the next path — only allow same-origin relative paths
-  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+  // Validate the next path — only allow same-origin relative paths. The old
+  // check (startsWith("/") && !startsWith("//")) was bypassable: the WHATWG URL
+  // parser strips control chars + folds backslashes, so `next=/\t//evil.com` or
+  // `/\evil.com` resolved to an EXTERNAL origin (open redirect). Reject
+  // protocol-relative, any backslash, and any whitespace/control char — matching
+  // the stricter safeRelative() in src/modules/auth/actions.ts.
+  const safeNext =
+    next.startsWith("/") &&
+    !next.startsWith("//") &&
+    !next.includes("\\") &&
+    !/[\s\0]/.test(next)
+      ? next
+      : "/dashboard";
 
   if (error) {
     return NextResponse.redirect(
