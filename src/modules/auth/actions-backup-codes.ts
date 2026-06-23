@@ -1,10 +1,10 @@
 "use server";
 
 import { createHash, randomBytes } from "crypto";
-import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { recordAdminAction } from "@/lib/audit";
+import { setMfaBypassCookie } from "./mfa-bypass";
 
 /**
  * MFA backup codes.
@@ -24,8 +24,6 @@ import { recordAdminAction } from "@/lib/audit";
 const CODE_LEN = 10;
 const NUM_CODES = 8;
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
-const BYPASS_COOKIE = "mfa_bypass_until";
-const BYPASS_TTL_SECONDS = 60 * 60; // 1 hour
 
 function hashCode(code: string): string {
   return createHash("sha256")
@@ -158,15 +156,8 @@ export async function verifyBackupCode(plaintext: string): Promise<
     .eq("id", match.id);
   if (useErr) return { error: useErr.message };
 
-  // Set bypass cookie
-  const c = await cookies();
-  c.set(BYPASS_COOKIE, String(Date.now() + BYPASS_TTL_SECONDS * 1000), {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    maxAge: BYPASS_TTL_SECONDS,
-    path: "/",
-  });
+  // Set the SIGNED, user-bound bypass cookie (see mfa-bypass.ts — pen-test MFA-001).
+  await setMfaBypassCookie(user.id);
 
   // Audit-log
   const { data: profile } = await supabase
@@ -192,12 +183,5 @@ export async function verifyBackupCode(plaintext: string): Promise<
   return { ok: true, remaining };
 }
 
-/** Read the bypass cookie. Returns true if the bypass is still valid. */
-export async function hasMfaBypass(): Promise<boolean> {
-  const c = await cookies();
-  const raw = c.get(BYPASS_COOKIE)?.value;
-  if (!raw) return false;
-  const expiry = parseInt(raw);
-  if (!Number.isFinite(expiry)) return false;
-  return Date.now() < expiry;
-}
+// hasMfaBypass moved to ./mfa-bypass (signed + user-bound — pen-test MFA-001).
+// Callers import it from there directly.

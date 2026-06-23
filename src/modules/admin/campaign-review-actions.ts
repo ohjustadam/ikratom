@@ -16,6 +16,14 @@ import { applyCampaignReviewTransition } from "./campaign-review-shared";
 export async function approvePendingCampaign(campaignId: string) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Admin or leader only." };
+  // Approving PUBLISHES a campaign — including ones the AI stance-screen flagged
+  // for human review. The review gate is meaningless if the leader who authored
+  // it can self-approve, so the approve action requires admin/owner (a separate
+  // party from the authoring leader). Leaders can still reject/supersede.
+  // (pen-test SA-01)
+  if (!ctx.isAdmin && !ctx.isOwner) {
+    return { error: "Only an admin can approve a campaign for publication." };
+  }
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
 
@@ -110,6 +118,12 @@ export async function bulkReviewCampaigns(input: {
   const validActions: BulkAction[] = ["approve", "reject", "supersede", "delete"];
   if (!validActions.includes(input.action)) {
     return { error: "Unknown action." };
+  }
+  // Approve/supersede/delete publish or destroy — admin/owner only (a leader
+  // must not self-approve their own flagged campaigns). Leaders may bulk-reject.
+  // (pen-test SA-01)
+  if (input.action !== "reject" && !ctx.isAdmin && !ctx.isOwner) {
+    return { error: "Only an admin can approve, supersede, or delete campaigns." };
   }
   const ids = (input.ids ?? []).filter(
     (s) => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s)

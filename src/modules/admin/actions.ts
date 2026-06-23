@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { hasMfaBypass } from "@/modules/auth/actions-backup-codes";
+import { hasMfaBypass } from "@/modules/auth/mfa-bypass";
 
 export type AdminCheck =
   | {
