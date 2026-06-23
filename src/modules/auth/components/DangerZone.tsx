@@ -7,6 +7,7 @@ export function DangerZone() {
   const [pending, startTransition] = useTransition();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [confirmation, setConfirmation] = useState("");
+  const [password, setPassword] = useState("");
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -35,7 +36,7 @@ export function DangerZone() {
   function deleteAccount() {
     setDeleteError(null);
     startTransition(async () => {
-      const result = await deleteMyAccount({ confirmation });
+      const result = await deleteMyAccount({ confirmation, password });
       if (result && "error" in result && result.error) {
         setDeleteError(result.error);
       }
@@ -99,6 +100,15 @@ export function DangerZone() {
               placeholder="DELETE MY ACCOUNT"
               className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm font-mono focus:border-red-500 focus:outline-none"
             />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Your password"
+              autoComplete="current-password"
+              className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-red-500 focus:outline-none"
+            />
+            <p className="text-[11px] text-zinc-500">Re-enter your password to confirm this can&apos;t be undone.</p>
             {deleteError && (
               <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
                 {deleteError}
@@ -108,14 +118,14 @@ export function DangerZone() {
               <button
                 type="button"
                 onClick={deleteAccount}
-                disabled={pending || confirmation !== "DELETE MY ACCOUNT"}
+                disabled={pending || confirmation !== "DELETE MY ACCOUNT" || password.length === 0}
                 className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
               >
                 {pending ? "Deleting…" : "Permanently delete"}
               </button>
               <button
                 type="button"
-                onClick={() => { setShowDeleteConfirm(false); setConfirmation(""); setDeleteError(null); }}
+                onClick={() => { setShowDeleteConfirm(false); setConfirmation(""); setPassword(""); setDeleteError(null); }}
                 className="text-sm text-zinc-400 hover:text-emerald-400"
               >
                 Cancel

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 /**
  * Export everything we have about the signed-in user as JSON.
@@ -81,14 +82,37 @@ export async function exportMyData(): Promise<{ json: string } | { error: string
  * Uses service role since we need to delete from auth.users (RLS doesn't apply
  * to user-side; the cascade fires on profile deletion).
  */
-export async function deleteMyAccount(input: { confirmation: string }) {
+export async function deleteMyAccount(input: { confirmation: string; password: string }) {
   if (input.confirmation !== "DELETE MY ACCOUNT") {
     return { error: "Confirmation phrase didn't match." };
   }
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
+  if (!user || !user.email) return { error: "Not signed in." };
+
+  // Rate-limit this irreversible, service-role action (pen-test critic): cap
+  // attempts per IP so a hijacked/unattended session can't be hammered.
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`account:delete:ip:${ip}`, 5, 3600))) {
+    return { error: "Too many attempts. Try again later." };
+  }
+
+  // RE-AUTHENTICATE before deleting (pen-test critic): the confirmation phrase is
+  // a known constant, so a live session alone (XSS / stolen cookie / unattended
+  // browser) could wipe the account. Verify the current password via a throwaway
+  // client so the live session is untouched.
+  if (!input.password) return { error: "Enter your password to confirm deletion." };
+  const verifier = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  );
+  const { error: pwErr } = await verifier.auth.signInWithPassword({
+    email: user.email,
+    password: input.password,
+  });
+  if (pwErr) return { error: "Password is incorrect." };
 
   // Use service role to delete the auth.users row — cascades to profile + all
   // user-owned rows via FK on delete cascade across our schema.
@@ -97,6 +121,16 @@ export async function deleteMyAccount(input: { confirmation: string }) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } }
   );
+
+  // Audit the self-deletion (actor_id FK is ON DELETE SET NULL, so the row
+  // survives the cascade as an anonymized record).
+  await admin.from("admin_audit_log").insert({
+    actor_id: user.id,
+    actor_email: user.email,
+    action: "account_self_deleted",
+    target_type: "user",
+    target_id: user.id,
+  });
 
   const { error } = await admin.auth.admin.deleteUser(user.id);
   if (error) return { error: error.message };
