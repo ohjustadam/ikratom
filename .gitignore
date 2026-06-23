@@ -23,6 +23,9 @@ scripts/lib/geo/_proposed.json
 scripts/lib/geo/_confirmed.json
 # One-off diagnostic/fix scripts (underscore-prefixed, never committed)
 scripts/_*.mjs
+# Sensitive commits held out of auto-generated changelog drafts (review sidecar,
+# written by scripts/generate-patch-note.mjs — never published, never committed)
+src/content/patch-notes/*.held.txt
 .playwright-mcp/
 desktop/src-tauri/target/
 desktop/src-tauri/icons/
