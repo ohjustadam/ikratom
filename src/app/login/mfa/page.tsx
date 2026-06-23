@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { MfaChallengeForm } from "@/modules/auth/components/MfaChallengeForm";
+import { safeRelativePath } from "@/lib/safe-redirect";
 
 export const metadata = { title: "Two-factor sign-in" };
 
@@ -10,6 +11,9 @@ export default async function MfaLoginPage({
   searchParams: Promise<{ redirect?: string }>;
 }) {
   const sp = await searchParams;
+  // Open-redirect guard (pen-test oauth-01): sanitize before it reaches a
+  // server redirect() OR the client window.location in MfaChallengeForm.
+  const dest = safeRelativePath(sp.redirect) ?? "/dashboard";
   const supabase = await createClient();
   const {
     data: { user },
@@ -20,13 +24,13 @@ export default async function MfaLoginPage({
 
   // If they're already at aal2, no second factor needed — go straight through.
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aal?.currentLevel === "aal2") redirect(sp.redirect || "/dashboard");
+  if (aal?.currentLevel === "aal2") redirect(dest);
 
   const { data: factors } = await supabase.auth.mfa.listFactors();
   const totp = (factors?.totp ?? []).filter((f) => f.status === "verified");
   if (totp.length === 0) {
     // User has no verified factor — nothing to challenge. Send them home.
-    redirect(sp.redirect || "/dashboard");
+    redirect(dest);
   }
 
   return (
@@ -43,7 +47,7 @@ export default async function MfaLoginPage({
         <div className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950/40 p-6">
           <MfaChallengeForm
             factorId={totp[0].id}
-            redirectTo={sp.redirect ?? "/dashboard"}
+            redirectTo={dest}
           />
         </div>
 
