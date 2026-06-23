@@ -12,6 +12,7 @@
  */
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { decryptToken } from "@/lib/token-crypto";
 
 export type GmailIntegration = {
   user_id: string;
@@ -27,6 +28,7 @@ export async function getGmailIntegration(userId: string): Promise<GmailIntegrat
     .eq("user_id", userId)
     .eq("provider", "gmail")
     .maybeSingle();
+  if (data) data.refresh_token = decryptToken(data.refresh_token); // at-rest decrypt (oauth-02)
   return data;
 }
 
