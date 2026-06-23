@@ -45,7 +45,15 @@ export async function LocalLawWidget({
 
   // ilike with no wildcards = case-insensitive equality: intel rows keep
   // source casing while profiles hold Census casing ("DeSoto" vs "Desoto").
-  const orFilter = places.map((p) => `locality.ilike.${p}`).join(",");
+  // Strip PostgREST .or() structural chars from the (user-set) city/county
+  // first — otherwise a profile city like "Tulsa,scope.eq.x)" injects an extra
+  // predicate (pen-test INJ-02). Drop any value emptied by the strip.
+  const orFilter = places
+    .map((p) => p.replace(/[,():*%\\]/g, " ").trim())
+    .filter(Boolean)
+    .map((p) => `locality.ilike.${p}`)
+    .join(",");
+  if (!orFilter) return null;
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("locality_intel")

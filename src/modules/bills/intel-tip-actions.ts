@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 /**
  * Submit a user-contributed intel tip on a bill.
@@ -41,6 +42,16 @@ export async function submitBillIntelTip(input: SubmitTipInput) {
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+
+  // Rate-limit (pen-test SA-03): stop one account/IP from flooding the intel
+  // moderation queue with junk tips. Per-user when signed in; always per-IP.
+  const ip = await getClientIp();
+  if (user && !(await checkRateLimit(`intel:tip:user:${user.id}`, 5, 86400))) {
+    return { error: "You've submitted several tips today — thanks! Try again tomorrow." };
+  }
+  if (!(await checkRateLimit(`intel:tip:ip:${ip}`, 10, 86400))) {
+    return { error: "Too many tips from this network today. Try again tomorrow." };
+  }
 
   const isAnon = !!input.isAnonymous || !user;
 

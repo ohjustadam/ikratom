@@ -51,7 +51,11 @@ export async function sweepSavedSearches(
     if (s.query.relevance) q = q.eq("kratom_relevance", s.query.relevance);
     if (s.query.scope) q = q.eq("scope", s.query.scope);
     if (s.query.keyword) {
-      q = q.or(`title.ilike.%${s.query.keyword}%,summary.ilike.%${s.query.keyword}%`);
+      // Strip PostgREST .or() structural chars from the user-stored keyword
+      // before interpolation — else a saved keyword like `x,scope.eq.federal)`
+      // injects an extra predicate on the next cron sweep (pen-test INJ-01).
+      const kw = s.query.keyword.replace(/[,():*%\\]/g, " ").trim();
+      if (kw) q = q.or(`title.ilike.%${kw}%,summary.ilike.%${kw}%`);
     }
 
     const { data: matches } = await q;
