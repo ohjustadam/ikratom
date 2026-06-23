@@ -95,7 +95,15 @@ function foldLine(line: string): string {
 
 function line(name: string, value: string | null | undefined): string | null {
   if (value === null || value === undefined || value === "") return null;
-  return foldLine(`${name}:${value}`);
+  // Strip raw CR/LF + C0 control chars from the value before folding. An ICS
+  // line value must never contain them — otherwise a stored value with an
+  // embedded newline (e.g. a scraped source_url / agenda_url, or a crafted
+  // title) would fold-break the document and inject an arbitrary property line
+  // into the public feed (ICS injection). escapeIcalText already neutralizes \n
+  // in TEXT values; this also covers URL/SOURCE fields (emitted un-escaped,
+  // since escaping a URI's , or ; would corrupt it) and a lone \r. (round-3 critic)
+  const safe = value.replace(/[\r\n\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  return foldLine(`${name}:${safe}`);
 }
 
 /**
