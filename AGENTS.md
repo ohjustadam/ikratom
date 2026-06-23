@@ -4,6 +4,8 @@ You are working on **iKratom**, a nonpartisan kratom advocacy platform. This fil
 
 **START HERE if you're a new session:** read `private/V2_KICKOFF.md` — single source of truth for what's left before app-store submission and v2 work. It supersedes `ROADMAP.md` and anything below this line if there's a conflict.
 
+**🏛️ If your task touches `/states`, `/briefings`, `/intel`, `/legislators`, or any state-scoped surface: ALSO read `private/STATE_HUB_SPEC.md` FIRST** — the canonical spec for the active State-HQ rebuild (owner ask 2026-06-22). It sets the consolidation IA (`/states/[code]` is the one hub), the 3-tier model, the live-data-not-baked rule, and the section-by-section build plan + fast-follow pipelines. Build to it; don't re-architect these pages ad hoc.
+
 **Sister docs (read on demand):**
 - `CLAUDE.md` — product rules, scope, conventions (this file extends it)
 - `ARCHITECTURE.md` — directory + module map, data flow

@@ -6,6 +6,9 @@ import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
 import { StatusHeader, type StateStatusData } from "./StatusHeader";
 import { StateOfficials } from "./StateOfficials";
+import { StateHQLocalReps } from "./StateHQLocalReps";
+import { AudioReader } from "@/components/AudioReader";
+import { renderMarkdown, mdToPlainText } from "@/lib/markdown";
 import { resolveBillHrefs } from "@/modules/state-status/evidence";
 import { STATE_NAMES } from "@/lib/state-names";
 
@@ -148,7 +151,7 @@ export default async function StatePage({ params }: Props) {
       .limit(5),
     supabase
       .from("state_briefings")
-      .select("state, generated_at")
+      .select("state, generated_at, generated_by_provider, body_md, manual_addendum_md")
       .eq("state", codeUpper)
       .eq("is_active", true)
       .maybeSingle(),
@@ -493,6 +496,16 @@ export default async function StatePage({ params }: Props) {
     },
   };
 
+  // Folded AI field briefing (state_briefings) — narrative prose + Kokoro
+  // Listen, rendered inline so /briefings/state/[code] can redirect here.
+  // The LIVE sections above/below are the actionable meat; this is context.
+  const b = briefing.data as { body_md?: string | null; manual_addendum_md?: string | null; generated_at?: string | null; generated_by_provider?: string | null } | null;
+  const briefingMd = b?.body_md
+    ? (b.manual_addendum_md ? `${b.manual_addendum_md}\n\n---\n\n${b.body_md}` : b.body_md)
+    : "";
+  const briefingHtml = briefingMd ? renderMarkdown(briefingMd) : "";
+  const briefingText = briefingMd ? mdToPlainText(briefingMd) : "";
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <script
@@ -517,6 +530,10 @@ export default async function StatePage({ params }: Props) {
         {/* Answer-first canonical status (Mission Control). Hidden until the
             derivation has populated state_status for this state. */}
         <StatusHeader status={stateStatus} billHrefs={statusBillHrefs} />
+
+        {/* Your local reps FIRST (owner ask 2026-06-22) — answer-first: who
+            represents YOU here + one-click contact, or a tiered activation CTA. */}
+        <StateHQLocalReps state={codeUpper} stateName={stateName} />
 
         {/* Threat-tier snapshot — surfaces the composite-scorer counts
             for this state so users see exactly how much work is to be
@@ -608,12 +625,12 @@ export default async function StatePage({ params }: Props) {
             </span>
           )}
           {briefing.data?.generated_at && (
-            <Link
-              href={`/briefings/state/${codeUpper}`}
+            <a
+              href="#briefing"
               className="rounded border border-emerald-700/40 bg-emerald-950/15 px-3 py-1 text-emerald-300 hover:border-emerald-500"
             >
               📋 Full briefing
-            </Link>
+            </a>
           )}
           <Link
             href={`/states/${codeUpper}/briefing`}
@@ -687,6 +704,33 @@ export default async function StatePage({ params }: Props) {
           advocate notified when something happens. */}
       <SignUpNudge context="state" stateCode={codeUpper} className="mb-8" />
       <EnablePushNudge context="state" stateCode={codeUpper} className="mb-8" />
+
+      {/* AI field briefing — folded in from /briefings/state/[code] (now
+          redirects here). Narrative is context; the LIVE sections below are
+          the actionable meat, so this sits in a collapsible with one-tap
+          Kokoro Listen (the feature announced 2026-06-22). */}
+      {briefingHtml && (
+        <details open id="briefing" className="group mb-8 scroll-mt-20 rounded-lg border border-emerald-900/40 bg-gradient-to-br from-zinc-950/40 to-emerald-950/10 p-5">
+          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 [&::-webkit-details-marker]:hidden">
+            <span className="inline-block text-[10px] text-emerald-300/70 transition-transform group-open:rotate-90">▸</span>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">🎧 {stateName} field briefing</h2>
+            <span className="text-[10px] text-zinc-500">AI-synthesized · tap Listen to hear it</span>
+          </summary>
+          <div className="mt-3">
+            <AudioReader
+              id={`state-briefing-${codeUpper}`}
+              text={`${stateName} field briefing. ${briefingText}`}
+              label="Listen to this briefing"
+            />
+          </div>
+          <article className="briefing-md md-content mt-4 text-sm" dangerouslySetInnerHTML={{ __html: briefingHtml }} />
+          {b?.generated_at && (
+            <p className="mt-3 text-[10px] uppercase tracking-wider text-zinc-600">
+              AI-synthesized{b.generated_by_provider ? ` · ${b.generated_by_provider}` : ""} · updated {new Date(b.generated_at).toISOString().slice(0, 10)}
+            </p>
+          )}
+        </details>
+      )}
 
       {/* State bills MOVING — last 90 days of legislative activity. */}
       {movingStateBills.length > 0 && (
