@@ -10,7 +10,7 @@ export default async function CampaignsPage() {
   const [{ data: campaigns }, { data: { user } }] = await Promise.all([
     supabase
       .from("campaigns")
-      .select("id, slug, title, blurb, state, target_locality, bill_id, mobilization_type, auto_generated, created_at, active")
+      .select("id, slug, title, blurb, state, target_locality, bill_id, mobilization_type, auto_generated, created_at, active, is_standing")
       .eq("active", true)
       .order("created_at", { ascending: false }),
     supabase.auth.getUser(),
@@ -112,6 +112,7 @@ export default async function CampaignsPage() {
       stance,
       bill_status: bm?.status ?? null,
       severity: campaignToSeverity[c.id] ?? null,
+      is_standing: !!(c as { is_standing?: boolean }).is_standing,
     };
   });
 
