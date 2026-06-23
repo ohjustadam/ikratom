@@ -110,13 +110,16 @@ export async function createConversation(input: {
     }
   }
 
-  // Create new conversation
+  // Create new conversation. created_by is set so the tightened
+  // dm_participants INSERT policy (mig 0216) lets the creator seed both
+  // participant rows — and ONLY the creator/owner can add members.
   const { data: conv, error: convErr } = await supabase
     .from("dm_conversations")
     .insert({
       encrypted_session_keys: input.encryptedSessionKeys,
       session_key_nonces: input.sessionKeyNonces,
       session_key_sender_id: user.id,
+      created_by: user.id,
     })
     .select("id")
     .single();
