@@ -24,7 +24,12 @@ type ExportType = (typeof TYPES)[number];
 
 function csvEscape(s: unknown): string {
   if (s === null || s === undefined) return "";
-  const str = String(s).replace(/\r?\n/g, " ");
+  let str = String(s).replace(/\r?\n/g, " ");
+  // CSV formula-injection defense (pen-test critic): Excel/Sheets execute a cell
+  // that starts with = + - @ (or tab/CR) as a formula — e.g. a campaign title
+  // `=HYPERLINK(...)` runs when an admin opens the export. Prefix with ' to force
+  // the cell to be treated as text.
+  if (/^[=+\-@\t\r]/.test(str)) str = "'" + str;
   if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
   return str;
 }
@@ -57,6 +62,12 @@ export async function GET(req: NextRequest) {
     .single();
   const p = profile as { is_admin: boolean | null; is_owner: boolean | null; is_advocate_leader: boolean | null } | null;
   if (!p?.is_admin && !p?.is_owner && !p?.is_advocate_leader) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  // The advocates export dumps every user's real full_name + full district
+  // geography — admin/owner only (pen-test critic). Leaders can still export
+  // the non-PII campaigns/actions/bills views.
+  if (type === "advocates" && !p.is_admin && !p.is_owner) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
