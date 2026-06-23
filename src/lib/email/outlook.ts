@@ -13,6 +13,7 @@
  */
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { decryptToken } from "@/lib/token-crypto";
 
 export type OutlookIntegration = {
   user_id: string;
@@ -36,6 +37,7 @@ export async function getOutlookIntegration(userId: string): Promise<OutlookInte
     .eq("user_id", userId)
     .eq("provider", "outlook")
     .maybeSingle();
+  if (data) data.refresh_token = decryptToken(data.refresh_token); // at-rest decrypt (oauth-02)
   return data;
 }
 

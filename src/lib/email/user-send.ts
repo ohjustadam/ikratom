@@ -12,6 +12,7 @@
  */
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { decryptToken } from "@/lib/token-crypto";
 import {
   sendViaGmail,
   GmailTokenRevokedError,
@@ -54,6 +55,7 @@ export async function getEmailIntegration(userId: string): Promise<EmailIntegrat
     .eq("user_id", userId)
     .maybeSingle();
   if (!data) return null;
+  data.refresh_token = decryptToken(data.refresh_token); // at-rest decrypt (oauth-02)
   if (!data.refresh_token) return null;
   if (data.provider !== "gmail" && data.provider !== "outlook") return null;
   return data as EmailIntegrationRow;

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { recordAuthEvent } from "@/lib/auth-events";
+import { encryptToken } from "@/lib/token-crypto";
 
 /**
  * Microsoft 365 / Outlook OAuth callback. Mirrors the Google one:
@@ -146,7 +147,7 @@ export async function GET(req: NextRequest) {
         user_id: user.id,
         provider: "outlook",
         account_email: accountEmail,
-        refresh_token: refreshToken,
+        refresh_token: encryptToken(refreshToken), // at-rest encrypt (oauth-02)
         scopes: scope,
         connected_at: new Date().toISOString(),
         last_error: null,
