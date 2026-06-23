@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { buildCsp } from "@/lib/csp";
 
 /**
  * Next.js 16 proxy (replaces middleware.ts).
@@ -68,77 +69,10 @@ function buildCspHeader(nonce: string): string {
   void nonce; // reserved for future nonce-based script-src
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const supabaseHost = supabaseUrl.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-  const r2Base = process.env.R2_PUBLIC_BASE_URL ?? "";
-  const r2Host = r2Base.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-
-  // Supabase realtime is WSS to the same project host.
-  const wsSupabase = supabaseHost ? `wss://${supabaseHost}` : "";
-  const httpSupabase = supabaseHost ? `https://${supabaseHost}` : "";
-
-  const directives: Record<string, string[]> = {
-    "default-src": ["'self'"],
-    "script-src": [
-      "'self'",
-      "'unsafe-inline'",
-      "'wasm-unsafe-eval'", // in-browser Kokoro TTS compiles a WASM module (onnxruntime-web)
-      "https://va.vercel-scripts.com",
-      "https://vitals.vercel-insights.com",
-      "https://cdn.jsdelivr.net", // onnxruntime-web WASM glue for in-browser Kokoro TTS
-    ],
-    "style-src": ["'self'", "'unsafe-inline'"],
-    "img-src": [
-      "'self'",
-      "data:",
-      "blob:",
-      "https:", // accept any https image source — user-supplied news thumbnails, partner avatars, etc.
-    ],
-    "font-src": ["'self'", "data:"],
-    "connect-src": [
-      "'self'",
-      httpSupabase,
-      wsSupabase,
-      r2Base || "",
-      r2Host ? `https://${r2Host}` : "",
-      // Sentry ingestion
-      "https://*.ingest.sentry.io",
-      "https://*.ingest.us.sentry.io",
-      // PostHog
-      "https://us.i.posthog.com",
-      "https://app.posthog.com",
-      // Vercel Analytics + Speed Insights
-      "https://vitals.vercel-insights.com",
-      "https://va.vercel-scripts.com",
-      // In-browser Kokoro TTS ("Listen"): model weights from HuggingFace CDN
-      // + onnxruntime-web .wasm from jsDelivr.
-      "https://huggingface.co",
-      "https://*.huggingface.co",
-      "https://*.hf.co",
-      "https://*.aws.cdn.hf.co", // HF Xet CDN — model weights redirect here (us.aws.cdn.hf.co)
-      "https://cdn.jsdelivr.net",
-    ].filter(Boolean),
-    "frame-src": [
-      "'self'",
-      // Video + audio embeds on /news/[id] (publisher-served players).
-      "https://www.youtube.com",
-      "https://www.youtube-nocookie.com",
-      "https://player.vimeo.com",
-      "https://w.soundcloud.com",
-      "https://open.spotify.com",
-      "https://embed.podcasts.apple.com",
-    ],
-    "media-src": ["'self'", "blob:", "https:"],
-    "worker-src": ["'self'", "blob:"],
-    "manifest-src": ["'self'"],
-    "object-src": ["'none'"],
-    "base-uri": ["'self'"],
-    "form-action": ["'self'"],
-    "frame-ancestors": ["'none'"],
-    "upgrade-insecure-requests": [],
-  };
-
-  return Object.entries(directives)
-    .map(([k, v]) => (v.length ? `${k} ${v.join(" ")}` : k))
-    .join("; ");
+  // Shared canonical CSP (src/lib/csp.ts) so this report-only header mirrors the
+  // enforced policy in next.config.ts and the two can't drift (pen-test SHC-03).
+  const scriptEval = process.env.NODE_ENV === "production" ? "'wasm-unsafe-eval'" : "'unsafe-eval'";
+  return buildCsp({ supabaseHost, scriptEval });
 }
 
 /**
