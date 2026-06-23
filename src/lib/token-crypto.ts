@@ -34,7 +34,7 @@ function deriveKey(): Buffer {
 export function encryptToken(plain: string | null | undefined): string {
   if (!plain) return plain ?? "";
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", deriveKey(), iv);
+  const cipher = createCipheriv("aes-256-gcm", deriveKey(), iv, { authTagLength: 16 });
   const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return PREFIX + Buffer.concat([iv, tag, ct]).toString("base64");
@@ -49,7 +49,7 @@ export function decryptToken(stored: string | null | undefined): string {
     const iv = raw.subarray(0, 12);
     const tag = raw.subarray(12, 28);
     const ct = raw.subarray(28);
-    const decipher = createDecipheriv("aes-256-gcm", deriveKey(), iv);
+    const decipher = createDecipheriv("aes-256-gcm", deriveKey(), iv, { authTagLength: 16 });
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
   } catch {
