@@ -26,6 +26,8 @@
  * fight past this barrier).
  */
 
+import { lookup } from "dns/promises";
+
 const PRIVATE_IPV4_BLOCKS = [
   // 10.0.0.0/8
   (a: number) => a === 10,
@@ -168,6 +170,27 @@ export async function safeFetch(
   for (let hop = 0; hop <= maxRedirects; hop++) {
     const chk = isSafePublicUrl(current);
     if (!chk.ok) return { ok: false, reason: chk.reason };
+    // DNS-rebinding defense (pen-test ssrf-02): isSafePublicUrl is a static string
+    // check, so a PUBLIC hostname pointed at an internal IP (private A record)
+    // would slip past it. Resolve the host and reject if ANY address is
+    // private/loopback/link-local before connecting. (A TTL-0 rebind flipping
+    // AFTER this lookup would need fetch's own resolution to differ — pinning the
+    // socket to a validated IP via a custom undici lookup is the further
+    // hardening; these fetchers are admin/leader-gated so resolve+reject is the
+    // right tradeoff.)
+    const h = chk.url.hostname;
+    const isIpLiteral = /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":") || h.startsWith("[");
+    if (!isIpLiteral) {
+      try {
+        const addrs = await lookup(h, { all: true });
+        for (const a of addrs) {
+          const priv = a.family === 6 ? isPrivateIpv6(a.address) : isPrivateIpv4(a.address);
+          if (priv) return { ok: false, reason: "Hostname resolves to a private address." };
+        }
+      } catch {
+        return { ok: false, reason: "Could not resolve hostname." };
+      }
+    }
     const res = await fetch(chk.url.toString(), { ...init, redirect: "manual" });
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get("location");
