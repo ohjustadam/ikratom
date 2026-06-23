@@ -217,4 +217,25 @@ describe("buildIcalDocument", () => {
     expect(doc).toContain("UID:a");
     expect(doc).toContain("UID:b");
   });
+
+  it("strips CR/LF from URL fields so a crafted value can't inject an ICS property line (round-3)", () => {
+    const doc = buildIcalDocument({
+      calendarName: "x",
+      description: "x",
+      url: "https://ikratom.org/cal\r\nX-EVIL:cal-injected",
+      events: [
+        {
+          uid: "x",
+          start: new Date("2026-05-15T18:00:00Z"),
+          title: "T",
+          url: "https://evil.test/\r\nATTACH:http://evil/p",
+        },
+      ],
+    });
+    // Neither injected property may appear as its own (CR/LF-prefixed) line.
+    expect(doc).not.toMatch(/[\r\n]X-EVIL:/);
+    expect(doc).not.toMatch(/[\r\n]ATTACH:/);
+    // Control chars are simply removed; the URL text is otherwise preserved.
+    expect(doc).toContain("URL:https://ikratom.org/calX-EVIL:cal-injected");
+  });
 });
