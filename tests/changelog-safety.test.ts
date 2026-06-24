@@ -75,12 +75,12 @@ describe("changelog-safety: no published patch-note leaks (CI guard)", () => {
     expect(files.length).toBeGreaterThan(0);
   });
 
-  // Pre-existing posts that predate this guard and trip it — FLAGGED for owner
-  // review (this PR de-leaked the June 22/23 auto-drafts; 2026-05-17-update is an
-  // older intel-feature post advertising the threat-matrix + donor surfacing,
-  // which the later intel-lockdown pulled off public surfaces). Do NOT extend
-  // this list — fix or remove the offending post instead. New posts are strict.
-  const GRANDFATHERED = new Set(["2026-05-17-update.md"]);
+  // Legacy posts exempted from the blocklist scan. Currently EMPTY — every
+  // published post must pass. (The only former entry, 2026-05-17-update, was an
+  // intel-feature post advertising the threat-matrix + donor surfacing that the
+  // intel-lockdown pulled off public surfaces; it was deleted, not exempted.)
+  // Do NOT add entries — fix or remove the offending post instead.
+  const GRANDFATHERED = new Set<string>([]);
 
   for (const f of files) {
     const t = GRANDFATHERED.has(f) ? it.skip : it;
