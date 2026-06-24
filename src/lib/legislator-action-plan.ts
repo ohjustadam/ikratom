@@ -334,3 +334,27 @@ export const STANCE_META: Record<Stance, { label: string; tone: string; emoji: s
   hostile: { label: "Hostile", tone: "bg-red-600 text-zinc-100", emoji: "🚫" },
   unknown: { label: "Unknown", tone: "bg-zinc-800 text-zinc-400", emoji: "❓" },
 };
+
+// Topic-keyed stance (legislator_stance.topic). kratom is the seed tenant; the
+// schema + plumbing are topic-agnostic so the same stance grid generalizes to
+// these issues as evidence is populated. Order = display order in any grid.
+export const STANCE_TOPICS = [
+  "kratom",
+  "cannabis",
+  "hemp_cbd",
+  "psychedelics",
+  "supplements",
+  "tobacco_vaping",
+  "alcohol",
+] as const;
+export type StanceTopic = (typeof STANCE_TOPICS)[number];
+export const STANCE_TOPIC_DEFAULT: StanceTopic = "kratom";
+export const STANCE_TOPIC_META: Record<StanceTopic, { label: string; emoji: string }> = {
+  kratom: { label: "Kratom", emoji: "🌿" },
+  cannabis: { label: "Cannabis", emoji: "🍃" },
+  hemp_cbd: { label: "Hemp / CBD", emoji: "🌱" },
+  psychedelics: { label: "Psychedelics", emoji: "🍄" },
+  supplements: { label: "Dietary supplements", emoji: "💊" },
+  tobacco_vaping: { label: "Tobacco / vaping", emoji: "🚬" },
+  alcohol: { label: "Alcohol", emoji: "🍷" },
+};

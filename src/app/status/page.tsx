@@ -142,7 +142,7 @@ const getStatusSnapshot = unstable_cache(
       // Distinct states with a stance draft. Capped at 2000 (was 20000):
       // there are only 51 possible states, so a 2000-row sample captures
       // them all in practice while keeping the payload bounded.
-      supabase.from("legislator_kratom_stance").select("legislators!inner(state)").limit(2000),
+      supabase.from("legislator_stance").select("legislators!inner(state)").eq("topic", "kratom").limit(2000),
       supabase.from("scraper_runs_latest").select("source, started_at, status, rows_added"),
       supabase.from("bills").select("current_committee_name", { count: "exact", head: true })
         .eq("active", true)

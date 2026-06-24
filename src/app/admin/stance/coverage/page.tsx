@@ -26,7 +26,7 @@ type Row = {
   state: string;
   legislators: number;
   candidates: number;        // legs with sponsorships OR kratom committee
-  stanced: number;           // legs with any legislator_kratom_stance row
+  stanced: number;           // legs with any legislator_stance (kratom) row
   reviewed: number;          // stanced + stance != 'unknown' (admin set explicit value)
   active_bills: number;
 };
@@ -56,7 +56,7 @@ export default async function StanceCoveragePage() {
     sb.from("legislators").select("id, state").eq("active", true),
     sb.from("bill_sponsors").select("legislator_id, bills!inner(state, active, kratom_relevance)"),
     sb.from("legislator_committees").select("legislator_id, legislators!inner(state)").eq("is_kratom_relevant", true),
-    sb.from("legislator_kratom_stance").select("legislator_id, stance, legislators!inner(state)"),
+    sb.from("legislator_stance").select("legislator_id, stance, legislators!inner(state)").eq("topic", "kratom"),
     sb.from("bills").select("state").eq("active", true).in("kratom_relevance", ["anti", "pro"]),
   ]);
 

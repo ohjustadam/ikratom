@@ -140,7 +140,7 @@ export default async function ThreatMatrixPage({
     tradesRaw,
   ] = await Promise.all([
     fetchAllLegislators(),
-    sb.from("legislator_kratom_stance").select("legislator_id, stance"),
+    sb.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom"),
     sb
       .from("bill_sponsors")
       .select("legislator_id, classification, bill_id, bills!inner(kratom_relevance, state, active, current_committee_name)")
@@ -587,7 +587,7 @@ export default async function ThreatMatrixPage({
       )}
 
       <p className="mt-8 text-[10px] text-zinc-600">
-        Scoring inputs: stance (legislator_kratom_stance), sponsorships (bill_sponsors), committee
+        Scoring inputs: stance (legislator_stance), sponsorships (bill_sponsors), committee
         memberships (legislator_committees), active bills in committee (bills), donor industries
         (legislator_donors.top_industries), STOCK Act trades (federal_personal_trades). Federal
         legislators have donor + trade signals; state legislators don&apos;t (yet). All scoring code

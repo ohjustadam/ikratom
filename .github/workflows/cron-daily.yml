@@ -625,7 +625,7 @@ jobs:
     # but steady-state cost remains low (only NEW candidates with
     # sponsorships or kratom committee memberships).
     #
-    # Stances land as draft in legislator_kratom_stance with rationale_md
+    # Stances land as draft in legislator_stance (topic=kratom) with rationale_md
     # populated; admin reviews + flips final stance at /admin/stance.
     #
     # Runs AFTER sync-committees-openstates so today's committee data

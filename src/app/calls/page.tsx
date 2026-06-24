@@ -85,8 +85,9 @@ export default async function CallsPage() {
   let leverageTargets: Array<{ id: string; full_name: string; role: string; district: string | null; phone: string | null; party: string | null; stance: string }> = [];
   if (profile?.state) {
     const { data: stances } = await sb
-      .from("legislator_kratom_stance")
+      .from("legislator_stance")
       .select("stance, legislators!inner(id, full_name, role, district, phone, party, state)")
+      .eq("topic", "kratom")
       .eq("legislators.state", profile.state)
       .in("stance", ["champion", "hostile"])
       .limit(10);

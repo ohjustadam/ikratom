@@ -54,7 +54,7 @@ export default async function IntelHubPage() {
     sb.from("lobbying_filings").select("id", { count: "exact", head: true }),
     sb.from("legislator_donors").select("legislator_id", { count: "exact", head: true }).eq("resolved_status", "matched"),
     sb.from("legislators").select("id", { count: "exact", head: true }).eq("active", true),
-    sb.from("legislator_kratom_stance").select("legislator_id", { count: "exact", head: true }).neq("stance", "unknown"),
+    sb.from("legislator_stance").select("legislator_id", { count: "exact", head: true }).eq("topic", "kratom").neq("stance", "unknown"),
     sb.from("court_cases").select("id", { count: "exact", head: true }),
     sb.from("federal_rulemaking").select("id", { count: "exact", head: true }),
     sb.from("federal_rulemaking").select("id", { count: "exact", head: true }).eq("open_for_comment", true),
