@@ -217,7 +217,7 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
     const distinctLegIds = [...new Set((sps ?? []).map((s) => s.legislator_id).filter((x): x is string => !!x))];
     if (distinctLegIds.length > 0) {
       const [stanceRes, donorRes, legInfoRes, allClusterMembershipsRes] = await Promise.all([
-        sb.from("legislator_kratom_stance").select("legislator_id, stance").in("legislator_id", distinctLegIds),
+        sb.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom").in("legislator_id", distinctLegIds),
         sb.from("legislator_donors")
           .select("legislator_id, top_industries")
           .in("legislator_id", distinctLegIds)

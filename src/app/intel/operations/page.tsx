@@ -141,8 +141,9 @@ export default async function OperationsIntelPage() {
       const stanceByLeg = new Map<string, string>();
       if (sponsorLegIds.length > 0) {
         const { data: stances } = await sb
-          .from("legislator_kratom_stance")
+          .from("legislator_stance")
           .select("legislator_id, stance")
+          .eq("topic", "kratom")
           .in("legislator_id", sponsorLegIds);
         for (const s of (stances ?? []) as Array<{ legislator_id: string; stance: string }>) {
           stanceByLeg.set(s.legislator_id, s.stance);

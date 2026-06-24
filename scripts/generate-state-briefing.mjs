@@ -395,8 +395,9 @@ async function loadStateData(state) {
     sb.from("campaigns")
       .select("id, title, active, review_state").eq("state", state),
     // Per-legislator kratom stance (champion / hostile / etc) joined to legislators
-    sb.from("legislator_kratom_stance")
+    sb.from("legislator_stance")
       .select("legislator_id, stance, rationale_md, last_evidence_url, legislators!inner(full_name, role, district, state)")
+      .eq("topic", "kratom")
       .eq("legislators.state", state),
     // Kratom-relevant committee chairs in this state
     sb.from("legislator_committees")

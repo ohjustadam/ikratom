@@ -88,8 +88,9 @@ export default async function BriefingPage({ params }: { params: Params }) {
     newsMentionsRaw,
     personalTradesRaw,
   ] = await Promise.all([
-    sb.from("legislator_kratom_stance")
+    sb.from("legislator_stance")
       .select("stance, rationale_md, last_evidence_url, last_updated_at")
+      .eq("topic", "kratom")
       .eq("legislator_id", id)
       .maybeSingle(),
     sb.from("bill_sponsors")

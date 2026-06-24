@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * AI-assisted draft for legislator_kratom_stance.
+ * AI-assisted draft for legislator_stance (topic='kratom').
  *
  * For each NY legislator who has either:
  *   - Sponsored a kratom bill (any anti/pro/neutral)
@@ -210,8 +210,9 @@ const candidates = (legs ?? []).map(l => ({
 console.log(`${STATE_CODE}: ${candidates.length} candidate legislators (out of ${legs?.length ?? 0}) with kratom signal\n`);
 
 // 5. Skip those who already have a stance unless --refresh
-const { data: existing } = await sb.from("legislator_kratom_stance")
+const { data: existing } = await sb.from("legislator_stance")
   .select("legislator_id")
+  .eq("topic", "kratom")
   .in("legislator_id", candidates.map(c => c.id));
 const haveStance = new Set((existing ?? []).map(r => r.legislator_id));
 const toProcess = REFRESH ? candidates : candidates.filter(c => !haveStance.has(c.id));
@@ -239,12 +240,13 @@ for (const leg of toProcess) {
     const rationale = (parsed.rationale_md ?? "").slice(0, 2000) || null;
     const evidenceUrl = (parsed.last_evidence_url ?? "").startsWith("http") ? parsed.last_evidence_url.slice(0, 500) : null;
     if (!DRY_RUN) {
-      const { error } = await sb.from("legislator_kratom_stance").upsert({
+      const { error } = await sb.from("legislator_stance").upsert({
         legislator_id: leg.id,
+        topic: "kratom",
         stance,
         rationale_md: rationale,
         last_evidence_url: evidenceUrl,
-      });
+      }, { onConflict: "legislator_id,topic" });
       if (error) { console.log(`✗ db: ${error.message}`); errored++; continue; }
     }
     console.log(`✓ ${stance} via ${r.provider}`);

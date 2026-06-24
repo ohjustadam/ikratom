@@ -517,7 +517,7 @@ export default async function BillDetailPage({
         // Bulk-pull intel signals for the matched legislators
         const memberIds = matched.map((c) => c.legislator_id);
         const [stancesRes, sponsorsRes, donorsRes, tradesRes] = await Promise.all([
-          supabase.from("legislator_kratom_stance").select("legislator_id, stance").in("legislator_id", memberIds),
+          supabase.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom").in("legislator_id", memberIds),
           supabase.from("bill_sponsors")
             .select("legislator_id, classification, bills!inner(kratom_relevance, active)")
             .in("legislator_id", memberIds)

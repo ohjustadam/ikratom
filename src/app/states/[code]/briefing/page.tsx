@@ -77,8 +77,8 @@ export default async function StateBriefingPage({ params }: { params: Params }) 
       .eq("state", STATE)
       .eq("active", true)
       .limit(2000),
-    sb.from("legislator_kratom_stance")
-      .select("legislator_id, stance"),
+    sb.from("legislator_stance")
+      .select("legislator_id, stance").eq("topic", "kratom"),
     sb.from("bill_sponsors")
       .select("bill_id, legislator_id, classification, bills!inner(state, kratom_relevance, current_committee_name)")
       .eq("bills.state", STATE),

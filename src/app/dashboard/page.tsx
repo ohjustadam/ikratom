@@ -86,8 +86,9 @@ export default async function DashboardPage({
   const stanceByRepId = new Map<string, string>();
   if (myReps.length > 0) {
     const { data: stances } = await supabaseForReps
-      .from("legislator_kratom_stance")
+      .from("legislator_stance")
       .select("legislator_id, stance")
+      .eq("topic", "kratom")
       .in("legislator_id", myReps.map((r) => r.id));
     for (const s of (stances ?? []) as Array<{ legislator_id: string; stance: string }>) {
       stanceByRepId.set(s.legislator_id, s.stance);

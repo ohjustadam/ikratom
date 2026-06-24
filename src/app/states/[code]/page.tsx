@@ -188,7 +188,7 @@ export default async function StatePage({ params }: Props) {
       .eq("state", codeUpper)
       .eq("active", true)
       .limit(2000),
-    supabase.from("legislator_kratom_stance").select("legislator_id, stance"),
+    supabase.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom"),
     supabase
       .from("bill_sponsors")
       .select("legislator_id, classification, bills!inner(state, kratom_relevance, active)")

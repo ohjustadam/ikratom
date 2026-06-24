@@ -242,8 +242,9 @@ export default async function CampaignPage({
   if (targetIds.length > 0) {
     const [stancesRes, donorsRes, tradesRes] = await Promise.all([
       supabase
-        .from("legislator_kratom_stance")
+        .from("legislator_stance")
         .select("legislator_id, stance")
+        .eq("topic", "kratom")
         .in("legislator_id", targetIds),
       supabase
         .from("legislator_donors")
