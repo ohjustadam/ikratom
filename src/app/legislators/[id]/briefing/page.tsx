@@ -7,11 +7,14 @@ import {
   buildActionPlan,
   CHANNEL_LABEL,
   STANCE_META,
+  STANCE_TOPICS,
+  STANCE_TOPIC_META,
   type Stance,
   type LeverageSignal,
 } from "@/lib/legislator-action-plan";
 import { actorsForLegislator, FACTION_META, ROLE_LABEL } from "@/lib/kratom-industry-actors";
 import { RemindMeButton } from "@/components/RemindMeButton";
+import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { getAdminContext } from "@/modules/admin/actions";
 
 export const dynamic = "force-dynamic";
@@ -65,7 +68,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
 
   const { data: legRaw } = await sb
     .from("legislators")
-    .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active")
+    .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active, portrait_url")
     .eq("id", id)
     .maybeSingle();
   if (!legRaw) notFound();
@@ -74,7 +77,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
     full_name: string; party: string | null; email: string | null;
     phone: string | null; office_address: string | null; website: string | null;
     level: string | null; locality: string | null; body: string | null; title: string | null;
-    active: boolean;
+    active: boolean; portrait_url: string | null;
   };
 
   // ── Parallel pulls
@@ -154,6 +157,20 @@ export default async function BriefingPage({ params }: { params: Params }) {
   const stanceRationale = (stanceRow.data as { rationale_md?: string | null } | null)?.rationale_md ?? null;
   const stanceEvidence = (stanceRow.data as { last_evidence_url?: string | null } | null)?.last_evidence_url ?? null;
   const stanceUpdated = (stanceRow.data as { last_updated_at?: string | null } | null)?.last_updated_at ?? null;
+
+  // Multi-issue stance grid — every topic we track this official across.
+  // Same RLS as the kratom read (verified/creator), so unverified viewers
+  // see the coverage framework but no positions. Topics without a row are
+  // honestly shown as "not yet assessed" (real-data-only).
+  const { data: allStanceRows } = await sb
+    .from("legislator_stance")
+    .select("topic, stance")
+    .eq("legislator_id", id);
+  const stanceByTopic = new Map<string, Stance>();
+  for (const r of (allStanceRows ?? []) as Array<{ topic: string; stance: Stance }>) {
+    stanceByTopic.set(r.topic, r.stance);
+  }
+  const assessedTopicCount = [...stanceByTopic.values()].filter((s) => s !== "unknown").length;
 
   // Sponsorships — flatten + classify
   type SponsorshipLite = {
@@ -649,7 +666,10 @@ export default async function BriefingPage({ params }: { params: Params }) {
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
           ◉ Intel briefing
         </p>
-        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">{leg.full_name}</h1>
+        <div className="mt-2 flex items-center gap-4">
+          <OfficialAvatar name={leg.full_name} portraitUrl={leg.portrait_url} size="lg" />
+          <h1 className="text-3xl font-bold sm:text-4xl">{leg.full_name}</h1>
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono uppercase">{displayRole}</span>
           {leg.party && <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono">{leg.party}</span>}
@@ -692,6 +712,36 @@ export default async function BriefingPage({ params }: { params: Params }) {
           />
         </div>
       </header>
+
+      {/* ── Stance across issues (multi-topic dossier grid) ─────── */}
+      <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <div className="mb-3 flex flex-wrap items-baseline gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">Stance across issues</h2>
+          <span className="text-[10px] uppercase tracking-wider text-zinc-600">{assessedTopicCount}/{STANCE_TOPICS.length} assessed</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {STANCE_TOPICS.map((topic) => {
+            const s = stanceByTopic.get(topic);
+            const meta = s && s !== "unknown" ? STANCE_META[s] : null;
+            const t = STANCE_TOPIC_META[topic];
+            return (
+              <div key={topic} className={`rounded-md border p-2.5 ${meta ? "border-zinc-700 bg-zinc-950/60" : "border-zinc-800/60 bg-zinc-950/20"}`}>
+                <div className="text-[11px] font-semibold text-zinc-300">{t.emoji} {t.label}</div>
+                {meta ? (
+                  <span className={`mt-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${meta.tone}`}>
+                    {meta.emoji} {meta.label}
+                  </span>
+                ) : (
+                  <p className="mt-1.5 text-[10px] text-zinc-600">not yet assessed</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-[10px] text-zinc-600">
+          iKratom tracks officials across {STANCE_TOPICS.length} substance-policy issues. Positions are evidence-based (votes, sponsorship, public statements) and visible to verified advocates.
+        </p>
+      </section>
 
       {/* ── Leverage flags ─────────────────────────────────────── */}
       {plan.leverage_flags.length > 0 && (
