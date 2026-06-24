@@ -1,10 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
+import { OfficialAvatar } from "@/components/OfficialAvatar";
 
 /**
  * Collapsible officials directory for the state war-room page (owner spec
  * 2026-06-11): one main dropdown holding role-grouped dropdowns; each
  * official is their own dropdown with one-tap "Email now" / "Call now"
- * inside. Pure <details> — zero client JS, works everywhere.
+ * inside. The <details> disclosure stays JS-free; only the portrait avatars
+ * (a tiny client leaf) hydrate.
  */
 type Official = {
   id: string;
@@ -15,6 +17,7 @@ type Official = {
   email: string | null;
   phone: string | null;
   title: string | null;
+  portrait_url: string | null;
 };
 
 const GROUPS: Array<{ label: string; roles: string[] }> = [
@@ -29,7 +32,7 @@ export async function StateOfficials({ state, stateName }: { state: string; stat
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("legislators")
-    .select("id, full_name, role, party, district, email, phone, title")
+    .select("id, full_name, role, party, district, email, phone, title, portrait_url")
     .eq("state", state)
     .eq("active", true)
     .order("role")
@@ -86,6 +89,7 @@ export async function StateOfficials({ state, stateName }: { state: string; stat
                   <li key={o.id}>
                     <details className="rounded border border-zinc-900 bg-zinc-950/50 px-2.5 py-1.5">
                       <summary className="cursor-pointer text-xs text-zinc-200 hover:text-emerald-300">
+                        <OfficialAvatar name={o.full_name} portraitUrl={o.portrait_url} size="sm" className="mr-1.5 align-middle" />
                         <span className="font-medium">{o.full_name}</span>
                         {o.title && <span className="ml-1.5 text-zinc-500">{o.title}</span>}
                         {o.party && <span className="ml-1.5 text-[10px] text-zinc-500">{o.party}</span>}

@@ -87,7 +87,7 @@ const REGISTRY = [
 
   // weekly
   ...["weekly_committee_sync","sync_nonprofit_990s","weekly_patch_note_draft",
-      "broadcast_whats_new","weekly_legislator_stance_all",
+      "broadcast_whats_new","weekly_legislator_stance_all","official_portraits_sync",
      ].map((source) => ({ source, interval_hours: 216, system: "gh-weekly", cadence: "weekly" })),
 
   // vercel (different system, but still monitorable)

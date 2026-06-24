@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Legislator } from "@/lib/legislators";
 import { ROLE_SHORT } from "@/lib/legislators";
 import { STANCE_META, type Stance } from "@/lib/legislator-action-plan";
+import { OfficialAvatar } from "@/components/OfficialAvatar";
 
 /**
  * Single rep card on /dashboard. Now shows a scope badge
@@ -71,14 +72,19 @@ export function MyRepCard({
           </span>
         )}
       </div>
-      <div className="text-xs uppercase tracking-wider text-zinc-400">
-        {l.title || ROLE_SHORT[l.role] || l.role}
-        {l.district && !isLocal && (
-          <span className="ml-1 text-zinc-500">· Dist. {l.district}</span>
-        )}
+      <div className="flex items-start gap-3">
+        <OfficialAvatar name={l.full_name} portraitUrl={l.portrait_url} size="lg" className="mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <div className="text-xs uppercase tracking-wider text-zinc-400">
+            {l.title || ROLE_SHORT[l.role] || l.role}
+            {l.district && !isLocal && (
+              <span className="ml-1 text-zinc-500">· Dist. {l.district}</span>
+            )}
+          </div>
+          <h3 className="mt-1 font-semibold">{l.full_name}</h3>
+          {l.body && <p className="text-[11px] text-zinc-500">{l.body}</p>}
+        </div>
       </div>
-      <h3 className="mt-1 font-semibold">{l.full_name}</h3>
-      {l.body && <p className="text-[11px] text-zinc-500">{l.body}</p>}
 
       <div className="mt-3 space-y-1.5">
         {l.email && !emailIsForm && (

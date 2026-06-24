@@ -12,6 +12,7 @@ export type Legislator = {
   phone: string | null;
   office_address: string | null;
   website: string | null;
+  portrait_url?: string | null; // headshot (R2-cached or source CDN); null -> initials
   // Local-officials fields (nullable for state/federal)
   level?: string | null;     // 'federal' | 'state' | 'county' | 'municipal'
   locality?: string | null;  // 'Austin, TX' | 'Travis County, TX'
@@ -43,7 +44,7 @@ export async function getUserLegislators(
 
   const { data: stateLegs } = await supabase
     .from("legislators")
-    .select("id,state,role,district,full_name,party,email,phone,office_address,website,level,locality,body,title")
+    .select("id,state,role,district,full_name,party,email,phone,office_address,website,portrait_url,level,locality,body,title")
     .eq("state", profile.state)
     .eq("active", true);
 

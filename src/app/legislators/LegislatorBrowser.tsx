@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ROLE_LABEL, ROLE_SHORT, type Legislator } from "@/lib/legislators";
+import { OfficialAvatar } from "@/components/OfficialAvatar";
 
 type Role = "all" | "us_senate" | "us_house" | "state_senate" | "state_house" | "local";
 type Party = "all" | "D" | "R" | "I" | "Other";
@@ -295,13 +296,6 @@ function Grid({
 
 function Card({ legislator: l, mine }: { legislator: Legislator; mine: boolean }) {
   const partyColor = PARTY_COLOR[l.party ?? ""] ?? "bg-zinc-900 text-zinc-400 border-zinc-800";
-  const initials = l.full_name
-    .split(/\s+/)
-    .map((p) => p[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 
   // Detect federal contact-form (URL) vs real email
   const emailIsForm = l.email?.startsWith("http") ?? false;
@@ -321,9 +315,7 @@ function Card({ legislator: l, mine }: { legislator: Legislator; mine: boolean }
       )}
 
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-900 font-semibold text-zinc-400">
-          {initials || "?"}
-        </div>
+        <OfficialAvatar name={l.full_name} portraitUrl={l.portrait_url} size="md" />
         <div className="min-w-0 flex-1">
           <h3 className="truncate font-semibold leading-tight">
             <a href={`/legislators/${l.id}`} className="hover:text-emerald-400">{l.full_name}</a>
