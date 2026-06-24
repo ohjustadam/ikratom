@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ROLE_LABEL } from "@/lib/legislators";
 import { ShareButtons } from "@/components/ShareButtons";
+import { OfficialAvatar } from "@/components/OfficialAvatar";
 
 const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
 
@@ -21,6 +22,7 @@ type Legislator = {
   body: string | null;
   title: string | null;
   active: boolean;
+  portrait_url: string | null;
 };
 
 type SponsoredBill = {
@@ -48,20 +50,21 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const supabase = await createClient();
   const { data } = await supabase
     .from("legislators")
-    .select("full_name, state, role, district, party, title")
+    .select("full_name, state, role, district, party, title, portrait_url")
     .eq("id", id)
     .single();
   if (!data) return { title: "Legislator" };
-  const d = data as { full_name: string; state: string; role: string; district: string | null; party: string | null; title: string | null };
+  const d = data as { full_name: string; state: string; role: string; district: string | null; party: string | null; title: string | null; portrait_url: string | null };
   const roleStr = ROLE_LABEL[d.role] ?? d.role;
   const title = `${d.full_name} — ${d.state} ${roleStr}${d.district ? ` D${d.district}` : ""}`;
   const description = `Contact + kratom voting record for ${d.full_name}, ${d.state} ${roleStr}${d.party ? ` (${d.party})` : ""}. Tracked live on iKratom.`;
   const url = `${APP_URL.replace(/\/+$/, "")}/legislators/${id}`;
+  const images = d.portrait_url ? [{ url: d.portrait_url, alt: d.full_name }] : undefined;
   return {
     title,
     description,
-    openGraph: { type: "profile", title, description, url, siteName: "iKratom" },
-    twitter: { card: "summary", title, description },
+    openGraph: { type: "profile", title, description, url, siteName: "iKratom", images },
+    twitter: { card: "summary", title, description, images },
     alternates: { canonical: url },
   };
 }
@@ -76,7 +79,7 @@ export default async function LegislatorDetailPage({
 
   const { data: legRaw } = await supabase
     .from("legislators")
-    .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active")
+    .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active, portrait_url")
     .eq("id", id)
     .single();
   if (!legRaw) notFound();
@@ -256,8 +259,13 @@ export default async function LegislatorDetailPage({
             <span className="rounded bg-amber-950/40 px-2 py-1 text-amber-300">No longer in office</span>
           )}
         </div>
-        <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{leg.full_name}</h1>
-        {leg.title && <p className="mt-1 text-sm text-zinc-400">{leg.title}</p>}
+        <div className="mt-3 flex items-center gap-4">
+          <OfficialAvatar name={leg.full_name} portraitUrl={leg.portrait_url} size="lg" />
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold sm:text-4xl">{leg.full_name}</h1>
+            {leg.title && <p className="mt-1 text-sm text-zinc-400">{leg.title}</p>}
+          </div>
+        </div>
         <div className="mt-3">
           <a
             href={`/legislators/${leg.id}/briefing`}

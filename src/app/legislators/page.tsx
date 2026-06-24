@@ -43,7 +43,7 @@ export default async function LegislatorsPage({
   const { data: legislators } = await supabase
     .from("legislators")
     .select(
-      "id,state,role,district,full_name,party,email,phone,office_address,website,level,locality,body,title"
+      "id,state,role,district,full_name,party,email,phone,office_address,website,portrait_url,level,locality,body,title"
     )
     .eq("state", state)
     .eq("active", true)

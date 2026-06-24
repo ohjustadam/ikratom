@@ -83,3 +83,31 @@ export async function getPresignedUploadUrl(input: {
   const publicUrl = `${base}/${input.key}`;
   return { uploadUrl, publicUrl, key: input.key, expiresIn };
 }
+
+/**
+ * Server-side direct upload (no presign round-trip). Used by maintenance
+ * scripts that already hold the bytes — e.g. caching official portraits from
+ * public sources into our own bucket so we don't hotlink third-party CDNs.
+ *
+ * key MUST be path-shaped (no leading slash). Returns the final public URL.
+ */
+export async function putObjectToR2(input: {
+  key: string;
+  body: Uint8Array | Buffer;
+  contentType: string;
+}): Promise<{ key: string; publicUrl: string }> {
+  if (!isR2Configured()) {
+    throw new Error("R2 is not configured — set R2_* env vars.");
+  }
+  const client = getClient();
+  await client.send(
+    new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET!,
+      Key: input.key,
+      Body: input.body,
+      ContentType: input.contentType,
+    })
+  );
+  const base = process.env.R2_PUBLIC_BASE_URL!.replace(/\/+$/, "");
+  return { key: input.key, publicUrl: `${base}/${input.key}` };
+}
