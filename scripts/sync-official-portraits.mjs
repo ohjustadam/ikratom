@@ -203,16 +203,32 @@ async function main() {
   log(`portraits sync — ${DRY ? "DRY-RUN" : "LIVE"}${STATE ? ` state=${STATE}` : ""}${LIMIT ? ` limit=${LIMIT}` : ""}; R2=${r2Configured() ? "on" : "off (hotlink)"}; wikidata=${USE_WIKIDATA ? "on" : "off"}`);
 
   await runWithLogging({ source: "official_portraits_sync", supabase: sb }, async () => {
-    let q = sb
-      .from("legislators")
-      .select("id, full_name, state, role, bioguide_id, openstates_id")
-      .eq("active", true)
-      .is("portrait_url", null)
-      .order("state");
-    if (STATE) q = q.eq("state", STATE);
-    if (LIMIT) q = q.limit(LIMIT);
-    const { data: queue, error } = await q;
-    if (error) throw new Error(`queue query: ${error.message}`);
+    // Build the FULL work-list. PostgREST caps a single select at 1000 rows,
+    // so paginate by range — otherwise (ordered by state) a run only ever sees
+    // the first 1000 missing-portrait officials, and since it sets portrait_url
+    // as it goes, repeat runs never advance past stuck early-alphabet rows
+    // (the 1000-row-cap window-strand trap). Secondary .order("id") keeps the
+    // range pagination deterministic. We snapshot the whole list before any
+    // write, so the set doesn't shift under us mid-run.
+    const PAGE = 1000;
+    const queue = [];
+    for (let from = 0; ; from += PAGE) {
+      let q = sb
+        .from("legislators")
+        .select("id, full_name, state, role, bioguide_id, openstates_id")
+        .eq("active", true)
+        .is("portrait_url", null)
+        .order("state")
+        .order("id")
+        .range(from, from + PAGE - 1);
+      if (STATE) q = q.eq("state", STATE);
+      const { data: page, error } = await q;
+      if (error) throw new Error(`queue query: ${error.message}`);
+      queue.push(...(page ?? []));
+      if (!page || page.length < PAGE) break;
+      if (LIMIT && queue.length >= LIMIT) break;
+    }
+    if (LIMIT && queue.length > LIMIT) queue.length = LIMIT;
     log(`${queue.length} active officials missing a portrait.`);
 
     let updated = 0, federal = 0, state = 0, wiki = 0, missed = 0, cached = 0;
@@ -262,7 +278,10 @@ async function main() {
         break;
       }
       if (!done) { missed++; }
-      await sleep(120); // gentle global pace
+      // Only pace when we actually hit the network this row. Most of the
+      // ~9k queue are local/state officials with no working source today, so
+      // unconditional sleeping would waste ~18min/run doing nothing.
+      if (candidates.length > 0) await sleep(120);
     }
 
     const notes = `${DRY ? "dry-run " : ""}${updated} portraits (${federal} federal / ${state} openstates / ${wiki} wikidata${useR2 ? `, ${cached} R2-cached` : ", hotlinked"}), ${missed} no-source, of ${queue.length} queued`;
