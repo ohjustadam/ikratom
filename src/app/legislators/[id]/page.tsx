@@ -207,6 +207,32 @@ export default async function LegislatorDetailPage({
     if (b.targets_natural_leaf === true) summary.leafTargeting++;
   }
 
+  // Voting record — roll-call votes now attributable via the P1 legiscan_people_id backfill
+  const { data: { user } } = await supabase.auth.getUser();
+  const signedIn = !!user;
+  type VBill = { id: string; state: string; bill_number: string; title: string | null; kratom_relevance: string | null };
+  type RawBV = { id: string; vote_date: string | null; chamber: string | null; motion: string | null; passed: boolean | null; bills: VBill[] | VBill | null };
+  type RawVoteRow = { vote_text: string | null; vote_value: number | null; bill_votes: RawBV[] | RawBV | null };
+  const { data: voteRowsRaw } = await supabase
+    .from("bill_vote_members")
+    .select("vote_text, vote_value, bill_votes!inner(id, vote_date, chamber, motion, passed, bills!inner(id, state, bill_number, title, kratom_relevance))")
+    .eq("legislator_id", id)
+    .limit(500);
+  type VoteRow = { voteId: string; chamber: string | null; motion: string | null; passed: boolean | null; vote_date: string | null; vote_value: number | null; vote_text: string | null; bill: VBill };
+  const votes: VoteRow[] = [];
+  for (const r of ((voteRowsRaw ?? []) as unknown as RawVoteRow[])) {
+    const bv = Array.isArray(r.bill_votes) ? r.bill_votes[0] : r.bill_votes;
+    if (!bv) continue;
+    const b = Array.isArray(bv.bills) ? bv.bills[0] : bv.bills;
+    if (!b) continue;
+    votes.push({ voteId: bv.id, chamber: bv.chamber, motion: bv.motion, passed: bv.passed, vote_date: bv.vote_date, vote_value: r.vote_value, vote_text: r.vote_text, bill: b });
+  }
+  votes.sort((a, z) => (z.vote_date ?? "").localeCompare(a.vote_date ?? ""));
+  let restrictCount = 0;
+  for (const v of votes) {
+    if ((v.vote_value === 1 && v.bill.kratom_relevance === "anti") || (v.vote_value === 2 && v.bill.kratom_relevance === "pro")) restrictCount++;
+  }
+
   const roleLabel = ROLE_LABEL[leg.role] ?? leg.role;
 
   return (
@@ -411,6 +437,47 @@ export default async function LegislatorDetailPage({
               );
             })}
           </ul>
+        </section>
+      )}
+
+      {/* Voting record — roll-call votes (post-P1 vote-linkage) */}
+      {votes.length > 0 && (
+        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+          <div className="mb-3 flex flex-wrap items-baseline gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Voting record ({votes.length})</h2>
+            <span className="text-[10px] uppercase tracking-wider text-zinc-600">a vote is a fact</span>
+          </div>
+          {!signedIn ? (
+            <p className="text-xs text-zinc-400">
+              {leg.full_name} has cast {votes.length} recorded kratom-bill vote{votes.length === 1 ? "" : "s"}
+              {restrictCount > 0 ? <> · voted to restrict kratom {restrictCount}×</> : null}.{" "}
+              <a href="/signup" className="text-emerald-400 hover:underline">Create a free account</a> to see how they voted on each bill.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {votes.map((v) => {
+                const restrictive = (v.vote_value === 1 && v.bill.kratom_relevance === "anti") || (v.vote_value === 2 && v.bill.kratom_relevance === "pro");
+                const supportive = (v.vote_value === 2 && v.bill.kratom_relevance === "anti") || (v.vote_value === 1 && v.bill.kratom_relevance === "pro");
+                const tone = restrictive ? "bg-red-900/60 text-red-100" : supportive ? "bg-emerald-900/60 text-emerald-100" : "bg-zinc-800 text-zinc-300";
+                const label = v.vote_value === 1 ? "Yea" : v.vote_value === 2 ? "Nay" : (v.vote_text ?? "—");
+                return (
+                  <li key={v.voteId} className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-[11px]">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <a href={`/bills/${v.bill.id}`} className="font-mono font-semibold text-zinc-100 hover:text-emerald-400">{v.bill.state} {v.bill.bill_number}</a>
+                      {v.bill.kratom_relevance === "anti" && <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-300">Anti</span>}
+                      {v.bill.kratom_relevance === "pro" && <span className="rounded bg-emerald-950/40 px-1.5 py-0.5 text-emerald-300">Pro</span>}
+                      {v.chamber && <span className="font-mono uppercase text-zinc-500">{v.chamber}</span>}
+                      {v.motion && <span className="text-zinc-400">{v.motion}</span>}
+                      <span className={`ml-auto rounded px-1.5 py-0.5 font-mono font-bold ${tone}`}>{label}</span>
+                      {v.passed === true && <span className="font-bold text-emerald-300">PASSED</span>}
+                      {v.passed === false && <span className="text-zinc-500">failed</span>}
+                      {v.vote_date && <span className="font-mono text-zinc-500">{v.vote_date}</span>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
       )}
 

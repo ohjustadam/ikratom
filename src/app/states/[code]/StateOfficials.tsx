@@ -38,6 +38,27 @@ export async function StateOfficials({ state, stateName }: { state: string; stat
   if (error || !data?.length) return null;
   const officials = data as Official[];
 
+  // Per-official kratom-vote aggregate (post-P1 vote-linkage). One batched query, no N+1.
+  const ids = officials.map((o) => o.id);
+  const voteAgg = new Map<string, { restrict: number; total: number }>();
+  if (ids.length > 0) {
+    type AggRow = { legislator_id: string | null; vote_value: number | null; bill_votes: { bills: { kratom_relevance: string | null }[] | { kratom_relevance: string | null } | null }[] | { bills: { kratom_relevance: string | null }[] | { kratom_relevance: string | null } | null } | null };
+    const { data: vm } = await supabase
+      .from("bill_vote_members")
+      .select("legislator_id, vote_value, bill_votes!inner(bills!inner(kratom_relevance))")
+      .in("legislator_id", ids);
+    for (const r of ((vm ?? []) as unknown as AggRow[])) {
+      if (!r.legislator_id) continue;
+      const bv = Array.isArray(r.bill_votes) ? r.bill_votes[0] : r.bill_votes;
+      const b = bv ? (Array.isArray(bv.bills) ? bv.bills[0] : bv.bills) : null;
+      if (!b) continue;
+      const cur = voteAgg.get(r.legislator_id) ?? { restrict: 0, total: 0 };
+      cur.total++;
+      if ((r.vote_value === 1 && b.kratom_relevance === "anti") || (r.vote_value === 2 && b.kratom_relevance === "pro")) cur.restrict++;
+      voteAgg.set(r.legislator_id, cur);
+    }
+  }
+
   const grouped = GROUPS
     .map((g) => ({ ...g, members: officials.filter((o) => g.roles.includes(o.role)) }))
     .filter((g) => g.members.length > 0);
@@ -70,6 +91,18 @@ export async function StateOfficials({ state, stateName }: { state: string; stat
                         {o.party && <span className="ml-1.5 text-[10px] text-zinc-500">{o.party}</span>}
                         {o.district && <span className="ml-1.5 font-mono text-[10px] text-zinc-600">{o.district}</span>}
                       </summary>
+                      {(() => {
+                        const a = voteAgg.get(o.id);
+                        if (!a || a.total === 0) return null;
+                        return (
+                          <p className="mt-1 text-[10px] text-zinc-500">
+                            🗳 {a.total} kratom vote{a.total === 1 ? "" : "s"}
+                            {a.restrict > 0 ? <span className="text-red-300"> · voted to restrict {a.restrict}×</span> : null}
+                            {" · "}
+                            <a href={`/legislators/${o.id}`} className="text-emerald-400 hover:underline">see record</a>
+                          </p>
+                        );
+                      })()}
                       <div className="mt-2 flex flex-wrap gap-2 pb-1">
                         {o.email ? (
                           <a
