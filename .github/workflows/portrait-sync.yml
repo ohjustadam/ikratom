@@ -41,7 +41,7 @@ concurrency:
 jobs:
   portraits:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 300
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -61,7 +61,13 @@ jobs:
           if [ -n "${{ github.event.inputs.state }}" ]; then STATE="--state=${{ github.event.inputs.state }}"; fi
           echo "force=$FORCE" >> "$GITHUB_OUTPUT"
           echo "state=$STATE" >> "$GITHUB_OUTPUT"
+      # Precision order: exact-source first, name-match last, so a precise photo
+      # is never overwritten by a fuzzier one.
       - name: Federal portraits (unitedstates.github.io, keyless)
         run: node scripts/sync-official-portraits.mjs ${{ steps.flags.outputs.force }} || true
       - name: State & local portraits (openstates/people tarball, keyless)
         run: node scripts/sync-state-portraits-bulk.mjs ${{ steps.flags.outputs.force }} ${{ steps.flags.outputs.state }} || true
+      - name: Recover dead-URL portraits from the Wayback Machine (keyless, exact-URL archive)
+        run: node scripts/sync-portraits-wayback.mjs --apply ${{ steps.flags.outputs.force }} ${{ steps.flags.outputs.state }} || true
+      - name: Wikidata P18 for officials still missing a source (prominent only, name-match)
+        run: node scripts/sync-official-portraits.mjs --wikidata ${{ steps.flags.outputs.force }} || true
