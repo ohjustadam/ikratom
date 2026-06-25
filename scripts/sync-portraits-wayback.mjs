@@ -74,17 +74,16 @@ async function loadBulkImageMap() {
   return map;
 }
 
-// Headers-only liveness check (cancel the body once we see the content-type).
-async function imageAlive(url, timeoutMs = 10000) {
-  try {
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "image/*" }, redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
-    const ct = (res.headers.get("content-type") || "").toLowerCase();
-    try { await res.body?.cancel(); } catch { /* ignore */ }
-    return res.ok && ct.startsWith("image/");
-  } catch { return false; }
-}
-
 // Recover the SAME image URL from the Wayback Machine's closest snapshot.
+//
+// We TRUST the availability API's confirmation (available + a captured HTTP-200)
+// and store the archived URL WITHOUT fetching the bytes ourselves. Run 1 byte-
+// validated each candidate, but at scale archive.org throttles rapid image GETs,
+// so valid recoveries failed the check and were dropped (178/1062 recovered;
+// e.g. OK's Daniel Pae was lost though his snapshot exists). The availability
+// API is light, so it survives the batch; the avatar's onError→initials covers
+// a rare stale snapshot; and storing the im_ form of a 200 snapshot of that
+// EXACT url can never attach a wrong face. Net: recovers the real tail.
 async function waybackImage(origUrl) {
   let data;
   try {
@@ -93,12 +92,15 @@ async function waybackImage(origUrl) {
     data = await r.json();
   } catch { return null; }
   const snap = data?.archived_snapshots?.closest;
+  // Accept any AVAILABLE snapshot, rejecting only captures the API explicitly
+  // marks as a redirect/error (3xx/4xx/5xx). A "200" or unknown "-" status is
+  // kept — requiring exactly "200" dropped valid recoveries whose status the API
+  // reports as "-" (e.g. OK's Daniel Pae, whose im_ image is actually live).
   if (!snap?.available || !snap.url) return null;
-  if (snap.status && !/^2/.test(String(snap.status))) return null;
+  if (snap.status && /^[345]/.test(String(snap.status))) return null;
   // snap.url = http://web.archive.org/web/<ts>/<orig> → insert im_ for the raw
   // image bytes (no Wayback HTML wrapper) and prefer https.
-  const raw = snap.url.replace(/\/web\/(\d+)\//, "/web/$1im_/").replace(/^http:\/\//, "https://");
-  return (await imageAlive(raw)) ? raw : null;
+  return snap.url.replace(/\/web\/(\d+)\//, "/web/$1im_/").replace(/^http:\/\//, "https://");
 }
 
 async function recentlyRan() {
