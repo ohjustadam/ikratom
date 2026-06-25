@@ -51,6 +51,29 @@ export default async function LegislatorsPage({
 
   const myRepIds = new Set(myReps.map((l) => l.id));
 
+  // Per-legislator kratom-vote aggregate (one batched query; renders an
+  // at-a-glance "voted to restrict N×" signal on directory cards, mirroring
+  // the State HQ officials list). Plain object so it serializes to the client.
+  const legIds = (legislators ?? []).map((l) => l.id);
+  const voteAgg: Record<string, { restrict: number; total: number }> = {};
+  if (legIds.length > 0) {
+    type AggRow = { legislator_id: string | null; vote_value: number | null; bill_votes: { bills: { kratom_relevance: string | null }[] | { kratom_relevance: string | null } | null }[] | { bills: { kratom_relevance: string | null }[] | { kratom_relevance: string | null } | null } | null };
+    const { data: vm } = await supabase
+      .from("bill_vote_members")
+      .select("legislator_id, vote_value, bill_votes!inner(bills!inner(kratom_relevance))")
+      .in("legislator_id", legIds);
+    for (const r of ((vm ?? []) as unknown as AggRow[])) {
+      if (!r.legislator_id) continue;
+      const bv = Array.isArray(r.bill_votes) ? r.bill_votes[0] : r.bill_votes;
+      const b = bv ? (Array.isArray(bv.bills) ? bv.bills[0] : bv.bills) : null;
+      if (!b) continue;
+      const cur = voteAgg[r.legislator_id] ?? { restrict: 0, total: 0 };
+      cur.total++;
+      if ((r.vote_value === 1 && b.kratom_relevance === "anti") || (r.vote_value === 2 && b.kratom_relevance === "pro")) cur.restrict++;
+      voteAgg[r.legislator_id] = cur;
+    }
+  }
+
   return (
     <LegislatorBrowser
       state={state}
@@ -59,6 +82,7 @@ export default async function LegislatorsPage({
       legislators={(legislators ?? []) as Legislator[]}
       myRepIds={Array.from(myRepIds)}
       isSignedIn={!!user}
+      voteAgg={voteAgg}
     />
   );
 }
