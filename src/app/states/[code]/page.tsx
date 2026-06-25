@@ -724,11 +724,20 @@ export default async function StatePage({ params }: Props) {
             />
           </div>
           <article className="briefing-md md-content mt-4 text-sm" dangerouslySetInnerHTML={{ __html: briefingHtml }} />
-          {b?.generated_at && (
-            <p className="mt-3 text-[10px] uppercase tracking-wider text-zinc-600">
-              AI-synthesized{b.generated_by_provider ? ` · ${b.generated_by_provider}` : ""} · updated {new Date(b.generated_at).toISOString().slice(0, 10)}
-            </p>
-          )}
+          {b?.generated_at && (() => {
+            const days = Math.floor((Date.now() - new Date(b.generated_at).getTime()) / 86_400_000);
+            const rel = days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+            // The briefing regenerates daily via cron; anything older than a
+            // couple days means a run was missed — surface it instead of letting
+            // a stale brief masquerade as current (it sat 44 days stale unnoticed).
+            const stale = days >= 3;
+            return (
+              <p className={`mt-3 text-[10px] uppercase tracking-wider ${stale ? "text-amber-500/80" : "text-zinc-600"}`}>
+                AI-synthesized{b.generated_by_provider ? ` · ${b.generated_by_provider}` : ""} · updated {rel} ({new Date(b.generated_at).toISOString().slice(0, 10)})
+                {stale ? " · refresh pending" : ""}
+              </p>
+            );
+          })()}
         </details>
       )}
 
