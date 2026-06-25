@@ -648,6 +648,22 @@ export default async function BriefingPage({ params }: { params: Params }) {
     kratom_adjacent_trade_count: kratomAdjacentTradeCount,
   });
 
+  // Pressure Index — where advocacy effort yields the most: the geometric
+  // mean of the stakes (threat_score) and how movable they are
+  // (vulnerability_score), so it's high only when BOTH are. Free, but
+  // account-gated (a concrete reason to sign up). Derived from public
+  // sponsorship/committee signals, so no gated data is needed to compute it.
+  const pressureIndex = Math.round(
+    Math.sqrt(threatAssessment.threat_score * threatAssessment.vulnerability_score)
+  );
+  const pressureBand =
+    pressureIndex >= 60
+      ? { label: "High", tone: "text-emerald-300", note: "Your pressure moves the needle most here — prioritize calls, emails, and constituent stories." }
+      : pressureIndex >= 35
+      ? { label: "Moderate", tone: "text-amber-300", note: "Worth contacting — pressure helps, but pair it with coalition support or committee timing." }
+      : { label: "Low", tone: "text-zinc-400", note: "Lower marginal return — either already aligned, or entrenched. Thank allies; for opponents, spend effort where it moves more." };
+  const signedIn = !!viewerUser;
+
   // Display helpers
   const displayRole = leg.role.replace(/_/g, " ");
   const tel = leg.phone?.replace(/[^\d+]/g, "");
@@ -712,6 +728,35 @@ export default async function BriefingPage({ params }: { params: Params }) {
           />
         </div>
       </header>
+
+      {/* ── Pressure index (free, but account-gated) ─────────────── */}
+      <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <div className="mb-2 flex flex-wrap items-baseline gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">Pressure index</h2>
+          <span className="text-[10px] uppercase tracking-wider text-zinc-600">where your effort is worth the most</span>
+        </div>
+        {signedIn ? (
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-baseline gap-2">
+              <span className={`font-mono text-4xl font-bold ${pressureBand.tone}`}>{pressureIndex}</span>
+              <span className="text-xs text-zinc-500">/100</span>
+              <span className={`ml-1 rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${pressureBand.tone}`}>
+                {pressureBand.label} priority
+              </span>
+            </div>
+            <p className="min-w-[200px] flex-1 text-xs leading-relaxed text-zinc-300">{pressureBand.note}</p>
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-400">
+            The Pressure Index combines how much of a threat this official is with how movable they are, so you know where your calls and emails matter most.{" "}
+            <a href={`/login?redirect=/legislators/${leg.id}/briefing`} className="text-emerald-400 hover:underline">Create a free account</a> to see it — it&apos;s free.{" "}
+            <a href="/membership" className="text-zinc-500 hover:text-emerald-400 hover:underline">Account levels →</a>
+          </p>
+        )}
+        <p className="mt-2 text-[10px] text-zinc-600">
+          Derived from the targeting tier above (threat {threatAssessment.threat_score} · vulnerability {threatAssessment.vulnerability_score}). A high score = dangerous <em>and</em> flippable — the best return on advocacy pressure.
+        </p>
+      </section>
 
       {/* ── Stance across issues (multi-topic dossier grid) ─────── */}
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
