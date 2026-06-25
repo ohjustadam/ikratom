@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { displayTitle } from "@/lib/bill-title";
+import { billStatusLabel, billStatusFilterOptions, billStatusMatches } from "@/lib/bill-status";
 
 type Bill = {
   id: string;
@@ -30,14 +31,6 @@ const RELEVANCE: Record<string, { label: string; cls: string }> = {
   neutral: { label: "Neutral", cls: "bg-zinc-900 text-zinc-400" },
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  introduced: "Introduced",
-  committee: "In committee",
-  passed_chamber: "Passed chamber",
-  enacted: "Enacted",
-  dead: "Dead",
-};
-
 type Sort = "recent" | "state" | "alpha";
 
 // A bill is "current" when its session is live or it became law — the
@@ -60,6 +53,10 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
     return Array.from(new Set(bills.map((b) => b.state))).sort();
   }, [bills]);
 
+  // Status filter options, derived from what's actually present and grouped so
+  // committee/in_committee collapse to one "In committee" option.
+  const statusOptions = useMemo(() => billStatusFilterOptions(bills.map((b) => b.status)), [bills]);
+
   const relevanceCounts = useMemo(() => {
     const c: Record<string, number> = { all: bills.length, pro: 0, anti: 0, neutral: 0 };
     for (const b of bills) {
@@ -80,8 +77,8 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
         const r = b.kratom_relevance ?? "neutral";
         if (r !== relevanceFilter) return false;
       }
-      // Status
-      if (statusFilter !== "all" && b.status !== statusFilter) return false;
+      // Status (groups committee/in_committee under one label)
+      if (!billStatusMatches(b.status, statusFilter)) return false;
       // Search
       if (q) {
         const hay = `${b.bill_number} ${b.title ?? ""} ${b.summary ?? ""} ${b.last_action ?? ""}`.toLowerCase();
@@ -152,8 +149,8 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
             className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
           >
             <option value="all">Any status</option>
-            {Object.entries(STATUS_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
+            {statusOptions.map(({ value, label }) => (
+              <option key={value} value={value}>{label}</option>
             ))}
           </select>
           <select
@@ -248,7 +245,7 @@ export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: s
 
 function BillCard({ b, userState, stale }: { b: Bill; userState: string | null; stale: boolean }) {
   const tag = RELEVANCE[b.kratom_relevance ?? "neutral"] ?? RELEVANCE.neutral;
-  const status = b.status ? (STATUS_LABELS[b.status] ?? b.status) : null;
+  const status = billStatusLabel(b.status);
   const isMine = userState === b.state;
   const isMoving = !stale && b.last_action_at != null
     && Date.now() - new Date(b.last_action_at).getTime() <= MOVING_MS;
