@@ -10,6 +10,7 @@ import { BillTimeline } from "./BillTimeline";
 import { YourRepDecidingThisBill } from "./YourRepDecidingThisBill";
 import { displayTitle, displaySubtitle } from "@/lib/bill-title";
 import { billStatusLabel } from "@/lib/bill-status";
+import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
 import { readLocale } from "@/modules/auth/actions-locale";
@@ -376,15 +377,20 @@ export default async function BillDetailPage({
   // we matched their full_name during sync; otherwise just shown as a name.
   const { data: sponsorsRaw } = await supabase
     .from("bill_sponsors")
-    .select("legislator_id, name, classification, party, district")
+    .select("legislator_id, name, classification, party, district, legislators(full_name, portrait_url, role, party)")
     .eq("bill_id", bill.id)
     .order("classification", { ascending: true });
-  const sponsors = (sponsorsRaw ?? []) as Array<{
+  type SponsorLeg = { full_name: string | null; portrait_url: string | null; role: string | null; party: string | null };
+  const sponsors = (sponsorsRaw ?? []).map((s) => {
+    const r = s as typeof s & { legislators: SponsorLeg | SponsorLeg[] | null };
+    return { ...r, legislator: Array.isArray(r.legislators) ? r.legislators[0] ?? null : r.legislators };
+  }) as Array<{
     legislator_id: string | null;
     name: string;
     classification: string;
     party: string | null;
     district: string | null;
+    legislator: SponsorLeg | null;
   }>;
 
   // Aggregate donor industries across this bill's sponsors. Federal
@@ -1773,34 +1779,52 @@ export default async function BillDetailPage({
           </div>
         )}
 
-        {/* Sponsors */}
+        {/* Sponsors — who introduced / signed onto this bill, with portraits
+            linking to each official's dossier (record, stance, how to contact). */}
         {sponsors.length > 0 && (
           <div className="mt-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Sponsors ({sponsors.length})
-            </p>
-            <ul className="mt-2 flex flex-wrap gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Sponsors ({sponsors.length})
+              </p>
+              <a href={`/legislators?state=${bill.state}`} className="text-xs text-emerald-400 hover:underline">
+                All {bill.state} officials →
+              </a>
+            </div>
+            <ul className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
               {sponsors.map((s, i) => {
-                const inner = (
-                  <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${
-                    s.classification === "primary"
-                      ? "border-amber-700/50 bg-amber-950/20 text-amber-200"
-                      : "border-zinc-800 bg-zinc-950/40 text-zinc-300"
+                const isPrimary = s.classification === "primary";
+                const name = s.legislator?.full_name ?? s.name;
+                const party = s.party ?? s.legislator?.party ?? null;
+                const card = (
+                  <span className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
+                    isPrimary ? "border-amber-700/50 bg-amber-950/20" : "border-zinc-800 bg-zinc-950/40"
                   }`}>
-                    {s.classification === "primary" && <span title="Primary sponsor">★</span>}
-                    <span>{s.name}</span>
-                    {s.party && <span className="text-zinc-500">({s.party}{s.district ? ` · D${s.district}` : ""})</span>}
+                    <OfficialAvatar name={name} portraitUrl={s.legislator?.portrait_url} size="md" />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1 text-sm font-medium text-zinc-100">
+                        {isPrimary && <span title="Primary sponsor" className="text-amber-300">★</span>}
+                        <span className="truncate">{name}</span>
+                      </span>
+                      <span className="block truncate text-xs text-zinc-500">
+                        {isPrimary ? "Primary sponsor" : "Cosponsor"}
+                        {party ? ` · ${party}` : ""}
+                        {s.district ? ` · D${s.district}` : ""}
+                      </span>
+                    </span>
+                    {s.legislator_id && <span className="text-zinc-600" aria-hidden="true">›</span>}
                   </span>
                 );
                 return (
                   <li key={`${s.name}-${i}`}>
                     {s.legislator_id ? (
-                      <a href={`/legislators/${s.legislator_id}`} className="hover:opacity-80">{inner}</a>
-                    ) : inner}
+                      <a href={`/legislators/${s.legislator_id}/briefing`} className="block rounded-lg transition hover:opacity-90">{card}</a>
+                    ) : card}
                   </li>
                 );
               })}
             </ul>
+            <p className="mt-1.5 text-[11px] text-zinc-600">Tap a sponsor for their record, stance &amp; how to contact them.</p>
           </div>
         )}
 
