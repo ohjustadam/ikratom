@@ -1,0 +1,67 @@
+name: Portrait sync
+
+# Populates legislators.portrait_url so officials show real faces (bill sponsor
+# cards, /legislators directory + dossiers, State HQ). Two keyless sources:
+#   - Federal: sync-official-portraits.mjs (unitedstates.github.io public domain)
+#   - State/local: sync-state-portraits-bulk.mjs (openstates/people repo tarball)
+#
+# Why a workflow: both scripts existed (PRs #698/#704) and are registered in
+# check-cron-staleness.mjs (official_portraits_sync, state_portraits_bulk) but
+# NOTHING ran them on a schedule — they only ever ran by hand, so coverage decayed
+# and the staleness monitor flagged them stale forever. This wires the missing
+# automation. GHA's clean IP also dodges the rate-limit/blocking the owner box
+# hits, so more source URLs validate than from a residential IP.
+#
+# Both scripts are keyless (only Supabase env) + self-gate weekly, so the weekly
+# schedule is a no-op if a manual dispatch ran recently. Manual dispatch passes
+# --force to override the gate and can target one state. Hotlinks by default
+# (no R2 secrets); set R2_* secrets later to self-host.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Override the weekly self-gate (run now)"
+        type: boolean
+        default: true
+      state:
+        description: "Limit state bulk to one state (e.g. OK) — optional"
+        type: string
+        default: ""
+  schedule:
+    # Weekly, Monday 06:40 UTC. State rosters change slowly; the self-gate keeps
+    # this cheap and idempotent.
+    - cron: "40 6 * * 1"
+
+# Never let two portrait runs (or a dispatch + the weekly tick) write at once.
+concurrency:
+  group: portrait-sync
+  cancel-in-progress: false
+
+jobs:
+  portraits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Compute flags
+        id: flags
+        run: |
+          FORCE=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force }}" != "false" ]; then FORCE="--force"; fi
+          STATE=""
+          if [ -n "${{ github.event.inputs.state }}" ]; then STATE="--state=${{ github.event.inputs.state }}"; fi
+          echo "force=$FORCE" >> "$GITHUB_OUTPUT"
+          echo "state=$STATE" >> "$GITHUB_OUTPUT"
+      - name: Federal portraits (unitedstates.github.io, keyless)
+        run: node scripts/sync-official-portraits.mjs ${{ steps.flags.outputs.force }} || true
+      - name: State & local portraits (openstates/people tarball, keyless)
+        run: node scripts/sync-state-portraits-bulk.mjs ${{ steps.flags.outputs.force }} ${{ steps.flags.outputs.state }} || true
