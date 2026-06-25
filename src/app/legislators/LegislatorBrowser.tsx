@@ -20,6 +20,7 @@ export function LegislatorBrowser({
   legislators,
   myRepIds,
   isSignedIn,
+  voteAgg,
 }: {
   state: string;
   stateName: string;
@@ -27,6 +28,7 @@ export function LegislatorBrowser({
   legislators: Legislator[];
   myRepIds: string[];
   isSignedIn: boolean;
+  voteAgg: Record<string, { restrict: number; total: number }>;
 }) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState<Role>("all");
@@ -219,6 +221,7 @@ export function LegislatorBrowser({
                   title={ROLE_LABEL[r]}
                   legislators={grouped[r]}
                   myRepSet={myRepSet}
+                  voteAgg={voteAgg}
                 />
               ) : null
           )}
@@ -231,6 +234,7 @@ export function LegislatorBrowser({
                 title={k.replace("local:", "")}
                 legislators={grouped[k]}
                 myRepSet={myRepSet}
+                voteAgg={voteAgg}
               />
             ))}
         </div>
@@ -245,12 +249,13 @@ export function LegislatorBrowser({
                 title={k.replace("local:", "")}
                 legislators={grouped[k]}
                 myRepSet={myRepSet}
+                voteAgg={voteAgg}
               />
             ))}
         </div>
       ) : (
         // Flat grid
-        <Grid legislators={filtered} myRepSet={myRepSet} />
+        <Grid legislators={filtered} myRepSet={myRepSet} voteAgg={voteAgg} />
       )}
     </div>
   );
@@ -260,10 +265,12 @@ function RoleSection({
   title,
   legislators,
   myRepSet,
+  voteAgg,
 }: {
   title: string;
   legislators: Legislator[];
   myRepSet: Set<string>;
+  voteAgg: Record<string, { restrict: number; total: number }>;
 }) {
   return (
     <section>
@@ -273,7 +280,7 @@ function RoleSection({
           ({legislators.length})
         </span>
       </h2>
-      <Grid legislators={legislators} myRepSet={myRepSet} />
+      <Grid legislators={legislators} myRepSet={myRepSet} voteAgg={voteAgg} />
     </section>
   );
 }
@@ -281,20 +288,22 @@ function RoleSection({
 function Grid({
   legislators,
   myRepSet,
+  voteAgg,
 }: {
   legislators: Legislator[];
   myRepSet: Set<string>;
+  voteAgg: Record<string, { restrict: number; total: number }>;
 }) {
   return (
     <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {legislators.map((l) => (
-        <Card key={l.id} legislator={l} mine={myRepSet.has(l.id)} />
+        <Card key={l.id} legislator={l} mine={myRepSet.has(l.id)} agg={voteAgg[l.id]} />
       ))}
     </ul>
   );
 }
 
-function Card({ legislator: l, mine }: { legislator: Legislator; mine: boolean }) {
+function Card({ legislator: l, mine, agg }: { legislator: Legislator; mine: boolean; agg?: { restrict: number; total: number } }) {
   const partyColor = PARTY_COLOR[l.party ?? ""] ?? "bg-zinc-900 text-zinc-400 border-zinc-800";
 
   // Detect federal contact-form (URL) vs real email
@@ -342,6 +351,12 @@ function Card({ legislator: l, mine }: { legislator: Legislator; mine: boolean }
           </div>
           {l.body && (
             <p className="mt-0.5 truncate text-[11px] text-zinc-600">{l.body}</p>
+          )}
+          {agg && agg.total > 0 && (
+            <p className="mt-1 text-[10px] text-zinc-500">
+              🗳 {agg.total} kratom vote{agg.total === 1 ? "" : "s"}
+              {agg.restrict > 0 ? <span className="text-red-300"> · voted to restrict {agg.restrict}×</span> : null}
+            </p>
           )}
         </div>
       </div>
