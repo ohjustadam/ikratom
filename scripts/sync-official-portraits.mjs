@@ -108,7 +108,7 @@ function extFor(contentType) {
 // download=true keeps bytes (for R2 cache); else just confirms it's a real image.
 async function fetchImage(url, download) {
   try {
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "image/*" }, redirect: "follow" });
+    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "image/*" }, redirect: "follow", signal: AbortSignal.timeout(8000) });
     if (!res.ok) return { ok: false, reason: `http ${res.status}` };
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     if (!ct.startsWith("image/")) return { ok: false, reason: `content-type ${ct || "none"}` };

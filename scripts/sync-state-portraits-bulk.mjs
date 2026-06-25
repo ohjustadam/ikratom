@@ -100,7 +100,7 @@ async function loadBulkImageMap() {
 
 async function fetchBytes(url) {
   try {
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "image/*" }, redirect: "follow" });
+    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "image/*" }, redirect: "follow", signal: AbortSignal.timeout(8000) });
     if (!res.ok) return { ok: false };
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     if (!ct.startsWith("image/")) return { ok: false };
@@ -119,7 +119,7 @@ async function fetchBytes(url) {
 // UA/GET fails closed (we skip, leave null) — safe, never a wrong face.
 async function imageAlive(url) {
   try {
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "image/*" }, redirect: "follow" });
+    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "image/*" }, redirect: "follow", signal: AbortSignal.timeout(8000) });
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     try { await res.body?.cancel(); } catch { /* ignore */ }
     return res.ok && ct.startsWith("image/");
