@@ -9,9 +9,10 @@
  *      project's public-domain congress photos:
  *        https://unitedstates.github.io/images/congress/450x550/{bioguide}.jpg
  *      Keyless, no account, hotlink-safe (it exists for exactly this use).
- *   2. STATE (openstates_id) -> the OpenStates v3 person `image` field
- *      (batched ONE call per jurisdiction, cached in-run). Needs
- *      OPENSTATES_API_KEY; rate-limited, so we self-gate to weekly.
+ *   2. STATE (openstates_id) -> now handled by sync-state-portraits-bulk.mjs.
+ *      The OpenStates v3 API rate-limits per-key (≈250/day) and 429s at the
+ *      ~7k-state-legislator scale, so we moved state portraits to the keyless
+ *      openstates/people repo tarball. This script is FEDERAL-only now.
  *   3. (--wikidata, OFF by default) Wikidata P18 by exact label + US-politician
  *      constraint. Conservative on purpose: a WRONG face violates real-data-only,
  *      so this fallback is opt-in and only accepts an unambiguous single match.
@@ -55,8 +56,6 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 }
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-const OPENSTATES_KEY = process.env.OPENSTATES_API_KEY || null;
-const OPENSTATES = "https://v3.openstates.org";
 const MAX_BYTES = 6 * 1024 * 1024;
 const MIN_BYTES = 512;
 const UA = "iKratom-portraits/1.0 (+https://www.ikratom.org; contact@ikratom.org)";
@@ -124,33 +123,6 @@ async function fetchImage(url, download) {
   } catch (e) {
     return { ok: false, reason: String(e?.message ?? e).slice(0, 120) };
   }
-}
-
-// ---- OpenStates per-jurisdiction image map (cached per-run) -------------
-const osCache = new Map(); // state(lower) -> Map(openstates_id -> imageUrl)
-async function openStatesImages(stateAbbr) {
-  const juris = stateAbbr.toLowerCase();
-  if (osCache.has(juris)) return osCache.get(juris);
-  const map = new Map();
-  if (!OPENSTATES_KEY) { osCache.set(juris, map); return map; }
-  try {
-    for (let page = 1; page <= 20; page++) {
-      const url = `${OPENSTATES}/people?jurisdiction=${juris}&page=${page}&per_page=50`;
-      const res = await fetch(url, { headers: { "X-API-Key": OPENSTATES_KEY } });
-      if (!res.ok) { log(`  ! OpenStates ${juris} p${page}: http ${res.status}`); break; }
-      const json = await res.json();
-      for (const p of json.results ?? []) {
-        if (p.id && p.image) map.set(p.id, p.image);
-      }
-      const max = json.pagination?.max_page ?? 1;
-      if (page >= max) break;
-      await sleep(350); // be gentle with the shared key
-    }
-  } catch (e) {
-    log(`  ! OpenStates ${juris} error: ${String(e?.message ?? e).slice(0, 100)}`);
-  }
-  osCache.set(juris, map);
-  return map;
 }
 
 // ---- Wikidata P18 (opt-in, conservative) --------------------------------
@@ -239,10 +211,6 @@ async function main() {
       const candidates = [];
       if (FEDERAL_ROLES.has(leg.role) && leg.bioguide_id) {
         candidates.push({ src: "unitedstates", url: `https://unitedstates.github.io/images/congress/450x550/${leg.bioguide_id}.jpg` });
-      }
-      if (leg.openstates_id) {
-        const img = (await openStatesImages(leg.state)).get(leg.openstates_id);
-        if (img) candidates.push({ src: "openstates", url: img });
       }
       if (USE_WIKIDATA && candidates.length === 0) {
         const w = await wikidataPortrait(leg.full_name, leg.state);
