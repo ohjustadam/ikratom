@@ -15,6 +15,9 @@ export const siteConfig = {
     // Flip on once the daily-brief push delivery + snapshot history ships.
     // Until then the "MVP brief — coming next" teaser stays hidden from users.
     briefMvpTeaser: false,
+    // Paid monthly tier. The /membership page advertises it as "coming soon"
+    // while this is false; flip to true once billing actually ships.
+    proSubscription: false,
   },
   seedStates: ["OK"],
   legislatorRoles: [
