@@ -12,6 +12,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { deriveStatusFromAction } from "./lib/bill-status.mjs";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA",
@@ -75,14 +76,11 @@ function classify(title, abstract) {
 }
 
 function statusFromBill(b) {
-  // OpenStates statuses are varied; we collapse to our schema's enum:
-  // 'introduced' | 'committee' | 'passed_chamber' | 'enacted' | 'dead'
-  const latestAction = b.latest_action_description?.toLowerCase() ?? "";
-  if (latestAction.includes("signed") || latestAction.includes("became law") || latestAction.includes("enacted")) return "enacted";
-  if (latestAction.includes("died") || latestAction.includes("indefinitely postponed") || latestAction.includes("withdrawn") || latestAction.includes("failed")) return "dead";
-  if (latestAction.includes("passed") || latestAction.includes("third reading")) return "passed_chamber";
-  if (latestAction.includes("committee") || latestAction.includes("referred")) return "committee";
-  return "introduced";
+  // OpenStates statuses are varied; collapse to our schema's stages via the
+  // shared derivation (broadly catches enacted/vetoed/dead phrasings — see
+  // scripts/lib/bill-status.mjs). The upsert below writes this on every sync,
+  // so existing bills get corrected forward, not just freshly-inserted ones.
+  return deriveStatusFromAction(b.latest_action_description);
 }
 
 async function syncState(state) {

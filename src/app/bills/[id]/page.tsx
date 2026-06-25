@@ -9,6 +9,7 @@ import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { BillTimeline } from "./BillTimeline";
 import { YourRepDecidingThisBill } from "./YourRepDecidingThisBill";
 import { displayTitle, displaySubtitle } from "@/lib/bill-title";
+import { billStatusLabel } from "@/lib/bill-status";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { getTranslation } from "@/lib/translations";
 import { readLocale } from "@/modules/auth/actions-locale";
@@ -92,14 +93,6 @@ const STANCE_STYLE: Record<Stance, { label: string; cls: string; emoji: string }
   preserves:   { label: "Preserves",   cls: "border-emerald-700/50 bg-emerald-950/30 text-emerald-300", emoji: "✓" },
   neutral:     { label: "Neutral",     cls: "border-zinc-700 bg-zinc-950/40 text-zinc-400",         emoji: "·" },
   unaddressed: { label: "Unaddressed", cls: "border-zinc-800 bg-zinc-950/20 text-zinc-500",         emoji: "—" },
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  introduced: "Introduced",
-  committee: "In committee",
-  passed_chamber: "Passed chamber",
-  enacted: "Enacted",
-  dead: "Dead",
 };
 
 const RELEVANCE_STYLE: Record<string, { label: string; cls: string }> = {
@@ -757,7 +750,7 @@ export default async function BillDetailPage({
   const isStale = daysSinceAction != null && daysSinceAction > 365;
 
   const relevance = RELEVANCE_STYLE[bill.kratom_relevance ?? "neutral"] ?? RELEVANCE_STYLE.neutral;
-  const status = bill.status ? (STATUS_LABEL[bill.status] ?? bill.status) : null;
+  const status = billStatusLabel(bill.status);
 
   // Similar bills: same stance + active + within last 365 days, excluding
   // this bill. Surfaces "this anti-kratom bill is moving in 4 states this
@@ -1505,7 +1498,7 @@ export default async function BillDetailPage({
                       )}
                       {s.status && (
                         <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">
-                          {STATUS_LABEL[s.status] ?? s.status}
+                          {billStatusLabel(s.status)}
                         </span>
                       )}
                       {s.last_action_at && (
