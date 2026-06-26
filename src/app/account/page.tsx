@@ -12,6 +12,7 @@ import { getPushVapidPublicKey } from "@/modules/auth/actions-push";
 import { PushSubscribe } from "@/modules/auth/components/PushSubscribe";
 import { getDiscordLink } from "@/modules/auth/actions-discord";
 import { DiscordConnect } from "@/modules/auth/components/DiscordConnect";
+import { AccessLevelCard } from "@/modules/auth/components/AccessLevelCard";
 
 export const metadata = { title: "Account" };
 
@@ -61,6 +62,8 @@ export default async function AccountPage({
           don&apos;t sell or share with advocacy orgs.
         </p>
       </header>
+
+      <AccessLevelCard />
 
       <div className="grid gap-6 lg:grid-cols-[200px_1fr]">
         {/* ── Sticky sidebar nav ───────────────────────────────── */}
