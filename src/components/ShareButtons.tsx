@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { recordShare } from "@/modules/campaigns/actions-attachments";
 
 /**
@@ -33,6 +33,12 @@ export function ShareButtons({
 }) {
   const [copied, setCopied] = useState(false);
   const [, startTransition] = useTransition();
+  // Gate browser-only feature detection behind mount so the first client render
+  // matches the server HTML (navigator is undefined on the server). Computing
+  // navigator.share during render made the "More apps" button appear only on the
+  // client → hydration text mismatch (React #418). It now appears post-mount.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   type Platform = "facebook" | "x" | "reddit" | "sms" | "threads" | "copy_link" | "bluesky" | "linkedin" | "telegram" | "whatsapp" | "email" | "native";
   function logClick(platform: Platform) {
@@ -67,8 +73,10 @@ export function ShareButtons({
   const whatsappHref = `https://wa.me/?text=${encodeURIComponent(`${title}\n${url}`)}`;
   const emailHref = `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(`${title}\n\n${text}\n\n${url}`)}`;
 
-  // Lazy-detect Web Share API for the mobile OS share-sheet button
-  const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+  // Lazy-detect Web Share API for the mobile OS share-sheet button. Gated on
+  // `mounted` so it's false during hydration (matching the server) and only
+  // turns on after mount — avoids the SSR/client text mismatch (React #418).
+  const canNativeShare = mounted && typeof navigator !== "undefined" && typeof navigator.share === "function";
   async function nativeShare() {
     try {
       await navigator.share({ title, text, url });
