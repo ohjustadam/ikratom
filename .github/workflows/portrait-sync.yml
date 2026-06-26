@@ -54,11 +54,24 @@ jobs:
       - run: npm ci --omit=dev --no-audit --no-fund
       - name: Compute flags
         id: flags
+        # Untrusted dispatch inputs come in via env (never interpolated into the
+        # script body — that's a shell-injection vector) and the state is
+        # validated to a 2-letter code before it can reach a command.
+        env:
+          EVENT: ${{ github.event_name }}
+          FORCE_IN: ${{ github.event.inputs.force }}
+          STATE_IN: ${{ github.event.inputs.state }}
         run: |
           FORCE=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force }}" != "false" ]; then FORCE="--force"; fi
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE_IN" != "false" ]; then FORCE="--force"; fi
           STATE=""
-          if [ -n "${{ github.event.inputs.state }}" ]; then STATE="--state=${{ github.event.inputs.state }}"; fi
+          if [ -n "$STATE_IN" ]; then
+            if printf '%s' "$STATE_IN" | grep -qiE '^[a-z]{2}$'; then
+              STATE="--state=$(printf '%s' "$STATE_IN" | tr '[:lower:]' '[:upper:]')"
+            else
+              echo "Ignoring invalid state input (must be a 2-letter code): $STATE_IN"
+            fi
+          fi
           echo "force=$FORCE" >> "$GITHUB_OUTPUT"
           echo "state=$STATE" >> "$GITHUB_OUTPUT"
       # Precision order: exact-source first, name-match last, so a precise photo

@@ -37,7 +37,12 @@ export function OfficialAvatar({
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
-  const show = Boolean(portraitUrl) && !failed;
+  // Upgrade http→https: some portrait sources (Wikidata Commons, a few state
+  // CDNs) hand back http URLs, which are mixed-content-blocked on our https
+  // site — the face silently fails to load. https-upgrade renders them; if the
+  // host has no https, onError still falls back to initials.
+  const src = portraitUrl ? portraitUrl.replace(/^http:\/\//i, "https://") : null;
+  const show = Boolean(src) && !failed;
   return (
     <span
       aria-hidden="true"
@@ -46,7 +51,7 @@ export function OfficialAvatar({
       {show ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={portraitUrl as string}
+          src={src as string}
           alt=""
           loading="lazy"
           className="h-full w-full object-cover"

@@ -207,10 +207,15 @@ async function processBill(bill, peopleMap) {
   }
 
   if (APPLY && rows.length) {
-    if (resolved) await sb.from("bills").update({ legiscan_bill_id: lsId }).eq("id", bill.id);
+    // Order matters (Supabase JS has no client transaction): clear→insert, and
+    // only stamp legiscan_bill_id AFTER a successful insert. If the insert fails,
+    // the id stays unwritten so a later run re-resolves + retries the bill
+    // end-to-end (incl. --missing-only) rather than stranding it with an id and
+    // zero sponsors.
     await sb.from("bill_sponsors").delete().eq("bill_id", bill.id);
     const { error } = await sb.from("bill_sponsors").insert(rows);
     if (error) return { status: "db-error", error: error.message };
+    if (resolved) await sb.from("bills").update({ legiscan_bill_id: lsId }).eq("id", bill.id);
   }
   return { status: "ok", total: rows.length, matched, unmatched, resolvedId: resolved ? lsId : null };
 }
@@ -251,14 +256,20 @@ console.log(`\nDone in ${mins} min — ${okCount}/${bills.length} bills got spon
 console.log("status tally:", JSON.stringify(tally));
 
 if (APPLY) {
+  // Reflect real fetch/db errors in the run status (matches sync-bills-via-
+  // legiscan.mjs convention) so /admin/intel-health doesn't show green on a run
+  // that had genuine failures. no-legiscan-id / no-sponsors / id-mismatch are
+  // expected outcomes, not errors.
+  const errCount = (tally["fetch-error"] || 0) + (tally["db-error"] || 0);
   try {
     await sb.from("scraper_runs").insert({
       source: "sync_bill_sponsors_legiscan",
       started_at: new Date(t0).toISOString(),
       finished_at: new Date().toISOString(),
-      status: okCount > 0 ? "success" : "empty",
+      status: errCount > 0 ? (okCount > 0 ? "partial" : "error") : (okCount > 0 ? "success" : "empty"),
       rows_added: totalSponsors,
-      notes: `${okCount}/${bills.length} bills · ${totalMatched}/${totalSponsors} matched · ${resolvedCount} ids resolved`,
+      error_message: errCount > 0 ? `${errCount} bill(s) errored (fetch/db)` : null,
+      notes: `${okCount}/${bills.length} bills · ${totalMatched}/${totalSponsors} matched · ${resolvedCount} ids resolved · ${errCount} errored`,
     });
   } catch { /* best-effort */ }
 } else {
