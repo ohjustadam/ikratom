@@ -235,6 +235,16 @@ export default async function LegislatorDetailPage({
   for (const v of votes) {
     if ((v.vote_value === 1 && v.bill.kratom_relevance === "anti") || (v.vote_value === 2 && v.bill.kratom_relevance === "pro")) restrictCount++;
   }
+  // Attendance / participation. Honest by construction: each row is a roll-call
+  // this legislator was a recorded member of, so tenure is handled implicitly
+  // (no pre-/post-term roll-calls counted). LegiScan vote codes: 1=Yea, 2=Nay,
+  // 3=Not Voting, 4=Absent. Only counts kratom roll-calls (the only ones synced).
+  let participated = 0, missedVotes = 0;
+  for (const v of votes) {
+    if (v.vote_value === 1 || v.vote_value === 2) participated++;
+    else if (v.vote_value === 3 || v.vote_value === 4) missedVotes++;
+  }
+  const rollcalls = participated + missedVotes;
 
   const roleLabel = ROLE_LABEL[leg.role] ?? leg.role;
 
@@ -457,17 +467,26 @@ export default async function LegislatorDetailPage({
           </div>
           {!signedIn ? (
             <p className="text-xs text-zinc-400">
-              {leg.full_name} has cast {votes.length} recorded kratom-bill vote{votes.length === 1 ? "" : "s"}
+              {leg.full_name} voted in {participated} of {rollcalls} recorded kratom roll-call{rollcalls === 1 ? "" : "s"}
+              {missedVotes > 0 ? <> · missed {missedVotes}</> : null}
               {restrictCount > 0 ? <> · voted to restrict kratom {restrictCount}×</> : null}.{" "}
               <a href="/signup" className="text-emerald-400 hover:underline">Create a free account</a> to see how they voted on each bill.
             </p>
           ) : (
+            <>
+            {rollcalls > 0 && (
+              <p className="mb-3 text-xs text-zinc-300">
+                Voted in <strong className="text-zinc-100">{participated}</strong> of {rollcalls} recorded kratom roll-call{rollcalls === 1 ? "" : "s"}
+                {missedVotes > 0 ? <span className="text-amber-300"> · missed {missedVotes} (absent / did not vote)</span> : null}.
+              </p>
+            )}
             <ul className="space-y-1.5">
               {votes.map((v) => {
+                const absent = v.vote_value === 3 || v.vote_value === 4;
                 const restrictive = (v.vote_value === 1 && v.bill.kratom_relevance === "anti") || (v.vote_value === 2 && v.bill.kratom_relevance === "pro");
                 const supportive = (v.vote_value === 2 && v.bill.kratom_relevance === "anti") || (v.vote_value === 1 && v.bill.kratom_relevance === "pro");
-                const tone = restrictive ? "bg-red-900/60 text-red-100" : supportive ? "bg-emerald-900/60 text-emerald-100" : "bg-zinc-800 text-zinc-300";
-                const label = v.vote_value === 1 ? "Yea" : v.vote_value === 2 ? "Nay" : (v.vote_text ?? "—");
+                const tone = absent ? "bg-amber-950/50 text-amber-300" : restrictive ? "bg-red-900/60 text-red-100" : supportive ? "bg-emerald-900/60 text-emerald-100" : "bg-zinc-800 text-zinc-300";
+                const label = v.vote_value === 1 ? "Yea" : v.vote_value === 2 ? "Nay" : v.vote_value === 4 ? "Absent" : v.vote_value === 3 ? "Did not vote" : (v.vote_text ?? "—");
                 return (
                   <li key={v.voteId} className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-[11px]">
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -485,6 +504,7 @@ export default async function LegislatorDetailPage({
                 );
               })}
             </ul>
+            </>
           )}
         </section>
       )}

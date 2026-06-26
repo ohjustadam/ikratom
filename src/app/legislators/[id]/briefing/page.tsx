@@ -1051,7 +1051,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
         // Compute summary stats for the section header
         const yeaCount = votingRecord.filter((v) => v.vote_text?.toLowerCase().includes("yea") || v.vote_value === 1).length;
         const nayCount = votingRecord.filter((v) => v.vote_text?.toLowerCase().includes("nay") || v.vote_value === 2).length;
-        const otherCount = votingRecord.length - yeaCount - nayCount;
+        const missedCount = votingRecord.filter((v) => v.vote_value === 3 || v.vote_value === 4).length;
         const VOTE_STYLE: Record<string, string> = {
           yea: "bg-emerald-950/40 text-emerald-300",
           nay: "bg-red-950/40 text-red-300",
@@ -1061,7 +1061,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
             <h2 className="mb-2 flex flex-wrap items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-amber-300">
               🗳 Voting record on kratom bills
               <span className="text-[10px] font-normal text-zinc-500">
-                ({votingRecord.length} roll-call vote{votingRecord.length === 1 ? "" : "s"} · {yeaCount} yea · {nayCount} nay{otherCount > 0 ? ` · ${otherCount} other` : ""})
+                ({votingRecord.length} roll-call{votingRecord.length === 1 ? "" : "s"} · {yeaCount} yea · {nayCount} nay{missedCount > 0 ? ` · ${missedCount} missed (absent / did not vote)` : ""})
               </span>
             </h2>
             <p className="text-[11px] text-zinc-400">
