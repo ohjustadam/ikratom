@@ -93,21 +93,67 @@ async function nameIndexFor(state) {
   return byNorm;
 }
 
-// Resolve a missing legiscan_bill_id via getSearch (exact bill_number match).
-async function resolveLegiscanId(bill) {
+// Bill numbers vary by source: we store "H.B. 8" / "SB 275"; LegiScan's
+// masterlist uses zero-padded, period-less "HB0008" / "SB0275". Normalize both
+// to prefix + unpadded-digits + optional-suffix so they match.
+function normNum(s) {
+  const t = String(s ?? "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+  const m = t.match(/^([A-Z]+)0*(\d+)([A-Z]*)$/);
+  return m ? `${m[1]}${m[2]}${m[3]}` : t;
+}
+
+// Per-state session roster from LegiScan: getSessionList → getMasterList per
+// session (cached). getMasterList is the FULL session roster (every bill, not
+// just LegiScan's kratom-tagged ones — the dataset heal misses bills LegiScan
+// doesn't tag kratom), so we can resolve any bill we know by number.
+const masterlistCache = new Map();
+async function masterlistFor(state) {
+  if (masterlistCache.has(state)) return masterlistCache.get(state);
+  const out = [];
   try {
-    const wantNum = bill.bill_number.replace(/\s+/g, "").toUpperCase();
-    const res = await legiscan("getSearch", { state: bill.state, query: bill.bill_number });
-    const sr = res.searchresult ?? {};
-    for (const k of Object.keys(sr)) {
-      if (k === "summary") continue;
-      const hit = sr[k];
-      if (hit?.bill_number && hit.bill_number.replace(/\s+/g, "").toUpperCase() === wantNum) {
-        return Number(hit.bill_id) || null;
-      }
+    const sl = await legiscan("getSessionList", { state });
+    const sessions = (sl.sessions ?? []).filter((s) => (s.year_end ?? 0) >= 2019).sort((a, b) => (b.year_end ?? 0) - (a.year_end ?? 0));
+    for (const ses of sessions) {
+      try {
+        const ml = await legiscan("getMasterList", { id: ses.session_id });
+        const m = ml.masterlist ?? {};
+        const map = new Map();
+        for (const k of Object.keys(m)) {
+          if (k === "session") continue;
+          const b = m[k];
+          if (b?.number && b?.bill_id) { const n = normNum(b.number); if (!map.has(n)) map.set(n, Number(b.bill_id)); }
+        }
+        out.push({ session_id: ses.session_id, year_start: ses.year_start ?? 0, year_end: ses.year_end ?? 0, map });
+      } catch { /* skip a bad session */ }
+      await sleep(150);
     }
-  } catch { /* best-effort */ }
-  return null;
+  } catch { /* state has no sessions / API hiccup */ }
+  masterlistCache.set(state, out);
+  return out;
+}
+
+// Resolve legiscan_bill_id for a bill we know by (state, number, year) — exact
+// number match within the LegiScan session covering the bill's year. A given
+// number is unique within a session, so state+number+year pins exactly one bill
+// (disambiguates the same number reused across bienniums). Never guesses.
+async function resolveLegiscanId(bill) {
+  const want = normNum(bill.bill_number);
+  if (!want) return null;
+  const year = parseInt(String(bill.last_action_at ?? bill.session_id ?? "").slice(0, 4), 10);
+  const sessions = await masterlistFor(bill.state);
+  if (!sessions.length) return null;
+  let candidates = Number.isFinite(year)
+    ? sessions.filter((s) => s.year_start <= year && year <= s.year_end)
+    : sessions;
+  if (!candidates.length) candidates = sessions;
+  const hits = candidates.filter((s) => s.map.has(want));
+  if (hits.length === 0) return null;
+  if (hits.length === 1) return hits[0].map.get(want);
+  // Multiple sessions cover the year and share the number. If we don't know the
+  // year, refuse to guess. Else prefer the session ending that year, then newest.
+  if (!Number.isFinite(year)) return null;
+  const exact = hits.find((s) => s.year_end === year);
+  return (exact ?? hits[0]).map.get(want);
 }
 
 async function processBill(bill, peopleMap) {
@@ -125,6 +171,12 @@ async function processBill(bill, peopleMap) {
     detail = data.bill;
   } catch (e) {
     return { status: "fetch-error", error: e.message };
+  }
+  // Defense: if we RESOLVED this id (vs it being stored), confirm the fetched
+  // bill's number + state actually match ours before trusting its sponsors — a
+  // mis-resolution must never attach a wrong bill's officials.
+  if (resolved && detail && (normNum(detail.bill_number) !== normNum(bill.bill_number) || (detail.state && detail.state !== bill.state))) {
+    return { status: "id-mismatch" };
   }
   const sponsors = detail?.sponsors ?? [];
   if (sponsors.length === 0) return { status: "no-sponsors", resolvedId: resolved ? lsId : null };
@@ -164,8 +216,11 @@ async function processBill(bill, peopleMap) {
 }
 
 // ---------- main ----------
-let q = sb.from("bills").select("id, state, bill_number, legiscan_bill_id").order("state", { ascending: true }).limit(LIMIT);
+let q = sb.from("bills").select("id, state, bill_number, legiscan_bill_id, last_action_at, session_id").order("state", { ascending: true }).limit(LIMIT);
 if (stateArg) q = q.eq("state", stateArg);
+// --missing-only: just the bills lacking a legiscan_bill_id (the resolve-the-gap
+// pass), so we don't re-fetch+rewrite sponsors for the ones already synced.
+if (args.includes("--missing-only")) q = q.is("legiscan_bill_id", null);
 const { data: bills, error } = await q;
 if (error) { console.error(error.message); process.exit(1); }
 
