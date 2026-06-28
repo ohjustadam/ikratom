@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { STANCE_TOPICS, STANCE_TOPIC_META } from "@/lib/legislator-action-plan";
-import { getBillsWithTopics, topicCounts } from "@/lib/topic-bills";
+import { getTopicCounts } from "@/lib/topic-bills";
 
 export const metadata = {
   title: "Bills by topic — iKratom",
@@ -10,8 +10,7 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function TopicsPage() {
-  const bills = await getBillsWithTopics();
-  const counts = topicCounts(bills);
+  const counts = await getTopicCounts();
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
@@ -19,9 +18,9 @@ export default async function TopicsPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">Bills by topic</p>
         <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Substance-policy legislation</h1>
         <p className="mt-3 max-w-2xl text-sm text-zinc-400">
-          We track legislation across {STANCE_TOPICS.length} substance-policy topics. Today most coverage flows
-          from our kratom-bill set (omnibus bills often regulate several substances at once); dedicated discovery
-          for each topic is rolling out. Each bill is tagged with the topics it touches + the direction it points.
+          We track legislation across {STANCE_TOPICS.length} substance-policy topics — kratom in full depth, the
+          others discovered via LegiScan. Each bill is tagged with the topics it touches + a nonpartisan read of
+          the direction it points.
         </p>
       </header>
 
