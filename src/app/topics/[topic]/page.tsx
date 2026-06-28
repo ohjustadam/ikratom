@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { STANCE_TOPIC_META, STANCE_TOPICS } from "@/lib/legislator-action-plan";
-import { getBillsWithTopics, isStanceTopic, STANCE_TONE } from "@/lib/topic-bills";
+import { getBillsForTopic, isStanceTopic, STANCE_TONE } from "@/lib/topic-bills";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +20,8 @@ export default async function TopicBillsPage({ params }: { params: Promise<{ top
   if (!isStanceTopic(topic)) notFound();
   const meta = STANCE_TOPIC_META[topic];
 
-  const all = await getBillsWithTopics();
-  const bills = all.filter((b) => b.bill_topics && topic in b.bill_topics);
+  const bills = await getBillsForTopic(topic);
+  const discovered = bills.filter((b) => b.source === "discovered").length;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -34,8 +34,8 @@ export default async function TopicBillsPage({ params }: { params: Promise<{ top
           <span>{meta.emoji}</span> {meta.label}
         </h1>
         <p className="mt-2 text-sm text-zinc-400">
-          {bills.length} bill{bills.length === 1 ? "" : "s"} we track touch {meta.label.toLowerCase()} policy.
-          {topic !== "kratom" && " Surfaced from our current tracker; dedicated discovery for this topic is rolling out."}
+          {bills.length} bill{bills.length === 1 ? "" : "s"} touch {meta.label.toLowerCase()} policy
+          {discovered > 0 ? <> · {discovered} discovered via LegiScan</> : null}.
         </p>
       </header>
 
@@ -45,35 +45,41 @@ export default async function TopicBillsPage({ params }: { params: Promise<{ top
         </div>
       ) : (
         <ul className="space-y-2">
-          {bills.map((b) => {
-            const tag = b.bill_topics![topic];
-            const others = Object.keys(b.bill_topics ?? {}).filter((t) => t !== topic && t in STANCE_TOPIC_META);
-            return (
-              <li key={b.id} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
-                <div className="flex flex-wrap items-baseline gap-2 text-xs">
-                  <Link href={`/bills/${b.id}`} className="font-mono font-semibold text-zinc-100 hover:text-emerald-400">
+          {bills.map((b) => (
+            <li key={b.key} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+              <div className="flex flex-wrap items-baseline gap-2 text-xs">
+                {b.external ? (
+                  <a href={b.href} target="_blank" rel="noopener noreferrer" className="font-mono font-semibold text-zinc-100 hover:text-emerald-400">
+                    {b.state} {b.bill_number} ↗
+                  </a>
+                ) : (
+                  <Link href={b.href} className="font-mono font-semibold text-zinc-100 hover:text-emerald-400">
                     {b.state} {b.bill_number}
                   </Link>
-                  <span className={`rounded px-1.5 py-0.5 font-semibold capitalize ${STANCE_TONE[tag.stance] ?? STANCE_TONE.unknown}`}>
-                    {tag.stance}
-                  </span>
-                  {b.status && <span className="rounded bg-zinc-900 px-1.5 py-0.5 capitalize text-zinc-400">{b.status.replace(/_/g, " ")}</span>}
-                  {b.last_action_at && (
-                    <span className="ml-auto font-mono text-zinc-500">{new Date(b.last_action_at).toLocaleDateString()}</span>
-                  )}
-                </div>
-                <h2 className="mt-2 text-sm font-medium leading-snug">
-                  <Link href={`/bills/${b.id}`} className="hover:text-emerald-400">{b.title || "(untitled)"}</Link>
-                </h2>
-                {others.length > 0 && (
-                  <p className="mt-1.5 text-[10px] text-zinc-500">
-                    also touches:{" "}
-                    {others.map((t) => `${STANCE_TOPIC_META[t as keyof typeof STANCE_TOPIC_META].emoji} ${STANCE_TOPIC_META[t as keyof typeof STANCE_TOPIC_META].label}`).join(" · ")}
-                  </p>
                 )}
-              </li>
-            );
-          })}
+                <span className={`rounded px-1.5 py-0.5 font-semibold capitalize ${STANCE_TONE[b.stance] ?? STANCE_TONE.unknown}`}>
+                  {b.stance}
+                </span>
+                {b.source === "discovered" && <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-500">LegiScan</span>}
+                {b.lastDate && (
+                  <span className="ml-auto font-mono text-zinc-500">{new Date(b.lastDate).toLocaleDateString()}</span>
+                )}
+              </div>
+              <h2 className="mt-2 text-sm font-medium leading-snug">
+                {b.external ? (
+                  <a href={b.href} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400">{b.title || "(untitled)"}</a>
+                ) : (
+                  <Link href={b.href} className="hover:text-emerald-400">{b.title || "(untitled)"}</Link>
+                )}
+              </h2>
+              {b.otherTopics.length > 0 && (
+                <p className="mt-1.5 text-[10px] text-zinc-500">
+                  also touches:{" "}
+                  {b.otherTopics.map((t) => `${STANCE_TOPIC_META[t as keyof typeof STANCE_TOPIC_META].emoji} ${STANCE_TOPIC_META[t as keyof typeof STANCE_TOPIC_META].label}`).join(" · ")}
+                </p>
+              )}
+            </li>
+          ))}
         </ul>
       )}
 
