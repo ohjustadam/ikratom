@@ -17,6 +17,21 @@ export const TOPIC_KEYWORDS = {
   alcohol: ["alcoholic beverage", "intoxicating liquor", "malt beverage", "distilled spirits", "liquor license", "alcohol content"],
 };
 
+// LegiScan getSearch query per topic (phase-2 discovery). One high-signal query
+// each — broad enough to catch the topic, narrow enough to avoid noise (e.g.
+// "alcoholic beverage" not bare "alcohol" which catches alcoholism-treatment
+// bills). Results are relevance-ranked by LegiScan; the discovery script also
+// applies a relevance floor. kratom is intentionally absent — kratom bills come
+// from the existing sync, not this discovery path.
+export const TOPIC_SEARCH_QUERY = {
+  cannabis: "cannabis",
+  hemp_cbd: "hemp",
+  psychedelics: "psilocybin",
+  supplements: "dietary supplement",
+  tobacco_vaping: "tobacco",
+  alcohol: "alcoholic beverage",
+};
+
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
