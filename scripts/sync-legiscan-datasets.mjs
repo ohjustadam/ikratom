@@ -30,6 +30,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "node:module";
+import { terminalStatusFromAction } from "./lib/bill-status.mjs";
 const require = createRequire(import.meta.url);
 const yauzl = require("yauzl");
 
@@ -114,7 +115,15 @@ async function ingestState(state) {
     for (const b of kratom) {
       try {
         const last = latestHistory(b);
-        const status = STATUS_MAP[b.status] ?? "introduced";
+        // LegiScan's numeric code under-reports enactment (returns 4=Passed for
+        // bills whose action says "became law"/"approved by governor"/"enacted").
+        // Promote to the action-derived terminal state when the code is still
+        // non-terminal, so this heal can't revert backfill-bill-status.mjs.
+        const codeStatus = STATUS_MAP[b.status] ?? "introduced";
+        const actionTerminal = terminalStatusFromAction(last?.action);
+        const status = actionTerminal && !["enacted", "vetoed", "dead"].includes(codeStatus)
+          ? actionTerminal
+          : codeStatus;
         const isCurrent = ses.session_id === currentSessionId;
         const active = isCurrent || status === "enacted";
         const billNumber = normalizeBillNumber(b.bill_number);
