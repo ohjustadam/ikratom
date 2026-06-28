@@ -39,6 +39,15 @@ REM 5. State executives (PR-K): governors/lt-gov/AG/SoS from openstates/people
 REM    (keyless public YAML) — fills the 5Calls gap. Self-gates to weekly.
 node --env-file=.env.local scripts/sync-state-executives.mjs
 
+REM 5b. Topic-bill discovery (phase 2): NON-kratom bills (cannabis/hemp/
+REM    psychedelics/supplements/tobacco/alcohol) via LegiScan getSearch ->
+REM    topic_bills, for the /topics explorer. ON THE BOX because LegiScan's
+REM    query API refuses GitHub Actions datacenter IPs (verified 6/6 connect
+REM    timeouts); the GHA "Topic classify" workflow handles the keyless tagging
+REM    half. Self-gates to weekly + tiny (~36 calls, ~1 min) so it respects the
+REM    box-CPU budget.
+node --env-file=.env.local scripts/discover-topic-bills.mjs
+
 REM 6. THE DOSSIER (flagship Phase 1): Hermes deep-dives ONE target per night
 REM    through the verified corpora into the admin-only dossiers table (0195).
 REM    Bounded by MAX_TURNS; aborts fast if 0195 isn't applied. Human review
