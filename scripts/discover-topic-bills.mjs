@@ -17,7 +17,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { runWithLogging } from "./lib/scraper-run.mjs";
-import { TOPIC_SEARCH_QUERY, coarseStance } from "./lib/bill-topic-keywords.mjs";
+import { TOPIC_SEARCH_QUERIES, coarseStance } from "./lib/bill-topic-keywords.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(`--${n}`);
@@ -56,57 +56,59 @@ async function recentlyRan() {
 
 async function main() {
   if (await recentlyRan()) { log("topic_bill_discovery ran <6d ago — skipping (use --force)."); return; }
-  const topics = ONLY_TOPIC ? [ONLY_TOPIC] : Object.keys(TOPIC_SEARCH_QUERY);
+  const topics = ONLY_TOPIC ? [ONLY_TOPIC] : Object.keys(TOPIC_SEARCH_QUERIES);
   log(`topic-bill discovery — ${DRY ? "DRY-RUN" : "LIVE"}; topics=${topics.join(",")}; maxPages=${MAX_PAGES}; minRel=${MIN_RELEVANCE}`);
 
   await runWithLogging({ source: "topic_bill_discovery", supabase: sb }, async () => {
     let upserted = 0, scanned = 0, lowRel = 0, failed = 0;
     const perTopic = {};
     for (const topic of topics) {
-      const query = TOPIC_SEARCH_QUERY[topic];
-      if (!query) { log(`  ! no search query for topic ${topic} — skipping`); continue; }
+      const queries = TOPIC_SEARCH_QUERIES[topic];
+      if (!queries?.length) { log(`  ! no search queries for topic ${topic} — skipping`); continue; }
       let topicUp = 0;
-      for (let page = 1; page <= MAX_PAGES; page++) {
-        let sr;
-        try { sr = await legiscanSearch(query, page); }
-        catch (e) { log(`  ! ${topic} p${page}: ${String(e?.message ?? e).slice(0, 80)}`); failed++; break; }
-        const pageTotal = sr.summary?.page_total ?? 1;
-        const rows = Object.entries(sr).filter(([k]) => k !== "summary").map(([, v]) => v);
-        const batch = [];
-        for (const r of rows) {
-          scanned++;
-          if ((r.relevance ?? 0) < MIN_RELEVANCE) { lowRel++; continue; }
-          if (!r.bill_id || !r.state || !r.bill_number) continue;
-          batch.push({
-            legiscan_bill_id: r.bill_id,
-            topic,
-            state: r.state,
-            bill_number: r.bill_number,
-            title: r.title ?? null,
-            stance: coarseStance(r.title ?? ""),
-            relevance: r.relevance ?? null,
-            last_action: r.last_action ?? null,
-            // LegiScan sometimes returns "0000-00-00" (no action yet); require a
-            // real month/day so Postgres doesn't reject the batch.
-            last_action_date: r.last_action_date && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(r.last_action_date) ? r.last_action_date : null,
-            url: r.url ?? null,
-            change_hash: r.change_hash ?? null,
-            discovered_at: new Date().toISOString(),
-          });
+      for (const query of queries) {
+        for (let page = 1; page <= MAX_PAGES; page++) {
+          let sr;
+          try { sr = await legiscanSearch(query, page); }
+          catch (e) { log(`  ! ${topic} "${query}" p${page}: ${String(e?.message ?? e).slice(0, 80)}`); failed++; break; }
+          const pageTotal = sr.summary?.page_total ?? 1;
+          const rows = Object.entries(sr).filter(([k]) => k !== "summary").map(([, v]) => v);
+          const batch = [];
+          for (const r of rows) {
+            scanned++;
+            if ((r.relevance ?? 0) < MIN_RELEVANCE) { lowRel++; continue; }
+            if (!r.bill_id || !r.state || !r.bill_number) continue;
+            batch.push({
+              legiscan_bill_id: r.bill_id,
+              topic,
+              state: r.state,
+              bill_number: r.bill_number,
+              title: r.title ?? null,
+              stance: coarseStance(r.title ?? ""),
+              relevance: r.relevance ?? null,
+              last_action: r.last_action ?? null,
+              // LegiScan sometimes returns "0000-00-00" (no action yet); require a
+              // real month/day so Postgres doesn't reject the batch.
+              last_action_date: r.last_action_date && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(r.last_action_date) ? r.last_action_date : null,
+              url: r.url ?? null,
+              change_hash: r.change_hash ?? null,
+              discovered_at: new Date().toISOString(),
+            });
+          }
+          if (!DRY && batch.length > 0) {
+            const { error } = await sb.from("topic_bills").upsert(batch, { onConflict: "legiscan_bill_id,topic" });
+            if (error) { log(`  ! ${topic} "${query}" p${page} upsert: ${error.message}`); failed++; }
+            else { upserted += batch.length; topicUp += batch.length; }
+          } else if (DRY) {
+            upserted += batch.length; topicUp += batch.length;
+          }
+          if (page >= pageTotal) break;
+          await sleep(1200); // polite LegiScan pacing
         }
-        if (!DRY && batch.length > 0) {
-          const { error } = await sb.from("topic_bills").upsert(batch, { onConflict: "legiscan_bill_id,topic" });
-          if (error) { log(`  ! ${topic} p${page} upsert: ${error.message}`); failed++; }
-          else { upserted += batch.length; topicUp += batch.length; }
-        } else if (DRY) {
-          upserted += batch.length; topicUp += batch.length;
-        }
-        if (page >= pageTotal) break;
-        await sleep(1200); // polite LegiScan pacing
+        await sleep(1200); // pace between search terms
       }
       perTopic[topic] = topicUp;
-      log(`  ${topic}: ${topicUp} bills (query "${query}")`);
-      await sleep(1200);
+      log(`  ${topic}: ${topicUp} bills (${queries.length} queries: ${queries.join(", ")})`);
     }
     const notes = `${DRY ? "dry-run " : ""}${upserted} upserted, ${scanned} scanned, ${lowRel} below-relevance, ${failed} failed | ${JSON.stringify(perTopic)}`;
     log(`\n${notes}`);
