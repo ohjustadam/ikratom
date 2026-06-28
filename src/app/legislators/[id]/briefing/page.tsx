@@ -664,6 +664,25 @@ export default async function BriefingPage({ params }: { params: Params }) {
       : { label: "Low", tone: "text-zinc-400", note: "Lower marginal return — either already aligned, or entrenched. Thank allies; for opponents, spend effort where it moves more." };
   const signedIn = !!viewerUser;
 
+  // Follow the money — rule-based synthesis connecting campaign $ + personal
+  // trades to their kratom record. Federal only (state finance data doesn't
+  // exist → returns null, card hidden). Reuses the same flaggedIndustryAmount
+  // figures that feed the threat score.
+  const { buildMoneyConflict } = await import("@/lib/legislator-money-analysis");
+  const moneyConflict = buildMoneyConflict({
+    donorMatched,
+    industries: {
+      pharma: flaggedIndustryAmount("pharma_biotech"),
+      tobacco: flaggedIndustryAmount("tobacco_nicotine"),
+      alcohol: flaggedIndustryAmount("alcohol"),
+      addictionTreatment: flaggedIndustryAmount("addiction_treatment"),
+      hospitalHealth: flaggedIndustryAmount("hospital_health"),
+    },
+    kratomAdjacentTrades: kratomAdjacentTradeCount ?? 0,
+    stance,
+    threatTier: threatAssessment.tier,
+  });
+
   // Display helpers
   const displayRole = leg.role.replace(/_/g, " ");
   const tel = leg.phone?.replace(/[^\d+]/g, "");
@@ -757,6 +776,40 @@ export default async function BriefingPage({ params }: { params: Params }) {
           Derived from the targeting tier above (threat {threatAssessment.threat_score} · vulnerability {threatAssessment.vulnerability_score}). A high score = dangerous <em>and</em> flippable — the best return on advocacy pressure.
         </p>
       </section>
+
+      {/* ── Follow the money (campaign $ + trades ↔ kratom record) ── */}
+      {moneyConflict && (
+        <section className={`mb-6 rounded-lg border-2 p-5 ${
+          moneyConflict.level === "aligned" ? "border-red-500/50 bg-red-950/15" :
+          moneyConflict.level === "ally" ? "border-emerald-600/50 bg-emerald-950/15" :
+          moneyConflict.level === "watch" ? "border-amber-500/40 bg-amber-950/10" :
+          "border-zinc-800 bg-zinc-950/40"
+        }`}>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">Follow the money</h2>
+          <p className="mt-2 text-sm font-semibold text-zinc-100">{moneyConflict.headline}</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-zinc-300">{moneyConflict.narrative}</p>
+          {(moneyConflict.topIndustries.length > 0 || moneyConflict.kratomAdjacentTrades > 0) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {moneyConflict.topIndustries.map((i) => (
+                <span key={i.key} className="rounded border border-zinc-700 bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-300">
+                  {i.label} <span className="font-mono text-zinc-400">{i.usd >= 1_000_000 ? `$${(i.usd / 1_000_000).toFixed(1)}M` : `$${Math.round(i.usd / 1000)}k`}</span>
+                </span>
+              ))}
+              {moneyConflict.kratomAdjacentTrades > 0 && (
+                <span className="rounded border border-zinc-700 bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-300">
+                  🪙 {moneyConflict.kratomAdjacentTrades} kratom-adjacent trade{moneyConflict.kratomAdjacentTrades === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+          )}
+          <p className="mt-3 rounded bg-zinc-950/50 p-3 text-xs leading-relaxed text-zinc-200">
+            <span className="font-semibold text-zinc-100">Why it matters: </span>{moneyConflict.whyItMatters}
+          </p>
+          <p className="mt-2 text-[10px] leading-relaxed text-zinc-600">
+            Federal campaign-finance (OpenFEC) + STOCK-Act trades. &ldquo;Restriction-aligned&rdquo; = industries with a financial interest that can run counter to keeping kratom legal — a sourced framing, not a motive claim about this person. State campaign-finance data: coming.
+          </p>
+        </section>
+      )}
 
       {/* ── Stance across issues (multi-topic dossier grid) ─────── */}
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
