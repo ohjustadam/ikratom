@@ -31,6 +31,7 @@
  *   node --env-file=.env.local scripts/sync-bills-via-legiscan.mjs --bill <uuid>
  */
 import { createClient } from "@supabase/supabase-js";
+import { terminalStatusFromAction } from "./lib/bill-status.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -274,15 +275,25 @@ async function syncOne(bill) {
     }
   }
 
-  // Reconcile status: LegiScan ground-truth
-  const lsStatus = STATUS_MAP[Number(detail.status)] ?? null;
   // SORT before picking "last" — LegiScan's history array is NOT guaranteed
-// chronological (AB 1088's came back out of order, leaving last_action_at a
-// year stale while bill_actions held the real 2026 timeline).
-const lsLastAction = (detail.history ?? [])
-  .filter((h) => h?.date)
-  .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-  .slice(-1)[0];
+  // chronological (AB 1088's came back out of order, leaving last_action_at a
+  // year stale while bill_actions held the real 2026 timeline).
+  const lsLastAction = (detail.history ?? [])
+    .filter((h) => h?.date)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .slice(-1)[0];
+  // Reconcile status. LegiScan's NUMERIC code UNDER-reports enactment: it returns
+  // 4 (Passed) for many bills whose own last_action says they became law — "Becomes
+  // law without Governor's signature" (OK SB 891), "Approved by Governor", "Signed
+  // by the Governor", "Enacted". Trusting the raw code reverted those to
+  // passed_chamber on every nightly sync (undoing backfill-bill-status.mjs). So when
+  // the action text explicitly indicates a terminal state and the numeric code is
+  // still non-terminal, the action wins (identical rule to the backfill).
+  const lsCodeStatus = STATUS_MAP[Number(detail.status)] ?? null;
+  const actionTerminal = terminalStatusFromAction(lsLastAction?.action ?? bill.last_action);
+  const lsStatus = actionTerminal && !["enacted", "vetoed", "dead"].includes(lsCodeStatus ?? "")
+    ? actionTerminal
+    : lsCodeStatus;
   const patch = {};
 
   // Extract current committee from the most-recent committee-mentioning
