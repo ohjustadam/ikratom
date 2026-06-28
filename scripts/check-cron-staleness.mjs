@@ -88,7 +88,7 @@ const REGISTRY = [
   // weekly
   ...["weekly_committee_sync","sync_nonprofit_990s","weekly_patch_note_draft",
       "broadcast_whats_new","weekly_legislator_stance_all","official_portraits_sync",
-      "state_portraits_bulk","bill_topics_classify","topic_bill_discovery",
+      "state_portraits_bulk","bill_topics_classify",
      ].map((source) => ({ source, interval_hours: 216, system: "gh-weekly", cadence: "weekly" })),
 
   // vercel (different system, but still monitorable)
@@ -104,6 +104,10 @@ const REGISTRY = [
   // both run on the box too (SearXNG find → fetch → local/free-tier extract).
   { source: "verify_local_bans", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "sweep_locality_intel", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // Phase-2 multi-topic discovery (LegiScan getSearch) runs on the box — the
+  // query API refuses GitHub Actions IPs. Self-gates weekly; box runs nightly,
+  // so a success lands ~weekly (216h interval gives margin).
+  { source: "topic_bill_discovery", interval_hours: 216, system: "local-box", cadence: "weekly" },
   // PR-E: Hermes (hermes3:8b) writes campaign briefings nightly on the box.
   { source: "auto_brief_campaigns", interval_hours: 72, system: "local-box", cadence: "daily" },
   // PR-F: session-prep regen (codebase map + state snapshot) on the box.

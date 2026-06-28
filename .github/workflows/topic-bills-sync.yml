@@ -1,18 +1,18 @@
-name: Topic bills sync
+name: Topic classify
 
-# Keeps the multi-topic data fresh for the /topics explorer (phase 1+2):
+# Keyless half of the multi-topic refresh for the /topics explorer:
 #   - classify-bill-topics.mjs: re-tags bills.bill_topics as new kratom bills
 #     sync in (keyless keyword pass).
-#   - discover-topic-bills.mjs: discovers NON-kratom bills (cannabis, hemp,
-#     psychedelics, supplements, tobacco, alcohol) via LegiScan getSearch into
-#     the separate topic_bills table.
 #
-# Both self-gate to weekly via scraper_runs (bill_topics_classify /
-# topic_bill_discovery) and are registered in check-cron-staleness.mjs, so a
-# manual dispatch passes --force to override the gate; the weekly tick is a
-# no-op if a dispatch ran recently. Steps are `|| true` so one source failing
-# (e.g. LegiScan blip) doesn't block the other — the telemetry row records the
-# real outcome (scraper_runs is the source of truth, not the workflow badge).
+# NOTE: the LegiScan DISCOVERY half (discover-topic-bills.mjs) runs on the OWNER
+# BOX (run-nightly-steps.cmd), NOT here — LegiScan's getSearch query API refuses
+# connections from GitHub Actions datacenter IPs (verified: 6/6 connect timeouts
+# on two dispatches), while it works from the box's residential IP. (The kratom
+# LegiScan sync works on GHA because it pulls getDataset ZIPs from a CDN, not the
+# query API.) See run-nightly-steps.cmd.
+#
+# Self-gates to weekly via scraper_runs (bill_topics_classify); dispatch passes
+# --force. `|| true` keeps a blip from failing the badge — telemetry is truth.
 
 on:
   workflow_dispatch:
@@ -37,7 +37,6 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -53,5 +52,3 @@ jobs:
           echo "force=$FORCE" >> "$GITHUB_OUTPUT"
       - name: Tag existing bills by topic (keyless)
         run: node scripts/classify-bill-topics.mjs ${{ steps.flags.outputs.force }} || true
-      - name: Discover non-kratom bills (LegiScan getSearch)
-        run: node scripts/discover-topic-bills.mjs ${{ steps.flags.outputs.force }} || true
