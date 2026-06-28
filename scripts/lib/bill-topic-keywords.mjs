@@ -17,19 +17,21 @@ export const TOPIC_KEYWORDS = {
   alcohol: ["alcoholic beverage", "intoxicating liquor", "malt beverage", "distilled spirits", "liquor license", "alcohol content"],
 };
 
-// LegiScan getSearch query per topic (phase-2 discovery). One high-signal query
-// each — broad enough to catch the topic, narrow enough to avoid noise (e.g.
-// "alcoholic beverage" not bare "alcohol" which catches alcoholism-treatment
-// bills). Results are relevance-ranked by LegiScan; the discovery script also
-// applies a relevance floor. kratom is intentionally absent — kratom bills come
-// from the existing sync, not this discovery path.
-export const TOPIC_SEARCH_QUERY = {
-  cannabis: "cannabis",
-  hemp_cbd: "hemp",
-  psychedelics: "psilocybin",
-  supplements: "dietary supplement",
-  tobacco_vaping: "tobacco",
-  alcohol: "alcoholic beverage",
+// LegiScan getSearch queries per topic (phase-2 discovery). MULTIPLE
+// high-signal terms each, searched separately + unioned (dedup is automatic via
+// the topic_bills PK). Each term is broad enough to catch its slice, narrow
+// enough to avoid noise (e.g. "alcoholic beverage" not bare "alcohol", which
+// catches alcoholism-treatment bills). Results are relevance-ranked by LegiScan;
+// the discovery script also applies a relevance floor. kratom is intentionally
+// absent — kratom bills come from the existing sync, not this discovery path.
+export const TOPIC_SEARCH_QUERIES = {
+  cannabis: ["cannabis", "marijuana"],
+  hemp_cbd: ["hemp", "cannabidiol"],
+  // psychedelics was only "psilocybin" — missed MDMA/ketamine/ibogaine-only bills.
+  psychedelics: ["psilocybin", "psychedelic", "MDMA", "ketamine", "ibogaine"],
+  supplements: ["dietary supplement", "nutraceutical"],
+  tobacco_vaping: ["tobacco", "vaping", "e-cigarette"],
+  alcohol: ["alcoholic beverage", "distilled spirits"],
 };
 
 function escapeRe(s) {
