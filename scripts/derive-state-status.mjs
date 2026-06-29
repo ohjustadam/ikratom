@@ -88,42 +88,77 @@ function billSignal(b) {
   return { leaf, sevenoh, sevenohInferred };
 }
 
-/** Aggregate a state's bills → strongest signal per axis, with provenance. */
+/** The date that fixes a bill's current legal effect — newest governs. */
+function billRecency(b) {
+  return b.effective_date || b.signed_at || b.last_action_at || null;
+}
+
+/**
+ * Pick the current status for one axis from candidate {status,date,bill,inferred}.
+ * Value = strongest rank (the legacy "strongest wins", with a direct-over-inferred
+ * tie-break). We deliberately do NOT auto-loosen a ban when a newer
+ * less-restrictive bill exists: validated 2026-06-28 that auto-superseding
+ * wrongly flips genuine ban states (AR/MI/WI) to "protected" because a narrow
+ * newer 7-OH bill that "preserves leaf" is indistinguishable, from substance_
+ * targeting alone, from an actual repeal. So the conservative value stands (never
+ * under-states a ban) and we instead FLAG the conflict for human review — a human
+ * resolves it via admin_leaf_status, which every public surface already renders
+ * first. True auto-resolution needs a bill-amends-bill relation we don't model
+ * (the V2 statement-of-law table).
+ *
+ * `conflict` = a ban and a non-ban signal coexist (an amendment stack worth a
+ * human look). `newerLooser` = a less-restrictive signal is strictly NEWER than
+ * the newest ban (the strongest "this ban may have been repealed" hint).
+ */
+function pickAxis(cands) {
+  if (!cands.length) return { status: null, from: null, conflict: false, newerLooser: false, inferred: false };
+  const byRank = [...cands].sort(
+    (a, b) => RANK[b.status] - RANK[a.status] || (a.inferred === b.inferred ? 0 : a.inferred ? 1 : -1),
+  );
+  const rankWinner = byRank[0];
+  const conflict = cands.some((c) => RANK[c.status] === 3) && cands.some((c) => RANK[c.status] < 3);
+  let newerLooser = false;
+  if (rankWinner.status === "banned") {
+    const dated = cands.filter((c) => c.date);
+    const newestBan = dated.filter((c) => c.status === "banned").map((c) => String(c.date)).sort().slice(-1)[0];
+    const newestLoose = dated.filter((c) => RANK[c.status] < 3).map((c) => String(c.date)).sort().slice(-1)[0];
+    newerLooser = !!(newestBan && newestLoose && newestLoose > newestBan);
+  }
+  return { status: rankWinner.status, from: rankWinner.bill, conflict, newerLooser, inferred: !!rankWinner.inferred };
+}
+
+/** Aggregate a state's bills → current signal per axis (recency-aware), with provenance. */
 function deriveState(rows) {
   const enacted = rows.filter(isEnacted);
   const pool = enacted.length ? enacted : rows;
   const basis = enacted.length ? "enacted" : "all-active";
-  let leaf = null;
-  let sevenoh = null;
-  let leafFrom = null;
-  let sevenohFrom = null;
-  let sevenohInferred = false;
+  const leafCand = [];
+  const sevenohCand = [];
   for (const b of pool) {
     const s = billSignal(b);
-    if (s.leaf && (!leaf || RANK[s.leaf] > RANK[leaf])) {
-      leaf = s.leaf;
-      leafFrom = b.bill_number ?? null;
-    }
-    if (s.sevenoh) {
-      // Strongest rank wins; on an equal-rank TIE prefer a DIRECT seven_oh
-      // stance over a synthetic-axis inference, so the "inferred" review flag
-      // is deterministic regardless of bill processing order (it fires only
-      // when no direct stance backs the winning rank).
-      const stronger = !sevenoh || RANK[s.sevenoh] > RANK[sevenoh];
-      const tieUpgrade = sevenoh && RANK[s.sevenoh] === RANK[sevenoh] && sevenohInferred && !s.sevenohInferred;
-      if (stronger || tieUpgrade) {
-        sevenoh = s.sevenoh;
-        sevenohFrom = b.bill_number ?? null;
-        sevenohInferred = s.sevenohInferred;
-      }
-    }
+    const date = billRecency(b);
+    const bill = b.bill_number ?? null;
+    if (s.leaf) leafCand.push({ status: s.leaf, date, bill, inferred: false });
+    if (s.sevenoh) sevenohCand.push({ status: s.sevenoh, date, bill, inferred: s.sevenohInferred });
   }
-  return { leaf, sevenoh, basis, enactedCount: enacted.length, leafFrom, sevenohFrom, sevenohInferred };
+  const L = pickAxis(leafCand);
+  const O = pickAxis(sevenohCand);
+  return {
+    leaf: L.status,
+    sevenoh: O.status,
+    basis,
+    enactedCount: enacted.length,
+    leafFrom: L.from,
+    sevenohFrom: O.from,
+    sevenohInferred: O.inferred,
+    leafConflict: L.conflict,
+    leafNewerLooser: L.newerLooser,
+  };
 }
 
 const { data: bills, error } = await sb
   .from("bills")
-  .select("state, status, signed_at, effective_date, substance_targeting, targets_natural_leaf, targets_synthetic_only, bill_number")
+  .select("state, status, signed_at, effective_date, last_action_at, substance_targeting, targets_natural_leaf, targets_synthetic_only, bill_number")
   .eq("scope", "state")
   .eq("active", true)
   .order("bill_number", { ascending: true }); // stable order → reproducible evidence bills
@@ -137,6 +172,12 @@ if (error) {
 // can't FK-fail the entire upsert batch and zero out the whole publish.
 const { data: stateRows } = await sb.from("states").select("abbr");
 const validStates = new Set((stateRows ?? []).map((s) => s.abbr));
+
+// Existing admin overrides — a human-set admin_leaf_status means the amendment
+// stack is already RESOLVED, so we don't re-queue it for review (only surface
+// UNRESOLVED stacks). Other review reasons keep their established behavior.
+const { data: existingStatus } = await sb.from("state_status").select("state, admin_leaf_status");
+const hasAdminLeaf = new Set((existingStatus ?? []).filter((r) => r.admin_leaf_status).map((r) => r.state));
 
 // Group by valid 2-letter state (skips 'US' federal placeholder + junk, plus
 // any code not present in the states table). Fail-open if the states lookup
@@ -166,6 +207,15 @@ for (const [state, rows] of byState) {
   }
   // 3. 7-OH inferred from synthetic-axis (KCPA) rather than a direct stance.
   if (d.sevenohInferred) reasons.push("7oh-inferred-from-synthetic");
+  // 4. Amendment stack: derived "banned" but a protective/restrictive law also
+  //    exists for this state (sometimes a NEWER one). The conservative value
+  //    stays "banned" (we never auto-loosen — see pickAxis), but a human must
+  //    confirm whether a later KCPA repealed/amended the ban. Display already
+  //    prefers admin_leaf_status; this guarantees the stack hits the review queue
+  //    instead of sitting silently as a possibly-stale "banned".
+  if (d.leaf === "banned" && (d.leafConflict || d.leafNewerLooser) && !hasAdminLeaf.has(state)) {
+    reasons.push(d.leafNewerLooser ? "ban-with-newer-protective-law" : "ban-and-protective-coexist");
+  }
 
   records.push({
     state,
