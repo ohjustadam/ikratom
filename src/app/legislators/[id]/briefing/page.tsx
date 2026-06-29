@@ -13,6 +13,7 @@ import {
   type LeverageSignal,
 } from "@/lib/legislator-action-plan";
 import { actorsForLegislator, FACTION_META, ROLE_LABEL } from "@/lib/kratom-industry-actors";
+import { computeIntelVerdict, industriesFromDonor } from "@/lib/legislator-intel";
 import { RemindMeButton } from "@/components/RemindMeButton";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { getAdminContext } from "@/modules/admin/actions";
@@ -618,70 +619,30 @@ export default async function BriefingPage({ params }: { params: Params }) {
   const isAdminOrOwner = adminCtx.ok && (adminCtx.isAdmin || adminCtx.isOwner);
   const stanceMeta = STANCE_META[stance];
 
-  // Threat-matrix tier assessment for the chip in the header. Same
-  // composite scorer that powers /intel/threat-matrix; surfaces here
-  // so users coming from the matrix see the rank + score in context,
-  // and so we don't make them bounce back-and-forth to remember why
-  // this person was on their list.
-  const { assessThreat } = await import("@/lib/legislator-threat-score");
-  function flaggedIndustryAmount(name: string): number | null {
-    if (!donorMatched) return null;
-    const row = (donor?.top_industries ?? []).find((i) => i.industry === name);
-    return row?.amount ?? 0;
-  }
-  const threatAssessment = assessThreat({
+  // Intel verdict — threat tier (the /intel/threat-matrix scorer) · pressure
+  // index · follow-the-money. Computed by the shared lib so the briefing memo
+  // and the canonical dossier always agree (src/lib/legislator-intel.ts).
+  // Pressure Index is the geometric mean of stakes (threat) × movability
+  // (vulnerability) — high only when BOTH are — and is account-gated below.
+  const {
+    threat: threatAssessment,
+    pressureIndex,
+    pressureBand,
+    moneyConflict,
+  } = computeIntelVerdict({
     stance,
-    has_anti_sponsorship,
-    has_pro_sponsorship,
-    primary_sponsorship_count: primary.filter((p) => p.kratom_relevance === "anti").length,
-    cosponsorship_count: cosponsor.length,
-    is_chair_of_kratom_relevant: isChairOfKratomRelevant,
-    is_member_of_kratom_relevant: isMemberOfKratomRelevant,
-    bills_in_their_committees: currentlyDeciding.length,
-    pharma_usd: flaggedIndustryAmount("pharma_biotech"),
-    alcohol_usd: flaggedIndustryAmount("alcohol"),
-    tobacco_usd: flaggedIndustryAmount("tobacco_nicotine"),
-    addiction_treatment_usd: flaggedIndustryAmount("addiction_treatment"),
-    cannabis_usd: flaggedIndustryAmount("cannabis"),
-    gaming_usd: flaggedIndustryAmount("gaming_casino"),
-    hospital_health_usd: flaggedIndustryAmount("hospital_health"),
-    kratom_adjacent_trade_count: kratomAdjacentTradeCount,
-  });
-
-  // Pressure Index — where advocacy effort yields the most: the geometric
-  // mean of the stakes (threat_score) and how movable they are
-  // (vulnerability_score), so it's high only when BOTH are. Free, but
-  // account-gated (a concrete reason to sign up). Derived from public
-  // sponsorship/committee signals, so no gated data is needed to compute it.
-  const pressureIndex = Math.round(
-    Math.sqrt(threatAssessment.threat_score * threatAssessment.vulnerability_score)
-  );
-  const pressureBand =
-    pressureIndex >= 60
-      ? { label: "High", tone: "text-emerald-300", note: "Your pressure moves the needle most here — prioritize calls, emails, and constituent stories." }
-      : pressureIndex >= 35
-      ? { label: "Moderate", tone: "text-amber-300", note: "Worth contacting — pressure helps, but pair it with coalition support or committee timing." }
-      : { label: "Low", tone: "text-zinc-400", note: "Lower marginal return — either already aligned, or entrenched. Thank allies; for opponents, spend effort where it moves more." };
-  const signedIn = !!viewerUser;
-
-  // Follow the money — rule-based synthesis connecting campaign $ + personal
-  // trades to their kratom record. Federal only (state finance data doesn't
-  // exist → returns null, card hidden). Reuses the same flaggedIndustryAmount
-  // figures that feed the threat score.
-  const { buildMoneyConflict } = await import("@/lib/legislator-money-analysis");
-  const moneyConflict = buildMoneyConflict({
     donorMatched,
-    industries: {
-      pharma: flaggedIndustryAmount("pharma_biotech"),
-      tobacco: flaggedIndustryAmount("tobacco_nicotine"),
-      alcohol: flaggedIndustryAmount("alcohol"),
-      addictionTreatment: flaggedIndustryAmount("addiction_treatment"),
-      hospitalHealth: flaggedIndustryAmount("hospital_health"),
-    },
-    kratomAdjacentTrades: kratomAdjacentTradeCount ?? 0,
-    stance,
-    threatTier: threatAssessment.tier,
+    industries: industriesFromDonor(donor, donorMatched),
+    hasAntiSponsorship: has_anti_sponsorship,
+    hasProSponsorship: has_pro_sponsorship,
+    primaryAntiCount: primary.filter((p) => p.kratom_relevance === "anti").length,
+    cosponsorCount: cosponsor.length,
+    isChairOfKratomRelevant,
+    isMemberOfKratomRelevant,
+    currentlyDecidingCount: currentlyDeciding.length,
+    kratomAdjacentTradeCount,
   });
+  const signedIn = !!viewerUser;
 
   // Display helpers
   const displayRole = leg.role.replace(/_/g, " ");

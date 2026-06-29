@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ROLE_LABEL } from "@/lib/legislators";
 import { ShareButtons } from "@/components/ShareButtons";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
-import type { Stance } from "@/lib/legislator-action-plan";
+import { getLegislatorIntel } from "@/lib/legislator-intel";
 
 const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
 
@@ -24,20 +24,6 @@ type Legislator = {
   title: string | null;
   active: boolean;
   portrait_url: string | null;
-};
-
-type SponsoredBill = {
-  bill_id: string;
-  classification: string;
-  bills: {
-    bill_number: string;
-    title: string | null;
-    kratom_relevance: string | null;
-    targets_natural_leaf: boolean | null;
-    status: string | null;
-    last_action_at: string | null;
-    state: string;
-  }[] | { bill_number: string; title: string | null; kratom_relevance: string | null; targets_natural_leaf: boolean | null; status: string | null; last_action_at: string | null; state: string } | null;
 };
 
 const RELEVANCE_TAG: Record<string, { label: string; cls: string }> = {
@@ -86,12 +72,14 @@ export default async function LegislatorDetailPage({
   if (!legRaw) notFound();
   const leg = legRaw as unknown as Legislator;
 
-  // Sponsored bills (with stance + status)
-  const { data: sponsoredRaw } = await supabase
-    .from("bill_sponsors")
-    .select("bill_id, classification, bills(bill_number, title, kratom_relevance, targets_natural_leaf, status, last_action_at, state)")
-    .eq("legislator_id", id);
-  const sponsored = (sponsoredRaw ?? []) as unknown as SponsoredBill[];
+  // One consolidated intel pull — stance, sponsorships, committees, donor,
+  // kratom-adjacent trades + the computed verdict (threat tier · pressure
+  // index · follow-the-money). Single source of truth shared with the intel
+  // briefing memo (src/lib/legislator-intel.ts), so the two surfaces can
+  // never drift.
+  const intel = await getLegislatorIntel(supabase, leg);
+  const { verdict, donor: donorProfile, summary, currentlyDeciding, sponsorships: sponsored } = intel;
+  const { threat, pressureIndex, moneyConflict } = verdict;
 
   // Active campaigns targeting this legislator (explicit IDs OR role match)
   const { data: explicitCampaigns } = await supabase
@@ -110,105 +98,6 @@ export default async function LegislatorDetailPage({
   const targetingCampaigns = new Map<string, { id: string; slug: string; title: string; state: string | null; blurb: string | null }>();
   for (const c of [...(explicitCampaigns ?? []), ...(roleCampaigns ?? [])] as Array<{ id: string; slug: string; title: string; state: string | null; blurb: string | null }>) {
     targetingCampaigns.set(c.id, c);
-  }
-
-  // Donor profile (OpenFEC) — federal legislators only
-  const isFederalLegislator = leg.role === "us_senate" || leg.role === "us_house";
-  type DonorProfile = {
-    cycle: number | null;
-    total_receipts: number | null;
-    top_industries: Array<{ industry: string; amount: number }> | null;
-    top_employers: Array<{ employer: string; amount: number }> | null;
-    kratom_relevant: { pharma?: number; retail?: number; alcohol?: number; tobacco?: number; hospital_health?: number; total?: number } | null;
-    resolved_status: string | null;
-    synced_at: string | null;
-  };
-  let donorProfile: DonorProfile | null = null;
-  if (isFederalLegislator) {
-    const { data: dp } = await supabase
-      .from("legislator_donors")
-      .select("cycle, total_receipts, top_industries, top_employers, kratom_relevant, resolved_status, synced_at")
-      .eq("legislator_id", id)
-      .maybeSingle();
-    donorProfile = (dp as DonorProfile | null) ?? null;
-  }
-
-  // "Currently deciding" — bills in committees THIS legislator sits on
-  // RIGHT NOW. This is the structural-leverage signal flipped from
-  // YourRepDecidingThisBill (which is per-user); here we display it
-  // per-legislator so constituents reading the profile can see exactly
-  // which bills the legislator has direct power over today.
-  type CurrentlyDeciding = {
-    bill_id: string;
-    state: string;
-    bill_number: string;
-    title: string | null;
-    kratom_relevance: string | null;
-    committee_name: string;
-    role: string;
-  };
-  let currentlyDeciding: CurrentlyDeciding[] = [];
-  try {
-    const { data: myCommittees } = await supabase
-      .from("legislator_committees")
-      .select("committee_name, role")
-      .eq("legislator_id", id);
-    const assignments = (myCommittees ?? []) as Array<{ committee_name: string; role: string }>;
-    if (assignments.length > 0) {
-      const { committeesMatch } = await import("@/lib/bill-committee");
-      // Pull all active bills in this legislator's state that have a
-      // current_committee_name set. Limit to 200 to keep memory in
-      // check; in practice the union of "any of this legislator's
-      // committees" is tiny.
-      const { data: stateBills } = await supabase
-        .from("bills")
-        .select("id, state, bill_number, title, kratom_relevance, current_committee_name, last_action_at")
-        .eq("state", leg.state)
-        .eq("active", true)
-        .not("current_committee_name", "is", null)
-        .order("last_action_at", { ascending: false, nullsFirst: false })
-        .limit(200);
-      for (const b of (stateBills ?? []) as Array<{ id: string; state: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null }>) {
-        if (!b.current_committee_name) continue;
-        const matched = assignments.find((a) => committeesMatch(b.current_committee_name!, a.committee_name));
-        if (!matched) continue;
-        currentlyDeciding.push({
-          bill_id: b.id,
-          state: b.state,
-          bill_number: b.bill_number,
-          title: b.title,
-          kratom_relevance: b.kratom_relevance,
-          committee_name: matched.committee_name,
-          role: matched.role,
-        });
-      }
-      // anti bills first (defensive urgency), then unique by bill_id
-      const seen = new Set<string>();
-      currentlyDeciding = currentlyDeciding
-        .filter((x) => seen.has(x.bill_id) ? false : (seen.add(x.bill_id), true))
-        .sort((a, b) => {
-          if (a.kratom_relevance === "anti" && b.kratom_relevance !== "anti") return -1;
-          if (b.kratom_relevance === "anti" && a.kratom_relevance !== "anti") return 1;
-          return 0;
-        })
-        .slice(0, 10);
-    }
-  } catch {
-    // Pre-migration deploy or schema mismatch — section silently absent.
-  }
-
-  // Quick stance summary for sponsored bills
-  const summary = {
-    pro: 0, anti: 0, neutral: 0, total: sponsored.length,
-    leafTargeting: 0,
-  };
-  for (const s of sponsored) {
-    const b = Array.isArray(s.bills) ? s.bills[0] : s.bills;
-    if (!b) continue;
-    if (b.kratom_relevance === "pro") summary.pro++;
-    else if (b.kratom_relevance === "anti") summary.anti++;
-    else summary.neutral++;
-    if (b.targets_natural_leaf === true) summary.leafTargeting++;
   }
 
   // Voting record — roll-call votes now attributable via the P1 legiscan_people_id backfill
@@ -246,66 +135,6 @@ export default async function LegislatorDetailPage({
     else if (v.vote_value === 3 || v.vote_value === 4) missedVotes++;
   }
   const rollcalls = participated + missedVotes;
-
-  // ── Intel verdict — threat tier + pressure index + follow-the-money, brought
-  // onto the canonical dossier page (same signals + proven assessThreat /
-  // buildMoneyConflict the full briefing uses). 3 extra parallel fetches.
-  const [stanceRes, kratomCmtRes, tradesRes] = await Promise.all([
-    supabase.from("legislator_stance").select("stance").eq("legislator_id", id).eq("topic", "kratom").maybeSingle(),
-    supabase.from("legislator_committees").select("role, is_kratom_relevant").eq("legislator_id", id),
-    isFederalLegislator
-      ? supabase.from("federal_personal_trades").select("id", { count: "exact", head: true }).eq("legislator_id", id).eq("is_kratom_adjacent", true)
-      : Promise.resolve({ count: 0 }),
-  ]);
-  const stance = (((stanceRes.data as { stance?: string } | null)?.stance) ?? "unknown") as Stance;
-  const kratomCmts = (kratomCmtRes.data ?? []) as Array<{ role: string; is_kratom_relevant: boolean | null }>;
-  const isMemberOfKratomRelevant = kratomCmts.some((c) => c.is_kratom_relevant);
-  const isChairOfKratomRelevant = kratomCmts.some((c) => c.is_kratom_relevant && (c.role === "chair" || c.role === "vice_chair"));
-  const kratomAdjacentTradeCount = (tradesRes as { count?: number | null }).count ?? 0;
-  const primaryAntiCount = sponsored.filter((s) => {
-    const b = Array.isArray(s.bills) ? s.bills[0] : s.bills;
-    return s.classification === "primary" && b?.kratom_relevance === "anti";
-  }).length;
-  const cosponsorCount = sponsored.filter((s) => s.classification !== "primary").length;
-  const donorMatched = donorProfile?.resolved_status === "matched";
-  function flaggedIndustryAmount(name: string): number | null {
-    if (!donorMatched) return null;
-    return (donorProfile?.top_industries ?? []).find((i) => i.industry === name)?.amount ?? 0;
-  }
-  const { assessThreat } = await import("@/lib/legislator-threat-score");
-  const threat = assessThreat({
-    stance,
-    has_anti_sponsorship: summary.anti > 0,
-    has_pro_sponsorship: summary.pro > 0,
-    primary_sponsorship_count: primaryAntiCount,
-    cosponsorship_count: cosponsorCount,
-    is_chair_of_kratom_relevant: isChairOfKratomRelevant,
-    is_member_of_kratom_relevant: isMemberOfKratomRelevant,
-    bills_in_their_committees: currentlyDeciding.length,
-    pharma_usd: flaggedIndustryAmount("pharma_biotech"),
-    alcohol_usd: flaggedIndustryAmount("alcohol"),
-    tobacco_usd: flaggedIndustryAmount("tobacco_nicotine"),
-    addiction_treatment_usd: flaggedIndustryAmount("addiction_treatment"),
-    cannabis_usd: flaggedIndustryAmount("cannabis"),
-    gaming_usd: flaggedIndustryAmount("gaming_casino"),
-    hospital_health_usd: flaggedIndustryAmount("hospital_health"),
-    kratom_adjacent_trade_count: kratomAdjacentTradeCount,
-  });
-  const pressureIndex = Math.round(Math.sqrt(threat.threat_score * threat.vulnerability_score));
-  const { buildMoneyConflict } = await import("@/lib/legislator-money-analysis");
-  const moneyConflict = buildMoneyConflict({
-    donorMatched,
-    industries: {
-      pharma: flaggedIndustryAmount("pharma_biotech"),
-      tobacco: flaggedIndustryAmount("tobacco_nicotine"),
-      alcohol: flaggedIndustryAmount("alcohol"),
-      addictionTreatment: flaggedIndustryAmount("addiction_treatment"),
-      hospitalHealth: flaggedIndustryAmount("hospital_health"),
-    },
-    kratomAdjacentTrades: kratomAdjacentTradeCount,
-    stance,
-    threatTier: threat.tier,
-  });
 
   const roleLabel = ROLE_LABEL[leg.role] ?? leg.role;
 
@@ -515,9 +344,7 @@ export default async function LegislatorDetailPage({
           </h2>
           <ul className="space-y-2">
             {sponsored.map((s, i) => {
-              const b = Array.isArray(s.bills) ? s.bills[0] : s.bills;
-              if (!b) return null;
-              const tag = RELEVANCE_TAG[b.kratom_relevance ?? "neutral"] ?? RELEVANCE_TAG.neutral;
+              const tag = RELEVANCE_TAG[s.kratom_relevance ?? "neutral"] ?? RELEVANCE_TAG.neutral;
               return (
                 <li
                   key={`${s.bill_id}-${i}`}
@@ -525,24 +352,24 @@ export default async function LegislatorDetailPage({
                 >
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">
-                      {b.state} · {b.bill_number}
+                      {s.state} · {s.bill_number}
                     </span>
                     <span className={`rounded px-1.5 py-0.5 font-semibold ${tag.cls}`}>{tag.label}</span>
-                    {b.targets_natural_leaf === true && (
+                    {s.targets_natural_leaf === true && (
                       <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-300">🚨 leaf</span>
                     )}
                     <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-500 capitalize">
                       {s.classification}
                     </span>
-                    {b.last_action_at && (
+                    {s.last_action_at && (
                       <span className="ml-auto text-zinc-500">
-                        {new Date(b.last_action_at).toLocaleDateString()}
+                        {new Date(s.last_action_at).toLocaleDateString()}
                       </span>
                     )}
                   </div>
                   <h3 className="mt-2 text-sm font-medium leading-snug">
                     <a href={`/bills/${s.bill_id}`} className="hover:text-emerald-400">
-                      {b.title || "(untitled)"}
+                      {s.title || "(untitled)"}
                     </a>
                   </h3>
                 </li>
