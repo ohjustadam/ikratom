@@ -638,18 +638,30 @@ async function generateOne(state) {
 
   const userPrompt = buildUserPrompt(data);
   process.stdout.write(`${tag} generating via AI (prompt ${userPrompt.length} chars)… `);
+  // aiRouter rotates providers + respects cooldowns; it only throws when EVERY
+  // free-tier provider is cooling/exhausted at once. Retry once after a backoff
+  // so a 60s 429 cooldown clears — turns a hard per-state skip into a recovery
+  // (the single biggest cause of the cloud-only cron leaving ~10 states stale).
   let result;
-  try {
-    result = await aiRouter({
-      systemPrompt: SYSTEM,
-      userPrompt,
-      maxTokens: 2400,
-      providerOverride: PROVIDER_OVERRIDE,
-      verbose: true,
-    });
-  } catch (e) {
-    console.log(`✗ AI: ${e.message?.slice(0, 80)}`);
-    return { state, status: "ai-error", error: e.message };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      result = await aiRouter({
+        systemPrompt: SYSTEM,
+        userPrompt,
+        maxTokens: 2400,
+        providerOverride: PROVIDER_OVERRIDE,
+        verbose: true,
+      });
+      break;
+    } catch (e) {
+      if (attempt < 1 && !PROVIDER_OVERRIDE) {
+        console.log(`↻ all providers busy, waiting 45s then retrying: ${e.message?.slice(0, 60)}`);
+        await new Promise((r) => setTimeout(r, 45000));
+        continue;
+      }
+      console.log(`✗ AI: ${e.message?.slice(0, 80)}`);
+      return { state, status: "ai-error", error: e.message };
+    }
   }
   let body = (result.parsed?.body_md ?? "").trim();
   // A real briefing has 5 sections × roughly 400-800 chars each ≈ 2000-4000
@@ -765,8 +777,18 @@ if (STATE) {
     .eq("briefing_gen_enabled", true);
   const enabledSet = new Set((enabled ?? []).map(r => r.abbr));
   targets = STATE_LIST.filter(s => enabledSet.has(s));
-  console.log(`--all-states: ${targets.length} of ${STATE_LIST.length} states have briefing_gen_enabled=true`);
-  console.log(`  Enabled: ${targets.join(", ") || "(none)"}\n`);
+  // STALEST-FIRST: order by current briefing age (oldest / missing first) so the
+  // chronically-stale states get the freshest free-tier AI budget each run. The
+  // old fixed alphabetical order meant the same states always hit exhausted
+  // providers (Gemini/Cerebras 429s) on the cloud-only GHA cron and never
+  // refreshed (~10 stuck >2d). A state that still fails becomes the stalest →
+  // processed first next run, so coverage self-converges instead of stranding.
+  const { data: existingBr } = await sb.from("state_briefings")
+    .select("state, generated_at").eq("is_active", true).in("state", targets);
+  const genAtMs = new Map((existingBr ?? []).map(r => [r.state, r.generated_at ? new Date(r.generated_at).getTime() : 0]));
+  targets.sort((a, b) => (genAtMs.get(a) ?? 0) - (genAtMs.get(b) ?? 0)); // oldest/missing first
+  console.log(`--all-states: ${targets.length} of ${STATE_LIST.length} states enabled (stalest-first)`);
+  console.log(`  Order: ${targets.join(", ") || "(none)"}\n`);
   if (targets.length === 0) {
     console.log("No states enabled. Toggle in DB: UPDATE states SET briefing_gen_enabled=true WHERE abbr='XX'");
     process.exit(0);
