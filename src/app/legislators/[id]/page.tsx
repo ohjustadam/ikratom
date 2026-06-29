@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ROLE_LABEL } from "@/lib/legislators";
 import { ShareButtons } from "@/components/ShareButtons";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
+import type { Stance } from "@/lib/legislator-action-plan";
 
 const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
 
@@ -246,6 +247,66 @@ export default async function LegislatorDetailPage({
   }
   const rollcalls = participated + missedVotes;
 
+  // ── Intel verdict — threat tier + pressure index + follow-the-money, brought
+  // onto the canonical dossier page (same signals + proven assessThreat /
+  // buildMoneyConflict the full briefing uses). 3 extra parallel fetches.
+  const [stanceRes, kratomCmtRes, tradesRes] = await Promise.all([
+    supabase.from("legislator_stance").select("stance").eq("legislator_id", id).eq("topic", "kratom").maybeSingle(),
+    supabase.from("legislator_committees").select("role, is_kratom_relevant").eq("legislator_id", id),
+    isFederalLegislator
+      ? supabase.from("federal_personal_trades").select("id", { count: "exact", head: true }).eq("legislator_id", id).eq("is_kratom_adjacent", true)
+      : Promise.resolve({ count: 0 }),
+  ]);
+  const stance = (((stanceRes.data as { stance?: string } | null)?.stance) ?? "unknown") as Stance;
+  const kratomCmts = (kratomCmtRes.data ?? []) as Array<{ role: string; is_kratom_relevant: boolean | null }>;
+  const isMemberOfKratomRelevant = kratomCmts.some((c) => c.is_kratom_relevant);
+  const isChairOfKratomRelevant = kratomCmts.some((c) => c.is_kratom_relevant && (c.role === "chair" || c.role === "vice_chair"));
+  const kratomAdjacentTradeCount = (tradesRes as { count?: number | null }).count ?? 0;
+  const primaryAntiCount = sponsored.filter((s) => {
+    const b = Array.isArray(s.bills) ? s.bills[0] : s.bills;
+    return s.classification === "primary" && b?.kratom_relevance === "anti";
+  }).length;
+  const cosponsorCount = sponsored.filter((s) => s.classification !== "primary").length;
+  const donorMatched = donorProfile?.resolved_status === "matched";
+  function flaggedIndustryAmount(name: string): number | null {
+    if (!donorMatched) return null;
+    return (donorProfile?.top_industries ?? []).find((i) => i.industry === name)?.amount ?? 0;
+  }
+  const { assessThreat } = await import("@/lib/legislator-threat-score");
+  const threat = assessThreat({
+    stance,
+    has_anti_sponsorship: summary.anti > 0,
+    has_pro_sponsorship: summary.pro > 0,
+    primary_sponsorship_count: primaryAntiCount,
+    cosponsorship_count: cosponsorCount,
+    is_chair_of_kratom_relevant: isChairOfKratomRelevant,
+    is_member_of_kratom_relevant: isMemberOfKratomRelevant,
+    bills_in_their_committees: currentlyDeciding.length,
+    pharma_usd: flaggedIndustryAmount("pharma_biotech"),
+    alcohol_usd: flaggedIndustryAmount("alcohol"),
+    tobacco_usd: flaggedIndustryAmount("tobacco_nicotine"),
+    addiction_treatment_usd: flaggedIndustryAmount("addiction_treatment"),
+    cannabis_usd: flaggedIndustryAmount("cannabis"),
+    gaming_usd: flaggedIndustryAmount("gaming_casino"),
+    hospital_health_usd: flaggedIndustryAmount("hospital_health"),
+    kratom_adjacent_trade_count: kratomAdjacentTradeCount,
+  });
+  const pressureIndex = Math.round(Math.sqrt(threat.threat_score * threat.vulnerability_score));
+  const { buildMoneyConflict } = await import("@/lib/legislator-money-analysis");
+  const moneyConflict = buildMoneyConflict({
+    donorMatched,
+    industries: {
+      pharma: flaggedIndustryAmount("pharma_biotech"),
+      tobacco: flaggedIndustryAmount("tobacco_nicotine"),
+      alcohol: flaggedIndustryAmount("alcohol"),
+      addictionTreatment: flaggedIndustryAmount("addiction_treatment"),
+      hospitalHealth: flaggedIndustryAmount("hospital_health"),
+    },
+    kratomAdjacentTrades: kratomAdjacentTradeCount,
+    stance,
+    threatTier: threat.tier,
+  });
+
   const roleLabel = ROLE_LABEL[leg.role] ?? leg.role;
 
   return (
@@ -289,6 +350,39 @@ export default async function LegislatorDetailPage({
           </span>
         </div>
       </header>
+
+      {/* Intel verdict — the dossier read at a glance (full memo at /briefing) */}
+      <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">Intel verdict</h2>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${threat.tier_color}`} title={threat.rationale}>
+            {threat.tier_emoji} {threat.tier_label}
+            <span className="ml-1 font-mono text-[9px] opacity-75">T{threat.threat_score}·V{threat.vulnerability_score}</span>
+          </span>
+          {signedIn ? (
+            <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300">
+              🎯 Pressure {pressureIndex}
+            </span>
+          ) : (
+            <a href={`/login?redirect=/legislators/${leg.id}`} className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:border-emerald-500">
+              🎯 Pressure index — sign in (free)
+            </a>
+          )}
+        </div>
+        <p className="mt-2 text-xs text-zinc-400">{threat.rationale}</p>
+        {moneyConflict && (
+          <div className={`mt-3 rounded-md border-l-2 p-3 ${
+            moneyConflict.level === "aligned" ? "border-red-500 bg-red-950/15" :
+            moneyConflict.level === "ally" ? "border-emerald-600 bg-emerald-950/15" :
+            moneyConflict.level === "watch" ? "border-amber-500 bg-amber-950/10" :
+            "border-zinc-700 bg-zinc-950/40"
+          }`}>
+            <p className="text-xs font-semibold text-zinc-100">💰 {moneyConflict.headline}</p>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-300">{moneyConflict.narrative}</p>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400"><span className="font-semibold text-zinc-300">Why it matters: </span>{moneyConflict.whyItMatters}</p>
+          </div>
+        )}
+      </section>
 
       {/* Contact */}
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
