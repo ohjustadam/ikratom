@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { recordAdminAction } from "@/lib/audit";
+import { publicHandle } from "@/lib/public-handle";
 
 /**
  * Field signup — a leader collects an email + first name + zip from
@@ -39,7 +40,7 @@ export async function createFieldSignup(input: {
 
   const { data: leader } = await supabase
     .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader, full_name, leader_acknowledged_at")
+    .select("is_admin, is_owner, is_advocate_leader, username, state, leader_acknowledged_at")
     .eq("id", user.id)
     .single();
   if (!(leader?.is_admin || leader?.is_owner || leader?.is_advocate_leader)) {
@@ -181,7 +182,7 @@ export async function createFieldSignup(input: {
     type: "magiclink",
     email,
     options: {
-      redirectTo: `${APP_URL}/auth/callback?next=/account?welcome=1`,
+      redirectTo: `${APP_URL}/auth/callback?next=${encodeURIComponent("/account?welcome=1")}`,
     },
   });
   if (linkErr) {
@@ -198,7 +199,13 @@ export async function createFieldSignup(input: {
     try {
       const fromEmail = process.env.RESEND_FROM_EMAIL ?? "no-reply@ikratom.org";
       const fromName = process.env.RESEND_FROM_NAME ?? "iKratom";
-      const leaderName = (leader?.full_name ?? "An iKratom leader").trim();
+      // Public anonymity: recruits see the leader's @handle, never their
+      // real name. publicHandle() → "@username" (or "Advocate from {ST}" /
+      // "Member" fallbacks). full_name stays for private uses only.
+      const leaderName = publicHandle({
+        username: leader?.username,
+        state: leader?.state,
+      });
       await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
