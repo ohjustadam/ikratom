@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { marked } from "marked";
+import { renderMarkdown } from "@/lib/markdown";
+import { jsonLdSafe } from "@/lib/jsonld";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SignUpNudge } from "@/components/SignUpNudge";
@@ -59,8 +60,10 @@ export default async function ResearchPaperPage({
     } catch { /* non-fatal — fall through to link-less render */ }
   }
 
+  // Sanitizing renderer (strips <script>, on* handlers, unsafe href/src) — the
+  // AI-generated findings are untrusted markdown, so never raw marked.parse.
   const findingsHtml = p.ai_key_findings_md
-    ? await marked.parse(p.ai_key_findings_md as string, { gfm: true, breaks: false })
+    ? renderMarkdown(p.ai_key_findings_md as string)
     : null;
 
   // Admin viewer? Used to surface admin-only controls (e.g. AI abstract
@@ -100,7 +103,7 @@ export default async function ResearchPaperPage({
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: jsonLdSafe(jsonLd) }}
       />
       <Link href="/research" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Research library

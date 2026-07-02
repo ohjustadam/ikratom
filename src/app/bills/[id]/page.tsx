@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { jsonLdSafe } from "@/lib/jsonld";
 import { DraftResponsePanel } from "@/app/alerts/[id]/DraftResponsePanel";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 import { RemindMeButton } from "@/components/RemindMeButton";
@@ -814,7 +815,7 @@ export default async function BillDetailPage({
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: jsonLdSafe(jsonLd) }}
       />
       <div className="flex items-center justify-between gap-2">
         <a href={`/bills?state=${bill.state}`} className="text-xs text-zinc-500 hover:text-emerald-400">

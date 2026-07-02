@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
@@ -510,7 +511,7 @@ export default async function StatePage({ params }: Props) {
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: jsonLdSafe(jsonLd) }}
       />
       <Link href="/states" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← All states
