@@ -70,6 +70,11 @@ const TASK_DEFAULTS: Record<TaskKind, ProviderName[]> = {
   // Ollama (localhost-only) is intentionally excluded — Groq primary, Gemini
   // fallback. Both are cloud free-tier, US-hosted, inference-only.
   email_stance_screen: ["groq", "gemini"],
+  // Lounge chat abuse moderation (D4). Same Vercel-server-action constraint as
+  // email_stance_screen — Groq-first, Gemini fallback, no Ollama. Lounge
+  // messages are already community-visible, so cloud inference isn't a privacy
+  // regression; Groq is inference-only (no training).
+  chat_moderate: ["groq", "gemini"],
 };
 
 /**

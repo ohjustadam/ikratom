@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { moderateChatMessage } from "./moderate";
 
 /**
  * Lounge chat — global community room shown above the forum state list.
@@ -113,6 +115,27 @@ export async function postChatMessage(input: { body: string; room?: string }) {
     .limit(1);
   if ((dupes ?? []).length > 0) {
     return { error: "You just sent that — wait a minute before repeating." };
+  }
+
+  // AI abuse moderation (D4) — non-privileged users only. Screen BEFORE insert
+  // so a confidently-abusive message never lands in chat_messages / broadcasts
+  // over realtime; it's diverted to the admin hold queue instead. Fail-open:
+  // anything clean, low-confidence, or unscreenable posts normally (see
+  // moderate.ts). ABUSE only — political/anti-kratom viewpoints are never held.
+  if (!isPrivileged) {
+    const verdict = await moderateChatMessage(body);
+    if (verdict.flagged) {
+      const admin = createServiceRoleClient();
+      await admin.from("chat_moderation_queue").insert({
+        user_id: user.id,
+        room,
+        body,
+        category: verdict.category,
+        reason: verdict.reason,
+        ai_confidence: verdict.confidence,
+      });
+      return { ok: true as const, held: true as const };
+    }
   }
 
   const { error, data } = await supabase
