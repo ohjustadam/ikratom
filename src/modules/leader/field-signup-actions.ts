@@ -77,31 +77,20 @@ export async function createFieldSignup(input: {
   // Service-role for auth admin + writing to another user's profile row
   const sr = createServiceRoleClient();
 
-  // Check if email already exists
-  // listUsers can be paginated, but for our scale a direct email-lookup
-  // via auth admin is the cleanest path.
-  let existing: Awaited<ReturnType<typeof sr.auth.admin.listUsers>>["data"] | null = null;
-  try {
-    const r = await sr.auth.admin.listUsers({ page: 1, perPage: 1 });
-    existing = r.data;
-  } catch { /* fall through to profile-table fallback */ }
-
+  // Idempotency: does this email already have an account? Look it up in
+  // profiles by email (service-role, RLS-bypassed) — the signup trigger
+  // populates profiles.email. The old auth.admin.listUsers({ perPage: 1 })
+  // path only ever inspected the FIRST user, so it never matched an existing
+  // recruit; the profile lookup is the reliable primary.
   let existingUserId: string | null = null;
-  if (existing?.users) {
-    const match = existing.users.find((u) => u.email?.toLowerCase() === email);
-    if (match) existingUserId = match.id;
-  }
-  // Fallback: search by email in profiles via service-role (RLS-bypassed)
-  if (!existingUserId) {
-    try {
-      const { data: profByEmail } = await sr
-        .from("profiles")
-        .select("id")
-        .eq("email", email)
-        .maybeSingle();
-      if (profByEmail) existingUserId = profByEmail.id;
-    } catch { /* best-effort */ }
-  }
+  try {
+    const { data: profByEmail } = await sr
+      .from("profiles")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+    if (profByEmail) existingUserId = profByEmail.id;
+  } catch { /* best-effort */ }
 
   const wasExisting = !!existingUserId;
   let targetUserId = existingUserId;

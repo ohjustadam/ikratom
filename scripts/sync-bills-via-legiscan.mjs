@@ -348,8 +348,12 @@ async function syncOne(bill) {
   let parsedCommitteeName = null;
   let parsedCommitteeChamber = null;
   let parsedCommitteeUpdatedAt = null;
-  for (let i = actions.length - 1; i >= 0; i--) {
-    const a = actions[i];
+  // Walk newest→oldest by DATE. LegiScan history isn't guaranteed date-sorted,
+  // so array-index order != chronological order — iterating by index risked
+  // recording a stale/older committee as the current one.
+  const datedActions = [...actions].filter((a) => a?.date).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  for (let i = datedActions.length - 1; i >= 0; i--) {
+    const a = datedActions[i];
     if (!a?.action) continue;
     const parsed = parseCommittee(a.action);
     if (!parsed) continue;
