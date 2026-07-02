@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, releaseRateLimit } from "@/lib/rate-limit";
 import {
   getEmailIntegration,
   sendOnUserBehalf,
@@ -215,7 +215,12 @@ export async function logCampaignAction(input: {
   }));
 
   const { error } = await supabase.from("campaign_actions").insert(rows);
-  if (error) return { error: error.message };
+  if (error) {
+    // Refund the daily-cap units we reserved for a batch that never committed,
+    // so a transient insert error doesn't silently eat the user's quota.
+    await releaseRateLimit(`campaign:send:user:${user.id}`, reserved.length);
+    return { error: error.message };
+  }
   return { count: rows.length, skipped: scopedIds.length - rows.length };
 }
 
@@ -254,7 +259,7 @@ export async function sendCampaignViaGmail(input: {
   // Profile for from-name + template vars
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, street, city, state, zip")
+    .select("full_name, username, street, city, state, zip")
     .eq("id", user.id)
     .single();
 
@@ -338,6 +343,8 @@ export async function sendCampaignViaGmail(input: {
       successfulIds.push(t.id);
     } catch (e) {
       results.push({ id: t.id, ok: false, error: (e as Error).message });
+      // Refund the daily-cap unit reserved for this send that never went out.
+      await releaseRateLimit(`campaign:send:user:${user.id}`, 1);
       // Self-healing: if the user has revoked our access OR the token
       // has gone stale, mark the integration so the UI shows the
       // Connect CTA again. No point continuing the batch — every
