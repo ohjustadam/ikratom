@@ -3,11 +3,12 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { unblockUser } from "@/modules/dm/block-actions";
+import { publicHandle } from "@/lib/public-handle";
 
 type Blocked = {
   id: string;
-  full_name: string | null;
-  email: string | null;
+  username: string | null;
+  state: string | null;
   blocked_at: string | null;
 };
 
@@ -34,7 +35,7 @@ export function BlockedUsersList({ blocked }: { blocked: Blocked[] }) {
   return (
     <ul className="divide-y divide-zinc-800">
       {blocked.map((b) => {
-        const name = b.full_name ?? b.email ?? "Unknown";
+        const name = publicHandle({ username: b.username, state: b.state });
         return (
           <li key={b.id} className="flex items-center justify-between py-3">
             <div>

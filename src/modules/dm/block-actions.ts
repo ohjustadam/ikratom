@@ -44,13 +44,15 @@ export async function listBlockedUsers() {
   if (!blocks || blocks.length === 0) return [];
 
   const ids = blocks.map((b) => b.blocked_id);
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .in("id", ids);
+  // Public anonymity: never read another user's full_name/email directly
+  // (profiles RLS would even return them to an admin blocker). get_public_profiles
+  // (SECURITY DEFINER) returns public-safe columns only; render via publicHandle.
+  const { data: profiles } = await supabase.rpc("get_public_profiles", { p_ids: ids });
 
-  return (profiles ?? []).map((p) => ({
-    ...p,
+  return (profiles ?? []).map((p: { id: string; username: string | null; state: string | null }) => ({
+    id: p.id,
+    username: p.username,
+    state: p.state,
     blocked_at: blocks.find((b) => b.blocked_id === p.id)?.created_at ?? null,
   }));
 }
