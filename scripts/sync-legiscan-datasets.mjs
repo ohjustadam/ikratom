@@ -128,7 +128,10 @@ async function ingestState(state) {
         const active = isCurrent || status === "enacted";
         const billNumber = normalizeBillNumber(b.bill_number);
         const sourceUrl = b.state_link || b.url || null;
-        const committee = b.committee?.name ?? b.pending_committee_id ? (b.committee?.name ?? null) : null;
+        // `??` binds tighter than `?:`, so the old expression parsed as
+        // `(name ?? pending_id) ? (name ?? null) : null` — the pending-id
+        // branch was dead and a bare pending id yields no name anyway.
+        const committee = b.committee?.name ?? null;
 
         // Match by legiscan_bill_id (canonical) → else claim an existing
         // OpenStates-created row (same state+number, no legiscan id yet) so we
