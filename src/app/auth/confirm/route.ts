@@ -64,5 +64,24 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Password recovery: stamp the httpOnly pw_recovery marker (bound to user id)
+  // that setNewPassword requires (pen-test #8) — parity with /auth/callback.
+  // Without it the recovery session reaches /reset-password but can't actually
+  // set a new password. Used by the admin "Send password reset" tool.
+  if (safeNext === "/reset-password") {
+    const { data: { user } } = await supabase.auth.getUser();
+    const res = NextResponse.redirect(new URL(safeNext, request.url));
+    if (user) {
+      res.cookies.set("pw_recovery", user.id, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 1800, // 30 min — ample to set the new password
+      });
+    }
+    return res;
+  }
+
   return NextResponse.redirect(new URL(safeNext, request.url));
 }
