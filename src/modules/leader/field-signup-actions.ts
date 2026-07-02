@@ -182,7 +182,7 @@ export async function createFieldSignup(input: {
     type: "magiclink",
     email,
     options: {
-      redirectTo: `${APP_URL}/auth/callback?next=${encodeURIComponent("/account?welcome=1")}`,
+      redirectTo: `${APP_URL}/account?welcome=1`,
     },
   });
   if (linkErr) {
@@ -193,8 +193,18 @@ export async function createFieldSignup(input: {
     };
   }
 
-  const actionLink = linkData?.properties?.action_link;
-  if (actionLink && process.env.RESEND_API_KEY) {
+  // Build a token-hash link to /auth/confirm (verifyOtp) — NOT the raw
+  // action_link. action_link points at Supabase's /auth/v1/verify, which
+  // (implicit flow) returns the session in the URL #fragment — unreadable
+  // by a server route, so it died on /auth/callback with ?error=missing_code.
+  // hashed_token + verification_type let /auth/confirm exchange it
+  // server-side with no code_verifier. See src/app/auth/confirm/route.ts.
+  const tokenHash = linkData?.properties?.hashed_token;
+  const verifyType = linkData?.properties?.verification_type ?? "magiclink";
+  const confirmLink = tokenHash
+    ? `${APP_URL}/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=${encodeURIComponent(verifyType)}&next=${encodeURIComponent("/account?welcome=1")}`
+    : linkData?.properties?.action_link;
+  if (confirmLink && process.env.RESEND_API_KEY) {
     // Send via Resend with our custom copy
     try {
       const fromEmail = process.env.RESEND_FROM_EMAIL ?? "no-reply@ikratom.org";
@@ -221,7 +231,7 @@ export async function createFieldSignup(input: {
 <p>${escapeHtml(leaderName)} signed you up for <strong>iKratom</strong> just now — the nonpartisan kratom advocacy toolbelt. You consented to this in person.</p>
 <p>Click the link below to sign in and complete your profile (your full address so we can match you to your reps, your kratom story for legislator letters, etc.). Takes 90 seconds.</p>
 <p style="text-align:center;margin:32px 0">
-  <a href="${actionLink}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Sign in to iKratom →</a>
+  <a href="${confirmLink}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Sign in to iKratom →</a>
 </p>
 <p style="color:#666;font-size:12px">If you didn't expect this email, you can ignore it — the link expires in 1 hour and your account stays inactive.</p>
 <p style="color:#666;font-size:12px">Sent on behalf of ${escapeHtml(leaderName)} via iKratom. Privacy: <a href="${APP_URL}/privacy">${APP_URL}/privacy</a></p>
