@@ -30,7 +30,11 @@ export type TaskKind =
   | "self_critique"
   /** Anti-weaponization: classify whether a campaign email's POSITION
    *  supports or undermines kratom, to gate leader-authored templates. */
-  | "email_stance_screen";
+  | "email_stance_screen"
+  /** Lounge chat ABUSE safety net (harassment/hate/threat/sexual/spam —
+   *  never viewpoint). Runs in a Vercel server action, so Groq-first (no
+   *  localhost Ollama), mirroring email_stance_screen. */
+  | "chat_moderate";
 
 /**
  * Caller-supplied constraints. Empty defaults are fine for most tasks;

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "./actions";
 import { recordAdminAction } from "@/lib/audit";
 
@@ -256,4 +257,99 @@ export async function clearMuteHistory(userId: string) {
   });
   revalidatePath("/admin/lounge");
   return { ok: true };
+}
+
+// ── D4: AI abuse-moderation hold queue ──────────────────────────────────────
+
+export type HeldChatMessage = {
+  id: string;
+  user_id: string;
+  username: string | null; // @handle — public-safe identity, never full_name
+  room: string;
+  body: string;
+  category: string | null;
+  reason: string | null;
+  ai_confidence: number | null;
+  created_at: string;
+};
+
+/** Pending held messages, newest first, with the author's @handle. */
+export async function listHeldChatMessages(): Promise<
+  { ok: true; rows: HeldChatMessage[] } | { error: string }
+> {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { error: "Admins only." };
+  const admin = createServiceRoleClient();
+  const { data: held, error } = await admin
+    .from("chat_moderation_queue")
+    .select("id, user_id, room, body, category, reason, ai_confidence, created_at")
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) return { error: error.message };
+
+  const ids = Array.from(new Set((held ?? []).map((h) => h.user_id)));
+  const { data: profiles } = ids.length
+    ? await admin.from("profiles").select("id, username").in("id", ids)
+    : { data: [] as { id: string; username: string | null }[] };
+  const nameById = new Map((profiles ?? []).map((p) => [p.id, p.username]));
+
+  return {
+    ok: true,
+    rows: (held ?? []).map((h) => ({ ...h, username: nameById.get(h.user_id) ?? null })),
+  };
+}
+
+/** Approve a held message: post it as the original author, mark released.
+ *  Form action → returns void; the page is already admin-gated. */
+export async function releaseHeldMessage(formData: FormData): Promise<void> {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return;
+  const id = String(formData.get("id") ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return;
+
+  const admin = createServiceRoleClient();
+  const { data: row } = await admin
+    .from("chat_moderation_queue")
+    .select("id, user_id, room, body, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row || row.status !== "pending") return;
+
+  // Post it (service-role bypasses the insert-own RLS) as the original author.
+  const { error: insErr } = await admin
+    .from("chat_messages")
+    .insert({ user_id: row.user_id, room: row.room, body: row.body });
+  if (insErr) {
+    console.error("releaseHeldMessage: insert failed", insErr.message);
+    return;
+  }
+
+  await admin
+    .from("chat_moderation_queue")
+    .update({ status: "released", reviewed_by: ctx.userId, reviewed_at: new Date().toISOString() })
+    .eq("id", id);
+  await recordAdminAction({ action: "mod.chat_release", details: { held_id: id } });
+  revalidatePath("/admin/lounge");
+}
+
+/** Reject a held message: mark dismissed, never posts. Form action → void. */
+export async function dismissHeldMessage(formData: FormData): Promise<void> {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return;
+  const id = String(formData.get("id") ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return;
+
+  const admin = createServiceRoleClient();
+  const { error } = await admin
+    .from("chat_moderation_queue")
+    .update({ status: "dismissed", reviewed_by: ctx.userId, reviewed_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "pending");
+  if (error) {
+    console.error("dismissHeldMessage: update failed", error.message);
+    return;
+  }
+  await recordAdminAction({ action: "mod.chat_dismiss", details: { held_id: id } });
+  revalidatePath("/admin/lounge");
 }

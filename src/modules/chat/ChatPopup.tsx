@@ -152,6 +152,7 @@ export function ChatPopup() {
     const r = await postChatMessage({ body, room: ROOM });
     setSending(false);
     if ("error" in r) { setError(r.error ?? "Failed"); setDraft(body); }
+    else if ("held" in r && r.held) { setError("Your message is held for review and will appear once a moderator approves it."); }
     // Realtime INSERT delivers the message — no optimistic append.
   }
 

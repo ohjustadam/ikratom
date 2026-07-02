@@ -154,6 +154,8 @@ export function Lounge({
       if ("error" in r) {
         setError(r.error ?? "Failed");
         setDraft(body);
+      } else if ("held" in r && r.held) {
+        setError("Your message is held for review and will appear once a moderator approves it.");
       }
       // Don't push optimistically — realtime INSERT will deliver it.
     });
