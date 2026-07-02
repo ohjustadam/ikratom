@@ -56,7 +56,11 @@ const REGISTRY = [
   // scripts use the upstream API name (e.g. "openstates", "usaspending")
   // rather than the cron-step verb. Mismatches show up as "never
   // observed" false-positives in /admin/automation.
-  ...["verify_bill_status_ai","auto_resolve_sync_discrepancies","sync_legislator_donors",
+  // verify_bill_status_ai RETIRED 2026-06-11 (de-Gemini/free-tier policy; it was
+  // failing 50/50 and authoritative status now comes from the LegiScan sync +
+  // terminalStatusFromAction). De-registered so the monitor stops false-alarming
+  // on an intentionally-dead source (cron-daily.yml keeps the retirement note).
+  ...["auto_resolve_sync_discrepancies","sync_legislator_donors",
       "sync_bill_sponsors","sync_lda_kratom",
       "usaspending","regulations.gov","courtlistener",
       "senate_stock_watcher","house_stock_watcher",
