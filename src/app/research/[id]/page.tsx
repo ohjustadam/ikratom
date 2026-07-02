@@ -34,31 +34,45 @@ export default async function ResearchPaperPage({
   const wasDuplicate = sp.duplicate === "1";
 
   const sb = await createClient();
+  // Explicit public-safe columns only — 0227 revoked anon/authenticated SELECT
+  // on admin_notes_md / uploaded_storage_path / submitted_by, so `select("*")`
+  // now errors (permission denied) for a non-service-role client. Must be a
+  // string literal (not a const) so supabase-js can infer the row type.
   const { data: p } = await sb
     .from("research_papers")
-    .select("*")
+    .select(
+      "id, pubmed_id, doi, semantic_scholar_id, title, authors, journal, journal_iso_abbreviation, publication_year, publication_date, abstract, full_text_url, pdf_url, topics, study_type, ai_methodology_quality, ai_sample_size_adequate, ai_sample_size_notes, ai_bias_indicators, ai_evidence_strength, ai_key_findings_md, ai_relevance_natural_leaf, ai_relevance_7oh, ai_distinguishes_natural_vs_synthetic, ai_evaluated_at, ai_evaluated_by_provider, citation_count, retracted, retraction_url, retraction_reason, admin_quality_override, is_active, ingested_at, ingested_via",
+    )
     .eq("id", id)
     .eq("is_active", true)
     .maybeSingle();
   if (!p) notFound();
 
-  // If this paper has an uploaded file in our storage bucket, issue a
-  // fresh 1-hour signed URL so the reader can view it without making the
-  // bucket public. Re-issued on every page load — short TTL is fine.
+  // uploaded_storage_path is admin-only (0227 column privacy — it embeds the
+  // submitter's user UUID), so the anon select("*") above no longer returns
+  // it. Fetch it via the service-role client, then issue a fresh 1-hour
+  // signed URL so the reader can view the file without a public bucket.
   let uploadedSignedUrl: string | null = null;
-  if (p.uploaded_storage_path) {
-    try {
-      const admin = createServiceClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { persistSession: false } },
-      );
+  let uploadedPath: string | null = null;
+  try {
+    const admin = createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } },
+    );
+    const { data: priv } = await admin
+      .from("research_papers")
+      .select("uploaded_storage_path")
+      .eq("id", id)
+      .maybeSingle();
+    uploadedPath = (priv?.uploaded_storage_path as string | null) ?? null;
+    if (uploadedPath) {
       const { data: signed } = await admin.storage
         .from("research-uploads")
-        .createSignedUrl(p.uploaded_storage_path as string, 60 * 60);
+        .createSignedUrl(uploadedPath, 60 * 60);
       uploadedSignedUrl = signed?.signedUrl ?? null;
-    } catch { /* non-fatal — fall through to link-less render */ }
-  }
+    }
+  } catch { /* non-fatal — fall through to link-less render */ }
 
   // Sanitizing renderer (strips <script>, on* handlers, unsafe href/src) — the
   // AI-generated findings are untrusted markdown, so never raw marked.parse.
@@ -177,7 +191,7 @@ export default async function ResearchPaperPage({
       {/* Embedded PDF viewer when we have an uploaded file — keeps users
           in-app instead of bouncing to the bucket URL. Falls back to the
           link above for non-PDF MIME types (txt/md). */}
-      {uploadedSignedUrl && p.uploaded_storage_path && (p.uploaded_storage_path as string).toLowerCase().endsWith(".pdf") && (
+      {uploadedSignedUrl && uploadedPath && uploadedPath.toLowerCase().endsWith(".pdf") && (
         <section className="mb-6">
           <p className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">Uploaded PDF</p>
           <iframe

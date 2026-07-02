@@ -128,8 +128,10 @@ const getStatusSnapshot = unstable_cache(
         .eq("moderation_status", "approved")
         .in("severity", ["critical", "alert"])
         .gte("created_at", since7d),
-      supabase.from("research_papers").select("*", { count: "exact", head: true }).eq("is_active", true),
-      supabase.from("research_papers").select("*", { count: "exact", head: true })
+      // count by id (PK, granted col) — 0227 revoked anon SELECT on some
+      // research_papers columns, so a `select("*")` count errors.
+      supabase.from("research_papers").select("id", { count: "exact", head: true }).eq("is_active", true),
+      supabase.from("research_papers").select("id", { count: "exact", head: true })
         .eq("is_active", true).not("ai_evaluated_at", "is", null),
       supabase.from("call_sessions").select("*", { count: "exact", head: true })
         .gte("started_at", since30d).not("ended_at", "is", null),

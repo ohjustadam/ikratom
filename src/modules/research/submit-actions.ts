@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { recordAdminAction } from "@/lib/audit";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { safeFetch } from "@/lib/url-safety";
 import {
   ALLOWED_UPLOAD_EXT,
@@ -82,6 +83,11 @@ export async function submitResearchPaperUpload(input: {
     return { ok: false, error: "Research submissions are limited to advocate leaders + admins." };
   }
 
+  // Rate limit: bound submissions even for a (compromised) leader account.
+  if (!(await checkRateLimit(`research_submit:${user.id}`, 20, 3600))) {
+    return { ok: false, error: "Too many submissions this hour — slow down." };
+  }
+
   // Storage path safety: must live under the user's own folder + bucket
   if (!input.storagePath || !input.storagePath.startsWith(`${user.id}/`)) {
     return { ok: false, error: "Storage path must be in your own folder." };
@@ -144,7 +150,8 @@ export async function submitResearchPaperUpload(input: {
       topics: ["needs_review", "leader_submitted", "uploaded_pdf"],
       study_type: null,
       ingested_via: "leader_upload",
-      admin_notes_md: `Uploaded by ${profile?.full_name ?? user.email} on ${new Date().toISOString().slice(0, 10)}. Size ${Math.round((input.sizeBytes ?? 0) / 1024)} KB. Storage path: ${input.storagePath}. Pending AI evaluation pass.`,
+      submitted_by: user.id,
+      admin_notes_md: `Leader upload on ${new Date().toISOString().slice(0, 10)}. Size ${Math.round((input.sizeBytes ?? 0) / 1024)} KB. Pending AI evaluation pass.`,
       is_active: true,
     })
     .select("id")
@@ -185,6 +192,11 @@ export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult>
       ok: false,
       error: "Research-paper submissions are limited to advocate leaders + admins right now. Visit /account/leader to apply.",
     };
+  }
+
+  // Rate limit: bound submissions even for a (compromised) leader account.
+  if (!(await checkRateLimit(`research_submit:${user.id}`, 20, 3600))) {
+    return { ok: false, error: "Too many submissions this hour — slow down." };
   }
 
   // Strip tracking params (fbclid, utm_*, etc.) BEFORE the rest of
@@ -330,7 +342,8 @@ export async function submitResearchPaper(rawUrl: string): Promise<SubmitResult>
       topics: ["needs_review", "leader_submitted"],
       study_type: null,
       ingested_via: "leader_submit",
-      admin_notes_md: `Submitted via /research/submit by ${profile?.full_name ?? user.email} on ${new Date().toISOString().slice(0, 10)}.${enrichmentNote} Pending editorial pass.`,
+      submitted_by: user.id,
+      admin_notes_md: `Submitted via /research/submit on ${new Date().toISOString().slice(0, 10)}.${enrichmentNote} Pending editorial pass.`,
       is_active: true,
     })
     .select("id")
