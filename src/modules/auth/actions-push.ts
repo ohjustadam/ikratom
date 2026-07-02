@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { isAllowedPushEndpoint } from "@/lib/push/allowlist";
 
 /**
  * Web Push subscription management.
@@ -33,6 +34,12 @@ export async function savePushSubscription(input: {
 
   if (!input.endpoint || !input.p256dh || !input.auth) {
     return { error: "Missing subscription fields." };
+  }
+  // SSRF guard: the endpoint is a URL the server later POSTs to (on subscribe +
+  // hourly via cron). Only accept real push services — never an arbitrary or
+  // internal host.
+  if (!isAllowedPushEndpoint(input.endpoint)) {
+    return { error: "Unrecognized push service endpoint." };
   }
 
   // Detect new-subscription vs reconnect so we only fire the welcome

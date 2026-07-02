@@ -9,6 +9,8 @@
  * `push_subscriptions`.
  */
 
+import { isAllowedPushEndpoint } from "./allowlist";
+
 // Lazy-import so missing VAPID env doesn't crash unrelated code paths.
 type WebPushSubscription = {
   endpoint: string;
@@ -55,6 +57,11 @@ export async function sendPush(
 ): Promise<PushSendResult> {
   if (!configureOnce()) {
     return { ok: false, gone: false, error: "VAPID not configured" };
+  }
+  // Defense-in-depth SSRF guard: never POST to a non-push-service host, even a
+  // legacy row that predates endpoint validation in savePushSubscription.
+  if (!isAllowedPushEndpoint(sub.endpoint)) {
+    return { ok: false, gone: false, error: "endpoint host not allowed" };
   }
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const webpush = require("web-push");
