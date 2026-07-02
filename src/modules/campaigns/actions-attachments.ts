@@ -24,6 +24,12 @@ export async function recordAttachmentMetadata(input: {
     return { error: "Storage path must be in your folder." };
   }
 
+  // Rate-limit metadata writes (the insert isn't tied to a verified upload, so
+  // it's otherwise an unbounded self-scoped row-insert loop). Mirrors recordShare.
+  if (!(await checkRateLimit(`attach:meta:user:${user.id}`, 30, 3600))) {
+    return { error: "Too many attachments — slow down a moment." };
+  }
+
   const { data: row, error } = await supabase
     .from("campaign_attachments")
     .insert({

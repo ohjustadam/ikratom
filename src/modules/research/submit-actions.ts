@@ -125,13 +125,12 @@ export async function submitResearchPaperUpload(input: {
     { auth: { persistSession: false } },
   );
 
-  // Build a signed URL valid for the canonical public link. We re-issue
-  // these per-render on /research/[id] so this is just for the initial
-  // insert breadcrumb.
-  const { data: signed } = await admin.storage
-    .from("research-uploads")
-    .createSignedUrl(input.storagePath, 60 * 60 * 24 * 365); // 1 year — long-lived, but private bucket
-
+  // Don't persist a signed URL. research_papers is anon-readable (public
+  // research shelf), and a long-lived signed URL is a bearer token that can't
+  // be revoked when a paper is retracted (is_active=false) — defeating the
+  // private-bucket model migration 0145 relies on. The /research/[id] page
+  // re-issues a fresh 1-hour signed URL per render from uploaded_storage_path,
+  // so nothing is lost.
   const { data: inserted, error: insErr } = await admin
     .from("research_papers")
     .insert({
@@ -140,7 +139,7 @@ export async function submitResearchPaperUpload(input: {
       authors,
       journal,
       publication_year: year,
-      pdf_url: signed?.signedUrl ?? null,
+      pdf_url: null,
       uploaded_storage_path: input.storagePath,
       topics: ["needs_review", "leader_submitted", "uploaded_pdf"],
       study_type: null,
