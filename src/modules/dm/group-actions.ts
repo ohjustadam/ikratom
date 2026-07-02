@@ -303,19 +303,30 @@ export async function getGroupDetails(conversationId: string) {
   if (!parts) return null;
 
   const userIds = parts.map((p) => p.user_id);
-  // get_public_profiles (SECURITY DEFINER): public-safe columns only.
+  // get_public_profiles (SECURITY DEFINER): public-safe columns only — it does
+  // NOT return public_key, so it can't drive key-change detection.
   const { data: profiles } = userIds.length
     ? await supabase.rpc("get_public_profiles", { p_ids: userIds })
-    : { data: [] as { id: string; username: string | null; state: string | null; public_key: string | null }[] };
+    : { data: [] as { id: string; username: string | null; state: string | null }[] };
   const profilesById = Object.fromEntries(
-    ((profiles ?? []) as { id: string; username: string | null; state: string | null; public_key: string | null }[])
+    ((profiles ?? []) as { id: string; username: string | null; state: string | null }[])
       .map((p) => [p.id, p]),
+  );
+
+  // Current public_key per member for key-change detection — via the
+  // co-participant-scoped RPC (0228), since get_public_profiles omits it.
+  const { data: pkRows } = await supabase.rpc("get_dm_member_public_keys", {
+    p_conversation_id: conversationId,
+  });
+  const pubkeyById = Object.fromEntries(
+    ((pkRows ?? []) as { id: string; public_key: string | null }[]).map((r) => [r.id, r.public_key]),
   );
 
   // Detect key changes
   const members = parts.map((p) => {
     const prof = profilesById[p.user_id];
-    const keyChanged = !!(p.pubkey_at_join && prof?.public_key && p.pubkey_at_join !== prof.public_key);
+    const currentKey = pubkeyById[p.user_id];
+    const keyChanged = !!(p.pubkey_at_join && currentKey && p.pubkey_at_join !== currentKey);
     return {
       user_id: p.user_id,
       username: prof?.username ?? null,
