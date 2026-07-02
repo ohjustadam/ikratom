@@ -171,8 +171,17 @@ export async function sendPasswordResetForUser(input: { userId: string }) {
   });
   if (linkErr) return { error: `Recovery link generation failed: ${linkErr.message}` };
 
-  const actionLink = linkData?.properties?.action_link;
-  if (!actionLink) return { error: "No recovery link returned by Supabase." };
+  // Email a token-hash link to /auth/confirm (verifyOtp), NOT the raw action_link.
+  // action_link routes through Supabase /auth/v1/verify → the session comes back in
+  // the URL #fragment and never reaches /reset-password with a session, so the page
+  // dead-ended at /forgot?expired=1. /auth/confirm exchanges the token_hash
+  // server-side and stamps the pw_recovery cookie setNewPassword requires.
+  const tokenHash = linkData?.properties?.hashed_token;
+  const verifyType = linkData?.properties?.verification_type ?? "recovery";
+  const link = tokenHash
+    ? `${APP_URL}/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=${encodeURIComponent(verifyType)}&next=${encodeURIComponent("/reset-password")}`
+    : linkData?.properties?.action_link;
+  if (!link) return { error: "No recovery link returned by Supabase." };
 
   // Send via Resend with custom copy (Supabase's default template
   // also works if Resend isn't wired)
@@ -196,7 +205,7 @@ export async function sendPasswordResetForUser(input: { userId: string }) {
 <p>An ${adminLabel.toLowerCase()} of iKratom just sent you a password reset link, likely in response to you asking for help signing in.</p>
 <p>Click below to set a new password. The link is valid for 1 hour.</p>
 <p style="text-align:center;margin:32px 0">
-  <a href="${actionLink}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Reset password →</a>
+  <a href="${link}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Reset password →</a>
 </p>
 <p style="color:#666;font-size:12px">If you didn't request this, just ignore the email — the link expires and your account stays unchanged.</p>
 <p style="color:#666;font-size:12px">Sent from iKratom · <a href="${APP_URL}/privacy">${APP_URL}/privacy</a></p>
@@ -249,8 +258,14 @@ export async function sendMagicLinkForUser(input: { userId: string }) {
   });
   if (linkErr) return { error: `Magic link generation failed: ${linkErr.message}` };
 
-  const actionLink = linkData?.properties?.action_link;
-  if (!actionLink) return { error: "No magic link returned." };
+  // Token-hash link to /auth/confirm (verifyOtp), not the raw #fragment action_link
+  // (which would dead-end at /login?error=missing_code — same bug as field-signup).
+  const tokenHash = linkData?.properties?.hashed_token;
+  const verifyType = linkData?.properties?.verification_type ?? "magiclink";
+  const link = tokenHash
+    ? `${APP_URL}/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=${encodeURIComponent(verifyType)}&next=${encodeURIComponent("/dashboard")}`
+    : linkData?.properties?.action_link;
+  if (!link) return { error: "No magic link returned." };
 
   if (process.env.RESEND_API_KEY) {
     try {
@@ -266,7 +281,7 @@ export async function sendMagicLinkForUser(input: { userId: string }) {
           from: `${fromName} <${fromEmail}>`,
           to: email,
           subject: "Sign-in link for iKratom",
-          html: `<p>Click below to sign in to iKratom. The link expires in 1 hour.</p><p style="text-align:center;margin:32px 0"><a href="${actionLink}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Sign in →</a></p>`.trim(),
+          html: `<p>Click below to sign in to iKratom. The link expires in 1 hour.</p><p style="text-align:center;margin:32px 0"><a href="${link}" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Sign in →</a></p>`.trim(),
         }),
         signal: AbortSignal.timeout(15_000),
       });
