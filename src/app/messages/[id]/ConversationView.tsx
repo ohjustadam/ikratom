@@ -141,32 +141,49 @@ export function ConversationView({
     return () => { cancelled = true; };
   }, [sessionKey, messages]);
 
-  // 2b) Subscribe to live new messages via Supabase Realtime
+  // 2b) Subscribe to live new messages via Supabase Realtime.
   useEffect(() => {
     const supabase = createClient();
-    const channel = supabase
-      .channel(`dm:${conversationId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "dm_messages",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          const newMsg = payload.new as MessageRow;
-          setMessages((prev) => {
-            // Skip if we already have this message (e.g. our own send echo)
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
-        },
-      )
-      .subscribe();
+    let cancelled = false;
+    let activeChannel: ReturnType<typeof supabase.channel> | null = null;
+
+    // dm_messages SELECT RLS gates on auth.uid() (participant check). Realtime
+    // evaluates RLS for the receiving WebSocket, so we MUST attach the user's
+    // JWT before subscribing — otherwise the socket is anon, the participant
+    // check returns no rows, and every INSERT payload is silently dropped
+    // (the recipient never sees live messages). Same pitfall the Lounge fixed
+    // — see src/modules/chat/Lounge.tsx.
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (session) supabase.realtime.setAuth(session.access_token);
+
+      const channel = supabase
+        .channel(`dm:${conversationId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "dm_messages",
+            filter: `conversation_id=eq.${conversationId}`,
+          },
+          (payload) => {
+            const newMsg = payload.new as MessageRow;
+            setMessages((prev) => {
+              // Skip if we already have this message (e.g. our own send echo)
+              if (prev.some((m) => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
+          },
+        )
+        .subscribe();
+      activeChannel = channel;
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      if (activeChannel) supabase.removeChannel(activeChannel);
     };
   }, [conversationId]);
 

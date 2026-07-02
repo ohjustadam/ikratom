@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 /**
  * Create a new GROUP conversation. The caller has already encrypted the
@@ -25,6 +26,15 @@ export async function createGroupConversation(input: {
   if (!user) return { error: "Not signed in." };
   if (!input.memberIds.includes(user.id)) {
     return { error: "Caller must be in memberIds." };
+  }
+
+  // Rate-limit group creation (parity with the 1:1 createConversation path) —
+  // stops junk-group spam that seeds arbitrary users into empty conversations.
+  if (!(await checkRateLimit(`dm:group:create:user:${user.id}`, 10, 3600))) {
+    return { error: "You've created a lot of groups this hour. Try again later." };
+  }
+  if (!(await checkRateLimit(`dm:group:create:ip:${await getClientIp()}`, 30, 3600))) {
+    return { error: "Too many groups created from this network. Slow down." };
   }
 
   // Create conversation
@@ -216,12 +226,19 @@ export async function removeGroupMember(input: {
     if (targetPart?.role === "owner") return { error: "Can't remove the owner." };
   }
 
-  const { error } = await supabase
+  const { data: deleted, error } = await supabase
     .from("dm_participants")
     .delete()
     .eq("conversation_id", input.conversationId)
-    .eq("user_id", input.memberId);
+    .eq("user_id", input.memberId)
+    .select("user_id");
   if (error) return { error: error.message };
+  // Assert the delete actually hit a row. If RLS ever silently filters it
+  // (as it did before the dm_part_delete policy existed), report failure
+  // instead of a false success that leaves the "removed" member with access.
+  if (!deleted || deleted.length === 0) {
+    return { error: "Couldn't remove member — you may not have permission, or they've already left." };
+  }
 
   revalidatePath(`/messages/${input.conversationId}`);
   return { ok: true };
