@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 import {
   getEmailIntegration,
   sendOnUserBehalf,
@@ -188,9 +189,21 @@ export async function logCampaignAction(input: {
     return { error: `Already sent this campaign to all selected legislators in the last ${Math.round(RESEND_COOLDOWN_HOURS / 24)} days.` };
   }
 
+  // Atomic daily-cap reservation (TOCTOU-safe): reserve one unit per action via
+  // the atomic checkRateLimit counter, so N concurrent calls can't each pass the
+  // advisory dailyCount read above and collectively blow past DAILY_SEND_CAP.
+  const reserved: string[] = [];
+  for (const id of newTargets) {
+    if (!(await checkRateLimit(`campaign:send:user:${user.id}`, DAILY_SEND_CAP, 86400))) break;
+    reserved.push(id);
+  }
+  if (reserved.length === 0) {
+    return { error: `Daily cap reached (${DAILY_SEND_CAP} sends per 24h). Try again tomorrow.` };
+  }
+
   const referredFrom = await getEmbedRef();
 
-  const rows = newTargets.map((lid) => ({
+  const rows = reserved.map((lid) => ({
     user_id: user.id,
     campaign_id: campaignId,
     legislator_id: lid,
@@ -291,12 +304,6 @@ export async function sendCampaignViaGmail(input: {
     return { error: "None of the selected targets have a sendable email." };
   }
 
-  // Cap how many we'll send in this batch by remaining daily quota
-  const remainingDaily = DAILY_SEND_CAP - dailyCount;
-  if (validTargets.length > remainingDaily) {
-    validTargets.length = remainingDaily;
-  }
-
   const skippedAlreadySent = targetIds.length - freshTargetIds.length;
 
   const results: { id: string; ok: boolean; error?: string }[] = [];
@@ -304,7 +311,17 @@ export async function sendCampaignViaGmail(input: {
 
   // Send sequentially to stay polite with provider rate limits + readable progress
   let tokenRevoked = false;
+  let capReached = false;
   for (const t of validTargets) {
+    // Atomic daily-cap reservation per email. The dailyCount read above is
+    // advisory (N concurrent batches could all pass it before any row commits —
+    // TOCTOU), so reserve each send against the atomic checkRateLimit counter;
+    // concurrent sends then can't collectively exceed DAILY_SEND_CAP. Stop the
+    // batch once the cap is hit rather than dispatching real email past it.
+    if (!(await checkRateLimit(`campaign:send:user:${user.id}`, DAILY_SEND_CAP, 86400))) {
+      capReached = true;
+      break;
+    }
     try {
       const vars = buildVars(profile, t, validTargets);
       const personalizedBody = renderTemplate(bodyTemplate, vars);
@@ -334,6 +351,9 @@ export async function sendCampaignViaGmail(input: {
   }
   if (tokenRevoked) {
     return { error: "Your email connection expired or was revoked. Reconnect in /account to resume one-click send." };
+  }
+  if (capReached && successfulIds.length === 0) {
+    return { error: `Daily cap reached (${DAILY_SEND_CAP} sends per 24h). Try again tomorrow.` };
   }
 
   // Log successful sends to campaign_actions
