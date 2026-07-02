@@ -33,12 +33,15 @@ type BillRow = {
   active: boolean | null;
 };
 
-type SP = Promise<{ filter?: string }>;
+type SP = Promise<{ filter?: string; state?: string }>;
 
 export default async function BillsPage({ searchParams }: { searchParams?: SP }) {
   const sp = searchParams ? await searchParams : {};
   const filter = sp.filter ?? null;
   const wantsCommitteeFilter = filter === "in-my-committees";
+  // Honor ?state=XX (e.g. the "← All {state} bills" link from a bill page).
+  const stateParam = (sp.state ?? "").toUpperCase();
+  const initialState = /^[A-Z]{2}$/.test(stateParam) ? stateParam : null;
 
   const supabase = await createClient();
   // Both current AND past-session bills: the browser sections them by the
@@ -189,7 +192,7 @@ export default async function BillsPage({ searchParams }: { searchParams?: SP })
         <BopWatchSummary state={userState ?? undefined} />
       </div>
 
-      <BillsBrowser bills={wantsCommitteeFilter && !committeeFilterErrorReason ? filteredBills : allBills} userState={userState} />
+      <BillsBrowser bills={wantsCommitteeFilter && !committeeFilterErrorReason ? filteredBills : allBills} userState={userState} initialState={initialState} />
     </div>
   );
 }

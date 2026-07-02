@@ -42,8 +42,10 @@ type Sort = "recent" | "state" | "alpha";
 const isCurrent = (b: Bill) => b.active === true && b.status !== "dead";
 const MOVING_MS = 90 * 86_400_000;
 
-export function BillsBrowser({ bills, userState }: { bills: Bill[]; userState: string | null }) {
-  const [stateFilter, setStateFilter] = useState<string>(userState ? "yours" : "all");
+export function BillsBrowser({ bills, userState, initialState }: { bills: Bill[]; userState: string | null; initialState?: string | null }) {
+  const [stateFilter, setStateFilter] = useState<string>(
+    initialState && /^[A-Z]{2}$/.test(initialState) ? initialState : userState ? "yours" : "all",
+  );
   const [relevanceFilter, setRelevanceFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [query, setQuery] = useState("");

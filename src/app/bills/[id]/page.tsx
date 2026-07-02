@@ -742,7 +742,7 @@ export default async function BillDetailPage({
   const momentum = computeBillMomentum({
     last_action_at: bill.last_action_at ?? null,
     status: bill.status ?? null,
-    current_committee_name: bill.current_committee_name ?? null,
+    current_committee_name: currentCommitteeName,
     sponsor_count: sponsors.length,
     cluster_count: billClusterMemberships.length,
     recent_news_mentions: newsCoverage.length,
