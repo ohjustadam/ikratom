@@ -58,11 +58,21 @@ export default async function LegislatorsPage({
   const voteAgg: Record<string, { restrict: number; total: number }> = {};
   if (legIds.length > 0) {
     type AggRow = { legislator_id: string | null; vote_value: number | null; bill_votes: { bills: { kratom_relevance: string | null }[] | { kratom_relevance: string | null } | null }[] | { bills: { kratom_relevance: string | null }[] | { kratom_relevance: string | null } | null } | null };
-    const { data: vm } = await supabase
-      .from("bill_vote_members")
-      .select("legislator_id, vote_value, bill_votes!inner(bills!inner(kratom_relevance))")
-      .in("legislator_id", legIds);
-    for (const r of ((vm ?? []) as unknown as AggRow[])) {
+    // Paginate past the PostgREST 1000-row cap — a single unbounded select
+    // silently truncated vote rows and undercounted the "voted to restrict N×"
+    // signal once the platform crossed 1000 kratom-vote-member rows.
+    const vm: AggRow[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: page } = await supabase
+        .from("bill_vote_members")
+        .select("legislator_id, vote_value, bill_votes!inner(bills!inner(kratom_relevance))")
+        .in("legislator_id", legIds)
+        .range(from, from + 999);
+      const rows = (page ?? []) as unknown as AggRow[];
+      vm.push(...rows);
+      if (rows.length < 1000) break;
+    }
+    for (const r of vm) {
       if (!r.legislator_id) continue;
       const bv = Array.isArray(r.bill_votes) ? r.bill_votes[0] : r.bill_votes;
       const b = bv ? (Array.isArray(bv.bills) ? bv.bills[0] : bv.bills) : null;
