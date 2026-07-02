@@ -37,24 +37,19 @@ export async function listBlockedUsers() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data: blocks } = await supabase
-    .from("user_blocks")
-    .select("blocked_id, created_at")
-    .eq("blocker_id", user.id);
-  if (!blocks || blocks.length === 0) return [];
+  // get_my_blocked_profiles (SECURITY DEFINER, 0228): the caller's OWN blocked
+  // users, public-safe columns only, IGNORING profile_visibility — so a blocked
+  // user who set their profile non-public still appears and can be unblocked.
+  // (get_public_profiles would silently drop them → orphaned, unremovable block.)
+  const { data: blocked } = await supabase.rpc("get_my_blocked_profiles");
 
-  const ids = blocks.map((b) => b.blocked_id);
-  // Public anonymity: never read another user's full_name/email directly
-  // (profiles RLS would even return them to an admin blocker). get_public_profiles
-  // (SECURITY DEFINER) returns public-safe columns only; render via publicHandle.
-  const { data: profiles } = await supabase.rpc("get_public_profiles", { p_ids: ids });
-
-  return (profiles ?? []).map((p: { id: string; username: string | null; state: string | null }) => ({
-    id: p.id,
-    username: p.username,
-    state: p.state,
-    blocked_at: blocks.find((b) => b.blocked_id === p.id)?.created_at ?? null,
-  }));
+  return ((blocked ?? []) as { id: string; username: string | null; state: string | null; created_at: string | null }[])
+    .map((b) => ({
+      id: b.id,
+      username: b.username,
+      state: b.state,
+      blocked_at: b.created_at,
+    }));
 }
 
 export async function isBlocked(otherUserId: string): Promise<boolean> {
