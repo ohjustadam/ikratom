@@ -12,6 +12,7 @@ import { GlobalAnnouncement } from "@/components/GlobalAnnouncement";
 import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
+import { PushBackStop } from "@/components/PushBackStop";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import FeedbackWidget from "@/components/FeedbackWidget";
 import ShareBanner from "@/components/ShareBanner";
@@ -301,6 +302,7 @@ export default async function RootLayout({
           </a>
         </div>
         <RegisterSW />
+        <PushBackStop />
         <InstallPrompt />
         <FeedbackWidget />
         {/* Lounge live chat as a floating widget on every page (its full home

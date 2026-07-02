@@ -146,7 +146,14 @@ self.addEventListener("notificationclick", (event) => {
           return c.focus();
         }
       }
-      if (self.clients.openWindow) return self.clients.openWindow(url);
+      // Fresh window = one-entry history stack, so the system back button
+      // would close the PWA outright. Tag the open so PushBackStop can
+      // splice /notifications underneath the stack (and strip the marker).
+      if (self.clients.openWindow) {
+        const fresh = new URL(url);
+        fresh.searchParams.set("ikfrom", "push");
+        return self.clients.openWindow(fresh.href);
+      }
     })(),
   );
 });
