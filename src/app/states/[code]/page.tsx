@@ -189,7 +189,10 @@ export default async function StatePage({ params }: Props) {
       .eq("state", codeUpper)
       .eq("active", true)
       .limit(2000),
-    supabase.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom"),
+    // Scope stances to THIS state's legislators via the FK join — an unscoped
+    // select hits the PostgREST 1000-row cap (~4k kratom stance rows exist) and
+    // silently drops stances for states beyond the window, misclassifying tiers.
+    supabase.from("legislator_stance").select("legislator_id, stance, legislators!inner(state)").eq("topic", "kratom").eq("legislators.state", codeUpper),
     supabase
       .from("bill_sponsors")
       .select("legislator_id, classification, bills!inner(state, kratom_relevance, active)")

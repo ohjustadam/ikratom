@@ -78,7 +78,9 @@ export default async function StateBriefingPage({ params }: { params: Params }) 
       .eq("active", true)
       .limit(2000),
     sb.from("legislator_stance")
-      .select("legislator_id, stance").eq("topic", "kratom"),
+      // State-scoped via FK join — unscoped select hits the PostgREST 1000-row
+      // cap (~4k kratom stance rows) and drops stances beyond the window.
+      .select("legislator_id, stance, legislators!inner(state)").eq("topic", "kratom").eq("legislators.state", STATE),
     sb.from("bill_sponsors")
       .select("bill_id, legislator_id, classification, bills!inner(state, kratom_relevance, current_committee_name)")
       .eq("bills.state", STATE),
