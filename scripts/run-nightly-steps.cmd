@@ -48,6 +48,14 @@ REM    half. Self-gates to weekly + tiny (~36 calls, ~1 min) so it respects the
 REM    box-CPU budget.
 node --env-file=.env.local scripts/discover-topic-bills.mjs
 
+REM 5b. Review-queue liveness fact-check (owner 2026-07-03): grounds each pending
+REM     intel alert + pending campaign with a keyless SearXNG search + a free-tier
+REM     AI verdict, then auto-rejects the stale/dead/enacted/hallucinated/wrong-geo/
+REM     partisan junk the cloud janitors can't catch (needs SearXNG → box-only).
+REM     NEVER auto-approves; rejects are reversible + audit-logged. See
+REM     docs/RUNBOOK_review_queues.md. Without SEARXNG_URL it safely keeps everything.
+node --env-file=.env.local scripts/clear-review-queues.mjs --ai --apply
+
 REM 6. THE DOSSIER (flagship Phase 1): Hermes deep-dives ONE target per night
 REM    through the verified corpora into the admin-only dossiers table (0195).
 REM    Bounded by MAX_TURNS; aborts fast if 0195 isn't applied. Human review
