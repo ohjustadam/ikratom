@@ -196,6 +196,14 @@ export default async function AdminPage() {
             body="Create, edit, archive call-to-action campaigns."
             accent
           />
+          {adminOnly && (
+            <AdminCard
+              href="/admin/moderation"
+              title="Moderation"
+              body="Every review queue in one place — one-click Auto-resolve for campaigns + intel."
+              accent
+            />
+          )}
           {adminOnly && queues.campaigns === 0 && (
             <AdminCard
               href="/admin/campaigns/pending"
