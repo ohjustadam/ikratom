@@ -221,6 +221,13 @@ export async function approveIntelTip(input: {
   editedTitle?: string;
   editedBody?: string;
   note?: string;
+  /**
+   * Publish to /pulse but suppress the push-critical-alerts fan-out (set by the
+   * bulk/auto resolver so clearing the intel backlog doesn't spam). Marks the
+   * alert already-pushed so push-critical-alerts.mjs (auto_pushed_at IS NULL)
+   * skips it. A deliberate single approve leaves this unset so it still pushes.
+   */
+  suppressPush?: boolean;
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
@@ -232,6 +239,7 @@ export async function approveIntelTip(input: {
     moderated_at: new Date().toISOString(),
     moderation_note: input.note?.slice(0, 500) ?? null,
   };
+  if (input.suppressPush) update.auto_pushed_at = new Date().toISOString();
 
   if (input.reassignKind && (VALID_KINDS as readonly string[]).includes(input.reassignKind)) {
     update.kind = input.reassignKind;

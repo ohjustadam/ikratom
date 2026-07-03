@@ -34,6 +34,13 @@ export async function applyCampaignReviewTransition(
     reviewerId: string | null;
     reason?: string | null;
     supersededBy?: string | null;
+    /**
+     * Approve WITHOUT firing the per-campaign user notification. Set by the
+     * bulk/auto queue-resolvers so clearing a backlog never spams — the
+     * campaign_notify trigger honors campaigns.suppress_notify (migration 0231).
+     * A deliberate single manual approve leaves this false so it still notifies.
+     */
+    suppressNotify?: boolean;
   },
 ): Promise<{ affected: number; error?: string }> {
   const base =
@@ -48,6 +55,9 @@ export async function applyCampaignReviewTransition(
     reviewed_by: input.reviewerId,
     review_reason: input.reason ?? null,
   };
+  if (input.action === "approve" && input.suppressNotify) {
+    patch.suppress_notify = true;
+  }
   if (input.action === "supersede" && input.supersededBy) {
     patch.superseded_by = input.supersededBy;
   }
