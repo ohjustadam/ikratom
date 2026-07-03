@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCreatorContext, getAdminQueueCounts } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import { siteConfig } from "@/config/site.config";
 
 export const metadata = { title: "Admin" };
 // Owner directive 2026-05-14: 'the campaigns stats number is wrong, this
@@ -348,6 +349,13 @@ export default async function AdminPage() {
             title="🤖 Admin chatbot · alpha"
             body="RAG-grounded chat over the iKratom corpus. Cited answers, free-tier inference, 30 msgs/hour."
           />
+          {siteConfig.features.adminAiChief && (
+            <AdminCard
+              href="/admin/ai-editor"
+              title="🧭 AI Editor-in-Chief"
+              body="Conversational ops copilot: ask what's broken/pending, get diagnoses, and confirm safe maintenance actions. Free-tier. Can't edit code."
+            />
+          )}
           <AdminCard
             href="/admin/bop-monitor"
             title="BoP Monitor"
