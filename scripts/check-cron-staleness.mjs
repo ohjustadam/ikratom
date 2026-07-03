@@ -108,6 +108,8 @@ const REGISTRY = [
   // both run on the box too (SearXNG find → fetch → local/free-tier extract).
   { source: "verify_local_bans", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "sweep_locality_intel", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // Review-queue liveness fact-check (owner 2026-07-03): needs SearXNG → box-only.
+  { source: "clear_review_queues", interval_hours: 72, system: "local-box", cadence: "daily" },
   // Phase-2 multi-topic discovery (LegiScan getSearch) runs on the box — the
   // query API refuses GitHub Actions IPs. Self-gates weekly; box runs nightly,
   // so a success lands ~weekly (216h interval gives margin).

@@ -141,6 +141,7 @@ Repo-level merge settings (post-PR #254):
 | Push notifications | `src/lib/push/send.ts`, `src/modules/notifications/push-fanout.ts`, `public/sw.js` |
 | Cron entry point | `src/app/api/cron/fire-waves/route.ts` (hourly) + `daily-sync/route.ts` (daily) |
 | Translation cache | `src/lib/translations.ts` + `scripts/translate-content.mjs` |
+| **Review queues** (intel + campaigns): approve/deny/clear | **`docs/RUNBOOK_review_queues.md`** — read it first; do NOT re-map. Engine `auto-approve-campaigns.mjs` + janitors are already cron'd; `scripts/clear-review-queues.mjs --ai --apply` clears the residue. |
 
 ---
 
