@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
 import { listPendingIntelTips } from "@/modules/alerts/actions";
 import { ModerateIntelRow } from "./ModerateIntelRow";
+import ResolveQueue from "@/app/admin/_components/ResolveQueue";
 
 export const metadata = { title: "Intel queue" };
 export const dynamic = "force-dynamic";
@@ -55,8 +56,11 @@ export default async function IntelQueuePage() {
               : `${tips.length} ${tips.length === 1 ? "tip" : "tips"} from the field awaiting review.`}
           </p>
         </div>
-        <div className="text-[11px] font-mono text-zinc-600">
-          approval auto-spawns a campaign (Phase 4 trigger)
+        <div className="flex flex-col items-end gap-2">
+          <ResolveQueue kind="intel" />
+          <span className="text-[11px] font-mono text-zinc-600">
+            approval auto-spawns a campaign (Phase 4 trigger)
+          </span>
         </div>
       </header>
 
