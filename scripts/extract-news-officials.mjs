@@ -103,7 +103,12 @@ const { data: alerts, error } = await sb
 if (error) { console.error("query failed:", error.message); process.exit(1); }
 console.log(`  ${alerts.length} unprocessed action-required alert(s)`);
 
-let seeded = 0, retargeted = 0, skippedScope = 0, failed = 0, processed = 0;
+// hardFailed = a real error (AI extraction threw). softRetry = an EXPECTED
+// pending-retry (locality unconfirmed, or slate seed needs the box's local
+// infra) — left unstamped BY DESIGN to retry later; not a failure. Splitting
+// them keeps the run status honest: a quiet cycle whose only work is known
+// soft-retries must not report "error".
+let seeded = 0, retargeted = 0, skippedScope = 0, hardFailed = 0, softRetry = 0, processed = 0;
 
 for (const a of alerts) {
   console.log(`\n=== ${a.id.slice(0, 8)} | ${a.locality} | ${(a.title ?? "").slice(0, 60)} ===`);
@@ -114,7 +119,7 @@ for (const a of alerts) {
     ex = await extractJurisdiction(a);
   } catch (e) {
     console.log(`  ✗ extraction failed (will retry next run): ${e.message?.slice(0, 100)}`);
-    failed++;
+    hardFailed++; // real AI/infra error
     continue; // don't stamp — let it retry
   }
   const j = ex.parsed ?? {};
@@ -148,7 +153,7 @@ for (const a of alerts) {
   });
   if (!corroborated || !STATE_RE.test(resolvedState)) {
     console.log(`  ⏳ locality-guard: AI said state=${j.state_code} but the article doesn't corroborate it (resolver=${resolvedState}) — skipping seed, leaving unstamped for retry`);
-    failed++;
+    softRetry++; // expected: unconfirmed locality, retry later (not an error)
     continue; // don't stamp officials_extracted_at — never seed a wrong-state slate
   }
 
@@ -207,7 +212,7 @@ for (const a of alerts) {
   // retry next run re-seeds + retargets without redoing wasted work.
   if (seedRetryable) {
     console.log("  ⏳ leaving unstamped — slate seed will retry next run (quota/transient)");
-    failed++;
+    softRetry++; // expected: transient/infra, retry later (not an error)
   } else {
     await sb.from("policy_alerts").update({ officials_extracted_at: new Date().toISOString() }).eq("id", a.id);
     processed++;
@@ -217,7 +222,7 @@ for (const a of alerts) {
   await new Promise((r) => setTimeout(r, 1500));
 }
 
-console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — processed ${processed}, seeded ${seeded}, retargeted ${retargeted}, non-local ${skippedScope}, failed ${failed}.`);
+console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — processed ${processed}, seeded ${seeded}, retargeted ${retargeted}, non-local ${skippedScope}, soft-retry ${softRetry}, hard-fail ${hardFailed}.`);
 
 if (!DRY) {
   try {
@@ -225,9 +230,11 @@ if (!DRY) {
       source: "extract_news_officials",
       started_at: new Date(t0).toISOString(),
       finished_at: new Date().toISOString(),
-      status: failed > 0 && processed === 0 ? "error" : processed === 0 ? "empty" : "success",
+      // "error" ONLY on a real hard failure with no progress. Known soft-retries
+      // (unconfirmed locality / slate awaiting box infra) are expected → not error.
+      status: hardFailed > 0 && processed === 0 ? "error" : processed === 0 ? "empty" : "success",
       rows_updated: seeded,
-      notes: `processed ${processed} · seeded ${seeded} · retargeted ${retargeted} · non-local ${skippedScope} · failed ${failed}`,
+      notes: `processed ${processed} · seeded ${seeded} · retargeted ${retargeted} · non-local ${skippedScope} · soft-retry ${softRetry} · hard-fail ${hardFailed}`,
     });
   } catch { /* best-effort */ }
 }
