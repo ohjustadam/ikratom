@@ -36,17 +36,17 @@
 
 ---
 
-## 3. Clear the queues (the fast path)
+## 3. Clear the queues
 
+**In the admin site (no CLI/Claude needed):** go to **`/admin/moderation`** (the unified hub — also linked from the Admin home and from each queue page). Each queue has **✨ Auto-resolve all** = one click, full-auto: dedup → supersede, junk → reject, confident-real+live → approve, uncertain → safely rejected. "Review each first" opens the per-item preview if you want control. This is `src/modules/admin/queue-resolve-actions.ts` (`autoResolveQueue`) + `src/app/admin/_components/ResolveQueue.tsx`; grounding in prod = Gemini Google Search (SearXNG is box-only).
+
+**Zero-click:** the nightly (`scripts/run-nightly-steps.cmd` → `clear-review-queues.mjs --ai --apply --approve`) drains both queues automatically — auto-approve is HIGH-confidence only, capped, and honors `read_only_mode`/`emergency_mode`.
+
+**CLI (box), for a manual pass:**
 ```bash
-# 1. See what's pending (list only)
-node --env-file=.env.local scripts/clear-review-queues.mjs
-
-# 2. Fact-check liveness/geo/hallucination via SearXNG + free AI router (dry-run)
-node --env-file=.env.local scripts/clear-review-queues.mjs --ai
-
-# 3. Commit the auto-rejects (junk only; NEVER auto-approves)
-node --env-file=.env.local scripts/clear-review-queues.mjs --ai --apply --actor <owner-uuid>
+node --env-file=.env.local scripts/clear-review-queues.mjs --ai                      # dry-run preview
+node --env-file=.env.local scripts/clear-review-queues.mjs --ai --apply              # reject junk only
+node --env-file=.env.local scripts/clear-review-queues.mjs --ai --apply --approve    # full autonomy
 ```
 
 `clear-review-queues.mjs` fills the gap in §2: grounds each survivor with a keyless SearXNG search + a free-tier verdict (`aiRouter`, never Claude), auto-**rejects** the clearly stale/dead/enacted/hallucinated/wrong-geo/partisan ones (medium+ confidence, evidence-backed, reversible, audit-logged, `scraper_runs`-tracked), and **leaves genuine + ambiguous items** for the engine or a human to approve. Requires `SEARXNG_URL` (owner box `:8080`); without it every item is kept.
