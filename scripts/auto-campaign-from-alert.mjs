@@ -278,6 +278,18 @@ async function processAlert(alert) {
     return "skip";
   }
 
+  // Bill-liveness gate (owner audit 2026-07-03: the generator was making
+  // campaigns for dead/enacted bills — 20/22 junk). If this alert anchors a
+  // bill that's already settled (dead / enacted / session-inactive), advocacy
+  // is moot — skip. Anchored news events without a bill_id are unaffected.
+  if (alert.bill_id) {
+    const { data: b } = await sb.from("bills").select("status, active, bill_number").eq("id", alert.bill_id).maybeSingle();
+    if (b && (b.active === false || b.status === "dead" || b.status === "enacted")) {
+      console.log(`  ⏭  bill ${b.bill_number ?? alert.bill_id} settled (${b.status}/active=${b.active}) — no live advocacy, skipping`);
+      return "skip";
+    }
+  }
+
   const { targets, roles, locality, tier, bopBoardId } = await pickTargets(alert);
   console.log(`  targeting tier: ${tier}, ${targets.length} legislator(s) ${locality ? `in ${locality}` : ""}`);
 
