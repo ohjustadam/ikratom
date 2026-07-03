@@ -193,6 +193,48 @@ if (linkedAlerts && linkedAlerts.length > 0) {
   }
 }
 
+// ─── Pass 4: settled-bill rejection ──────────────────────────────
+// Owner audit 2026-07-03: the auto-generator makes campaigns for bills that are
+// already dead/enacted/session-inactive — no live advocacy value (20/22 junk).
+// Reject any pending auto-campaign whose linked bill is settled. Bill-linked
+// ACTIVE campaigns are governed by cleanup-stale-active-campaigns; this is the
+// pending sibling. Covers junk from BOTH creation paths (trigger + script).
+console.log(`\nPass 4: settled-bill rejection`);
+let settledRejected = 0;
+{
+  let withBill = [];
+  for (let from = 0; from < 5000; from += 1000) {
+    const { data } = await sb.from("campaigns")
+      .select("id, title, state, bill_id, bills(status, active, bill_number)")
+      .eq("review_state", "pending_review").eq("auto_generated", true)
+      .not("bill_id", "is", null).range(from, from + 999);
+    if (!data || data.length === 0) break;
+    withBill = withBill.concat(data);
+    if (data.length < 1000) break;
+  }
+  const settled = withBill.filter((c) => {
+    const b = Array.isArray(c.bills) ? c.bills[0] : c.bills;
+    return b && (b.active === false || b.status === "dead" || b.status === "enacted");
+  });
+  console.log(`  ${withBill.length} pending campaigns link a bill · ${settled.length} link a SETTLED bill`);
+  for (const c of settled.slice(0, 5)) {
+    const b = Array.isArray(c.bills) ? c.bills[0] : c.bills;
+    console.log(`    [${c.state ?? "?"}] ${b?.bill_number ?? c.bill_id} (${b?.status}) ${(c.title ?? "").slice(0, 50)}`);
+  }
+  if (!DRY_RUN && settled.length > 0) {
+    for (let i = 0; i < settled.length; i += 100) {
+      const chunk = settled.slice(i, i + 100).map((r) => r.id);
+      await sb.from("campaigns").update({
+        review_state: "rejected",
+        review_reason: "auto-rejected: linked bill is settled (dead/enacted/inactive) — no live advocacy",
+        active: false,
+      }).in("id", chunk);
+    }
+  }
+  settledRejected = settled.length;
+  console.log(`  → ${settledRejected} ${DRY_RUN ? "would be" : ""} auto-rejected as settled-bill`);
+}
+
 // ─── Final report ────────────────────────────────────────────────
 const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 const { count: pendingNow } = await sb.from("campaigns")
@@ -209,7 +251,7 @@ try {
     started_at: new Date(t0).toISOString(),
     finished_at: new Date().toISOString(),
     status: "success",
-    rows_updated: supersededCount + pendingStill.length + fpRejected.length,
-    notes: `superseded=${supersededCount} stale-rejected=${pendingStill.length} fp-rejected=${fpRejected.length} mode=${DRY_RUN ? "dry" : "live"}`,
+    rows_updated: supersededCount + pendingStill.length + fpRejected.length + settledRejected,
+    notes: `superseded=${supersededCount} stale-rejected=${pendingStill.length} fp-rejected=${fpRejected.length} settled-rejected=${settledRejected} mode=${DRY_RUN ? "dry" : "live"}`,
   });
 } catch { /* best-effort */ }
