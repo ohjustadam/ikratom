@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PendingQueueClient } from "./PendingQueueClient";
 import { CampaignAutoApprovePolicyPanel } from "./CampaignAutoApprovePolicyPanel";
 import { getCampaignAutoApprovePolicy, listRecentAutoDecisions } from "@/modules/admin/campaign-autoapprove-actions";
+import ResolveQueue from "@/app/admin/_components/ResolveQueue";
 
 export const metadata = { title: "Campaigns awaiting review" };
 export const dynamic = "force-dynamic";
@@ -119,14 +120,17 @@ export default async function PendingCampaignsPage({
       <a href="/admin" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Admin
       </a>
-      <header className="mt-2 mb-6">
-        <h1 className="text-3xl font-bold">Campaigns awaiting review</h1>
-        <p className="mt-2 text-sm text-zinc-400">
-          <strong className="text-zinc-200">{count ?? 0}</strong> match{count === 1 ? "" : "es"} the current filter
-          {showSuperseded && " (incl. superseded)"}. Auto-generated and stance-flagged campaigns surface
-          here for admin approval — bulk-select with the checkbox column, then use
-          the action bar at the bottom.
-        </p>
+      <header className="mt-2 mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold">Campaigns awaiting review</h1>
+          <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+            <strong className="text-zinc-200">{count ?? 0}</strong> match{count === 1 ? "" : "es"} the current filter
+            {showSuperseded && " (incl. superseded)"}. Auto-generated and stance-flagged campaigns surface
+            here for admin approval — bulk-select with the checkbox column, then use
+            the action bar at the bottom, or let Auto-resolve triage the whole queue.
+          </p>
+        </div>
+        <ResolveQueue kind="campaigns" />
       </header>
 
       <CampaignAutoApprovePolicyPanel
