@@ -34,8 +34,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter } from "./lib/ai-router.mjs";
 import { searxngSearch, searxngConfigured } from "./lib/searxng.mjs";
-import { REJECT_COLUMNS, APPROVE_COLUMNS } from "./lib/campaign-review-columns.mjs";
+import { REJECT_COLUMNS, APPROVE_COLUMNS, SUPERSEDE_COLUMNS } from "./lib/campaign-review-columns.mjs";
 import { runWithLogging } from "./lib/scraper-run.mjs";
+import { billKey, federalTopicKey, strongTopicKey, normalizedTitleKey } from "./lib/topic-key.mjs";
 
 const args = process.argv.slice(2);
 const AI = args.includes("--ai");
@@ -67,6 +68,38 @@ async function classify(kind, title, state, snippets) {
   } catch (e) {
     return { verdict: "keep", confidence: "low", reason: `AI error, kept: ${String(e?.message ?? e).slice(0, 80)}` };
   }
+}
+
+// Canonical cross-outlet dedup key (mirrors the janitors): a shared bill, the
+// coarse federal-story bucket (collapses the FDA/DEA push mis-tagged across
+// states + outlets), a strong STATE|kw|event, else the exact normalized title.
+function bestKey(state, title, billId) {
+  return (billId ? `bill_id:${billId}` : null)
+    || billKey(state, title)
+    // force-FED: a national story (title carries FDA/DEA/HHS/nationwide signal) is
+    // ONE story even when per-outlet RSS mis-tagged it to different states, so key
+    // it federally regardless of the stored state before falling to state keys.
+    || federalTopicKey("FED", title)
+    || strongTopicKey(state, title)
+    || normalizedTitleKey(title);
+}
+
+// Group rows by bestKey; keeperCmp sorts each group so [0] is the keeper. Returns
+// { reps: keepers, dups: [{dup, keeper}] }.
+function dedupe(rows, keyState, keeperCmp) {
+  const groups = new Map();
+  for (const r of rows) {
+    const k = bestKey(keyState(r), r.title, r.bill_id);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+  const reps = [], dups = [];
+  for (const g of groups.values()) {
+    g.sort(keeperCmp);
+    reps.push(g[0]);
+    for (let i = 1; i < g.length; i++) dups.push({ dup: g[i], keeper: g[0] });
+  }
+  return { reps, dups };
 }
 
 async function pool(items, n, fn) {
@@ -119,8 +152,35 @@ await runWithLogging({ source: "clear_review_queues", supabase: sb }, async () =
     return { rowsAdded: 0, rowsUpdated: 0, notes: `dry list: ${intel.length} intel / ${camps.length} campaigns` };
   }
 
-  let rejected = 0, approved = 0, approveBudget = APPROVE_CAP;
+  let rejected = 0, approved = 0, superseded = 0, dupRejected = 0, approveBudget = APPROVE_CAP;
   const now = () => new Date().toISOString();
+
+  // ── Dedup pre-pass (deterministic, no AI): collapse the SAME story across
+  //    outlets / mis-tagged states BEFORE fact-checking or approving, so we never
+  //    approve+notify a duplicate. Keep the freshest campaign / earliest alert.
+  const campDedup = dedupe(camps, (r) => r.state, (a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const intelDedup = dedupe(intel, (r) => r.locality, (a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  for (const { dup, keeper } of campDedup.dups) {
+    console.log(`  ⧉ SUPERSEDE[${dup.state || "FED"}] ${dup.title.slice(0, 60)} → keeps ${keeper.id.slice(0, 8)}`);
+    if (APPLY) {
+      const { data } = await sb.from("campaigns")
+        .update({ ...SUPERSEDE_COLUMNS, reviewed_at: now(), reviewed_by: ACTOR, superseded_by: keeper.id, review_reason: `Cross-outlet duplicate of "${keeper.title}"`.slice(0, 500) })
+        .eq("id", dup.id).eq("review_state", "pending_review").select("id");
+      if (data?.length) { await audit("campaign_bulk_supersede", "campaign", dup.id, "cross-outlet duplicate"); superseded++; }
+    } else superseded++;
+  }
+  for (const { dup, keeper } of intelDedup.dups) {
+    console.log(`  ⧉ DEDUP-REJ[${dup.locality || "??"}] ${dup.title.slice(0, 60)}`);
+    if (APPLY) {
+      const { data } = await sb.from("policy_alerts")
+        .update({ moderation_status: "rejected", moderated_by: ACTOR, moderated_at: now(), moderation_note: `Cross-outlet duplicate of "${keeper.title}"`.slice(0, 500) })
+        .eq("id", dup.id).eq("moderation_status", "pending").select("id");
+      if (data?.length) { await audit("intel_tip_rejected", "policy_alert", dup.id, "cross-outlet duplicate"); dupRejected++; }
+    } else dupRejected++;
+  }
+  const campsR = campDedup.reps, intelR = intelDedup.reps;
+  if (campDedup.dups.length || intelDedup.dups.length)
+    console.log(`  (deduped ${campDedup.dups.length} campaign + ${intelDedup.dups.length} intel cross-outlet copies)\n`);
 
   const decide = async (title, state) => {
     const hits = await searxngSearch(`${title} ${state || ""} kratom`, { count: 6 });
@@ -130,14 +190,16 @@ await runWithLogging({ source: "clear_review_queues", supabase: sb }, async () =
     return { ...d, canReject, canApproveItem };
   };
 
-  // Campaigns
-  const cd = await pool(camps, 4, (c) => decide(c.title, c.state));
-  for (let i = 0; i < camps.length; i++) {
-    const d = cd[i], c = camps[i];
+  // Campaigns (representatives only — dups already superseded above)
+  const cd = await pool(campsR, 4, (c) => decide(c.title, c.state));
+  for (let i = 0; i < campsR.length; i++) {
+    const d = cd[i], c = campsR[i];
     if (d.canApproveItem && approveBudget > 0) {
       console.log(`  ✅ APPROVE [${c.state || "FED"}] ${c.title.slice(0, 66)} — ${d.reason.slice(0, 100)}`);
       if (APPLY) {
-        const { data } = await sb.from("campaigns").update({ ...APPROVE_COLUMNS, reviewed_at: now(), reviewed_by: ACTOR })
+        // suppress_notify: an autonomous approve must not fire the per-campaign
+        // notification (that's the spam) — migration 0231 makes the trigger honor it.
+        const { data } = await sb.from("campaigns").update({ ...APPROVE_COLUMNS, reviewed_at: now(), reviewed_by: ACTOR, suppress_notify: true })
           .eq("id", c.id).eq("review_state", "pending_review").select("id");
         if (data?.length) { await audit("campaign_review_approved", "campaign", c.id, d.reason); approved++; approveBudget--; }
       } else { approved++; approveBudget--; }
@@ -154,15 +216,17 @@ await runWithLogging({ source: "clear_review_queues", supabase: sb }, async () =
     }
   }
 
-  // Intel
-  const id_ = await pool(intel, 4, (a) => decide(a.title, a.locality));
-  for (let i = 0; i < intel.length; i++) {
-    const d = id_[i], a = intel[i];
+  // Intel (representatives only — dups already rejected above)
+  const id_ = await pool(intelR, 4, (a) => decide(a.title, a.locality));
+  for (let i = 0; i < intelR.length; i++) {
+    const d = id_[i], a = intelR[i];
     if (d.canApproveItem && approveBudget > 0) {
       console.log(`  ✅ APPROVE [${a.locality || "??"}] ${a.title.slice(0, 66)} — ${d.reason.slice(0, 100)}`);
       if (APPLY) {
+        // auto_pushed_at: publish to /pulse but mark already-pushed so
+        // push-critical-alerts.mjs skips it — no push spam from a bulk resolve.
         const { data } = await sb.from("policy_alerts")
-          .update({ moderation_status: "approved", action_required: false, moderated_by: ACTOR, moderated_at: now(), moderation_note: `Auto-approved (clear-review-queues): ${d.reason}`.slice(0, 500) })
+          .update({ moderation_status: "approved", action_required: false, auto_pushed_at: now(), moderated_by: ACTOR, moderated_at: now(), moderation_note: `Auto-approved (clear-review-queues): ${d.reason}`.slice(0, 500) })
           .eq("id", a.id).eq("moderation_status", "pending").select("id");
         if (data?.length) { await audit("intel_tip_approved", "policy_alert", a.id, d.reason); approved++; approveBudget--; }
       } else { approved++; approveBudget--; }
@@ -180,6 +244,7 @@ await runWithLogging({ source: "clear_review_queues", supabase: sb }, async () =
     }
   }
 
-  console.log(`\n${APPLY ? "Applied" : "Would apply"}: ${approved} approved, ${rejected} rejected. Uncertain items left for the next pass.`);
-  return { rowsAdded: 0, rowsUpdated: APPLY ? approved + rejected : 0, notes: `${approved} approved, ${rejected} rejected${canApprove ? " (autonomy on)" : ""}` };
+  const dedupTotal = superseded + dupRejected;
+  console.log(`\n${APPLY ? "Applied" : "Would apply"}: ${approved} approved, ${rejected} rejected, ${dedupTotal} deduped (${superseded} superseded + ${dupRejected} dup-rejected). Uncertain items left for the next pass.`);
+  return { rowsAdded: 0, rowsUpdated: APPLY ? approved + rejected + dedupTotal : 0, notes: `${approved} approved, ${rejected} rejected, ${dedupTotal} deduped${canApprove ? " (autonomy on)" : ""}` };
 });

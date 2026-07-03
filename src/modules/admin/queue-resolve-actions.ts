@@ -126,8 +126,10 @@ async function applyCampaignDecisions(sb: SupabaseClient, reviewerId: string, ds
   let approved = 0, rejected = 0, superseded = 0;
   const approveIds = ds.filter((d) => d.action === "approve").map((d) => d.id);
   if (approveIds.length) {
-    const r = await applyCampaignReviewTransition(sb, { ids: approveIds, action: "approve", reviewerId });
-    if (!r.error) { approved = r.affected; for (const id of approveIds) await recordAdminAction({ action: "campaign_review_approved", targetType: "campaign", targetId: id, details: { via: "auto-resolve" } }); }
+    // suppressNotify: a bulk/auto resolve must NOT fire a notification per
+    // approved campaign (that's the spam). Deliberate single approves still notify.
+    const r = await applyCampaignReviewTransition(sb, { ids: approveIds, action: "approve", reviewerId, suppressNotify: true });
+    if (!r.error) { approved = r.affected; for (const id of approveIds) await recordAdminAction({ action: "campaign_review_approved", targetType: "campaign", targetId: id, details: { via: "auto-resolve", notify: false } }); }
   }
   for (const d of ds.filter((d) => d.action === "reject")) {
     const r = await applyCampaignReviewTransition(sb, { ids: [d.id], action: "reject", reviewerId, reason: (d.reason || "Auto-resolve").slice(0, 500) });
@@ -144,7 +146,9 @@ async function applyIntelDecisions(ds: Decision[]) {
   let approved = 0, rejected = 0;
   for (const d of ds) {
     if (d.action === "approve") {
-      const r = await approveIntelTip({ alertId: d.id, actionRequired: false, note: (d.reason || "Auto-resolve: verified news").slice(0, 500) });
+      // suppressPush: publish to /pulse but don't let push-critical-alerts blast
+      // it — a bulk resolve shouldn't spam. Deliberate single approves still push.
+      const r = await approveIntelTip({ alertId: d.id, actionRequired: false, suppressPush: true, note: (d.reason || "Auto-resolve: verified news").slice(0, 500) });
       if (!("error" in r)) approved++;
     } else {
       const r = await rejectIntelTip({ alertId: d.id, note: (d.reason || "Auto-resolve: not actionable").slice(0, 500) });
