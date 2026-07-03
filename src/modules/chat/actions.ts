@@ -126,7 +126,7 @@ export async function postChatMessage(input: { body: string; room?: string }) {
     const verdict = await moderateChatMessage(body);
     if (verdict.flagged) {
       const admin = createServiceRoleClient();
-      await admin.from("chat_moderation_queue").insert({
+      const { error: holdErr } = await admin.from("chat_moderation_queue").insert({
         user_id: user.id,
         room,
         body,
@@ -134,7 +134,11 @@ export async function postChatMessage(input: { body: string; room?: string }) {
         reason: verdict.reason,
         ai_confidence: verdict.confidence,
       });
-      return { ok: true as const, held: true as const };
+      // Only "hold" the message if we actually persisted it to the review
+      // queue. If the queue insert fails, FAIL OPEN — post it normally rather
+      // than silently dropping the user's message into a void no admin can see.
+      if (!holdErr) return { ok: true as const, held: true as const };
+      console.error("chat hold-queue insert failed, posting normally:", holdErr.message);
     }
   }
 
