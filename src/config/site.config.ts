@@ -18,6 +18,10 @@ export const siteConfig = {
     // Paid monthly tier. The /membership page advertises it as "coming soon"
     // while this is false; flip to true once billing actually ships.
     proSubscription: false,
+    // AI Editor-in-Chief — conversational ops copilot at /admin/ai-editor
+    // (free router, propose-then-confirm safe actions). Owner-gated: flip true
+    // to enable the admin panel entry once you've tried it.
+    adminAiChief: false,
   },
   seedStates: ["OK"],
   legislatorRoles: [
