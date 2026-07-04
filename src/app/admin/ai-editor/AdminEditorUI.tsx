@@ -7,17 +7,19 @@ type Turn = {
   role: "user" | "assistant";
   content: string;
   provider?: string;
+  checked?: string[];
   proposal?: EditorProposal | null;
   // once the owner acts on a proposal:
-  outcome?: { ok: boolean; message: string } | null;
+  outcome?: { ok: boolean; message: string; dismissed?: boolean } | null;
   acting?: boolean;
 };
 
 const STARTERS = [
   "What's broken or stale right now?",
-  "How many campaigns and alerts are waiting for me to review?",
+  "Show me what's pending review, then help me clear it.",
+  "Look up SB 891 in OK — is its status right?",
+  "Run a full health audit: crons, errors, queues.",
   "Catch up the news + daily sync.",
-  "Re-sync Oklahoma's legislators.",
 ];
 
 export function AdminEditorUI() {
@@ -37,22 +39,33 @@ export function AdminEditorUI() {
     const history = turns.map((t) => ({ role: t.role, content: t.content }));
     setTurns((prev) => [...prev, { role: "user", content: q }]);
     setBusy(true);
-    const r = await askAdminEditor(q, history);
-    setBusy(false);
-    if (!r.ok) { setError(r.error); return; }
-    setTurns((prev) => [...prev, { role: "assistant", content: r.answer, provider: r.provider, proposal: r.proposal, outcome: null }]);
+    try {
+      const r = await askAdminEditor(q, history);
+      if (!r.ok) { setError(r.error); return; }
+      setTurns((prev) => [...prev, { role: "assistant", content: r.answer, provider: r.provider, checked: r.checked, proposal: r.proposal, outcome: null }]);
+    } catch {
+      // Server-action network failure / deploy version-skew REJECTS the promise;
+      // without this the finally still runs but we surface a friendly message.
+      setError("Couldn't reach the server — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirm(idx: number) {
     const t = turns[idx];
     if (!t?.proposal || t.acting || t.outcome) return;
     setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, acting: true } : x)));
-    const res = await executeEditorTool(t.proposal.tool, JSON.stringify(t.proposal.args));
-    setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, acting: false, outcome: res } : x)));
+    try {
+      const res = await executeEditorTool(t.proposal.tool, JSON.stringify(t.proposal.args));
+      setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, acting: false, outcome: res } : x)));
+    } catch {
+      setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, acting: false, outcome: { ok: false, message: "Couldn't reach the server — nothing ran. Try again." } } : x)));
+    }
   }
 
   function dismiss(idx: number) {
-    setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, outcome: { ok: false, message: "Dismissed." } } : x)));
+    setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, outcome: { ok: false, message: "Dismissed.", dismissed: true } } : x)));
   }
 
   return (
@@ -73,6 +86,9 @@ export function AdminEditorUI() {
         {turns.map((t, i) => (
           <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
             <div className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${t.role === "user" ? "bg-emerald-800/40 text-emerald-50" : "bg-zinc-800/70 text-zinc-100"}`}>
+              {t.checked && t.checked.length > 0 && (
+                <span className="mb-1 block text-[10px] text-sky-400/80">🔎 looked up: {t.checked.join(" · ")}</span>
+              )}
               {t.content}
               {t.provider && <span className="mt-1 block text-[10px] text-zinc-500">via {t.provider}</span>}
             </div>
@@ -81,7 +97,9 @@ export function AdminEditorUI() {
                 <p className="text-xs text-amber-200">⚙ Proposed action: <span className="font-medium">{t.proposal.summary}</span></p>
                 <p className="mt-0.5 font-mono text-[11px] text-zinc-500">{t.proposal.tool}({JSON.stringify(t.proposal.args)})</p>
                 {t.outcome ? (
-                  <p className={`mt-2 text-xs ${t.outcome.ok ? "text-emerald-300" : "text-zinc-400"}`}>{t.outcome.ok ? "✓ " : "• "}{t.outcome.message}</p>
+                  <p className={`mt-2 text-xs ${t.outcome.ok ? "text-emerald-300" : t.outcome.dismissed ? "text-zinc-400" : "text-red-400"}`}>
+                    {t.outcome.ok ? "✓ " : t.outcome.dismissed ? "• " : "✗ "}{t.outcome.message}
+                  </p>
                 ) : (
                   <div className="mt-2 flex gap-2">
                     <button disabled={t.acting} onClick={() => confirm(i)} className="rounded bg-emerald-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50">

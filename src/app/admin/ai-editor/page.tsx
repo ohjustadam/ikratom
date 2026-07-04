@@ -23,8 +23,10 @@ export default async function AdminAiEditorPage() {
         <h1 className="text-3xl font-bold">AI Editor-in-Chief</h1>
         <p className="mt-1 text-sm text-zinc-400">
           Your free, in-house ops copilot. Ask what&apos;s broken, what&apos;s pending, or what to do —
-          it reads the live site status. It can propose safe maintenance actions (you confirm each one).
-          It can&apos;t change code or deploy — for that, open a coding session.
+          it reads the live site status and can look up bills, campaigns, officials, queues, and cron
+          health on its own. It proposes actions (moderation, data fixes, syncs) and nothing runs until
+          you confirm; every action is audit-logged. It can&apos;t change code or deploy — for that,
+          open a coding session.
         </p>
       </header>
       <AdminEditorUI />
