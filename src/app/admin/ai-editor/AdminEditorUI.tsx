@@ -7,6 +7,7 @@ type Turn = {
   role: "user" | "assistant";
   content: string;
   provider?: string;
+  checked?: string[];
   proposal?: EditorProposal | null;
   // once the owner acts on a proposal:
   outcome?: { ok: boolean; message: string } | null;
@@ -15,9 +16,10 @@ type Turn = {
 
 const STARTERS = [
   "What's broken or stale right now?",
-  "How many campaigns and alerts are waiting for me to review?",
+  "Show me what's pending review, then help me clear it.",
+  "Look up SB 891 in OK — is its status right?",
+  "Run a full health audit: crons, errors, queues.",
   "Catch up the news + daily sync.",
-  "Re-sync Oklahoma's legislators.",
 ];
 
 export function AdminEditorUI() {
@@ -40,7 +42,7 @@ export function AdminEditorUI() {
     const r = await askAdminEditor(q, history);
     setBusy(false);
     if (!r.ok) { setError(r.error); return; }
-    setTurns((prev) => [...prev, { role: "assistant", content: r.answer, provider: r.provider, proposal: r.proposal, outcome: null }]);
+    setTurns((prev) => [...prev, { role: "assistant", content: r.answer, provider: r.provider, checked: r.checked, proposal: r.proposal, outcome: null }]);
   }
 
   async function confirm(idx: number) {
@@ -73,6 +75,9 @@ export function AdminEditorUI() {
         {turns.map((t, i) => (
           <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
             <div className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${t.role === "user" ? "bg-emerald-800/40 text-emerald-50" : "bg-zinc-800/70 text-zinc-100"}`}>
+              {t.checked && t.checked.length > 0 && (
+                <span className="mb-1 block text-[10px] text-sky-400/80">🔎 looked up: {t.checked.join(" · ")}</span>
+              )}
               {t.content}
               {t.provider && <span className="mt-1 block text-[10px] text-zinc-500">via {t.provider}</span>}
             </div>

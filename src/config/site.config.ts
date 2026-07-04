@@ -19,9 +19,9 @@ export const siteConfig = {
     // while this is false; flip to true once billing actually ships.
     proSubscription: false,
     // AI Editor-in-Chief — conversational ops copilot at /admin/ai-editor
-    // (free router, propose-then-confirm safe actions). Owner-gated: flip true
-    // to enable the admin panel entry once you've tried it.
-    adminAiChief: false,
+    // (free router; v2: self-serve lookups + propose-then-confirm actions).
+    // ON per owner ask 2026-07-03 ("the in-site system we work inside of").
+    adminAiChief: true,
   },
   seedStates: ["OK"],
   legislatorRoles: [
