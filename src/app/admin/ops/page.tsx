@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "@/modules/admin/actions";
+import { siteConfig } from "@/config/site.config";
 
 export const metadata = { title: "Operator cockpit" };
 export const dynamic = "force-dynamic";
@@ -183,6 +184,24 @@ export default async function OpsCockpitPage() {
         </p>
       </header>
 
+      {/* Work the site — the "act on it" tools (see a problem here → fix it here) */}
+      <section className="mb-6 rounded-lg border border-emerald-800/50 bg-emerald-950/10 p-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">🧰 Work the site</h2>
+        <p className="mt-1 text-[11px] text-zinc-400">
+          Your in-site command center — diagnose, moderate, and fix from here, no coding session needed.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {siteConfig.features.adminAiChief && (
+            <ActionLink href="/admin/ai-editor" emoji="🧭" label="AI Editor-in-Chief"
+              sub="Ask it what's wrong; it looks things up and proposes fixes you confirm." />
+          )}
+          <ActionLink href="/admin/master-edit" emoji="🛠" label="Master edit"
+            sub="Spreadsheet editor over bills / campaigns / officials / alerts / states." />
+          <ActionLink href="/admin/moderation" emoji="🛡" label="Moderation hub"
+            sub="One-click auto-resolve the campaign + intel review queues." />
+        </div>
+      </section>
+
       {/* Big banners — only render when something needs immediate attention */}
       {silentCount > 0 && (
         <section className="mb-4 rounded-lg border-2 border-red-600/60 bg-red-950/30 p-4">
@@ -343,6 +362,20 @@ function Quicklink({ href, emoji, label }: { href: string; emoji: string; label:
     >
       <span className="text-base">{emoji}</span>
       <span className="text-zinc-200">{label}</span>
+    </Link>
+  );
+}
+
+function ActionLink({ href, emoji, label, sub }: { href: string; emoji: string; label: string; sub: string }) {
+  return (
+    <Link
+      href={href}
+      className="block rounded-md border border-zinc-800 bg-zinc-950/40 p-3 transition hover:border-emerald-500 hover:brightness-110"
+    >
+      <p className="flex items-center gap-2 text-sm font-medium text-zinc-100">
+        <span className="text-base">{emoji}</span>{label}
+      </p>
+      <p className="mt-1 text-[11px] text-zinc-500">{sub}</p>
     </Link>
   );
 }

@@ -361,9 +361,14 @@ export default async function AdminPage() {
             <AdminCard
               href="/admin/ai-editor"
               title="🧭 AI Editor-in-Chief"
-              body="Conversational ops copilot: ask what's broken/pending, get diagnoses, and confirm safe maintenance actions. Free-tier. Can't edit code."
+              body="Conversational ops copilot: it looks up bills/campaigns/officials/queues itself, diagnoses problems, and proposes fixes you confirm. Free-tier. Can't edit code."
             />
           )}
+          <AdminCard
+            href="/admin/master-edit"
+            title="🛠 Master edit"
+            body="Spreadsheet-like editor over bills, campaigns, officials, alerts, and states. Whitelisted fields, before→after review, audited apply."
+          />
           <AdminCard
             href="/admin/bop-monitor"
             title="BoP Monitor"
