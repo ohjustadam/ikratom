@@ -186,7 +186,10 @@ export function validateChanges(
   if (keys.length > 10) return { ok: false, error: "Too many fields in one edit (max 10)." };
   const patch: Record<string, unknown> = {};
   for (const key of keys) {
-    const field = def.editable[key];
+    // Own-property check: JSON.parse can put "__proto__"/"constructor"/etc. as
+    // own enumerable keys, and a bare bracket lookup would return an inherited
+    // Object.prototype member (crashing coerceField). Reject, don't crash.
+    const field = Object.prototype.hasOwnProperty.call(def.editable, key) ? def.editable[key] : undefined;
     if (!field) {
       return { ok: false, error: `"${key}" is not editable on ${def.label}. Editable: ${Object.keys(def.editable).join(", ")}.` };
     }
@@ -195,6 +198,17 @@ export function validateChanges(
     patch[key] = v;
   }
   return { ok: true, def, patch };
+}
+
+/** Timestamptz columns come back from PostgREST as "+00:00" strings while our
+ *  coerced value is toISOString() ".000Z" — compare instants, not text. */
+export function valuesEqual(def: FieldDef, from: unknown, to: unknown): boolean {
+  if (def.kind === "date" && typeof from === "string" && typeof to === "string") {
+    const a = new Date(from).getTime();
+    const b = new Date(to).getTime();
+    if (!Number.isNaN(a) && !Number.isNaN(b)) return a === b;
+  }
+  return from === to;
 }
 
 export type EditDiff = Record<string, { from: unknown; to: unknown }>;
@@ -229,10 +243,18 @@ export async function applyEntityEdit(
 
   const diff: EditDiff = {};
   for (const [k, to] of Object.entries(patch)) {
-    if (row[k] !== to) diff[k] = { from: row[k] ?? null, to };
+    if (!valuesEqual(def.editable[k], row[k] ?? null, to)) diff[k] = { from: row[k] ?? null, to };
   }
   if (Object.keys(diff).length === 0) {
     return { ok: true, message: "No changes — the row already has those values.", diff };
+  }
+
+  // Activating a campaign publishes it (campaigns_public_read = active) and
+  // would bypass the review state machine. Approval must go through moderation
+  // (moderate_campaign / the pending queue), which controls notify + provenance.
+  // Deactivating (→ false) stays allowed — it only hides a live campaign.
+  if (def.table === "campaigns" && diff.active && diff.active.to === true) {
+    return { ok: false, message: "Activating a campaign must go through moderation (approve it in the pending queue), not a raw field edit. You can deactivate a campaign here." };
   }
 
   const write: Record<string, unknown> = {};
@@ -247,21 +269,29 @@ export async function applyEntityEdit(
   if (!updated?.length) return { ok: false, message: "Write affected 0 rows (blocked by RLS or row vanished)." };
 
   // Anti-tamper provenance (mig 0204): template edits append a version row,
-  // exactly like the manual campaign editor. Best-effort — never blocks.
+  // exactly like the manual campaign editor. Best-effort (never blocks the
+  // edit) but observable — if the append silently fails, the audit row records
+  // it so a missing provenance entry is detectable (layer 5 of the safety model).
+  let templateVersionOk: boolean | undefined;
   if (def.table === "campaigns" && ("subject_template" in diff || "body_template" in diff)) {
-    await supabase.from("campaign_template_versions").insert({
+    const { error: tvErr } = await supabase.from("campaign_template_versions").insert({
       campaign_id: input.id,
       subject_template: (write.subject_template ?? row.subject_template) as string,
       body_template: (write.body_template ?? row.body_template) as string,
       edited_by: userId,
     });
+    templateVersionOk = !tvErr;
   }
 
   await recordAdminAction({
     action: "entity_edit",
     targetType: input.type === "alert" ? "policy_alert" : input.type === "state" ? undefined : (input.type as "bill" | "campaign" | "legislator"),
     targetId: input.id,
-    details: { table: def.table, diff: JSON.parse(JSON.stringify(diff)) as Record<string, unknown> },
+    details: {
+      table: def.table,
+      diff: JSON.parse(JSON.stringify(diff)) as Record<string, unknown>,
+      ...(templateVersionOk !== undefined ? { templateVersionOk } : {}),
+    },
   });
 
   return { ok: true, message: `Updated ${def.label.toLowerCase()} — ${summarizeDiff(diff)}`, diff };

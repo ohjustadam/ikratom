@@ -10,7 +10,7 @@ type Turn = {
   checked?: string[];
   proposal?: EditorProposal | null;
   // once the owner acts on a proposal:
-  outcome?: { ok: boolean; message: string } | null;
+  outcome?: { ok: boolean; message: string; dismissed?: boolean } | null;
   acting?: boolean;
 };
 
@@ -39,22 +39,33 @@ export function AdminEditorUI() {
     const history = turns.map((t) => ({ role: t.role, content: t.content }));
     setTurns((prev) => [...prev, { role: "user", content: q }]);
     setBusy(true);
-    const r = await askAdminEditor(q, history);
-    setBusy(false);
-    if (!r.ok) { setError(r.error); return; }
-    setTurns((prev) => [...prev, { role: "assistant", content: r.answer, provider: r.provider, checked: r.checked, proposal: r.proposal, outcome: null }]);
+    try {
+      const r = await askAdminEditor(q, history);
+      if (!r.ok) { setError(r.error); return; }
+      setTurns((prev) => [...prev, { role: "assistant", content: r.answer, provider: r.provider, checked: r.checked, proposal: r.proposal, outcome: null }]);
+    } catch {
+      // Server-action network failure / deploy version-skew REJECTS the promise;
+      // without this the finally still runs but we surface a friendly message.
+      setError("Couldn't reach the server — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirm(idx: number) {
     const t = turns[idx];
     if (!t?.proposal || t.acting || t.outcome) return;
     setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, acting: true } : x)));
-    const res = await executeEditorTool(t.proposal.tool, JSON.stringify(t.proposal.args));
-    setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, acting: false, outcome: res } : x)));
+    try {
+      const res = await executeEditorTool(t.proposal.tool, JSON.stringify(t.proposal.args));
+      setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, acting: false, outcome: res } : x)));
+    } catch {
+      setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, acting: false, outcome: { ok: false, message: "Couldn't reach the server — nothing ran. Try again." } } : x)));
+    }
   }
 
   function dismiss(idx: number) {
-    setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, outcome: { ok: false, message: "Dismissed." } } : x)));
+    setTurns((prev) => prev.map((x, i) => (i === idx ? { ...x, outcome: { ok: false, message: "Dismissed.", dismissed: true } } : x)));
   }
 
   return (
@@ -86,7 +97,9 @@ export function AdminEditorUI() {
                 <p className="text-xs text-amber-200">⚙ Proposed action: <span className="font-medium">{t.proposal.summary}</span></p>
                 <p className="mt-0.5 font-mono text-[11px] text-zinc-500">{t.proposal.tool}({JSON.stringify(t.proposal.args)})</p>
                 {t.outcome ? (
-                  <p className={`mt-2 text-xs ${t.outcome.ok ? "text-emerald-300" : "text-zinc-400"}`}>{t.outcome.ok ? "✓ " : "• "}{t.outcome.message}</p>
+                  <p className={`mt-2 text-xs ${t.outcome.ok ? "text-emerald-300" : t.outcome.dismissed ? "text-zinc-400" : "text-red-400"}`}>
+                    {t.outcome.ok ? "✓ " : t.outcome.dismissed ? "• " : "✗ "}{t.outcome.message}
+                  </p>
                 ) : (
                   <div className="mt-2 flex gap-2">
                     <button disabled={t.acting} onClick={() => confirm(i)} className="rounded bg-emerald-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50">

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseProposal, parseRead } from "../src/modules/admin/ai-editor-protocol";
 import {
-  ENTITIES, validateChanges, coerceField, isValidEntityId, summarizeDiff,
+  ENTITIES, validateChanges, coerceField, isValidEntityId, summarizeDiff, valuesEqual,
 } from "../src/modules/admin/entity-edit";
 
 const UUID = "123e4567-e89b-42d3-a456-426614174000";
@@ -52,6 +52,15 @@ describe("entity-edit whitelist", () => {
     const v = validateChanges("campaign", UUID, { created_by: "someone-else" });
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.error).toContain("not editable");
+  });
+
+  it("rejects prototype keys without crashing (__proto__/constructor/toString)", () => {
+    for (const key of ["__proto__", "constructor", "toString"]) {
+      const changes = JSON.parse(`{"${key}": "x"}`);
+      const v = validateChanges("bill", UUID, changes);
+      expect(v.ok).toBe(false);
+      if (!v.ok) expect(v.error).toContain("not editable");
+    }
   });
 
   it("rejects review_state edits on campaigns (moderation must use moderate_campaign)", () => {
@@ -117,6 +126,13 @@ describe("entity-edit whitelist", () => {
     expect(isValidEntityId("bill", UUID)).toBe(true);
     expect(isValidEntityId("state", "OK")).toBe(true);
     expect(isValidEntityId("state", UUID)).toBe(false);
+  });
+
+  it("treats equal instants in different timestamptz formats as no-change", () => {
+    const dateDef = { kind: "date" } as const;
+    expect(valuesEqual(dateDef, "2026-08-01T00:00:00+00:00", "2026-08-01T00:00:00.000Z")).toBe(true);
+    expect(valuesEqual(dateDef, "2026-08-01T00:00:00+00:00", "2026-08-02T00:00:00.000Z")).toBe(false);
+    expect(valuesEqual({ kind: "text", maxLen: 10 }, "a", "a")).toBe(true);
   });
 
   it("summarizes diffs compactly", () => {
