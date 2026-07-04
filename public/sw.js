@@ -146,13 +146,21 @@ self.addEventListener("notificationclick", (event) => {
           return c.focus();
         }
       }
-      // Fresh window = one-entry history stack, so the system back button
-      // would close the PWA outright. Tag the open so PushBackStop can
-      // splice /notifications underneath the stack (and strip the marker).
+      // Fresh window = one-entry history stack. Opening the deep target
+      // directly leaves the Android system back button with nothing to go
+      // back to, so it backgrounds the standalone PWA. Instead open the
+      // public app home as the first (root) entry and pass the target via
+      // ?ikto=; the client (PushBackStop) then does a real navigation to it,
+      // so back lands on a real in-app page instead of minimizing. Home is
+      // used (not the auth-gated /notifications hub) so public deep-links
+      // still open without a login wall. A synthetic history entry can't be
+      // used here — Chromium skips no-user-activation entries on back.
       if (self.clients.openWindow) {
-        const fresh = new URL(url);
-        fresh.searchParams.set("ikfrom", "push");
-        return self.clients.openWindow(fresh.href);
+        const dest = new URL(url);
+        const to = dest.pathname + dest.search + dest.hash;
+        const home = new URL("/", self.location.origin);
+        if (dest.pathname !== "/") home.searchParams.set("ikto", to);
+        return self.clients.openWindow(home.href);
       }
     })(),
   );

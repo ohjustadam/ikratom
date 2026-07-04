@@ -3,25 +3,56 @@
 import { useEffect } from "react";
 
 /**
- * When a push-notification tap opens the PWA via clients.openWindow, the
- * window starts with a one-entry history stack — on Android the system
- * back button then closes the app outright instead of going anywhere.
- * The service worker tags those opens with ?ikfrom=push; here we splice
- * /notifications underneath the current entry so back lands on the
- * notification hub, then strip the marker from the address bar.
+ * Push-notification landing redirect.
+ *
+ * When a push is tapped and the PWA isn't already open, the service worker
+ * opens the public app home (`/?ikto=<target>`) as the FIRST (root) history
+ * entry instead of opening the deep target directly. This component then does
+ * a full (cross-document) navigation to that target.
+ *
+ * Why a real navigation and NOT router.push / history.pushState:
+ * Chromium's "History Manipulation Intervention" flags every *same-document*
+ * history entry added without a user activation as skip-on-back — and a
+ * push-opened window carries no user activation. A same-document push (which
+ * is what router.push does) would let the Android system back button skip
+ * straight past the root, exhaust the stack, and background the standalone PWA
+ * (the "back minimizes the app instead of navigating" bug). Two separate
+ * document loads (home, then target) each get a normal, non-skippable initial
+ * entry, so the first back reliably lands on the app home in-app; a second
+ * back backgrounds the app, as expected. See Chromium's
+ * history_manipulation_intervention.md for the exact skip rule.
  */
 export function PushBackStop() {
   useEffect(() => {
     const url = new URL(window.location.href);
-    if (url.searchParams.get("ikfrom") !== "push") return;
-    url.searchParams.delete("ikfrom");
-    const clean = url.pathname + url.search + url.hash;
-    if (window.history.length <= 1 && url.pathname !== "/notifications") {
-      window.history.replaceState(null, "", "/notifications");
-      window.history.pushState(null, "", clean);
-    } else {
-      window.history.replaceState(null, "", clean);
+    const to = url.searchParams.get("ikto");
+    if (!to) return;
+
+    // Strip the marker off the hub entry (replaceState adds no history entry)
+    // so that a later back to the hub — a fresh reload — doesn't bounce to the
+    // target again.
+    url.searchParams.delete("ikto");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      url.pathname + url.search + url.hash,
+    );
+
+    // Same-origin internal paths only — never an open redirect.
+    if (!to.startsWith("/")) return;
+    let target: URL;
+    try {
+      target = new URL(to, window.location.origin);
+    } catch {
+      return;
     }
+    if (target.origin !== window.location.origin) return;
+
+    // Already where we need to be (e.g. the link was /notifications itself).
+    if (target.pathname === url.pathname && target.search === url.search) return;
+
+    window.location.assign(target.pathname + target.search + target.hash);
   }, []);
+
   return null;
 }
