@@ -14,6 +14,7 @@ You are working on **iKratom**, a nonpartisan kratom advocacy platform. This fil
 - `docs/SCHEMA.md` — auto-generated table/column/RLS/RPC dump (regenerate with `npm run docs:schema`)
 - `docs/TASK_PATTERNS.md` — recipes (how to add a migration, admin page, server action, etc.)
 - `docs/AI_TOOLKIT.md` — provider routing rules + when to use Claude vs Gemini vs Ollama vs Groq
+- `docs/RUNBOOK_owner_ops.md` — how the OWNER runs the platform with zero developer access (AI Editor-in-Chief, moderation hub, master-edit, self-healing). Keep it current when you change an admin surface.
 
 ---
 
