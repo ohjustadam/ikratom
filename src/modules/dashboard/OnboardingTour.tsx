@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useTransition } from "react";
-import { driver } from "driver.js";
-import "driver.js/dist/driver.css";
 import { markOnboardingComplete } from "./actions";
 
 /**
@@ -32,7 +30,13 @@ export function OnboardingTour({
     if (!shouldShow && !forceShow) return;
     if (typeof window === "undefined") return;
 
-    const d = driver({
+    // Lazy-load driver.js (~30KB) only when the tour actually runs, so it
+    // never ships in the initial client bundle of the pages this mounts on.
+    let destroy: (() => void) | undefined;
+    (async () => {
+      const { driver } = await import("driver.js");
+      await import("driver.js/dist/driver.css");
+      const d = driver({
       showProgress: true,
       animate: true,
       allowClose: true,
@@ -90,11 +94,13 @@ export function OnboardingTour({
           },
         },
       ],
-    });
-    d.drive();
+      });
+      d.drive();
+      destroy = () => d.destroy();
+    })().catch((e) => console.error("[onboarding-tour]", e));
 
     return () => {
-      d.destroy();
+      destroy?.();
     };
   }, [shouldShow, forceShow, startTransition]);
 

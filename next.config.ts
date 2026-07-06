@@ -47,6 +47,16 @@ const nextConfig: NextConfig = {
   // bundle the only artifact a copycat sees. (Server-side stack-trace
   // decoding still works via the build's hidden source maps.)
   productionBrowserSourceMaps: false,
+  // Tree-shake heavy barrel imports so only the used members ship. These are
+  // the client-heavy packages in our graph (framer-motion on the landing page,
+  // marked for markdown render, posthog-js analytics).
+  experimental: {
+    optimizePackageImports: ["framer-motion", "marked", "posthog-js"],
+  },
+  // Serve modern image formats when next/image is used (smaller than PNG/JPEG).
+  images: {
+    formats: ["image/avif", "image/webp"],
+  },
   async headers() {
     return [
       {

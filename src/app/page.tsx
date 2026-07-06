@@ -44,6 +44,33 @@ export default async function HomePage() {
   const t = getMessages(locale);
   const isIntl = locale !== "en";
 
+  // Fire the reads that DON'T depend on the campaign list now, so they run
+  // CONCURRENTLY with the campaign-dependent chain below instead of serially
+  // after it. Was a waterfall: campaigns → bills → alerts/actions → stories →
+  // counts. `.then()` / Promise.all eagerly trigger the PostgREST request.
+  const storiesPromise = supabase
+    .from("kratom_stories")
+    .select("id, title, body, anonymous, display_name, state, created_at")
+    .eq("moderation_status", "approved")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(3)
+    .then((r) => r);
+  const coverageCountsPromise = Promise.all([
+    supabase.from("bills").select("state", { count: "exact", head: true })
+      .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
+      .eq("status", "enacted").not("opposition_summary_md", "is", null),
+    supabase.from("bills").select("id", { count: "exact", head: true })
+      .eq("active", true).in("kratom_relevance", ["anti", "pro"])
+      .gte("last_action_at", new Date(Date.now() - 365 * 86_400_000).toISOString()),
+    supabase.from("bills").select("id", { count: "exact", head: true })
+      .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
+      .eq("status", "passed_chamber"),
+    supabase.from("bills").select("id", { count: "exact", head: true })
+      .eq("kratom_relevance", "anti").eq("active", true).eq("status", "enacted")
+      .in("scope", ["county", "municipal"]),
+  ]);
+
   // Most urgent active campaigns + their bill context (for triage badges)
   const { data: campaigns } = await supabase
     .from("campaigns")
@@ -86,38 +113,20 @@ export default async function HomePage() {
     }
   }
 
-  // Stories (B's social proof). Hide if none approved.
-  const { data: stories } = await supabase
-    .from("kratom_stories")
-    .select("id, title, body, anonymous, display_name, state, created_at")
-    .eq("moderation_status", "approved")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(3);
+  // Stories (B's social proof). Hide if none approved. (Started above so it
+  // ran concurrently with the campaign chain.)
+  const { data: stories } = await storiesPromise;
 
   const activeCount = campaigns?.length ?? 0;
 
-  // Coverage numbers for the mission stat strip — pulled in parallel
-  // with the campaign data above for the same query budget.
+  // Coverage numbers for the mission stat strip — started above so they ran
+  // in parallel with the campaign data instead of serially after it.
   const [
     { count: bannedStateCount },
     { count: activeBillCount },
     { count: imminentBanCount },
     { count: localBanCount },
-  ] = await Promise.all([
-    supabase.from("bills").select("state", { count: "exact", head: true })
-      .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
-      .eq("status", "enacted").not("opposition_summary_md", "is", null),
-    supabase.from("bills").select("id", { count: "exact", head: true })
-      .eq("active", true).in("kratom_relevance", ["anti", "pro"])
-      .gte("last_action_at", new Date(Date.now() - 365 * 86_400_000).toISOString()),
-    supabase.from("bills").select("id", { count: "exact", head: true })
-      .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
-      .eq("status", "passed_chamber"),
-    supabase.from("bills").select("id", { count: "exact", head: true })
-      .eq("kratom_relevance", "anti").eq("active", true).eq("status", "enacted")
-      .in("scope", ["county", "municipal"]),
-  ]);
+  ] = await coverageCountsPromise;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">

@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { driver, type Driver } from "driver.js";
-import "driver.js/dist/driver.css";
+// driver.js is lazy-imported inside the effect (below) so its ~30KB never ships
+// in the initial client bundle — this component mounts in the ROOT layout, so a
+// static import would load driver.js on every page for every visitor. `Driver`
+// is a type-only import (erased at build), so it adds no runtime weight.
+import type { Driver } from "driver.js";
 import { acknowledgeLeaderRules } from "@/modules/admin/user-actions";
 
 /**
@@ -226,6 +229,11 @@ export function LeaderTourController({
 
     finishedRef.current = false;
 
+    let cancelled = false;
+    void (async () => {
+    const { driver } = await import("driver.js");
+    await import("driver.js/dist/driver.css");
+    if (cancelled) return;
     const d = driver({
       showProgress: true,
       animate: true,
@@ -284,10 +292,13 @@ export function LeaderTourController({
 
     driverRef.current = d;
     d.drive();
+    })();
 
     return () => {
       // Cleanup destroy. finishedRef intentionally NOT set here so
-      // onDestroyed no-ops — that's the bug fix.
+      // onDestroyed no-ops — that's the bug fix. `cancelled` guards the
+      // async driver.js import resolving after this effect already tore down.
+      cancelled = true;
       driverRef.current?.destroy();
       driverRef.current = null;
     };
