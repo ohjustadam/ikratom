@@ -7,7 +7,7 @@ export default function PrivacyPage() {
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
       <header className="mb-8">
         <h1 className="text-3xl font-bold">Privacy Policy</h1>
-        <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-05-05</p>
+        <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-07-05</p>
       </header>
 
       <div className="space-y-6 text-sm leading-relaxed text-zinc-300">
@@ -67,13 +67,27 @@ export default function PrivacyPage() {
               API. We never read your Gmail. Only the <code className="text-xs">gmail.send</code>{" "}
               scope is requested.
             </li>
+            <li>
+              <strong>Web push subscription</strong> (only if you enable notifications) — the browser
+              push endpoint + its encryption keys, so we can deliver the alerts you opted into. Stored
+              only while notifications are on; removed when you turn them off.
+            </li>
+            <li>
+              <strong>Product analytics</strong> — we use PostHog (first-party product analytics) and
+              Vercel performance metrics to see how the app is used and where it&apos;s slow. Page
+              views and clicks are captured; a sampled minority of sessions are replayed for debugging
+              with <strong>all form inputs masked</strong> (we never record what you type). Anonymous
+              visitors get no analytics profile. No third-party ad networks, no cross-site tracking,
+              and we never sell data. You can opt out in your browser&apos;s Do-Not-Track / our
+              settings.
+            </li>
           </ul>
         </section>
 
         <section>
           <h2 className="mb-2 text-lg font-semibold text-zinc-100">What we do NOT collect</h2>
           <ul className="list-disc space-y-1 pl-6">
-            <li>Analytics or tracking cookies (no Google Analytics, no Facebook Pixel, no Hotjar, etc.)</li>
+            <li>Third-party ad/tracking networks or cross-site trackers (no Google Analytics, no Facebook Pixel, no ad cookies). Our product analytics (PostHog/Vercel, above) are first-party and never sold or shared.</li>
             <li>Browser fingerprints or device IDs</li>
             <li>Location beyond the address you voluntarily entered</li>
             <li>Contents of your DMs (literally cannot — they&apos;re encrypted before they leave your device)</li>
