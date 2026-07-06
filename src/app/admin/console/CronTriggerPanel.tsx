@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { triggerCron, type CronTriggerResult } from "@/modules/admin/console-actions";
+import { triggerCron, dispatchWorkflow, type CronTriggerResult, type WorkflowDispatchResult } from "@/modules/admin/console-actions";
+import { DISPATCHABLE_WORKFLOWS } from "@/lib/dispatchable-workflows";
 
 const ENDPOINTS = [
   {
@@ -31,6 +32,8 @@ const ENDPOINTS = [
 export function CronTriggerPanel() {
   const [running, setRunning] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, CronTriggerResult>>({});
+  const [wfRunning, setWfRunning] = useState<string | null>(null);
+  const [wfResults, setWfResults] = useState<Record<string, WorkflowDispatchResult>>({});
   const [, startTransition] = useTransition();
 
   function fire(endpoint: typeof ENDPOINTS[number]["name"]) {
@@ -42,15 +45,25 @@ export function CronTriggerPanel() {
     });
   }
 
+  function fireWorkflow(file: string) {
+    setWfRunning(file);
+    startTransition(async () => {
+      const r = await dispatchWorkflow(file);
+      setWfResults((s) => ({ ...s, [file]: r }));
+      setWfRunning(null);
+    });
+  }
+
   return (
-    <section className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+    <section className="space-y-4">
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
       <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-300">
         ⚡ Manual cron triggers
       </h2>
       <p className="mt-1 text-[11px] text-zinc-400">
         Fire a Vercel cron endpoint right now instead of waiting for its next scheduled tick.
-        GitHub Actions workflows aren&apos;t exposed here — trigger those from the GitHub UI
-        (or the Actions tab) since they require workflow_dispatch tokens.
+        The full GitHub Actions pipelines are below — you can run every automation from here,
+        no GitHub login needed.
       </p>
 
       <ul className="mt-3 space-y-2">
@@ -89,6 +102,52 @@ export function CronTriggerPanel() {
           );
         })}
       </ul>
+    </div>
+
+    <div className="rounded-lg border border-emerald-800/50 bg-emerald-950/10 p-4">
+      <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-300">
+        🛠 Run any pipeline (GitHub Actions)
+      </h2>
+      <p className="mt-1 text-[11px] text-zinc-400">
+        Dispatch a full cron pipeline on GitHub&apos;s cloud runners right now (not your box) —
+        watch progress on the linked Actions page. The AI Editor can also run these for you.
+      </p>
+      <ul className="mt-3 space-y-2">
+        {DISPATCHABLE_WORKFLOWS.map((wf) => {
+          const r = wfResults[wf.file];
+          return (
+            <li key={wf.file} className="rounded border border-zinc-800 bg-zinc-950/60 p-3">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-mono text-[11px] font-bold text-zinc-200">{wf.label}</span>
+                <span className="text-[10px] text-zinc-500">{wf.file} · {wf.runtime}</span>
+              </div>
+              <p className="mt-0.5 text-[10px] text-zinc-500">{wf.purpose}</p>
+              <button
+                type="button"
+                onClick={() => fireWorkflow(wf.file)}
+                disabled={wfRunning === wf.file}
+                className="mt-2 min-h-[40px] rounded-md bg-emerald-500 px-4 py-1.5 text-[11px] font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"
+              >
+                {wfRunning === wf.file ? "Dispatching…" : "🚀 Run now"}
+              </button>
+              {r && !r.ok && (
+                <p className="mt-2 rounded border border-red-700/40 bg-red-950/15 px-2 py-1 text-[10px] text-red-200">
+                  ✗ {r.error}
+                </p>
+              )}
+              {r && r.ok && (
+                <p className="mt-2 rounded border border-emerald-700/40 bg-emerald-950/15 px-2 py-1 text-[10px] text-emerald-200">
+                  ✓ Dispatched —{" "}
+                  <a href={r.runsUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                    watch it run →
+                  </a>
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
     </section>
   );
 }
