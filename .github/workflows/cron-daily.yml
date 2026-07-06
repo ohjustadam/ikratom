@@ -114,11 +114,17 @@ jobs:
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
       - name: Backfill bill sponsorships across all states
+        # Best-effort backfill. The script self-limits to --max-minutes (writes
+        # partial telemetry + exits 0 before the 30-min CI cap), so this normally
+        # stays green. continue-on-error is defense-in-depth: a truly unexpected
+        # error in this one best-effort job must not red the whole daily run —
+        # check-cron-staleness now catches genuine silence via scraper_runs.
+        continue-on-error: true
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
-        run: node scripts/sync-bill-sponsors.mjs --all
+        run: node scripts/sync-bill-sponsors.mjs --all --max-minutes 24
 
   sync-stock-act-trades:
     # STOCK Act personal-trade disclosures for federal legislators

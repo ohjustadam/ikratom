@@ -210,6 +210,26 @@ export async function GET(request: NextRequest) {
   }
 
   const elapsedMs = Date.now() - startedAt;
+
+  // Telemetry so check-cron-staleness can actually monitor this Vercel cron.
+  // The registry already lists `vercel_daily_sync`, but this route never wrote
+  // a scraper_runs row, so the monitor grace-skipped it as "never observed" —
+  // a silent stall (Hobby pause / CRON_SECRET rotation / 500) would never page
+  // the owner even though this route does real user-facing work (news, bills,
+  // saved-search notifications). Best-effort: never let telemetry fail the cron.
+  try {
+    const newsTotal = newsResults.reduce((a, b) => a + b.count, 0);
+    const billsTotal = billsResults.reduce((a, b) => a + b.count, 0);
+    await supabase.from("scraper_runs").insert({
+      source: "vercel_daily_sync",
+      started_at: new Date(startedAt).toISOString(),
+      finished_at: new Date().toISOString(),
+      status: "success",
+      rows_added: newsTotal + billsTotal,
+      notes: `news ${newsTotal} · bills ${billsTotal} · ${Math.round(elapsedMs / 1000)}s`,
+    });
+  } catch { /* best-effort telemetry */ }
+
   return NextResponse.json({
     ok: true,
     elapsed_seconds: Math.round(elapsedMs / 1000),

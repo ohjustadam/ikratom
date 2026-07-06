@@ -27,6 +27,14 @@ const STATE = arg("--state");
 const ALL = args.includes("--all");
 const LIMIT = parseInt(arg("--limit") ?? "200");
 const DRY_RUN = args.includes("--dry-run");
+// Wall-clock budget. The GHA job times out at 30 min; OpenStates throttling can
+// make each bill burn its full retry budget, so the loop can grind past 30 min
+// and get HARD-CANCELLED mid-loop — which skips the scraper_runs telemetry write
+// below and makes this source invisible to check-cron-staleness (it was
+// classified "never observed" and never paged). Stop cleanly a few minutes
+// early so the telemetry insert ALWAYS runs. Override with --max-minutes.
+const MAX_MINUTES = parseInt(arg("--max-minutes") ?? "25");
+const MAX_RUN_MS = MAX_MINUTES * 60_000;
 
 if (!STATE && !ALL) {
   console.error("Usage: --state <2-letter>  OR  --all  (optional --limit N, --dry-run)");
@@ -199,8 +207,15 @@ const results = [];
 // bail cleanly with partial progress — the daily re-run continues. Structural
 // fix: a LegiScan key offloads bill data from OpenStates (see V2_KICKOFF).
 let consecutive429 = 0;
+let stoppedEarly = false;
 const BREAK_AFTER = 6;
 for (const b of bills) {
+  // Wall-clock guard: bail before the CI hard-timeout so telemetry is written.
+  if (Date.now() - t0 > MAX_RUN_MS) {
+    stoppedEarly = true;
+    console.log(`\n⏱ Reached ${MAX_MINUTES}-min wall-clock budget — stopping early (partial run) so telemetry is recorded before the CI timeout. Daily re-run continues where this left off.`);
+    break;
+  }
   const legIndex = await legFor(b.state);
   process.stdout.write(`  ${b.state} ${b.bill_number} `);
   const r = await processBill(b, legIndex);
@@ -213,6 +228,7 @@ for (const b of bills) {
     console.log(`${r.status}` + (r.error ? `: ${r.error.slice(0, 60)}` : ""));
   }
   if (consecutive429 >= BREAK_AFTER) {
+    stoppedEarly = true;
     console.log(`\n⚠ OpenStates rate-limited ${BREAK_AFTER}x in a row — stopping early (partial run). Daily re-run will continue.`);
     break;
   }
@@ -230,9 +246,9 @@ try {
     source: "sync_bill_sponsors",
     started_at: new Date(t0).toISOString(),
     finished_at: new Date().toISOString(),
-    status: ok > 0 ? "success" : "empty",
+    status: stoppedEarly ? "partial" : (ok > 0 ? "success" : "empty"),
     rows_added: totalSponsors,
-    notes: `${ok}/${results.length} bills · ${totalMatched}/${totalSponsors} sponsors matched`,
+    notes: `${ok}/${results.length} bills · ${totalMatched}/${totalSponsors} sponsors matched${stoppedEarly ? " · stopped early (budget/rate-limit)" : ""}`,
   });
 } catch { /* best-effort */ }
 process.exit(0);
