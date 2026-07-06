@@ -32,7 +32,8 @@ import { complete } from "@/lib/ai/router";
 import type { PromptInput } from "@/lib/ai/types";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createClient } from "@/lib/supabase/server";
-import { triggerCron } from "./console-actions";
+import { triggerCron, dispatchWorkflow } from "./console-actions";
+import { DISPATCHABLE_WORKFLOW_FILES } from "@/lib/dispatchable-workflows";
 import { syncOneStateLegislators } from "./sync-actions";
 import { applyCampaignReviewTransition } from "./campaign-review-shared";
 import { autoResolveQueue } from "./queue-resolve-actions";
@@ -209,6 +210,17 @@ const TOOLS: Record<
       const r = await triggerCron(ep as "daily-sync" | "fire-waves" | "reverify-local-officials");
       return r.ok
         ? { ok: true, message: `Ran /api/cron/${ep} → HTTP ${r.status} in ${r.elapsedMs}ms.` }
+        : { ok: false, message: r.error };
+    },
+  },
+  dispatch_workflow: {
+    describe: "Run a GitHub Actions cron pipeline NOW (hourly/daily/nightly/weekly, local-reps, news backfill, portraits, topic classify). Use this for the big background pipelines; use trigger_cron for the 3 lightweight Vercel endpoints.",
+    argsHint: `{"workflow":"${DISPATCHABLE_WORKFLOW_FILES.join('"|"')}"}`,
+    run: async (args) => {
+      const wf = String(args.workflow ?? "");
+      const r = await dispatchWorkflow(wf);
+      return r.ok
+        ? { ok: true, message: `Dispatched ${wf}. Track it at ${r.runsUrl} (runs take a few minutes; check cron health after).` }
         : { ok: false, message: r.error };
     },
   },

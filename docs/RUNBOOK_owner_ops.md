@@ -21,7 +21,7 @@ Everything below lives under **`/admin`** (sign in as owner/admin first).
 | **📮 `/admin/user-errors`** | User-reported errors. An auto-fix classifier handles user-side issues silently; real patterns bubble up here. |
 | **🤖 `/admin/ai-control`** | Live status of the free AI providers (Ollama / Gemini / Groq) + quotas. |
 | **📜 `/admin/audit`** | Every sensitive action ever taken (by you, by admins, by the AI editor's confirmed actions). |
-| **🕹 `/admin/console`** | The nuclear option: manual cron triggers + raw SQL. Owner-only. Prefer the surfaces above. |
+| **🕹 `/admin/console`** | Manual triggers + raw SQL. **Run-any-cron:** the "Run any pipeline (GitHub Actions)" panel fires every automation — hourly/daily/nightly/weekly, local-reps, news backfill, portraits, topic classify — on GitHub's cloud runners, no GitHub login needed. (The AI editor can run these for you too: "run the daily cron".) Raw SQL is owner-only; prefer the surfaces above. |
 
 ## 2. The desktop program
 

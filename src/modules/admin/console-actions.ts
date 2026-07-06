@@ -4,6 +4,8 @@ import { updateTag, revalidatePath } from "next/cache";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "./actions";
 import { recordAdminAction } from "@/lib/audit";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { DISPATCHABLE_WORKFLOW_FILES } from "@/lib/dispatchable-workflows";
 
 /**
  * Console server actions — the "nuclear option" admin surface for
@@ -177,6 +179,93 @@ export async function triggerCron(endpoint: CronEndpoint): Promise<CronTriggerRe
   } catch (e) {
     return { ok: false, error: `Trigger failed: ${(e as Error).message}` };
   }
+}
+
+// ── GitHub Actions workflow dispatch ───────────────────────────
+//
+// Generalizes the proven, already-audited triggerCloudResolution() pattern
+// (src/modules/local-reps/actions.ts) so the owner can run ANY cron pipeline
+// from inside the site — closing "GitHub Actions workflows aren't exposed
+// here". Token: GITHUB_DISPATCH_TOKEN (fine-grained PAT, Actions: read+write,
+// this repo only) in server env — never NEXT_PUBLIC, never returned to client.
+// The DISPATCHABLE_WORKFLOW_FILES allowlist is the security boundary; an
+// arbitrary filename is refused before any network call.
+
+export type WorkflowDispatchResult =
+  | { ok: true; runsUrl: string }
+  | { ok: false; error: string };
+
+export async function dispatchWorkflow(
+  workflowFile: string,
+  inputs?: Record<string, string>,
+): Promise<WorkflowDispatchResult> {
+  const ctx = await getAdminContext();
+  if (!ctx.ok) return { ok: false, error: "Admin required." };
+
+  if (!DISPATCHABLE_WORKFLOW_FILES.includes(workflowFile)) {
+    return { ok: false, error: `Workflow "${workflowFile}" is not dispatchable.` };
+  }
+
+  const token = process.env.GITHUB_DISPATCH_TOKEN;
+  const repo = process.env.GITHUB_DISPATCH_REPO || "ohjustadam/ikratom";
+  if (!token) {
+    return { ok: false, error: "GITHUB_DISPATCH_TOKEN not set (fine-grained PAT, Actions: read+write) in the server env." };
+  }
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return { ok: false, error: "GITHUB_DISPATCH_REPO is malformed." };
+
+  // A run takes minutes; stacking many is pointless and churns Actions minutes.
+  if (!(await checkRateLimit(`workflow-dispatch:${ctx.userId}`, 12, 600))) {
+    return { ok: false, error: "Too many workflow runs in 10 minutes — give the current ones a moment." };
+  }
+
+  // Sanitize optional inputs (most workflows have defaults; we usually send none).
+  const safeInputs: Record<string, string> = {};
+  if (inputs && typeof inputs === "object") {
+    for (const [k, v] of Object.entries(inputs)) {
+      if (/^[a-zA-Z0-9_]{1,40}$/.test(k)) safeInputs[k] = String(v).slice(0, 100);
+    }
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://api.github.com/repos/${repo}/actions/workflows/${workflowFile}/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+          "User-Agent": "iKratom-admin",
+        },
+        body: JSON.stringify({ ref: "main", ...(Object.keys(safeInputs).length ? { inputs: safeInputs } : {}) }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+  } catch (e) {
+    return { ok: false, error: `Couldn't reach GitHub: ${(e as Error).message}` };
+  }
+
+  if (res.status === 204) {
+    try {
+      await recordAdminAction({
+        action: "console.workflow_dispatch",
+        targetType: "user",
+        targetId: ctx.userId,
+        details: { workflow: workflowFile, inputs: safeInputs },
+      });
+    } catch { /* non-fatal */ }
+    return { ok: true, runsUrl: `https://github.com/${repo}/actions/workflows/${workflowFile}` };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return { ok: false, error: "GitHub rejected the token — check GITHUB_DISPATCH_TOKEN has Actions: read+write on this repo." };
+  }
+  if (res.status === 404) {
+    return { ok: false, error: "Workflow not found — it must exist on the default branch (main)." };
+  }
+  const body = await res.text().catch(() => "");
+  return { ok: false, error: `GitHub dispatch failed (${res.status}). ${body.slice(0, 150)}` };
 }
 
 // ── Cache invalidation ─────────────────────────────────────────
