@@ -247,7 +247,7 @@ export function SignInModal({ open, onClose, onSignedIn }: Props) {
                 {mode === "signin" ? "Need an account? Sign up →" : "Have an account? Sign in →"}
               </button>
               {mode === "signin" && (
-                <a href="/forgot-password" className="text-zinc-500 hover:text-emerald-400">
+                <a href="/forgot" className="text-zinc-500 hover:text-emerald-400">
                   Forgot password?
                 </a>
               )}

@@ -230,14 +230,20 @@ if (newlySilent.length > 0 && !DRY) {
       // VAPID may not be configured in every CI context. Skip the push
       // (don't crash the whole job) — the staleness row was already
       // written, so the admin will still see it on /admin/automation.
-      if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+      // Accept either env name. The rest of the platform uses the NEXT_PUBLIC_
+      // prefixed key (fire-daily-brief-push, send.ts, etc.); this script had
+      // read the bare VAPID_PUBLIC_KEY, so if only the prefixed secret existed
+      // the owner staleness-alert push silently no-op'd every run — defeating
+      // the entire self-monitoring layer. Fall back so it works either way.
+      const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY;
+      if (!vapidPublic || !process.env.VAPID_PRIVATE_KEY) {
         console.log("  (VAPID not configured in this env — push skipped; row still recorded)");
       } else {
         const require = createRequire(import.meta.url);
         const webpush = require("web-push");
         webpush.setVapidDetails(
           process.env.VAPID_SUBJECT || "mailto:support@ikratom.org",
-          process.env.VAPID_PUBLIC_KEY,
+          vapidPublic,
           process.env.VAPID_PRIVATE_KEY,
         );
         let pushedCount = 0;
