@@ -100,11 +100,11 @@ export default function InstallAndroidPage() {
           </div>
         ) : (
           <div className="mt-4 rounded-md border border-amber-700/30 bg-amber-950/10 p-3 text-xs text-amber-100">
-            <p className="font-semibold">⚠ APK download coming soon.</p>
+            <p className="font-semibold">📲 Direct APK download is being finalized.</p>
             <p className="mt-1">
-              The APK build is queued — owner will publish the file to Cloudflare R2
-              + set <code className="rounded bg-zinc-900 px-1">IKRATOM_APK_URL</code> in Vercel env.
-              For now, use Method A above (PWA install via Chrome).
+              Use the Chrome install above (Method A) — it installs the identical app
+              today, with home-screen icon and push notifications. The standalone APK
+              is coming shortly.
             </p>
           </div>
         )}

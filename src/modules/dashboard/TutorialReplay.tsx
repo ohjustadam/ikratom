@@ -82,7 +82,7 @@ export function WelcomeReplayTour({ forceShow }: { forceShow: boolean }) {
           popover: {
             title: "Encrypted DMs",
             description:
-              "/messages — every message is end-to-end encrypted with libsodium. Even iKratom admins can't read them. Group DMs coming soon.",
+              "/messages — every message is end-to-end encrypted with libsodium. Even iKratom admins can't read them. Encrypted group DMs are supported too.",
           },
         },
         {

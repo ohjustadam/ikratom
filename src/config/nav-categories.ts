@@ -48,6 +48,7 @@ export const CATEGORIES: Category[] = [
       { href: "/legislators", label: "Legislators", description: "Find + contact your federal + state reps." },
       { href: "/states", label: "By state", description: "Single-state landing pages aggregating bills, meetings, alerts, campaigns." },
       { href: "/people", label: "🧠 People of interest", description: "Allies, experts, journalists, opponents tracked across all kratom bills." },
+      { href: "/topics", label: "🏷 Topic explorer", description: "Bills across every substance-policy topic we track — kratom in depth, the rest via LegiScan discovery." },
     ],
   },
   {
@@ -91,8 +92,8 @@ export const CATEGORIES: Category[] = [
     tagline: "Who else is here — advocates, coalitions, and real stories.",
     items: [
       { href: "/coalitions", label: "🤝 Coalitions", description: "Multi-advocate teams with invite codes. Private by default — coordinate around a state or bill." },
-      { href: "/forum", label: "Forum", description: "State-by-state advocate discussion." },
-      { href: "/communities", label: "Communities", description: "Topic-focused groups: vets, shop owners, etc." },
+      { href: "/forum", label: "Forum", description: "State-by-state advocate discussion + topic groups (vets, shop owners, caregivers)." },
+      { href: "/communities", label: "Communities", description: "Directory of kratom communities across the web — Facebook groups, subreddits, Discords." },
       { href: "/stories", label: "📖 Story bank", description: "Real kratom-advocate stories. The most persuasive thing legislators read." },
       { href: "/spread", label: "📣 Spread the word", description: "Share kits, QR codes, and embeds for shops + socials." },
     ],

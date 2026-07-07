@@ -94,8 +94,8 @@ export default async function LeaderPage() {
         )}
         {recruitCount === 0 && (
           <p className="mt-3 text-xs text-zinc-500">
-            No recruits yet. Once Field signup ships you&apos;ll see who you onboarded
-            here, with stats on who&apos;s actively taking action.
+            No recruits yet. Open Field signup below and onboard your first advocate —
+            they&apos;ll show up here with stats on who&apos;s actively taking action.
           </p>
         )}
       </section>
