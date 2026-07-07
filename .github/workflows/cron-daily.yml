@@ -607,6 +607,9 @@ jobs:
     # (51 states). OpenStates free tier handles this — ~150 API calls
     # per run, well under the 100k/day limit.
     needs: legiscan-wide-pass
+    # Sequencing only (protects the shared OpenStates quota) — committees
+    # don't consume legiscan output, so run even if the sweep failed/timed out.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -639,6 +642,9 @@ jobs:
     # Ollama when cloud providers are saturated — graceful catchup
     # over multiple daily runs is fine.
     needs: sync-committees-openstates
+    # Run even if the committee sync failed — stance drafting degrades
+    # gracefully with yesterday's committee data.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -850,19 +856,35 @@ jobs:
       # 2026-05-28 when S8925A sat at a Jan 16 action while the actual
       # state was "advanced to third reading" on May 26. continue-on-
       # error so an OpenStates quota exhaustion doesn't tank the rest.
+      #
+      # UNINTERRUPTED-FLOW HARDENING (2026-07-05, run 28761551479 RCA):
+      # this JOB hit its 60-min timeout → GitHub cancelled it mid-step →
+      # 5 dependent jobs (committees, stance, clusters incl. the DAILY
+      # BRIEF PUSH, journeys, committee backfill) were cascade-SKIPPED.
+      # Fix = three layers: (1) each step gets its own timeout-minutes
+      # so no single step can eat the job budget; (2) scripts self-limit
+      # via --max-minutes and record partial telemetry BEFORE any kill;
+      # (3) dependents run on `if: !cancelled()` so a slow sweep never
+      # silences the rest of the pipeline again.
       - name: OpenStates daily bill sweep (refreshes last_action_at for non-LegiScan bills)
         continue-on-error: true
+        timeout-minutes: 20
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
-        run: node scripts/sync-bills.mjs
+        run: node scripts/sync-bills.mjs --max-minutes 18
       - name: LegiScan full sweep (all active anti + pro bills)
+        # Best-effort like the rest: a LegiScan hiccup must not cancel the
+        # dependents. Persistent silence is caught by check-cron-staleness
+        # via the sync_bills_legiscan_all scraper_runs source.
+        continue-on-error: true
+        timeout-minutes: 25
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
-        run: node scripts/sync-bills-via-legiscan.mjs --all-anti
+        run: node scripts/sync-bills-via-legiscan.mjs --all-anti --max-minutes 22
       # OpenStates fallback for vote data. Runs AFTER the LegiScan
       # step so any bill LegiScan already covered shows up in
       # bill_votes and this script skips it. When LEGISCAN_API_KEY
@@ -873,6 +895,7 @@ jobs:
       # the rest of the daily run.
       - name: OpenStates vote-sync fallback (~50 bills/day budget)
         continue-on-error: true
+        timeout-minutes: 12
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -890,6 +913,8 @@ jobs:
     # Runs after legiscan-wide-pass so the most-recent LegiScan data
     # is in place first; only fills in residual gaps.
     needs: legiscan-wide-pass
+    # Best on fresh data, still correct on yesterday's — never skip.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -971,8 +996,12 @@ jobs:
     # summary + bill_text_versions) — cheap, no AI. Idempotent:
     # cluster + member rows are upserted on each run.
     needs: legiscan-wide-pass
+    # CRITICAL to never skip: this job carries the DAILY BRIEF PUSH.
+    # When legiscan-wide-pass timed out on 2026-07-05, this was skipped
+    # and users got no brief. Clustering on day-old data beats no brief.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -1031,6 +1060,8 @@ jobs:
     # script caps at LIMIT (default 20) per run to spread AI quota
     # across many days — full backfill takes ~2 daily runs.
     needs: legiscan-wide-pass
+    # Journeys enrich yesterday's text fine — never cascade-skip.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

@@ -235,6 +235,28 @@ async function pruneLocalhostSubs() {
 async function main() {
   const t0 = Date.now();
   console.log(`Daily brief push${DRY ? " (DRY RUN)" : ""}…`);
+
+  // Per-day idempotency guard (Eastern — civic "today" anchors to
+  // America/New_York, never bare UTC): a workflow re-run after a partial
+  // daily-cron failure must not re-fire the brief. The push tag already
+  // replaces rather than stacks, but re-sending still burns quota and
+  // re-buzzes phones. --force (or --user targeting) overrides.
+  const easternDate = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  if (!DRY && !ONLY_USER && !args.includes("--force")) {
+    const { data: lastRun } = await sb
+      .from("scraper_runs")
+      .select("finished_at, status")
+      .eq("source", "fire_daily_brief_push")
+      .eq("status", "success")
+      .order("finished_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastRun?.finished_at && easternDate(lastRun.finished_at) === easternDate(Date.now())) {
+      console.log(`Already fired today (${easternDate(Date.now())} ET) — skipping. Use --force to re-send.`);
+      return;
+    }
+  }
+
   await pruneLocalhostSubs();
 
   // Find opted-in users (pull the quiet-hours/DND gate columns in the same hop)

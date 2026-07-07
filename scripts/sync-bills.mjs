@@ -220,10 +220,25 @@ async function syncState(state) {
 }
 
 // ---------- main ----------
-const onlyState = process.argv[2]?.toUpperCase();
-const targets = onlyState
+// Positional arg = single state; --max-minutes = wall-clock budget so the CI
+// step timeout never kills us mid-loop (uninterrupted-flow hardening 2026-07-05).
+const rawArgs = process.argv.slice(2);
+const mmIdx = rawArgs.indexOf("--max-minutes");
+const MAX_MINUTES = mmIdx >= 0 ? parseInt(rawArgs[mmIdx + 1] ?? "0") : 0;
+const MAX_RUN_MS = MAX_MINUTES > 0 ? MAX_MINUTES * 60_000 : Infinity;
+const positional = rawArgs.filter((a, i) => a !== "--max-minutes" && i !== mmIdx + 1);
+const onlyState = positional[0]?.toUpperCase();
+let targets = onlyState
   ? STATES.includes(onlyState) ? [onlyState] : (() => { console.error(`Unknown state ${onlyState}`); process.exit(1); })()
   : STATES;
+// Rotate the start state by day-of-year: with a wall-clock budget an early
+// stop would otherwise starve the SAME alphabetical tail (WV/WI/WY) forever.
+// Rotation guarantees every state leads the queue within a ~51-day window.
+if (!onlyState && MAX_MINUTES > 0) {
+  const dayOfYear = Math.floor((Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 0)) / 86_400_000);
+  const off = dayOfYear % targets.length;
+  targets = [...targets.slice(off), ...targets.slice(0, off)];
+}
 
 console.log(`\nSyncing kratom-related bills for ${targets.length} state(s) via OpenStates…\n`);
 console.log(`Keywords: ${KEYWORDS.join(", ")}\n`);
@@ -231,6 +246,10 @@ console.log(`Keywords: ${KEYWORDS.join(", ")}\n`);
 const t0 = Date.now();
 const summary = [];
 for (const state of targets) {
+  if (Date.now() - t0 > MAX_RUN_MS) {
+    console.log(`\n⏱ Reached ${MAX_MINUTES}-min wall-clock budget after ${summary.length}/${targets.length} states — stopping early (states rotate; tomorrow's run covers the rest).`);
+    break;
+  }
   const r = await syncState(state);
   summary.push(r);
   await sleep(1500);

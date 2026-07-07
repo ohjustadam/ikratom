@@ -42,10 +42,12 @@ jobs:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: |
           if [ -z "${GIST_TOKEN}" ]; then
-            echo "::error::GIST_TOKEN secret not set. Workflow cannot update gist."
-            echo "Create a fine-grained PAT with Gists: Read and Write access at"
-            echo "https://github.com/settings/tokens?type=beta and add it as GIST_TOKEN."
-            exit 1
+            # Fail-SOFT (2026-07-05): the token has been absent for weeks and a
+            # permanently-red workflow stains the Actions tab while alerting
+            # nobody. The gist mirror is a nice-to-have; skip green until the
+            # owner mints a PAT (Gists: Read+Write) and adds it as GIST_TOKEN.
+            echo "::warning::GIST_TOKEN secret not set — skipping gist mirror (create a fine-grained PAT with Gists read/write at https://github.com/settings/tokens?type=beta to re-enable)."
+            exit 0
           fi
 
           # Build the PATCH body with jq so we get correct JSON-escaping
