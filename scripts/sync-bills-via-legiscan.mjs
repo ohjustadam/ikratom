@@ -64,6 +64,13 @@ const PRIORITY = args.includes("--priority");
 const ALL_ANTI = args.includes("--all-anti");
 const SPECIFIC = arg("--bill");
 const DRY = args.includes("--dry-run");
+// Wall-clock budget (uninterrupted-flow hardening, 2026-07-05): the daily
+// --all-anti sweep can outgrow its CI step timeout as the corpus grows; a CI
+// kill mid-loop skips the telemetry insert below and blinds the staleness
+// monitor. Stop cleanly before the cap instead — the next daily run continues
+// (bills are processed most-stale-first). 0/absent = unlimited (local runs).
+const MAX_MINUTES = parseInt(arg("--max-minutes") ?? "0");
+const MAX_RUN_MS = MAX_MINUTES > 0 ? MAX_MINUTES * 60_000 : Infinity;
 
 if (!PRIORITY && !ALL_ANTI && !SPECIFIC) {
   console.error("Usage: --priority | --all-anti | --bill <uuid>");
@@ -426,26 +433,35 @@ if (bills.length === 0) { console.log("Nothing to sync."); process.exit(0); }
 console.log(`Syncing ${bills.length} bill(s) via LegiScan${DRY ? " (DRY RUN)" : ""}…`);
 
 let ok = 0, fail = 0, skip = 0;
+let stoppedEarly = false;
+const runStart = Date.now();
 for (const b of bills) {
+  if (Date.now() - runStart > MAX_RUN_MS) {
+    stoppedEarly = true;
+    console.log(`\n⏱ Reached ${MAX_MINUTES}-min wall-clock budget — stopping early so telemetry is recorded before the CI timeout. Bills are ordered most-stale-first; the next run continues here.`);
+    break;
+  }
   const r = await syncOne(b);
   if (r === "ok") ok++;
   else if (r === "fail") fail++;
   else skip++;
 }
 
-console.log(`\nDone. ok=${ok}, skip=${skip}, fail=${fail}`);
+console.log(`\nDone. ok=${ok}, skip=${skip}, fail=${fail}${stoppedEarly ? " (stopped at time budget)" : ""}`);
 
 try {
   await sb.from("scraper_runs").insert({
     source: PRIORITY ? "sync_bills_legiscan_priority" : "sync_bills_legiscan_all",
-    started_at: new Date().toISOString(),
+    started_at: new Date(runStart).toISOString(),
     finished_at: new Date().toISOString(),
     // "partial" when some bills synced despite a few LegiScan hiccups (429s /
     // timeouts on individual bills) — only a run that synced NOTHING is a real
     // error. De-noises the automation dashboard (this job ran ~hourly and a
     // single transient bill failure was flagging the whole run red).
-    status: fail > 0 ? (ok > 0 ? "partial" : "error") : (ok === 0 && skip === 0 ? "empty" : "success"),
+    status: stoppedEarly && ok > 0 ? "partial"
+      : fail > 0 ? (ok > 0 ? "partial" : "error")
+      : (ok === 0 && skip === 0 ? "empty" : "success"),
     rows_updated: ok,
-    notes: `${ok} synced, ${skip} skipped, ${fail} failed`,
+    notes: `${ok} synced, ${skip} skipped, ${fail} failed${stoppedEarly ? " · stopped at time budget" : ""}`,
   });
 } catch { /* best-effort */ }
