@@ -59,10 +59,25 @@ describe("runSqlQuery — safety rails", () => {
     if (!r.ok) expect(r.error).toMatch(/admin/i);
   });
 
-  it("accepts a simple SELECT for any admin", async () => {
+  it("accepts a simple SELECT for the owner", async () => {
     const { runSqlQuery } = await loadActions();
     const r = await runSqlQuery({ query: "select count(*) from bills" });
     expect(r.ok).toBe(true);
+  });
+
+  it("rejects a SELECT for a non-owner admin (console is owner-only)", async () => {
+    mockCtx = { ok: true, isOwner: false, isAdmin: true, userId: "admin-id", email: "admin@example.com" };
+    const { runSqlQuery } = await loadActions();
+    const r = await runSqlQuery({ query: "select count(*) from bills" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/owner/i);
+  });
+
+  it("blocks reading the auth schema (SELECT auth.users would leak emails + hashes)", async () => {
+    const { runSqlQuery } = await loadActions();
+    const r = await runSqlQuery({ query: "select id, email, encrypted_password from auth.users" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/blocked/i);
   });
 
   it("rejects an empty query", async () => {

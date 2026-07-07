@@ -41,11 +41,16 @@ jobs:
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
       - name: Resolve Google News redirect URLs (keyless, clean GHA IP)
+        # inputs read via env: indirection (NOT inline ${{ }} in run:) so a
+        # malicious dispatch value can't inject shell — `seq` just errors on
+        # non-numeric. Clamp to an integer with a default. Security audit 2026-07-06.
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESOLVE_ROUNDS: ${{ github.event.inputs.resolve_rounds || '4' }}
         run: |
-          for i in $(seq 1 ${{ github.event.inputs.resolve_rounds }}); do
+          rounds=$(printf '%d' "${RESOLVE_ROUNDS:-4}" 2>/dev/null || echo 4)
+          for i in $(seq 1 "$rounds"); do
             echo "::group::resolve round $i"
             node scripts/resolve-news-urls.mjs --limit 1000 --delay 250 || true
             echo "::endgroup::"
@@ -54,8 +59,10 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EXTRACT_ROUNDS: ${{ github.event.inputs.extract_rounds || '7' }}
         run: |
-          for i in $(seq 1 ${{ github.event.inputs.extract_rounds }}); do
+          rounds=$(printf '%d' "${EXTRACT_ROUNDS:-7}" 2>/dev/null || echo 7)
+          for i in $(seq 1 "$rounds"); do
             echo "::group::extract round $i"
             node scripts/extract-news-content.mjs --days 3650 --limit 1000 || true
             echo "::endgroup::"

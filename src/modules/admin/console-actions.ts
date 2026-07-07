@@ -48,6 +48,12 @@ const BLOCKED_TOKENS = [
   /\bREVOKE\s+/i,
   /\bCREATE\s+ROLE\b/i,
   /\bALTER\s+ROLE\b/i,
+  // Any reference to the auth schema. admin_exec_sql is SECURITY DEFINER and
+  // bypasses RLS, so `SELECT ... FROM auth.users` would leak every user's email
+  // + bcrypt password hash. The console never needs the auth schema. (Blocks
+  // reads too — the pre-existing DELETE/UPDATE/ALTER auth. rules only caught
+  // writes.) Security audit 2026-07-06.
+  /\bauth\s*\.\s*\w/i,
 ];
 
 // Mutation prefixes — these require the `acknowledge` flag.
@@ -63,6 +69,13 @@ export async function runSqlQuery(input: {
 }): Promise<SqlResult> {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  // Break-glass OWNER tool: admin_exec_sql is SECURITY DEFINER and bypasses RLS,
+  // so a non-owner admin could otherwise read auth.users (emails + bcrypt
+  // hashes) or any user's private profile columns via raw SELECT. Reads AND
+  // writes now require owner (previously only writes did). Security audit
+  // 2026-07-06. Admins have the AI editor / master-edit / dashboards for
+  // legitimate, PII-minimized reads.
+  if (!ctx.isOwner) return { ok: false, error: "The SQL console is owner-only — it bypasses row-level security." };
 
   const sql = (input.query ?? "").trim();
   if (!sql) return { ok: false, error: "Empty query." };
@@ -197,7 +210,6 @@ export type WorkflowDispatchResult =
 
 export async function dispatchWorkflow(
   workflowFile: string,
-  inputs?: Record<string, string>,
 ): Promise<WorkflowDispatchResult> {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { ok: false, error: "Admin required." };
@@ -218,14 +230,13 @@ export async function dispatchWorkflow(
     return { ok: false, error: "Too many workflow runs in 10 minutes — give the current ones a moment." };
   }
 
-  // Sanitize optional inputs (most workflows have defaults; we usually send none).
-  const safeInputs: Record<string, string> = {};
-  if (inputs && typeof inputs === "object") {
-    for (const [k, v] of Object.entries(inputs)) {
-      if (/^[a-zA-Z0-9_]{1,40}$/.test(k)) safeInputs[k] = String(v).slice(0, 100);
-    }
-  }
-
+  // NO user-supplied inputs. Every dispatchable workflow has sensible input
+  // DEFAULTS, and the two that read inputs interpolate them into `run:` shells
+  // (news-backfill-burst, cron-localreps-cloud) — a script-injection sink. We
+  // dispatch with ref only; the workflows use their defaults. (Security audit
+  // 2026-07-06 — the previous `inputs` param let an admin inject shell commands
+  // into a runner carrying SUPABASE_SERVICE_ROLE_KEY. Defense-in-depth: those
+  // workflows now also read inputs via env: indirection, not inline `${{ }}`.)
   let res: Response;
   try {
     res = await fetch(
@@ -239,7 +250,7 @@ export async function dispatchWorkflow(
           "Content-Type": "application/json",
           "User-Agent": "iKratom-admin",
         },
-        body: JSON.stringify({ ref: "main", ...(Object.keys(safeInputs).length ? { inputs: safeInputs } : {}) }),
+        body: JSON.stringify({ ref: "main" }),
         signal: AbortSignal.timeout(15_000),
       },
     );
@@ -253,7 +264,7 @@ export async function dispatchWorkflow(
         action: "console.workflow_dispatch",
         targetType: "user",
         targetId: ctx.userId,
-        details: { workflow: workflowFile, inputs: safeInputs },
+        details: { workflow: workflowFile },
       });
     } catch { /* non-fatal */ }
     return { ok: true, runsUrl: `https://github.com/${repo}/actions/workflows/${workflowFile}` };

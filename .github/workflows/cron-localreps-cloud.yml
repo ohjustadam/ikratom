@@ -87,7 +87,13 @@ jobs:
           done
 
       - name: Drain pending local-rep requests
-        run: node scripts/auto-fulfill-pending-local-reps.mjs --limit ${{ github.event.inputs.limit || '40' }} --max-minutes 22
+        # `limit` read via env: indirection (not inline ${{ }} in run:) + integer
+        # clamp, so a malicious dispatch value can't inject shell. Security audit 2026-07-06.
+        env:
+          DISPATCH_LIMIT: ${{ github.event.inputs.limit || '40' }}
+        run: |
+          lim=$(printf '%d' "${DISPATCH_LIMIT:-40}" 2>/dev/null || echo 40)
+          node scripts/auto-fulfill-pending-local-reps.mjs --limit "$lim" --max-minutes 22
 
       - name: SearXNG container logs (always)
         if: always()
