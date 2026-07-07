@@ -61,7 +61,7 @@ const REGISTRY = [
   // terminalStatusFromAction). De-registered so the monitor stops false-alarming
   // on an intentionally-dead source (cron-daily.yml keeps the retirement note).
   ...["auto_resolve_sync_discrepancies","sync_legislator_donors",
-      "sync_bill_sponsors","sync_lda_kratom",
+      "sync_bill_sponsors","sync_bills_legiscan_all","sync_lda_kratom",
       "usaspending","regulations.gov","courtlistener",
       "senate_stock_watcher","house_stock_watcher",
       "generate_state_briefing",

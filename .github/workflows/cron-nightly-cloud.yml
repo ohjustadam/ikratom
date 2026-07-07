@@ -83,7 +83,9 @@ jobs:
 
       - name: Live bill refresh (LegiScan, active anti/pro)
         continue-on-error: true
-        run: node scripts/sync-bills-via-legiscan.mjs --all-anti
+        # --max-minutes so a degraded-LegiScan night can't eat the single-job
+        # budget and starve the elections + news-digest steps after it.
+        run: node scripts/sync-bills-via-legiscan.mjs --all-anti --max-minutes 35
 
       - name: State executives (keyless YAML, weekly self-gate)
         continue-on-error: true

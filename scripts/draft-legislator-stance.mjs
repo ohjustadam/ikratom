@@ -28,6 +28,12 @@ const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
 const STATE = arg("--state") ?? "NY";
 const ALL_STATES = args.includes("--all-states");
+// Wall-clock budget (uninterrupted-flow hardening 2026-07-06): the all-states
+// pass (90-min job) had no guard + telemetry-after-loop → a slow AI/OpenStates
+// day → CI cancel → no scraper_runs row → monitor blind for days. Stop cleanly
+// before the cap. 0 = unlimited (local). Anchored below at grandT0.
+const MAX_MINUTES = parseInt(arg("--max-minutes") ?? "0");
+const MAX_RUN_MS = MAX_MINUTES > 0 ? MAX_MINUTES * 60_000 : Infinity;
 const PRIORITY_ONLY = args.includes("--priority-only");
 const DRY_RUN = args.includes("--dry-run");
 const REFRESH = args.includes("--refresh");
@@ -116,9 +122,15 @@ const statesToProcess = ALL_STATES
 const grandT0 = Date.now();
 const grandTotals = { ok: 0, errored: 0, statesProcessed: 0, statesSkipped: 0 };
 
+let stoppedEarly = false;
 for (const currentState of statesToProcess) {
   if (STATE_LIMIT && grandTotals.statesProcessed >= STATE_LIMIT) {
     console.log(`Hit --state-limit ${STATE_LIMIT}. Stopping.`);
+    break;
+  }
+  if (Date.now() - grandT0 > MAX_RUN_MS) {
+    stoppedEarly = true;
+    console.log(`\n⏱ Reached ${MAX_MINUTES}-min budget after ${grandTotals.statesProcessed} states — stopping so telemetry lands before the CI cap.`);
     break;
   }
   console.log(`\n${"=".repeat(60)}\n[${currentState}] starting…\n${"=".repeat(60)}`);
@@ -140,7 +152,7 @@ try {
     source: "draft_legislator_stance",
     started_at: new Date(grandT0).toISOString(),
     finished_at: new Date().toISOString(),
-    status: grandTotals.errored > grandTotals.ok ? "error" : "success",
+    status: stoppedEarly && grandTotals.ok > 0 ? "partial" : (grandTotals.errored > grandTotals.ok ? "error" : "success"),
     rows_added: grandTotals.ok,
     notes: ALL_STATES
       ? `ALL: ${grandTotals.statesProcessed} states · ${grandTotals.ok} drafted · ${grandTotals.errored} errored`
