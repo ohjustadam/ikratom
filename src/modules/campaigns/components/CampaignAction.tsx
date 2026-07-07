@@ -416,6 +416,11 @@ export function CampaignAction({
                   setPersonalizeChanges(r.what_changed ?? null);
                   setEditing(true);
                 }
+              } catch {
+                // A rejected server-action POST (connection drop / 504) never
+                // returns an {error} shape — without this catch the spinner just
+                // stops and the user gets zero feedback.
+                setPersonalizeError("Personalization failed — check your connection and try again.");
               } finally {
                 setPersonalizing(false);
               }

@@ -149,11 +149,21 @@ export function ChatPopup() {
     setDraft("");
     stick.current = true;
     setSending(true);
-    const r = await postChatMessage({ body, room: ROOM });
-    setSending(false);
-    if ("error" in r) { setError(r.error ?? "Failed"); setDraft(body); }
-    else if ("held" in r && r.held) { setError("Your message is held for review and will appear once a moderator approves it."); }
-    // Realtime INSERT delivers the message — no optimistic append.
+    // try/catch/finally: a transport-level failure (network drop / 5xx) rejects
+    // the server-action promise. Without this the composer would wedge (sending
+    // stuck true) and the typed message would be lost silently. Restore the draft
+    // + surface an error instead. (@E352 broken-page class — CampaignAction has it.)
+    try {
+      const r = await postChatMessage({ body, room: ROOM });
+      if ("error" in r) { setError(r.error ?? "Failed"); setDraft(body); }
+      else if ("held" in r && r.held) { setError("Your message is held for review and will appear once a moderator approves it."); }
+      // Realtime INSERT delivers the message — no optimistic append.
+    } catch {
+      setDraft(body);
+      setError("Couldn't send — check your connection and try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
