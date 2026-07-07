@@ -102,8 +102,11 @@ export default async function CalendarPage({ searchParams }: {
     sb.from("election_dates")
       .select("scope, state, locality, election_type, title, election_date, registration_deadline, source_url")
       .eq("moderation_status", "approved")
-      .gte("election_date", now.toISOString().slice(0, 10))
-      .lte("election_date", electionHorizon.toISOString().slice(0, 10))
+      // Eastern day, not UTC — else today's election vanishes from the calendar
+      // + every ICS feed after ~8pm ET when the UTC date rolls (memory
+      // civic-dates-anchor-eastern). Same for effective/sunset date columns below.
+      .gte("election_date", etYmd(now))
+      .lte("election_date", etYmd(electionHorizon))
       .order("election_date", { ascending: true }),
     sb.from("legislator_events")
       .select("id, state, locality, title, description, event_type, starts_at, venue, source_url, legislator_id")
@@ -118,8 +121,8 @@ export default async function CalendarPage({ searchParams }: {
       .select("id, state, bill_number, title, effective_date, kratom_relevance")
       .in("kratom_relevance", ["anti", "pro"])
       .not("effective_date", "is", null)
-      .gte("effective_date", now.toISOString().slice(0, 10))
-      .lte("effective_date", electionHorizon.toISOString().slice(0, 10))
+      .gte("effective_date", etYmd(now))
+      .lte("effective_date", etYmd(electionHorizon))
       .order("effective_date", { ascending: true }),
     // Upcoming sunset/expiration dates — when a law's kratom provision auto-
     // repeals (0209). Sparse (most bans are permanent); 1-yr horizon like effective.
@@ -127,8 +130,8 @@ export default async function CalendarPage({ searchParams }: {
       .select("id, state, bill_number, title, sunset_date, kratom_relevance")
       .in("kratom_relevance", ["anti", "pro"])
       .not("sunset_date", "is", null)
-      .gte("sunset_date", now.toISOString().slice(0, 10))
-      .lte("sunset_date", electionHorizon.toISOString().slice(0, 10))
+      .gte("sunset_date", etYmd(now))
+      .lte("sunset_date", etYmd(electionHorizon))
       .order("sunset_date", { ascending: true }),
     // Local (city/county) kratom vote OUTCOMES (0210) — past events, so a
     // backward window; they populate calendar history + the month grid with a

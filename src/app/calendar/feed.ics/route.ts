@@ -55,6 +55,10 @@ export async function GET(req: NextRequest) {
   const horizon = new Date(now.getTime() + 90 * 86_400_000);
   // Elections sit months out (general + many primaries) — 1-year horizon.
   const electionHorizon = new Date(now.getTime() + 365 * 86_400_000);
+  // Eastern calendar day for date-only columns (NOT UTC) — else today's
+  // election / effective / sunset row drops out of the feed after ~8pm ET when
+  // the UTC date rolls (memory civic-dates-anchor-eastern; mirrors calendar/page.tsx).
+  const etYmd = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
   // Same data shape as /calendar/page.tsx, just translated to iCal events.
   const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective, billsSunset, localVotes] = await Promise.all([
@@ -85,8 +89,8 @@ export async function GET(req: NextRequest) {
     sb.from("election_dates")
       .select("id, scope, state, election_type, title, election_date, registration_deadline, source_url")
       .eq("moderation_status", "approved")
-      .gte("election_date", now.toISOString().slice(0, 10))
-      .lte("election_date", electionHorizon.toISOString().slice(0, 10))
+      .gte("election_date", etYmd(now))
+      .lte("election_date", etYmd(electionHorizon))
       .order("election_date", { ascending: true }),
     sb.from("legislator_events")
       .select("id, state, locality, title, description, event_type, starts_at, venue, source_url, legislator_id")
@@ -98,15 +102,15 @@ export async function GET(req: NextRequest) {
       .select("id, state, bill_number, title, effective_date, kratom_relevance")
       .in("kratom_relevance", ["anti", "pro"])
       .not("effective_date", "is", null)
-      .gte("effective_date", now.toISOString().slice(0, 10))
-      .lte("effective_date", electionHorizon.toISOString().slice(0, 10))
+      .gte("effective_date", etYmd(now))
+      .lte("effective_date", etYmd(electionHorizon))
       .order("effective_date", { ascending: true }),
     sb.from("bills")
       .select("id, state, bill_number, title, sunset_date, kratom_relevance")
       .in("kratom_relevance", ["anti", "pro"])
       .not("sunset_date", "is", null)
-      .gte("sunset_date", now.toISOString().slice(0, 10))
-      .lte("sunset_date", electionHorizon.toISOString().slice(0, 10))
+      .gte("sunset_date", etYmd(now))
+      .lte("sunset_date", etYmd(electionHorizon))
       .order("sunset_date", { ascending: true }),
     sb.from("local_vote_outcomes")
       .select("id, state, locality, vote_date, outcome, measure, source_url")

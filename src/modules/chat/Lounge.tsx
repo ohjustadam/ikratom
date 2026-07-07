@@ -150,14 +150,22 @@ export function Lounge({
     setDraft("");
     stickToBottomRef.current = true;
     startTransition(async () => {
-      const r = await postChatMessage({ body, room });
-      if ("error" in r) {
-        setError(r.error ?? "Failed");
+      // try/catch so a rejected server action (network drop / 5xx) doesn't
+      // escalate through startTransition to the root error boundary — which
+      // would replace all of /forum with the error screen and lose the draft.
+      try {
+        const r = await postChatMessage({ body, room });
+        if ("error" in r) {
+          setError(r.error ?? "Failed");
+          setDraft(body);
+        } else if ("held" in r && r.held) {
+          setError("Your message is held for review and will appear once a moderator approves it.");
+        }
+        // Don't push optimistically — realtime INSERT will deliver it.
+      } catch {
         setDraft(body);
-      } else if ("held" in r && r.held) {
-        setError("Your message is held for review and will appear once a moderator approves it.");
+        setError("Couldn't send — check your connection and try again.");
       }
-      // Don't push optimistically — realtime INSERT will deliver it.
     });
   }
 

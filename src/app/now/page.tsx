@@ -208,7 +208,7 @@ export default async function NowPage() {
     };
   } else if (!viewerState) {
     primary = {
-      href: "/profile",
+      href: "/account",
       emoji: "📍",
       title: "Add your state to your profile",
       subtitle: "We'll surface the most relevant bills + alerts for you",
