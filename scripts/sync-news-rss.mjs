@@ -238,7 +238,16 @@ async function syncScope(scope) {
 }
 
 // ---------- main ----------
-const arg = process.argv[2]?.toUpperCase();
+const rawArgs = process.argv.slice(2);
+const mmIdx = rawArgs.indexOf("--max-minutes");
+// Wall-clock budget. sync-news-rss (~16 min for 52 scopes) is the biggest job in
+// the 28-min hourly news-intake step; a Google throttling window can push it past
+// the cap → CI cancel with no telemetry → news-enrich + news-actions cascade-skip
+// for the hour (the 2026-06-16 2-day-outage class). Stop cleanly + write partial
+// telemetry. 0 = unlimited (local/backfill). Uninterrupted-flow hardening 2026-07-06.
+const MAX_MINUTES = mmIdx >= 0 ? parseInt(rawArgs[mmIdx + 1] ?? "0") : 0;
+const MAX_RUN_MS = MAX_MINUTES > 0 ? MAX_MINUTES * 60_000 : Infinity;
+const arg = rawArgs.find((a, i) => a !== "--max-minutes" && i !== mmIdx + 1)?.toUpperCase();
 let targets;
 if (!arg) {
   targets = ["FED", ...Object.keys(STATE_NAMES)];
@@ -252,7 +261,13 @@ if (!arg) {
 console.log(`\nFetching news from Google News RSS for ${targets.length} scope(s)…\n`);
 const t0 = Date.now();
 const summary = [];
+let stoppedEarly = false;
 for (const scope of targets) {
+  if (Date.now() - t0 > MAX_RUN_MS) {
+    stoppedEarly = true;
+    console.log(`\n⏱ Reached ${MAX_MINUTES}-min budget after ${summary.length}/${targets.length} scopes — stopping so telemetry lands before the CI cap (next hourly run continues).`);
+    break;
+  }
   const r = await syncScope(scope);
   summary.push(r);
   await sleep(1000);
@@ -262,7 +277,7 @@ const total = summary.reduce((a, b) => a + (b.count || 0), 0);
 const failed = summary.filter((s) => s.error);
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
 console.log(`\n----------------------------------------`);
-console.log(`Done in ${elapsed} min — ${total} new articles across ${targets.length} scopes`);
+console.log(`Done in ${elapsed} min — ${total} new articles across ${summary.length}/${targets.length} scopes`);
 if (failed.length) console.log(`Failed: ${failed.map((f) => f.scope).join(", ")}`);
 console.log(`\nNext: run \`npm run enrich:news\` to add AI summaries + relevance scores.`);
 
@@ -273,9 +288,9 @@ try {
     source: "sync_news_rss",
     started_at: new Date(t0).toISOString(),
     finished_at: new Date().toISOString(),
-    status: failed.length === targets.length ? "error" : (total === 0 ? "empty" : "success"),
+    status: stoppedEarly && total > 0 ? "partial" : (failed.length === targets.length ? "error" : (total === 0 ? "empty" : "success")),
     rows_added: total,
-    notes: failed.length ? `failed scopes: ${failed.map((f) => f.scope).join(",")}` : null,
+    notes: `${summary.length}/${targets.length} scopes${stoppedEarly ? " · stopped at time budget" : ""}${failed.length ? ` · failed: ${failed.map((f) => f.scope).join(",")}` : ""}` || null,
     error_message: failed.length === targets.length ? "all scopes failed" : null,
   });
 } catch { /* best-effort */ }

@@ -105,7 +105,9 @@ jobs:
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
       - name: Sync Google News RSS across all states
-        run: node scripts/sync-news-rss.mjs
+        # ~14-min budget inside the 28-min news-intake step: a Google throttling
+        # window can't push RSS past the cap and cascade-skip news-enrich/actions.
+        run: node scripts/sync-news-rss.mjs --max-minutes 14
       - name: Classify newly-ingested news into policy_alerts
         # --limit 80: 200/hr front-loaded the free-tier daily quota; 80/hr
         # still drains any realistic backlog across ticks. Circuit breaker

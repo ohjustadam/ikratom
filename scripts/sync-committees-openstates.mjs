@@ -38,6 +38,13 @@ const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
 const ONE_STATE = arg("--state");
 const PRIORITY_ONLY = args.includes("--priority-only");
+// Wall-clock budget: this 51-state loop had NO guard and wrote telemetry only
+// after the loop, so a slow OpenStates day → 60/90-min CI cancel → zero
+// scraper_runs row → check-cron-staleness stayed blind for ~4.5 days AND the
+// dependent stance job cascade-skipped. Stop cleanly before the cap so telemetry
+// always lands (uninterrupted-flow hardening 2026-07-06). 0 = unlimited (local).
+const MAX_MINUTES = parseInt(arg("--max-minutes") ?? "0");
+const MAX_RUN_MS = MAX_MINUTES > 0 ? MAX_MINUTES * 60_000 : Infinity;
 const DRY_RUN = args.includes("--dry-run");
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -206,8 +213,14 @@ console.log(`Syncing committees across ${targets.length} state(s)${DRY_RUN ? " [
 const t0 = Date.now();
 let totalUpserts = 0;
 let totalKratomCommittees = 0;
+let stoppedEarly = false;
 const results = [];
 for (const s of targets) {
+  if (Date.now() - t0 > MAX_RUN_MS) {
+    stoppedEarly = true;
+    console.log(`\n⏱ Reached ${MAX_MINUTES}-min budget after ${results.length}/${targets.length} states — stopping so telemetry lands before the CI cap.`);
+    break;
+  }
   const r = await syncState(s);
   results.push(r);
   if (r.status === "ok") {
@@ -218,16 +231,16 @@ for (const s of targets) {
 }
 
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
-console.log(`\nDone in ${elapsed} min — ${targets.length} states · ${totalUpserts} committee memberships upserted · ${totalKratomCommittees} kratom-relevant committees across all states.`);
+console.log(`\nDone in ${elapsed} min — ${results.length}/${targets.length} states · ${totalUpserts} committee memberships upserted · ${totalKratomCommittees} kratom-relevant committees.`);
 
 try {
   await sb.from("scraper_runs").insert({
     source: "sync_committees_openstates",
     started_at: new Date(t0).toISOString(),
     finished_at: new Date().toISOString(),
-    status: totalUpserts > 0 ? "success" : "empty",
+    status: stoppedEarly && totalUpserts > 0 ? "partial" : (totalUpserts > 0 ? "success" : "empty"),
     rows_added: totalUpserts,
-    notes: `${targets.length} states · ${totalUpserts} memberships · ${totalKratomCommittees} kratom committees`,
+    notes: `${results.length}/${targets.length} states · ${totalUpserts} memberships · ${totalKratomCommittees} kratom committees${stoppedEarly ? " · stopped at time budget" : ""}`,
   });
 } catch { /* */ }
 process.exit(0);
