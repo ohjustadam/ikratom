@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
 export const metadata = {
@@ -57,43 +58,58 @@ const STATE_NAMES: Record<string, string> = {
   WY: "Wyoming",
 };
 
+/**
+ * All /banned data, snapshotted across visitors (10-min revalidate) via the
+ * /status pattern: cookieless service-role client inside unstable_cache. Every
+ * table read here (bills, state_status, local_vote_outcomes) is public-read —
+ * identical rows to what an anon cookie client saw, minus the per-visit DB
+ * round-trips. Bans change on cron cadence, not user cadence.
+ */
+const getBannedData = unstable_cache(
+  async () => {
+    const sb = createServiceRoleClient();
+    const [billsRes, ssRes, defeatedRes] = await Promise.all([
+      sb.from("bills")
+        .select("id, state, bill_number, title, status, scope, locality, effective_date, last_action_at, source_url, opposition_summary_md, verification_status")
+        .eq("kratom_relevance", "anti")
+        .eq("active", true)
+        .in("status", ["enacted", "passed_chamber"])
+        .range(0, 9999),
+      // SINGLE SOURCE OF TRUTH for state-level bans = state_status.admin_leaf_status
+      // (the exact same source the home-page map and forum map read). /banned used
+      // to derive banned states from a bills heuristic, which DISAGREED with the
+      // maps — it still showed Rhode Island (which reversed its ban, legal as of
+      // Apr 2026) and missed Louisiana (Aug 2025) + Connecticut (2026). Reading
+      // state_status here means the maps and this page can never contradict again.
+      sb.from("state_status")
+        .select("state, admin_leaf_status, admin_note")
+        .eq("admin_leaf_status", "banned"),
+      // Hopeful counterpoint: LOCAL bans communities DEFEATED. In local_vote_outcomes,
+      // outcome='passed' = the ban PASSED (a loss — those bans show in the lists below);
+      // 'failed'/'tabled' = the community rejected/shelved it. This is the one surface
+      // /banned can show that proves a ban isn't inevitable. (See memory:
+      // local-vote-outcomes-semantics — never frame 'passed' as a win.)
+      sb.from("local_vote_outcomes")
+        .select("id, state, locality, vote_date, outcome, measure, policy_alert_id")
+        .in("outcome", ["failed", "tabled"])
+        .order("vote_date", { ascending: false })
+        .range(0, 999),
+    ]);
+    return {
+      rows: (billsRes.data ?? []) as BanRow[],
+      ssRows: (ssRes.data ?? []) as { state: string; admin_leaf_status: string; admin_note: string | null }[],
+      defeated: (defeatedRes.data ?? []) as Array<{
+        id: string; state: string; locality: string | null; vote_date: string | null;
+        outcome: string; measure: string | null; policy_alert_id: string | null;
+      }>,
+    };
+  },
+  ["banned-page-data"],
+  { revalidate: 600 },
+);
+
 export default async function BannedPage() {
-  const sb = await createClient();
-  const { data } = await sb
-    .from("bills")
-    .select("id, state, bill_number, title, status, scope, locality, effective_date, last_action_at, source_url, opposition_summary_md, verification_status")
-    .eq("kratom_relevance", "anti")
-    .eq("active", true)
-    .in("status", ["enacted", "passed_chamber"])
-    .range(0, 9999);
-  const rows = (data ?? []) as BanRow[];
-
-  // SINGLE SOURCE OF TRUTH for state-level bans = state_status.admin_leaf_status
-  // (the exact same source the home-page map and forum map read). /banned used
-  // to derive banned states from a bills heuristic, which DISAGREED with the
-  // maps — it still showed Rhode Island (which reversed its ban, legal as of
-  // Apr 2026) and missed Louisiana (Aug 2025) + Connecticut (2026). Reading
-  // state_status here means the maps and this page can never contradict again.
-  const { data: ssRows } = await sb
-    .from("state_status")
-    .select("state, admin_leaf_status, admin_note")
-    .eq("admin_leaf_status", "banned");
-
-  // Hopeful counterpoint: LOCAL bans communities DEFEATED. In local_vote_outcomes,
-  // outcome='passed' = the ban PASSED (a loss — those bans show in the lists below);
-  // 'failed'/'tabled' = the community rejected/shelved it. This is the one surface
-  // /banned can show that proves a ban isn't inevitable. (See memory:
-  // local-vote-outcomes-semantics — never frame 'passed' as a win.)
-  const { data: defeatedRaw } = await sb
-    .from("local_vote_outcomes")
-    .select("id, state, locality, vote_date, outcome, measure, policy_alert_id")
-    .in("outcome", ["failed", "tabled"])
-    .order("vote_date", { ascending: false })
-    .range(0, 999);
-  const defeated = (defeatedRaw ?? []) as Array<{
-    id: string; state: string; locality: string | null; vote_date: string | null;
-    outcome: string; measure: string | null; policy_alert_id: string | null;
-  }>;
+  const { rows, ssRows, defeated } = await getBannedData();
 
   // Link each banned state to its enacting state bill when we have one (else
   // we link to the state hub). First enacted state-scope anti bill per state.

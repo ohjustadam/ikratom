@@ -1,4 +1,6 @@
-import { createClient, getCachedClaims } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { getCachedClaims } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import Link from "next/link";
 import { HomeMemorialBand } from "@/components/HomeMemorialBand";
 import { HomeLivePulse } from "@/components/HomeLivePulse";
@@ -31,6 +33,115 @@ export const dynamic = "force-dynamic";
  * Other home variants (/home-a war-room, /home-b recruitment, /home-c
  * action-first) remain accessible for A/B comparison and as design refs.
  */
+/**
+ * All the public landing-page data, snapshotted across visitors (5-min
+ * revalidate). Same pattern as /status + /states: a COOKIELESS service-role
+ * client inside unstable_cache, returning only public-safe data — active
+ * campaigns, approved stories, aggregate counts. This is the page every
+ * anonymous visitor + app-store reviewer hits first; it used to run ~8 live
+ * Supabase round-trips per visit (the "slower over time" root cause).
+ *
+ * Service-role bonus: campaign_actions is RLS'd to self-read, so the old
+ * cookie-client per-campaign action counts silently showed only the VIEWER'S
+ * own sends (0 for anon). Aggregate counts across all users are public-safe
+ * and now correct.
+ */
+type HomeCampaign = {
+  id: string; slug: string; title: string; blurb: string | null; state: string | null;
+  target_locality: string | null; bill_id: string | null; mobilization_type: string | null; created_at: string;
+};
+type HomeStory = {
+  id: string; title: string | null; body: string; anonymous: boolean;
+  display_name: string | null; state: string | null; created_at: string;
+};
+type HomeData = {
+  campaigns: HomeCampaign[];
+  billStance: Record<string, string>;
+  sevByCampaign: Record<string, string>;
+  actionCountByCampaign: Record<string, number>;
+  stories: HomeStory[];
+  bannedStateCount: number;
+  activeBillCount: number;
+  imminentBanCount: number;
+  localBanCount: number;
+};
+
+const getHomeData = unstable_cache(
+  async (): Promise<HomeData> => {
+    const supabase = createServiceRoleClient();
+
+    // Campaign-independent reads fire concurrently with the campaign chain.
+    const [campaignsRes, storiesRes, ...countRes] = await Promise.all([
+      supabase
+        .from("campaigns")
+        .select("id, slug, title, blurb, state, target_locality, bill_id, mobilization_type, created_at")
+        .eq("active", true)
+        .order("created_at", { ascending: false })
+        .limit(8),
+      supabase
+        .from("kratom_stories")
+        .select("id, title, body, anonymous, display_name, state, created_at")
+        .eq("moderation_status", "approved")
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(3),
+      supabase.from("bills").select("state", { count: "exact", head: true })
+        .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
+        .eq("status", "enacted").not("opposition_summary_md", "is", null),
+      supabase.from("bills").select("id", { count: "exact", head: true })
+        .eq("active", true).in("kratom_relevance", ["anti", "pro"])
+        .gte("last_action_at", new Date(Date.now() - 365 * 86_400_000).toISOString()),
+      supabase.from("bills").select("id", { count: "exact", head: true })
+        .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
+        .eq("status", "passed_chamber"),
+      supabase.from("bills").select("id", { count: "exact", head: true })
+        .eq("kratom_relevance", "anti").eq("active", true).eq("status", "enacted")
+        .in("scope", ["county", "municipal"]),
+    ]);
+
+    const campaigns = (campaignsRes.data ?? []) as HomeCampaign[];
+    const billIds = Array.from(new Set(campaigns.map((c) => c.bill_id).filter(Boolean) as string[]));
+    const ids = campaigns.map((c) => c.id);
+
+    // Campaign-dependent context (bill stance for triage badges, severity from
+    // linked alerts, per-campaign action counts) — one parallel hop.
+    const [billsRes, alertsRes, actionsRes] = await Promise.all([
+      billIds.length > 0
+        ? supabase.from("bills").select("id, kratom_relevance").in("id", billIds)
+        : Promise.resolve({ data: [] as { id: string; kratom_relevance: string | null }[] }),
+      ids.length > 0
+        ? supabase.from("policy_alerts").select("campaign_id, severity").in("campaign_id", ids).eq("moderation_status", "approved")
+        : Promise.resolve({ data: [] as { campaign_id: string; severity: string }[] }),
+      ids.length > 0
+        ? supabase.from("campaign_actions").select("campaign_id").in("campaign_id", ids)
+        : Promise.resolve({ data: [] as { campaign_id: string }[] }),
+    ]);
+
+    const billStance: Record<string, string> = {};
+    for (const b of billsRes.data ?? []) billStance[b.id] = b.kratom_relevance ?? "";
+    const sevByCampaign: Record<string, string> = {};
+    for (const a of alertsRes.data ?? []) sevByCampaign[a.campaign_id] = a.severity;
+    const actionCountByCampaign: Record<string, number> = {};
+    for (const r of actionsRes.data ?? []) {
+      actionCountByCampaign[r.campaign_id] = (actionCountByCampaign[r.campaign_id] ?? 0) + 1;
+    }
+
+    return {
+      campaigns,
+      billStance,
+      sevByCampaign,
+      actionCountByCampaign,
+      stories: (storiesRes.data ?? []) as HomeStory[],
+      bannedStateCount: countRes[0]?.count ?? 0,
+      activeBillCount: countRes[1]?.count ?? 0,
+      imminentBanCount: countRes[2]?.count ?? 0,
+      localBanCount: countRes[3]?.count ?? 0,
+    };
+  },
+  ["home-public-data"],
+  { revalidate: 300 },
+);
+
 export default async function HomePage() {
   // Branch: signed-in users go straight to their cockpit; the landing below is
   // the signed-OUT pitch — the new-visitor / app-store front door. Cached LOCAL
@@ -39,94 +150,19 @@ export default async function HomePage() {
   // Signed-in members can still browse the home page — no perma-redirect to the
   // dashboard. We just swap the signup CTAs for a dashboard link below.
   const isSignedIn = !!claims?.sub;
-  const supabase = await createClient();
   const locale = await readLocale();
   const t = getMessages(locale);
   const isIntl = locale !== "en";
 
-  // Fire the reads that DON'T depend on the campaign list now, so they run
-  // CONCURRENTLY with the campaign-dependent chain below instead of serially
-  // after it. Was a waterfall: campaigns → bills → alerts/actions → stories →
-  // counts. `.then()` / Promise.all eagerly trigger the PostgREST request.
-  const storiesPromise = supabase
-    .from("kratom_stories")
-    .select("id, title, body, anonymous, display_name, state, created_at")
-    .eq("moderation_status", "approved")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(3)
-    .then((r) => r);
-  const coverageCountsPromise = Promise.all([
-    supabase.from("bills").select("state", { count: "exact", head: true })
-      .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
-      .eq("status", "enacted").not("opposition_summary_md", "is", null),
-    supabase.from("bills").select("id", { count: "exact", head: true })
-      .eq("active", true).in("kratom_relevance", ["anti", "pro"])
-      .gte("last_action_at", new Date(Date.now() - 365 * 86_400_000).toISOString()),
-    supabase.from("bills").select("id", { count: "exact", head: true })
-      .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
-      .eq("status", "passed_chamber"),
-    supabase.from("bills").select("id", { count: "exact", head: true })
-      .eq("kratom_relevance", "anti").eq("active", true).eq("status", "enacted")
-      .in("scope", ["county", "municipal"]),
-  ]);
+  // One cached snapshot instead of ~8 live queries per visit. Per-request
+  // work above stays request-scoped (auth presence + locale only).
+  const {
+    campaigns, billStance, sevByCampaign, actionCountByCampaign, stories,
+    bannedStateCount, activeBillCount, imminentBanCount, localBanCount,
+  } = await getHomeData();
+  const billStanceById = new Map(Object.entries(billStance));
 
-  // Most urgent active campaigns + their bill context (for triage badges)
-  const { data: campaigns } = await supabase
-    .from("campaigns")
-    .select("id, slug, title, blurb, state, target_locality, bill_id, mobilization_type, created_at")
-    .eq("active", true)
-    .order("created_at", { ascending: false })
-    .limit(8);
-
-  const billIds = Array.from(
-    new Set((campaigns ?? []).map((c) => c.bill_id).filter(Boolean) as string[]),
-  );
-  const billStanceById = new Map<string, string>();
-  if (billIds.length > 0) {
-    const { data: bills } = await supabase
-      .from("bills")
-      .select("id, kratom_relevance")
-      .in("id", billIds);
-    for (const b of bills ?? []) {
-      billStanceById.set((b as { id: string }).id, (b as { kratom_relevance: string | null }).kratom_relevance ?? "");
-    }
-  }
-
-  // Severity from linked alerts (drives card border tint)
-  const ids = (campaigns ?? []).map((c) => c.id);
-  const sevByCampaign: Record<string, string> = {};
-  const actionCountByCampaign: Record<string, number> = {};
-  if (ids.length > 0) {
-    const [{ data: alerts }, { data: actionRows }] = await Promise.all([
-      supabase.from("policy_alerts")
-        .select("campaign_id, severity")
-        .in("campaign_id", ids)
-        .eq("moderation_status", "approved"),
-      supabase.from("campaign_actions").select("campaign_id").in("campaign_id", ids),
-    ]);
-    for (const a of alerts ?? []) {
-      sevByCampaign[(a as { campaign_id: string }).campaign_id] = (a as { severity: string }).severity;
-    }
-    for (const r of actionRows ?? []) {
-      actionCountByCampaign[r.campaign_id] = (actionCountByCampaign[r.campaign_id] ?? 0) + 1;
-    }
-  }
-
-  // Stories (B's social proof). Hide if none approved. (Started above so it
-  // ran concurrently with the campaign chain.)
-  const { data: stories } = await storiesPromise;
-
-  const activeCount = campaigns?.length ?? 0;
-
-  // Coverage numbers for the mission stat strip — started above so they ran
-  // in parallel with the campaign data instead of serially after it.
-  const [
-    { count: bannedStateCount },
-    { count: activeBillCount },
-    { count: imminentBanCount },
-    { count: localBanCount },
-  ] = await coverageCountsPromise;
+  const activeCount = campaigns.length;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
