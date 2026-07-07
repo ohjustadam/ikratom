@@ -19,6 +19,7 @@ const STARTERS = [
   "Show me what's pending review, then help me clear it.",
   "Look up SB 891 in OK — is its status right?",
   "Run a full health audit: crons, errors, queues.",
+  "How do campaign sends work? Which file handles it?",
   "Catch up the news + daily sync.",
 ];
 
