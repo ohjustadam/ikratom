@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { STANCE_TOPICS, type StanceTopic } from "@/lib/legislator-action-plan";
 
 /**
@@ -38,38 +39,50 @@ export type UnifiedBill = {
   otherTopics: string[];
 };
 
-async function getBillsWithTopics(): Promise<TopicBill[]> {
-  const sb = await createClient();
-  const { data } = await sb
-    .from("bills")
-    .select("id, state, bill_number, title, status, last_action_at, kratom_relevance, legiscan_bill_id, bill_topics")
-    .not("bill_topics", "is", null)
-    .order("last_action_at", { ascending: false, nullsFirst: false })
-    .limit(1000);
-  return (data ?? []) as TopicBill[];
-}
+// Cookieless service-role reads inside unstable_cache (the /status pattern):
+// every table here (bills, topic_bills) is public-read, and topic data changes
+// on cron cadence — so all /topics pages become cache hits instead of live
+// per-visit query fans (getTopicCounts alone ran 1 + 6 count queries).
+const getBillsWithTopics = unstable_cache(
+  async (): Promise<TopicBill[]> => {
+    const sb = createServiceRoleClient();
+    const { data } = await sb
+      .from("bills")
+      .select("id, state, bill_number, title, status, last_action_at, kratom_relevance, legiscan_bill_id, bill_topics")
+      .not("bill_topics", "is", null)
+      .order("last_action_at", { ascending: false, nullsFirst: false })
+      .limit(1000);
+    return (data ?? []) as TopicBill[];
+  },
+  ["topic-bills-tracked"],
+  { revalidate: 900 },
+);
 
 /** Per-topic bill counts (tracked + discovered, kratom has no discovered). */
-export async function getTopicCounts(): Promise<Record<string, number>> {
-  const sb = await createClient();
-  const tracked = await getBillsWithTopics();
-  const counts: Record<string, number> = {};
-  for (const t of STANCE_TOPICS) counts[t] = 0;
-  for (const b of tracked) {
-    for (const t of Object.keys(b.bill_topics ?? {})) if (t in counts) counts[t]++;
-  }
-  await Promise.all(
-    STANCE_TOPICS.filter((t) => t !== "kratom").map(async (t) => {
-      const { count } = await sb.from("topic_bills").select("legiscan_bill_id", { count: "exact", head: true }).eq("topic", t);
-      counts[t] += count ?? 0; // small overlap with cross-topic tracked bills; deduped on the per-topic page
-    })
-  );
-  return counts;
-}
+export const getTopicCounts = unstable_cache(
+  async (): Promise<Record<string, number>> => {
+    const sb = createServiceRoleClient();
+    const tracked = await getBillsWithTopics();
+    const counts: Record<string, number> = {};
+    for (const t of STANCE_TOPICS) counts[t] = 0;
+    for (const b of tracked) {
+      for (const t of Object.keys(b.bill_topics ?? {})) if (t in counts) counts[t]++;
+    }
+    await Promise.all(
+      STANCE_TOPICS.filter((t) => t !== "kratom").map(async (t) => {
+        const { count } = await sb.from("topic_bills").select("legiscan_bill_id", { count: "exact", head: true }).eq("topic", t);
+        counts[t] += count ?? 0; // small overlap with cross-topic tracked bills; deduped on the per-topic page
+      })
+    );
+    return counts;
+  },
+  ["topic-counts"],
+  { revalidate: 900 },
+);
 
 /** Merged, deduped bills for one topic (tracked first, then non-dup discovered). */
 export async function getBillsForTopic(topic: StanceTopic): Promise<UnifiedBill[]> {
-  const sb = await createClient();
+  const sb = createServiceRoleClient();
   const tracked = (await getBillsWithTopics()).filter((b) => b.bill_topics && topic in b.bill_topics);
   const trackedIds = new Set<number>();
   const rows: UnifiedBill[] = tracked.map((b) => {
