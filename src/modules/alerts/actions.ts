@@ -258,11 +258,19 @@ export async function approveIntelTip(input: {
     update.body = input.editedBody.trim().slice(0, 4_000);
   }
 
-  const { error } = await supabase
+  // Idempotency + race guard (mirrors the campaign review path): only flip a
+  // row still pending. affected=0 means another admin/auto-pass already handled
+  // it — return a clear error instead of silently re-publishing an already-
+  // decided alert (a blind re-approve of a REJECTED alert would republish it to
+  // /pulse and can auto-spawn a campaign via the moderation_status trigger).
+  const { data: affected, error } = await supabase
     .from("policy_alerts")
     .update(update)
-    .eq("id", input.alertId);
+    .eq("id", input.alertId)
+    .eq("moderation_status", "pending")
+    .select("id");
   if (error) return { error: error.message };
+  if (!affected?.length) return { error: "This alert isn't pending review — it was already approved or rejected." };
 
   await recordAdminAction({
     action: "intel_tip_approved",
@@ -285,7 +293,9 @@ export async function rejectIntelTip(input: { alertId: string; note: string }) {
   if (!ctx.ok) return { error: "Admin only." };
   const supabase = await createClient();
 
-  const { error } = await supabase
+  // Same pending-only guard as approve: don't re-reject / churn an alert that
+  // another admin or the auto-resolver already decided.
+  const { data: affected, error } = await supabase
     .from("policy_alerts")
     .update({
       moderation_status: "rejected",
@@ -293,8 +303,11 @@ export async function rejectIntelTip(input: { alertId: string; note: string }) {
       moderated_by: ctx.userId,
       moderated_at: new Date().toISOString(),
     })
-    .eq("id", input.alertId);
+    .eq("id", input.alertId)
+    .eq("moderation_status", "pending")
+    .select("id");
   if (error) return { error: error.message };
+  if (!affected?.length) return { error: "This alert isn't pending review — it was already approved or rejected." };
 
   await recordAdminAction({
     action: "intel_tip_rejected",
