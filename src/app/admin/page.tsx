@@ -140,15 +140,21 @@ export default async function AdminPage() {
           Signed in as <span className="font-mono text-zinc-200">{ctx.email}</span>
         </p>
         {adminOnly && (
-          <p className="mt-3">
+          <p className="mt-3 flex flex-wrap items-center gap-2">
             <a
               href="/admin/ops"
               className="inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
             >
               ◉ Open daily operator cockpit
             </a>
-            <span className="ml-2 text-[11px] text-zinc-500">
-              One-screen morning view: cron / abuse / moderation / activity.
+            <a
+              href="/admin/checklist"
+              className="inline-flex items-center gap-2 rounded-md border border-emerald-700/60 px-4 py-2 text-sm font-semibold text-emerald-300 hover:border-emerald-500"
+            >
+              ✅ Daily checklist + manual
+            </a>
+            <span className="text-[11px] text-zinc-500">
+              Cockpit = one glance · Checklist = the guided routine + tool manual.
             </span>
           </p>
         )}
