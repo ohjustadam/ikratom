@@ -135,19 +135,18 @@ const READ_TOOLS: Record<
     describe: "Full automation health: every cron source's latest run status + age (the 'is blood flowing' view).",
     argsHint: `{}`,
     run: async () => {
+      // scraper_runs_latest (DISTINCT ON per source) instead of a raw
+      // 1500-row window — the window could hide a LOW-frequency source's
+      // latest run behind hourly noise and misreport a healthy weekly
+      // cron as failed/stale (2026-07-05 audit follow-up).
       const sb = createServiceRoleClient();
       const { data, error } = await sb
-        .from("scraper_runs")
-        .select("source,status,started_at")
-        .order("started_at", { ascending: false })
-        .limit(1500);
+        .from("scraper_runs_latest")
+        .select("source,status,started_at");
       if (error) return `Lookup failed: ${error.message}`;
-      const latest: Record<string, { status: string; ageH: number }> = {};
       const now = Date.now();
-      for (const r of (data ?? []) as { source: string; status: string; started_at: string }[]) {
-        if (!latest[r.source]) latest[r.source] = { status: r.status, ageH: (now - new Date(r.started_at).getTime()) / 3_600_000 };
-      }
-      const entries = Object.entries(latest);
+      const entries = ((data ?? []) as { source: string; status: string; started_at: string }[])
+        .map((r) => [r.source, { status: r.status, ageH: (now - new Date(r.started_at).getTime()) / 3_600_000 }] as const);
       const bad = entries.filter(([, v]) => v.status === "error" || v.ageH > 48);
       const lines = bad.map(([s, v]) => `${s}: ${v.status}, ${v.ageH.toFixed(0)}h ago`);
       return `${entries.length} sources tracked. ${bad.length ? `Needs attention:\n${lines.join("\n")}` : "All healthy (<48h, no errors)."}`.slice(0, READ_RESULT_CAP);
@@ -340,7 +339,9 @@ async function getOpsSnapshot(): Promise<string> {
   const [pendCampaigns, pendAlerts, runs] = await Promise.all([
     sb.from("campaigns").select("id", { count: "exact", head: true }).eq("review_state", "pending_review").eq("active", false),
     sb.from("policy_alerts").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
-    sb.from("scraper_runs").select("source, status, started_at").order("started_at", { ascending: false }).limit(1500),
+    // Per-source latest via the scraper_runs_latest view (not a raw row
+    // window, which could hide low-frequency sources behind hourly noise).
+    sb.from("scraper_runs_latest").select("source, status, started_at"),
   ]);
   const latest: Record<string, { status: string; ageH: number }> = {};
   for (const r of (runs.data ?? []) as { source: string; status: string; started_at: string }[]) {

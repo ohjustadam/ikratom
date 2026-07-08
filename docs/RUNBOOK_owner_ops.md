@@ -13,6 +13,7 @@ Everything below lives under **`/admin`** (sign in as owner/admin first).
 
 | Surface | What it's for |
 |---|---|
+| **✅ `/admin/checklist` — Daily checklist + manual** | **Start here.** The guided 5-minute morning routine — each step shows its LIVE status (cron flow, failed runs, brief delivery, every review queue, abuse, emergency flags), the tool to open, and what to do when it's red. The full operator manual (every tool: what it does + when to use it) lives on the same page. This runbook is the out-of-site copy. |
 | **🧭 `/admin/ai-editor` — AI Editor-in-Chief** | Your daily driver. A free in-house AI you chat with. It reads live site status, **looks things up itself** (bills, campaigns, officials, review queues, cron health, recent errors), diagnoses problems, and **proposes actions you confirm with one click** — run a sync, approve/reject a pending campaign or alert, auto-resolve a whole queue, fix a wrong field. Nothing runs without your click; everything is audit-logged. |
 | **🛡 `/admin/moderation`** | The unified review hub. One-click **Auto-resolve** clears the campaign + intel queues (dedup → supersede, junk → reject, verified-real → approve). A nightly cron does the same with zero clicks. |
 | **🛠 `/admin/master-edit`** | Spreadsheet-style editor over bills, campaigns, officials, alerts, and states. Search → edit whitelisted fields inline → review the exact before→after diff → apply (audited). Use it for anything the AI editor proposes that you'd rather do by hand, or for batch fixes. |

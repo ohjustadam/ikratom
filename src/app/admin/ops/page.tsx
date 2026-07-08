@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "@/modules/admin/actions";
 import { siteConfig } from "@/config/site.config";
+import { summarizeCronHealth } from "@/lib/cron-expectations";
 
 export const metadata = { title: "Operator cockpit" };
 export const dynamic = "force-dynamic";
@@ -105,26 +106,11 @@ export default async function OpsCockpitPage() {
   type LatestRow = { source: string; finished_at: string | null; status: string };
   const scraperLatest = (scraperLatestRes.data ?? []) as LatestRow[];
 
-  // Map each source to its expected interval. Same data the
-  // /admin/automation page uses — keep it in sync if you add sources there.
-  const EXPECTED: Record<string, number> = {
-    sync_news_rss: 4, classify_news_policy: 4, push_critical_alerts: 4,
-    push_state_news: 4, scrape_protectkratom_org: 4, correlate_news_to_bills: 4,
-    sync_bill_sponsors: 36, detect_bill_clusters: 36, draft_legislator_stance: 36,
-    sync_legislator_donors: 36, sync_lda_kratom: 36, scrape_bop_findings: 36,
-    sync_research_pubmed: 36, generate_state_briefing: 36, fire_meeting_reminders: 36,
-    sync_nonprofit_990s: 216, broadcast_whats_new: 216,
-  };
-  let silentCount = 0;
-  let staleCount = 0;
-  for (const r of scraperLatest) {
-    const expected = EXPECTED[r.source];
-    if (!expected) continue;
-    if (!r.finished_at) continue;
-    const ageH = (now - new Date(r.finished_at).getTime()) / 3600_000;
-    if (ageH > expected * 3) silentCount += 1;
-    else if (ageH > expected * 1.5) staleCount += 1;
-  }
+  // Expected intervals live in src/lib/cron-expectations.ts — one shared
+  // copy for this cockpit + /admin/checklist (was an inline dup here).
+  const cronHealth = summarizeCronHealth(scraperLatest, now);
+  const silentCount = cronHealth.silent.length;
+  const staleCount = cronHealth.stale.length;
 
   // ── Read-only mode
   type SiteConfig = {
@@ -191,6 +177,8 @@ export default async function OpsCockpitPage() {
           Your in-site command center — diagnose, moderate, and fix from here, no coding session needed.
         </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <ActionLink href="/admin/checklist" emoji="✅" label="Daily checklist + manual"
+            sub="The guided 5-minute morning routine with live statuses, plus the manual for every tool." />
           {siteConfig.features.adminAiChief && (
             <ActionLink href="/admin/ai-editor" emoji="🧭" label="AI Editor-in-Chief"
               sub="Ask it what's wrong; it looks things up and proposes fixes you confirm." />
