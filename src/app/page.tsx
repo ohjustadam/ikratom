@@ -179,32 +179,27 @@ export default async function HomePage() {
           mission, follow with the live signal, end with the call to act. */}
       <section className="border-b border-zinc-800 pb-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          ◉ Nonpartisan kratom advocacy · live policy feed
+          ◉ {t.hero.eyebrow}
         </p>
         <h1 className="mt-3 text-4xl font-bold leading-tight sm:text-5xl">
-          Kratom policy moves fast.<br/>
-          <span className="text-emerald-400">We move faster — together.</span>
+          {t.hero.headlineTop}<br/>
+          <span className="text-emerald-400">{t.hero.headlineAccent}</span>
         </h1>
         <p className="mt-5 max-w-2xl text-base leading-relaxed text-zinc-300">
-          Every day, a city council, state legislature, or federal agency
-          decides something about kratom. Most advocates don&apos;t hear
-          about it until it&apos;s too late. <span className="font-semibold text-zinc-100">iKratom flips that.</span>
+          {t.hero.lead} <span className="font-semibold text-zinc-100">{t.hero.leadFlip}</span>
         </p>
         <p className="mt-3 max-w-2xl text-base leading-relaxed text-zinc-400">
-          We track every bill, hearing, and ordinance in the United States,
-          surface the ones that affect you, write the letter to your specific
-          legislators, and put a one-click send button on it. You decide what
-          to say. We make it possible to actually say it.
+          {t.hero.sub}
         </p>
 
         {/* Mission stat strip — concrete answer to 'what is at stake'.
             Each tile is a link to the page that opens up the underlying
             data, so visitors can click any number to see the rows. */}
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <MissionStat value={bannedStateCount ?? 0} label="States banning kratom" tone="red" href="/banned" />
-          <MissionStat value={imminentBanCount ?? 0} label="Imminent state bans" tone={(imminentBanCount ?? 0) > 0 ? "amber" : "neutral"} href="/takeback" />
-          <MissionStat value={localBanCount ?? 0} label="County + city bans" tone="red" href="/banned" />
-          <MissionStat value={activeBillCount ?? 0} label="Bills tracked this year" tone="emerald" href="/bills" />
+          <MissionStat value={bannedStateCount ?? 0} label={t.hero.statBannedStates} tone="red" href="/banned" />
+          <MissionStat value={imminentBanCount ?? 0} label={t.hero.statImminent} tone={(imminentBanCount ?? 0) > 0 ? "amber" : "neutral"} href="/takeback" />
+          <MissionStat value={localBanCount ?? 0} label={t.hero.statLocalBans} tone="red" href="/banned" />
+          <MissionStat value={activeBillCount ?? 0} label={t.hero.statBillsTracked} tone="emerald" href="/bills" />
         </div>
 
         {/* CTAs */}
@@ -213,25 +208,25 @@ export default async function HomePage() {
             href={isSignedIn ? "/dashboard" : "/signup"}
             className="rounded-md bg-emerald-500 px-5 py-2.5 font-semibold text-zinc-950 hover:bg-emerald-400"
           >
-            {isSignedIn ? "Go to your dashboard →" : "Join the network — 90 seconds →"}
+            {isSignedIn ? t.hero.ctaDashboard : t.hero.ctaJoin}
           </Link>
           <Link
             href="/banned"
             className="rounded-md border border-red-700/50 bg-red-950/15 px-5 py-2.5 font-semibold text-red-300 hover:border-red-400"
           >
-            🚫 See where it&apos;s banned
+            🚫 {t.hero.ctaBanned}
           </Link>
           <Link
             href="/takeback"
             className="rounded-md border border-amber-700/50 bg-amber-950/15 px-5 py-2.5 font-semibold text-amber-200 hover:border-amber-400"
           >
-            🎯 Takeback plan
+            🎯 {t.hero.ctaTakeback}
           </Link>
           <Link
             href="/pulse"
             className="rounded-md border border-zinc-700 px-5 py-2.5 font-semibold hover:border-emerald-500 hover:text-emerald-400"
           >
-            🚨 Live pulse
+            🚨 {t.hero.ctaPulse}
           </Link>
         </div>
       </section>

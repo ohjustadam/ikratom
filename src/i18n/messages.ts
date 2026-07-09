@@ -29,12 +29,24 @@ export const LOCALE_LABEL: Record<Locale, string> = {
 };
 
 type Messages = {
+  // Keys mirror the CURRENT home hero (rewritten 2026-05; keys reconciled
+  // 2026-07-07 — the old "Strap in / 100 emails" copy was stale + unwired).
   hero: {
     eyebrow: string;
-    headline: string;
+    headlineTop: string;
+    headlineAccent: string;
+    lead: string;
+    leadFlip: string;
     sub: string;
+    statBannedStates: string;
+    statImminent: string;
+    statLocalBans: string;
+    statBillsTracked: string;
+    ctaDashboard: string;
     ctaJoin: string;
-    ctaBrowse: string;
+    ctaBanned: string;
+    ctaTakeback: string;
+    ctaPulse: string;
   };
   nav: {
     campaigns: string;
@@ -59,11 +71,21 @@ type Messages = {
 const messages: Record<Locale, Messages> = {
   en: {
     hero: {
-      eyebrow: "The advocate's toolbelt",
-      headline: "Strap in. Send 100 emails across 50 states in one click.",
-      sub: "Pre-written letters to your specific legislators. AI-tracked bills. Coalition waves. Built for kratom advocates and farmers who want this plant to stay legal — globally.",
-      ctaJoin: "Join the war room",
-      ctaBrowse: "Browse active campaigns",
+      eyebrow: "Nonpartisan kratom advocacy · live policy feed",
+      headlineTop: "Kratom policy moves fast.",
+      headlineAccent: "We move faster — together.",
+      lead: "Every day, a city council, state legislature, or federal agency decides something about kratom. Most advocates don't hear about it until it's too late.",
+      leadFlip: "iKratom flips that.",
+      sub: "We track every bill, hearing, and ordinance in the United States, surface the ones that affect you, write the letter to your specific legislators, and put a one-click send button on it. You decide what to say. We make it possible to actually say it.",
+      statBannedStates: "States banning kratom",
+      statImminent: "Imminent state bans",
+      statLocalBans: "County + city bans",
+      statBillsTracked: "Bills tracked this year",
+      ctaDashboard: "Go to your dashboard →",
+      ctaJoin: "Join the network — 90 seconds →",
+      ctaBanned: "See where it's banned",
+      ctaTakeback: "Takeback plan",
+      ctaPulse: "Live pulse",
     },
     nav: {
       campaigns: "Campaigns",
@@ -89,11 +111,21 @@ const messages: Record<Locale, Messages> = {
 
   id: {
     hero: {
-      eyebrow: "Perangkat advokat",
-      headline: "Bersiaplah. Kirim 100 email ke 50 negara bagian AS dengan satu klik.",
-      sub: "Surat siap-tulis ke legislator spesifik Anda. Pelacakan RUU dengan AI. Gelombang koalisi. Dibuat untuk advokat dan petani kratom yang ingin tanaman ini tetap legal — secara global.",
-      ctaJoin: "Bergabung dengan ruang perang",
-      ctaBrowse: "Lihat kampanye aktif",
+      eyebrow: "Advokasi kratom nonpartisan · umpan kebijakan langsung",
+      headlineTop: "Kebijakan kratom bergerak cepat.",
+      headlineAccent: "Kita bergerak lebih cepat — bersama.",
+      lead: "Setiap hari, dewan kota, legislatif negara bagian, atau lembaga federal AS memutuskan sesuatu tentang kratom. Kebanyakan advokat baru mengetahuinya setelah terlambat.",
+      leadFlip: "iKratom membalikkan itu.",
+      sub: "Kami melacak setiap RUU, dengar pendapat, dan peraturan daerah di Amerika Serikat, menampilkan yang berdampak pada Anda, menulis suratnya untuk legislator Anda, dan menyediakan tombol kirim satu klik. Anda yang menentukan isi pesan. Kami yang membuatnya mungkin.",
+      statBannedStates: "Negara bagian yang melarang kratom",
+      statImminent: "Larangan negara bagian segera berlaku",
+      statLocalBans: "Larangan kabupaten + kota",
+      statBillsTracked: "RUU terpantau tahun ini",
+      ctaDashboard: "Buka dasbor Anda →",
+      ctaJoin: "Gabung jaringan — 90 detik →",
+      ctaBanned: "Lihat di mana kratom dilarang",
+      ctaTakeback: "Rencana merebut kembali",
+      ctaPulse: "Denyut langsung",
     },
     nav: {
       campaigns: "Kampanye",
@@ -119,11 +151,21 @@ const messages: Record<Locale, Messages> = {
 
   th: {
     hero: {
-      eyebrow: "เครื่องมือสำหรับนักเคลื่อนไหว",
-      headline: "เตรียมตัวให้พร้อม ส่งอีเมล 100 ฉบับไปยัง 50 รัฐในคลิกเดียว",
-      sub: "จดหมายสำเร็จรูปถึงผู้แทนของคุณ ติดตามร่างกฎหมายด้วย AI คลื่นการเคลื่อนไหวร่วม สร้างขึ้นเพื่อนักเคลื่อนไหวและเกษตรกรกระท่อมที่ต้องการให้พืชชนิดนี้ถูกกฎหมาย — ทั่วโลก",
-      ctaJoin: "เข้าร่วมห้องวอร์รูม",
-      ctaBrowse: "ดูแคมเปญที่กำลังดำเนินอยู่",
+      eyebrow: "การผลักดันนโยบายกระท่อมแบบไม่ฝักใฝ่ฝ่ายใด · ฟีดนโยบายสด",
+      headlineTop: "นโยบายกระท่อมเปลี่ยนเร็ว",
+      headlineAccent: "เราเร็วกว่า — เมื่อร่วมมือกัน",
+      lead: "ทุกวัน สภาเมือง สภานิติบัญญัติของรัฐ หรือหน่วยงานรัฐบาลกลางสหรัฐฯ ตัดสินใจบางอย่างเกี่ยวกับกระท่อม นักเคลื่อนไหวส่วนใหญ่รู้เมื่อสายเกินไป",
+      leadFlip: "iKratom เปลี่ยนสิ่งนั้น",
+      sub: "เราติดตามร่างกฎหมาย การประชุมรับฟังความคิดเห็น และข้อบัญญัติทุกฉบับในสหรัฐฯ คัดกรองเรื่องที่กระทบคุณ ร่างจดหมายถึงผู้แทนของคุณ พร้อมปุ่มส่งคลิกเดียว คุณตัดสินใจว่าจะพูดอะไร เราทำให้พูดได้จริง",
+      statBannedStates: "รัฐที่แบนกระท่อม",
+      statImminent: "รัฐที่ใกล้จะแบน",
+      statLocalBans: "การแบนระดับเทศมณฑล + เมือง",
+      statBillsTracked: "ร่างกฎหมายที่ติดตามปีนี้",
+      ctaDashboard: "ไปที่แดชบอร์ดของคุณ →",
+      ctaJoin: "เข้าร่วมเครือข่าย — 90 วินาที →",
+      ctaBanned: "ดูว่าที่ไหนแบน",
+      ctaTakeback: "แผนทวงคืน",
+      ctaPulse: "ชีพจรสด",
     },
     nav: {
       campaigns: "แคมเปญ",
@@ -149,11 +191,21 @@ const messages: Record<Locale, Messages> = {
 
   ms: {
     hero: {
-      eyebrow: "Alat pendukung",
-      headline: "Bersedia. Hantar 100 e-mel merentasi 50 negeri AS dengan satu klik.",
-      sub: "Surat siap tulis kepada penggubal undang-undang khusus anda. Pengesanan rang undang-undang dengan AI. Gelombang gabungan. Dibina untuk penyokong dan petani kratom yang mahu tumbuhan ini kekal sah — secara global.",
-      ctaJoin: "Sertai bilik perang",
-      ctaBrowse: "Lihat kempen aktif",
+      eyebrow: "Advokasi kratom tanpa memihak · suapan dasar langsung",
+      headlineTop: "Dasar kratom bergerak pantas.",
+      headlineAccent: "Kita bergerak lebih pantas — bersama.",
+      lead: "Setiap hari, majlis bandar, badan perundangan negeri, atau agensi persekutuan AS memutuskan sesuatu tentang kratom. Kebanyakan penyokong hanya tahu apabila sudah terlambat.",
+      leadFlip: "iKratom mengubah keadaan itu.",
+      sub: "Kami menjejaki setiap rang undang-undang, pendengaran awam, dan undang-undang kecil di Amerika Syarikat, menonjolkan yang memberi kesan kepada anda, menulis surat kepada penggubal undang-undang anda, dan menyediakan butang hantar satu klik. Anda tentukan apa yang mahu dikatakan. Kami menjadikannya mungkin.",
+      statBannedStates: "Negeri yang mengharamkan kratom",
+      statImminent: "Pengharaman negeri hampir berkuat kuasa",
+      statLocalBans: "Pengharaman daerah + bandar",
+      statBillsTracked: "Rang undang-undang dijejaki tahun ini",
+      ctaDashboard: "Pergi ke papan pemuka anda →",
+      ctaJoin: "Sertai rangkaian — 90 saat →",
+      ctaBanned: "Lihat di mana ia diharamkan",
+      ctaTakeback: "Pelan rampasan semula",
+      ctaPulse: "Nadi langsung",
     },
     nav: {
       campaigns: "Kempen",
@@ -179,11 +231,21 @@ const messages: Record<Locale, Messages> = {
 
   vi: {
     hero: {
-      eyebrow: "Công cụ của người vận động",
-      headline: "Sẵn sàng. Gửi 100 email tới 50 tiểu bang Hoa Kỳ chỉ với một cú nhấp.",
-      sub: "Thư mẫu sẵn sàng gửi đến các nhà lập pháp cụ thể của bạn. Theo dõi dự luật bằng AI. Làn sóng liên minh. Xây dựng cho những người vận động và nông dân kratom muốn cây này được hợp pháp — trên toàn cầu.",
-      ctaJoin: "Tham gia phòng chiến lược",
-      ctaBrowse: "Xem các chiến dịch đang hoạt động",
+      eyebrow: "Vận động chính sách kratom phi đảng phái · nguồn tin chính sách trực tiếp",
+      headlineTop: "Chính sách kratom thay đổi nhanh.",
+      headlineAccent: "Chúng ta nhanh hơn — khi cùng nhau.",
+      lead: "Mỗi ngày, một hội đồng thành phố, cơ quan lập pháp tiểu bang hoặc cơ quan liên bang Hoa Kỳ lại quyết định điều gì đó về kratom. Phần lớn người vận động chỉ biết khi đã quá muộn.",
+      leadFlip: "iKratom thay đổi điều đó.",
+      sub: "Chúng tôi theo dõi mọi dự luật, phiên điều trần và sắc lệnh tại Hoa Kỳ, làm nổi bật những gì ảnh hưởng đến bạn, soạn sẵn thư gửi các nhà lập pháp của bạn, kèm nút gửi một cú nhấp. Bạn quyết định nội dung. Chúng tôi giúp bạn nói được điều đó.",
+      statBannedStates: "Tiểu bang cấm kratom",
+      statImminent: "Lệnh cấm tiểu bang sắp hiệu lực",
+      statLocalBans: "Lệnh cấm quận + thành phố",
+      statBillsTracked: "Dự luật theo dõi năm nay",
+      ctaDashboard: "Đến bảng điều khiển của bạn →",
+      ctaJoin: "Tham gia mạng lưới — 90 giây →",
+      ctaBanned: "Xem nơi bị cấm",
+      ctaTakeback: "Kế hoạch giành lại",
+      ctaPulse: "Nhịp đập trực tiếp",
     },
     nav: {
       campaigns: "Chiến dịch",
