@@ -6,24 +6,35 @@
 -- "power-user checkmark" is deliberately NOT awarded here — it is course-gated
 -- (P3) so it can't be farmed with points, per the owner's anti-cheese intent.
 --
--- Forge-proof design: points are awarded by a TRIGGER on campaign_actions, not
--- by any client-callable function. A user therefore cannot mint points by
--- calling an RPC with fabricated refs — points accrue ONLY when a real
--- campaign_actions row is written (the same rows that already back the email/
--- call scoreboard, i.e. the platform's existing trust boundary for stats).
---
--- Farm-proof: points/kind are fixed in the trigger; awards are idempotent on
--- UNIQUE(user_id, kind, ref_id) NULLS NOT DISTINCT + ON CONFLICT DO NOTHING.
+-- Points are awarded by a TRIGGER on campaign_actions (not a client-callable
+-- award RPC — so no minting via an RPC with fabricated refs). Points/kind are
+-- fixed in the trigger and awards are idempotent on
+-- UNIQUE(user_id, kind, ref_id) NULLS NOT DISTINCT + ON CONFLICT DO NOTHING:
 -- ref = the campaign id (first email/call on a campaign scores; re-sends and
 -- the per-legislator fan-out rows don't) or, for direct compose sends, the
--- contacted official id. A row with no stable ref (e.g. an ad-hoc stakeholder,
--- legislator_id null) scores nothing.
+-- contacted official id. A ref-less send (ad-hoc stakeholder, legislator_id
+-- null) scores nothing. So a user's LIFETIME points are capped at roughly
+-- one-email + one-call per real campaign + one per contacted official.
+--
+-- HONEST TRUST NOTE (audit 2026-07-10): campaign_actions permits authenticated
+-- self-inserts (actions_self_insert, 0001) — the same rows behind the cosmetic
+-- email/call scoreboard — so a determined user CAN pad rows via direct
+-- PostgREST up to that idempotency ceiling. That's acceptable for P1 because
+-- points here are a COSMETIC personal scoreboard; the meaningful reward (the
+-- public power-user checkmark) is COURSE-gated (P3), NOT points-based, so
+-- padding grants no real privilege. The BEFORE-INSERT guard below re-arms the
+-- 0218 daily cap (which keys off sent_at) against backdating, bounding the pad
+-- rate. **Prerequisite before points ever gate a leaderboard or reward:** route
+-- campaign_actions writes through SECURITY DEFINER RPCs that re-validate scope
+-- server-side (tracked in private/ACHIEVEMENTS_AND_ACADEMY_PLAN.md).
 --
 -- profiles.points_total is a denormalized cache bumped in the same statement.
 --
 -- Rollback:
 --   drop trigger if exists trg_award_points on public.campaign_actions;
 --   drop function if exists public.award_points_from_action();
+--   drop trigger if exists trg_stamp_sent_at on public.campaign_actions;
+--   drop function if exists public.stamp_campaign_action_sent_at();
 --   drop table if exists public.achievement_points;
 --   alter table public.profiles drop column if exists points_total;
 
@@ -53,6 +64,27 @@ create policy achievement_points_self_read
   for select
   using (auth.uid() = user_id);
 -- No self insert/update/delete: the ledger is written ONLY by the trigger below.
+
+-- Server-stamp sent_at on every insert. Closes the 0218 backdating gap: the
+-- 300/day cap windows on sent_at, so a client-supplied past timestamp used to
+-- slip the cap. Forcing now() re-arms it (and bounds points padding). Safe —
+-- no legit inserter sets sent_at to anything but now() (server actions omit it
+-- → default now(); waves/fire.ts sets now()). Fires before award below; order
+-- is irrelevant since the cap counts PRIOR rows' (now-stamped) sent_at.
+create or replace function public.stamp_campaign_action_sent_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.sent_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_stamp_sent_at on public.campaign_actions;
+create trigger trg_stamp_sent_at
+  before insert on public.campaign_actions
+  for each row execute function public.stamp_campaign_action_sent_at();
 
 -- Award points for a real advocacy action as its campaign_actions row lands.
 create or replace function public.award_points_from_action()
