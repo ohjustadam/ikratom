@@ -155,7 +155,10 @@ export function UserRolesRow({
   return (
     <tr>
       <td className="p-3">
-        <div className="font-medium">{user.full_name || <span className="text-zinc-500">—</span>}</div>
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{user.full_name || <span className="text-zinc-500">—</span>}</span>
+          <RoleBadge isOwner={isOwner} isAdmin={isAdmin} isLeader={isLeader} />
+        </div>
         <div className="text-xs text-zinc-500">{user.email}</div>
       </td>
       <td className="p-3 text-xs text-zinc-400">
@@ -325,6 +328,22 @@ function TempPasswordModal({
         </p>
       </div>
     </div>
+  );
+}
+
+/** At-a-glance tier pill — highest role wins, matching the filter tabs. */
+function RoleBadge({ isOwner, isAdmin, isLeader }: { isOwner: boolean; isAdmin: boolean; isLeader: boolean }) {
+  const tier = isOwner
+    ? { label: "Owner", cls: "border-amber-600/50 bg-amber-950/30 text-amber-300" }
+    : isAdmin
+      ? { label: "Admin", cls: "border-emerald-600/50 bg-emerald-950/30 text-emerald-300" }
+      : isLeader
+        ? { label: "Leader", cls: "border-sky-600/50 bg-sky-950/30 text-sky-300" }
+        : { label: "Member", cls: "border-zinc-700 bg-zinc-900 text-zinc-400" };
+  return (
+    <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${tier.cls}`}>
+      {tier.label}
+    </span>
   );
 }
 

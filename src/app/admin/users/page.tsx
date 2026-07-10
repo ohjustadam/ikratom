@@ -38,15 +38,19 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
 
 export const metadata = { title: "Admin · Users" };
 
+type RoleFilter = "all" | "owner" | "admin" | "leader" | "member";
+
 export default async function AdminUsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; role?: string }>;
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) redirect("/dashboard");
 
-  const { q } = await searchParams;
+  const { q, role: roleParam } = await searchParams;
+  const validRoles: string[] = ["owner", "admin", "leader", "member"];
+  const role: RoleFilter = validRoles.includes(roleParam ?? "") ? (roleParam as RoleFilter) : "all";
   const supabase = await createClient();
 
   let query = supabase
@@ -60,7 +64,27 @@ export default async function AdminUsersPage({
     query = query.or(`email.ilike.%${term}%,full_name.ilike.%${term}%,city.ilike.%${term}%`);
   }
 
+  // Filter by mutually-exclusive role tier (matches the headcount tiles).
+  if (role === "owner") query = query.eq("is_owner", true);
+  else if (role === "admin") query = query.eq("is_admin", true).eq("is_owner", false);
+  else if (role === "leader") query = query.eq("is_advocate_leader", true).eq("is_admin", false).eq("is_owner", false);
+  else if (role === "member") query = query.eq("is_admin", false).eq("is_owner", false).eq("is_advocate_leader", false);
+
   const [{ data: users }, stats] = await Promise.all([query, getUserStats(supabase)]);
+  const roleTabs: { key: RoleFilter; label: string; count: number }[] = [
+    { key: "all", label: "All", count: stats.total },
+    { key: "owner", label: "Owner", count: stats.owners },
+    { key: "admin", label: "Admins", count: stats.admins },
+    { key: "leader", label: "Leaders", count: stats.leaders },
+    { key: "member", label: "Members", count: stats.members },
+  ];
+  const tabHref = (r: RoleFilter) => {
+    const p = new URLSearchParams();
+    if (q?.trim()) p.set("q", q.trim());
+    if (r !== "all") p.set("role", r);
+    const s = p.toString();
+    return s ? `/admin/users?${s}` : "/admin/users";
+  };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
@@ -88,6 +112,26 @@ export default async function AdminUsersPage({
         counts={{ owners: stats.owners, admins: stats.admins, leaders: stats.leaders, members: stats.members }}
       />
 
+      {/* Role filter tabs */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        {roleTabs.map((t) => {
+          const active = role === t.key;
+          return (
+            <a
+              key={t.key}
+              href={tabHref(t.key)}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                active
+                  ? "border-emerald-500 bg-emerald-950/30 font-semibold text-emerald-200"
+                  : "border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:border-emerald-600/60"
+              }`}
+            >
+              {t.label} <span className="opacity-70">({t.count})</span>
+            </a>
+          );
+        })}
+      </div>
+
       <form action="/admin/users" className="mb-4 flex gap-2">
         <input
           name="q"
@@ -95,10 +139,17 @@ export default async function AdminUsersPage({
           placeholder="Search by email, name, or city…"
           className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
         />
+        {/* Preserve the active role filter across a search submit */}
+        {role !== "all" && <input type="hidden" name="role" value={role} />}
         <button className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500">
           Search
         </button>
       </form>
+
+      <p className="mb-2 text-xs text-zinc-500">
+        {(users ?? []).length} shown{role !== "all" ? ` · ${roleTabs.find((t) => t.key === role)?.label}` : ""}
+        {(users ?? []).length === 200 ? " (capped at 200 — narrow with search)" : ""}
+      </p>
 
       <div className="overflow-hidden rounded-lg border border-zinc-800">
         <table className="w-full text-sm">
