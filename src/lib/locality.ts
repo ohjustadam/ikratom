@@ -21,6 +21,13 @@ export function normalizeLocality(input: string | null | undefined, defaultState
     statePart = (defaultState ?? "").trim();
   }
 
+  // Strip the Census "CDP" (Census Designated Place) suffix — it leaks in from
+  // the geocoder for unincorporated communities ("Poydras CDP") and never
+  // belongs in a display/match locality. Only "CDP" is stripped: place-type
+  // words like "city"/"town" are NOT, since they're part of real names
+  // (e.g. "Oklahoma City").
+  cityPart = cityPart.replace(/\s*\(?CDP\)?$/i, "").trim();
+
   // Title-case each word in the city portion. Handle prefixes like "St." and "Mc".
   const titledCity = cityPart
     .split(/\s+/)
