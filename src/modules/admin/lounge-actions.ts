@@ -221,7 +221,11 @@ export async function listMutedChatUsers() {
 export async function listBanReviewQueue() {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
-  const supabase = await createClient();
+  // Service-role: chat_ban_review_queue() is SECURITY DEFINER and returns
+  // full_name; mig 0236 revoked its EXECUTE from anon/authenticated (audit #5)
+  // so it can't be called cross-user from the browser. Admin-gated above —
+  // mirrors listMutedChatUsers, which was locked down the same way in 0233.
+  const supabase = createServiceRoleClient();
   const { data, error } = await supabase.rpc("chat_ban_review_queue");
   if (error) return { error: error.message };
   return {

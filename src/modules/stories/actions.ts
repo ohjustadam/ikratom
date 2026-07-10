@@ -56,13 +56,16 @@ export async function submitStory(input: {
     if (input.displayName && input.displayName.trim()) {
       displayName = input.displayName.trim().slice(0, 80);
     } else {
-      // Fall back to profile full_name
+      // A cleared display-name field must NOT publish the user's legal name
+      // (audit #6 — anonymity-by-default). Fall back to their public @username,
+      // never full_name. Null → renders "Member"/"An advocate".
       const { data: profile } = await supabase
         .from("profiles")
-        .select("full_name")
+        .select("username")
         .eq("id", user.id)
         .single();
-      displayName = (profile as { full_name: string | null } | null)?.full_name ?? null;
+      const uname = (profile as { username: string | null } | null)?.username ?? null;
+      displayName = uname ? `@${uname}` : null;
     }
   }
 
