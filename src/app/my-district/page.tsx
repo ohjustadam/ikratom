@@ -6,6 +6,7 @@ import { StatusHeader, type StateStatusData } from "@/app/states/[code]/StatusHe
 import { resolveBillHrefs } from "@/modules/state-status/evidence";
 import { STATE_NAMES } from "@/lib/state-names";
 import { normalizeLocality } from "@/lib/locality";
+import { LOCAL_ROLES } from "@/lib/legislators";
 import { rankActions, type RankableBill, type RankableCampaign } from "@/modules/district/rank";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { httpUrlOrNull } from "@/modules/compose/send-links";
@@ -15,8 +16,6 @@ export const metadata = {
   title: "My District — your reps + your top action · iKratom",
   description: "Your state's kratom + 7-OH status, the single highest-priority action in your area, and your local representatives — in one place.",
 };
-
-const LOCAL_ROLES = ["mayor", "city_council", "county_executive", "county_commissioner"];
 
 /**
  * /my-district — the answer-first personal action hub. For a signed-in user
@@ -65,6 +64,15 @@ export default async function MyDistrictPage() {
 
   const stateName = STATE_NAMES[state] ?? state;
   const userLocality = normalizeLocality(profile.city ?? null, state); // "City, ST" | null
+  // County/parish locality too — residents of unincorporated / CDP areas
+  // (e.g. Poydras CDP) have no municipal officials; their local reps are the
+  // county/parish council, filed under "<County>, ST". Match BOTH so those
+  // residents aren't left with an empty local-officials list. Mirrors the
+  // dashboard's getUserLegislators, which already matches on county.
+  const countyLocality = normalizeLocality(profile.county ?? null, state);
+  const localityMatches = Array.from(
+    new Set([userLocality, countyLocality].filter((l): l is string => !!l)),
+  );
   const supabase = await createClient();
   const now = Date.now();
   const horizon = new Date(now + 90 * 86_400_000).toISOString();
@@ -93,13 +101,13 @@ export default async function MyDistrictPage() {
       .lte("meeting_at", horizon)
       .order("meeting_at", { ascending: true })
       .limit(5),
-    userLocality
+    localityMatches.length > 0
       ? supabase
           .from("legislators")
           .select("id, full_name, role, title, email, phone, website")
           .eq("state", state)
-          .eq("locality", userLocality)
-          .in("role", LOCAL_ROLES)
+          .in("locality", localityMatches)
+          .in("role", [...LOCAL_ROLES])
           .eq("active", true)
           .limit(20)
       : Promise.resolve({ data: [] as LocalRep[] }),
@@ -221,7 +229,7 @@ export default async function MyDistrictPage() {
             </ul>
           ) : (
             <p className="mt-2 text-sm text-zinc-400">
-              {userLocality
+              {localityMatches.length > 0
                 ? <>We don&apos;t have your city/county officials yet. <Link href={`/states/${state}`} className="text-emerald-400 hover:underline">Request coverage on your state page →</Link></>
                 : <>Add your address to match local officials. <Link href="/account" className="text-emerald-400 hover:underline">Complete your profile →</Link></>}
             </p>
