@@ -307,6 +307,9 @@ export async function logOfficialContact(input: {
       body: input.body.slice(0, 8000),
       source,
     });
+    // Achievement points accrue via the campaign_actions insert trigger
+    // (Academy P1, mig 0236) — one award per contacted official, skipped when
+    // there's no tracked official id, so ad-hoc/stakeholder sends can't farm.
     return { ok: !error };
   } catch {
     return { ok: false };
