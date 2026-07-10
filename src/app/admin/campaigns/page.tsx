@@ -27,7 +27,7 @@ export default async function AdminCampaignsPage() {
   const recent: Record<string, number> = {};
   const since60: Record<string, number> = {};
   for (let from = 0; ; from += 1000) {
-    const { data } = await supabase.from("campaign_actions").select("campaign_id, sent_at").range(from, from + 999);
+    const { data } = await supabase.from("campaign_actions").select("campaign_id, sent_at").not("campaign_id", "is", null).range(from, from + 999);
     if (!data?.length) break;
     for (const r of data) {
       const id = r.campaign_id as string;

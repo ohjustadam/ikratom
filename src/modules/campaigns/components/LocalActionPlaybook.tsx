@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Legislator } from "@/lib/legislators";
 import { ROLE_SHORT } from "@/lib/legislators";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
 // Domains we know parking-page squat — Gemini sometimes hallucinates
 // council-member URLs that resolve to these. Treat as no-website.
@@ -332,14 +333,24 @@ export function LocalActionPlaybook({
                       <p className="mt-1 text-[11px] text-zinc-500">District/Ward: {t.district}</p>
                     )}
                     <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                      {t.email && (
-                        <a
-                          href={`mailto:${t.email}?subject=${encodeURIComponent("Re: " + campaignTitle)}`}
-                          className="rounded bg-emerald-950/40 px-2 py-1 text-emerald-300 hover:bg-emerald-950"
-                          title={t.email}
-                        >
-                          ✉ Email
-                        </a>
+                      {(t.email || websiteOk) && (
+                        <EmailOfficialButton
+                          official={{
+                            id: t.id,
+                            name: t.full_name,
+                            role: t.role,
+                            title: t.title ?? null,
+                            state: t.state,
+                            email: t.email,
+                            // Only hand the composer a website we've vetted (isUsableUrl
+                            // filters parked/squatter domains); the bare-link fallback
+                            // below still covers the unusable-website case.
+                            website: websiteOk ? t.website ?? null : null,
+                          }}
+                          context={{ kind: "local" }}
+                          source="local_playbook"
+                          variant="chip"
+                        />
                       )}
                       {t.phone && (
                         <a
@@ -347,16 +358,6 @@ export function LocalActionPlaybook({
                           className="rounded bg-amber-950/40 px-2 py-1 font-mono text-amber-300 hover:bg-amber-950"
                         >
                           📞 {t.phone}
-                        </a>
-                      )}
-                      {!t.email && !t.phone && websiteOk && (
-                        <a
-                          href={t.website!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="rounded bg-sky-950/40 px-2 py-1 text-sky-300 hover:bg-sky-950"
-                        >
-                          🌐 Open contact form →
                         </a>
                       )}
                       {!t.email && !t.phone && t.website && !websiteOk && (

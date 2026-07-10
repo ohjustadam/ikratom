@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { OperationResponseClient } from "./OperationResponseClient";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { POSTURE_STANCE } from "@/modules/compose/default-letter";
 import { matchStoriesForCluster, type MatchedStory } from "@/modules/stories/match";
 
 export const dynamic = "force-dynamic";
@@ -291,24 +293,6 @@ export default async function OperationResponsePage({
     matchedStories = await matchStoriesForCluster(c.slug, myState, 3);
   } catch { /* defensive */ }
 
-  // Compose a chair-specific mailto template — chairs face a different
-  // ask than sponsors. For restrictive ops: ask the chair to NOT
-  // schedule the bill (or to schedule + vote it down). For protective
-  // ops: ask the chair to schedule + advance.
-  function buildChairMailto(ct: ChairTarget): string {
-    const isRestrictive = c.posture === "restrictive";
-    const ask = isRestrictive
-      ? `decline to schedule ${ct.bill.state} ${ct.bill.bill_number} for a hearing, or — if it is scheduled — to allow time for full public comment from kratom consumers, shop owners, veterans, and medical professionals in your district before any vote.`
-      : `schedule ${ct.bill.state} ${ct.bill.bill_number} for a hearing as soon as possible. This bill protects consumer access to a substance many constituents rely on for chronic pain, anxiety, and opioid recovery.`;
-    const greeting = ct.title ? `${ct.title} ${ct.full_name.split(" ").slice(-1).join(" ")}` : ct.full_name;
-    const intro = viewerProfile?.full_name
-      ? `My name is ${viewerProfile.full_name}${viewerProfile.city ? `, a constituent in ${viewerProfile.city}` : ", a constituent"}.`
-      : `I am a constituent writing about a bill in your committee.`;
-    const body = `${intro}\n\nYou chair the ${ct.committee_name}, which currently holds ${ct.bill.state} ${ct.bill.bill_number}${ct.bill.title ? ` — "${ct.bill.title.slice(0, 100)}"` : ""}. As chair, you decide whether this bill moves forward.\n\nI am writing to respectfully ask you to ${ask}\n\nThank you for your time and your consideration of the people you represent.`;
-    const subject = `Re: ${ct.bill.state} ${ct.bill.bill_number} — request from a constituent`;
-    return `mailto:${ct.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(`Dear ${greeting},\n\n${body}`)}`;
-  }
-
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="text-xs">
@@ -418,12 +402,28 @@ export default async function OperationResponsePage({
                   {ct.bill.title && <> — {ct.bill.title.slice(0, 80)}{ct.bill.title.length > 80 ? "…" : ""}</>}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <a
-                    href={buildChairMailto(ct)}
+                  <EmailOfficialButton
+                    official={{
+                      id: ct.chair_id,
+                      name: ct.full_name,
+                      role: ct.role,
+                      title: ct.title,
+                      state: ct.state,
+                      email: ct.email,
+                    }}
+                    context={{
+                      kind: "bill",
+                      billId: ct.bill.id,
+                      stance: POSTURE_STANCE[c.posture] ?? "neutral",
+                      ask:
+                        c.posture === "restrictive"
+                          ? `You chair the ${ct.committee_name}, which holds this bill. As chair you decide whether it moves — please decline to schedule it for a hearing, or, if it is scheduled, allow full public comment from kratom consumers, shop owners, veterans, and medical professionals before any vote.`
+                          : `You chair the ${ct.committee_name}, which holds this bill. As chair you decide whether it moves — please schedule it for a hearing as soon as possible; many constituents rely on access to this substance.`,
+                    }}
+                    source="operation_chair"
+                    label="📨 Email chair"
                     className="rounded-md bg-amber-500 px-3 py-1 text-[11px] font-semibold text-zinc-950 hover:bg-amber-400"
-                  >
-                    📨 Email chair
-                  </a>
+                  />
                   {ct.phone && (
                     <a
                       href={`tel:${ct.phone.replace(/[^0-9+]/g, "")}`}

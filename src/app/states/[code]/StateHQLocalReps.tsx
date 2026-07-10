@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getTrustTier } from "@/modules/auth/trust-tier";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
 /**
  * "Your local reps" — the FIRST thing an advocate should see on the State HQ
@@ -66,13 +66,13 @@ export async function StateHQLocalReps({ state, stateName }: { state: string; st
   const { data: reps } = districts.length
     ? await supabase
         .from("legislators")
-        .select("id, full_name, role, district, party, email, phone, portrait_url")
+        .select("id, full_name, role, district, party, email, phone, portrait_url, website")
         .eq("state", state)
         .eq("active", true)
         .in("role", ["state_senate", "state_house", "us_senate", "us_house"])
         .or(districts.map((d) => `district.eq.${d}`).join(","))
         .limit(12)
-    : { data: [] as Array<{ id: string; full_name: string; role: string; district: string | null; party: string | null; email: string | null; phone: string | null; portrait_url: string | null }> };
+    : { data: [] as Array<{ id: string; full_name: string; role: string; district: string | null; party: string | null; email: string | null; phone: string | null; portrait_url: string | null; website: string | null }> };
 
   if (!reps || reps.length === 0) {
     return cta(
@@ -99,7 +99,12 @@ export async function StateHQLocalReps({ state, stateName }: { state: string; st
                   <span className="text-zinc-500">· {r.role.replace(/_/g, " ")}{r.district ? ` · dist ${r.district}` : ""}</span>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-2 text-xs">
-                  {r.email && <a href={`mailto:${r.email}`} className="text-emerald-400 hover:underline">✉ email</a>}
+                  <EmailOfficialButton
+                    official={{ id: r.id, name: r.full_name, role: r.role, state, email: r.email, website: r.website }}
+                    source="state_hq_reps"
+                    variant="inline"
+                    label="✉ email"
+                  />
                   {r.phone && <a href={`tel:${r.phone}`} className="text-zinc-400 hover:underline">📞 {r.phone}</a>}
                   <Link href={`/legislators/${r.id}/briefing`} className="text-zinc-400 hover:underline">📋 briefing</Link>
                 </div>

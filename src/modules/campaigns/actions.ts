@@ -74,6 +74,9 @@ async function getDailyActionCount(
     .from("campaign_actions")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
+    // CAMPAIGN cap only — direct (non-campaign) compose sends carry a null
+    // campaign_id (migration 0232) and must not consume the campaign quota.
+    .not("campaign_id", "is", null)
     .gte("sent_at", since);
   return count ?? 0;
 }

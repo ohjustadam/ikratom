@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { completeStructured } from "@/lib/ai";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * Server action: draft an opposition / support / public-comment letter
@@ -87,6 +88,10 @@ async function draftAlertResponseInner(input: {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { ok: false, error: "Sign in to draft a response." };
+
+  // Shared hourly bucket with the compose module's AI drafting — deliberate.
+  const allowed = await checkRateLimit(`ai-draft-official:user:${user.id}`, 8, 3_600);
+  if (!allowed) return { ok: false, error: "AI drafting is limited to 8 per hour. Edit your last draft, or try again later." };
 
   // Load alert + profile in parallel
   const [alertResult, profileResult] = await Promise.all([

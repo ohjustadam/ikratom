@@ -88,6 +88,9 @@ export default async function OpsCockpitPage() {
       .gte("created_at", cutoff24Iso),
     sb.from("campaign_actions")
       .select("id", { count: "exact", head: true })
+      // "Campaign sends (24h)" — exclude direct (null-campaign) compose sends
+      // so the metric matches its label (migration 0232).
+      .not("campaign_id", "is", null)
       .gte("sent_at", cutoff24Iso),
     sb.from("bill_cluster_members")
       .select("bill_clusters!inner(slug, name, posture), bills!inner(state, last_action_at, active)")

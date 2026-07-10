@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { ROLE_LABEL, ROLE_SHORT, type Legislator } from "@/lib/legislators";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { httpUrlOrNull } from "@/modules/compose/send-links";
 
 type Role = "all" | "us_senate" | "us_house" | "state_senate" | "state_house" | "local";
 type Party = "all" | "D" | "R" | "I" | "Other";
@@ -363,20 +365,30 @@ function Card({ legislator: l, mine, agg }: { legislator: Legislator; mine: bool
 
       {/* Visible contacts with copy buttons */}
       <div className="mt-3 space-y-1.5">
-        {l.email && !emailIsForm && (
-          <ContactRow icon={<MailIcon />} value={l.email} href={`mailto:${l.email}`} />
-        )}
-        {l.email && emailIsForm && (
-          <ContactRow icon={<MailIcon />} value="Contact form" href={l.email} external />
+        {(l.email || l.website) && (
+          <div className="group flex items-center gap-2 text-xs">
+            <span className="text-zinc-600"><MailIcon /></span>
+            <span className="min-w-0 flex-1 truncate">
+              <EmailOfficialButton
+                official={{ id: l.id, name: l.full_name, role: l.role, title: l.title, state: l.state, email: l.email, website: l.website }}
+                context={{ kind: "legislator" }}
+                source="legislator_browser"
+                variant="inline"
+                label={l.email && !emailIsForm ? l.email : undefined}
+                className="text-zinc-300 hover:text-emerald-300"
+              />
+            </span>
+            {l.email && !emailIsForm && <CopyButton value={l.email} />}
+          </div>
         )}
         {l.phone && (
           <ContactRow icon={<PhoneIcon />} value={l.phone} href={`tel:${l.phone}`} />
         )}
-        {l.website && (
+        {httpUrlOrNull(l.website) && (
           <ContactRow
             icon={<GlobeIcon />}
-            value={l.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
-            href={l.website}
+            value={l.website!.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+            href={httpUrlOrNull(l.website)!}
             external
           />
         )}
@@ -396,6 +408,23 @@ function ContactRow({
   href: string;
   external?: boolean;
 }) {
+  return (
+    <div className="group flex items-center gap-2 text-xs">
+      <span className="text-zinc-600">{icon}</span>
+      <a
+        href={href}
+        target={external ? "_blank" : undefined}
+        rel={external ? "noreferrer" : undefined}
+        className="min-w-0 flex-1 truncate text-zinc-300 hover:text-emerald-300"
+      >
+        {value}
+      </a>
+      <CopyButton value={value} />
+    </div>
+  );
+}
+
+function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
 
   async function copy(e: React.MouseEvent) {
@@ -411,25 +440,14 @@ function ContactRow({
   }
 
   return (
-    <div className="group flex items-center gap-2 text-xs">
-      <span className="text-zinc-600">{icon}</span>
-      <a
-        href={href}
-        target={external ? "_blank" : undefined}
-        rel={external ? "noreferrer" : undefined}
-        className="min-w-0 flex-1 truncate text-zinc-300 hover:text-emerald-300"
-      >
-        {value}
-      </a>
-      <button
-        type="button"
-        onClick={copy}
-        title="Copy"
-        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:bg-zinc-900 hover:text-zinc-300"
-      >
-        {copied ? "✓" : "Copy"}
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={copy}
+      title="Copy"
+      className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:bg-zinc-900 hover:text-zinc-300"
+    >
+      {copied ? "✓" : "Copy"}
+    </button>
   );
 }
 

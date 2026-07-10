@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { NotifyMeButton } from "./NotifyMeButton";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
 /**
  * "Local action playbook" — uniform actionable UI rendered above the
@@ -424,9 +425,6 @@ export function BillLocalActionCard({
             <ul className="space-y-2">
               {merged.map((o) => {
                 const hasContact = !!(o.email || o.phone);
-                const officialMailtoHref = o.email
-                  ? `mailto:${o.email}?subject=${encodeURIComponent(mailtoSubject)}&body=${encodeURIComponent(mailtoBody)}`
-                  : null;
                 return (
                   <li
                     key={o.id}
@@ -452,15 +450,19 @@ export function BillLocalActionCard({
                       )}
                     </span>
                     <span className="flex shrink-0 flex-wrap gap-1.5">
-                      {officialMailtoHref && (
-                        <a
-                          href={officialMailtoHref}
-                          className="inline-flex items-center gap-1 rounded-md bg-emerald-500 px-2.5 py-1 text-[11px] font-semibold text-zinc-950 hover:bg-emerald-400"
-                          title={o.email ?? ""}
-                        >
-                          ✉ Email
-                        </a>
-                      )}
+                      <EmailOfficialButton
+                        official={{
+                          id: o.id.startsWith("meta:") ? null : o.id,
+                          name: o.full_name,
+                          role: o.role,
+                          title: o.title ?? null,
+                          email: o.email ?? null,
+                          website: o.website ?? null,
+                        }}
+                        context={{ kind: "local", billId }}
+                        source="bill_local"
+                        variant="chip"
+                      />
                       {o.phone && (
                         <a
                           href={`tel:${o.phone.replace(/[^\d+]/g, "")}`}

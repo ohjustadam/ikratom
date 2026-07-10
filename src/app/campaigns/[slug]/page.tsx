@@ -579,6 +579,7 @@ export default async function CampaignPage({
       {/* Action card — the killer feature */}
       <CampaignAction
         campaignId={campaign.id}
+        billId={campaign.bill_id}
         targets={targets}
         targetIntel={targetIntel}
         targetRoles={campaign.target_roles}

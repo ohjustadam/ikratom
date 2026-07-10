@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Legislator } from "@/lib/legislators";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { ROLE_SHORT } from "@/lib/legislators";
 import { STANCE_META, type Stance } from "@/lib/legislator-action-plan";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
@@ -44,7 +45,6 @@ export function MyRepCard({
   legislator: Legislator;
   stance?: Stance | null;
 }) {
-  const emailIsForm = l.email?.startsWith("http") ?? false;
   const scope = scopeOf(l);
   const isLocal = scope === "local";
   const badge = SCOPE_BADGE[scope];
@@ -87,12 +87,12 @@ export function MyRepCard({
       </div>
 
       <div className="mt-3 space-y-1.5">
-        {l.email && !emailIsForm && (
-          <ContactLine value={l.email} href={`mailto:${l.email}`} />
-        )}
-        {l.email && emailIsForm && (
-          <ContactLine value="Use contact form" href={l.email} external />
-        )}
+        <EmailOfficialButton
+          official={{ id: l.id, name: l.full_name, role: l.role, state: l.state, email: l.email, website: l.website }}
+          source="dashboard_rep"
+          variant="inline"
+          className="text-xs text-emerald-400 hover:underline"
+        />
         {l.phone && <ContactLine value={l.phone} href={`tel:${l.phone}`} />}
       </div>
 
