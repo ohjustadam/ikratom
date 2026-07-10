@@ -126,7 +126,10 @@ export async function submitIntelTip(input: {
       occurs_at,
       action_required: !!input.action_required,
       moderation_status: isTrusted ? "approved" : "pending",
-      submitted_by_user_id: user.id,
+      // Anonymous tips must NOT carry the reporter's id — the public
+      // policy_alerts read would otherwise de-anonymize them (audit #1,
+      // mig 0235). Mirrors the sibling bill-intel path.
+      submitted_by_user_id: input.is_anonymous ? null : user.id,
       is_anonymous: !!input.is_anonymous,
     })
     .select("id")
