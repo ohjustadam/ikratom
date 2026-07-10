@@ -64,7 +64,9 @@ export async function getDistrictsForAddress(parts: {
   // Census misses ~25% of rural / unincorporated / newer addresses.
   // Nominatim (OpenStreetMap) has much wider coverage — when it returns
   // lat/lng, Census's coordinate endpoint reliably maps to districts.
-  console.warn("[civic] Census direct miss, trying Nominatim fallback for", parts);
+  // Never log the raw address (audit #8 — PII in Vercel logs). State + zip-presence
+  // is enough to debug coverage without recording a user's home street address.
+  console.warn("[civic] Census direct miss, Nominatim fallback", { state: parts.state, hasZip: !!parts.zip });
   const stage2 = await lookupViaNominatimThenCensusCoords(parts);
   if (anyDistrictPopulated(stage2)) {
     // Merge: prefer stage1 for city/county if it had them, stage2 fills

@@ -11,7 +11,7 @@ export default async function NewStoryPage() {
   const profile = user
     ? (await supabase
         .from("profiles")
-        .select("full_name, state")
+        .select("username, state")
         .eq("id", user.id)
         .single()).data
     : null;
@@ -50,7 +50,13 @@ export default async function NewStoryPage() {
       </div>
 
       <NewStoryForm
-        defaultName={(profile as { full_name: string | null } | null)?.full_name ?? ""}
+        defaultName={(() => {
+          // Anonymity-by-default (audit #6): the public byline defaults to the
+          // user's @username, NEVER their legal name. They can type a real name
+          // only by explicitly overriding this field (labeled "shown publicly").
+          const u = (profile as { username: string | null } | null)?.username;
+          return u ? `@${u}` : "";
+        })()}
         defaultState={(profile as { state: string | null } | null)?.state ?? ""}
       />
     </div>
