@@ -2,6 +2,39 @@ import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { UserRolesRow } from "./UserRolesRow";
+import { AccountTypesTable } from "./AccountTypesTable";
+
+type SB = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Mutually-exclusive role tiers (highest wins) so the numbers sum to total —
+ * owners are also is_admin, admins are often is_advocate_leader, so raw flag
+ * counts would double-count.
+ */
+async function getUserStats(sb: SB) {
+  const head = () => sb.from("profiles").select("id", { count: "exact", head: true });
+  const n = async (q: ReturnType<typeof head>) => (await q).count ?? 0;
+  const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+  const [total, owners, adminsRaw, leadersRaw, newThisWeek, locked] = await Promise.all([
+    n(head()),
+    n(head().eq("is_owner", true)),
+    n(head().eq("is_admin", true).eq("is_owner", false)),
+    n(head().eq("is_advocate_leader", true).eq("is_admin", false).eq("is_owner", false)),
+    n(head().gte("created_at", weekAgo)),
+    n(head().not("account_locked_at", "is", null)),
+  ]);
+  const members = Math.max(0, total - owners - adminsRaw - leadersRaw);
+  return { total, owners, admins: adminsRaw, leaders: leadersRaw, members, newThisWeek, locked };
+}
+
+function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+      <p className={`text-2xl font-bold ${tone ?? "text-zinc-100"}`}>{value.toLocaleString()}</p>
+      <p className="mt-0.5 text-[11px] uppercase tracking-wider text-zinc-500">{label}</p>
+    </div>
+  );
+}
 
 export const metadata = { title: "Admin · Users" };
 
@@ -27,7 +60,7 @@ export default async function AdminUsersPage({
     query = query.or(`email.ilike.%${term}%,full_name.ilike.%${term}%,city.ilike.%${term}%`);
   }
 
-  const { data: users } = await query;
+  const [{ data: users }, stats] = await Promise.all([query, getUserStats(supabase)]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
@@ -40,6 +73,20 @@ export default async function AdminUsersPage({
           Manage roles. Owners can grant ownership; admins can promote leaders + admins.
         </p>
       </header>
+
+      {/* Headcount — total + mutually-exclusive role tiers (they sum to total) */}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <Stat label="Total users" value={stats.total} tone="text-emerald-300" />
+        <Stat label="Owner" value={stats.owners} tone="text-amber-300" />
+        <Stat label="Admins" value={stats.admins} tone="text-emerald-300" />
+        <Stat label="Advocate leaders" value={stats.leaders} tone="text-sky-300" />
+        <Stat label="Members" value={stats.members} />
+        <Stat label="New this week" value={stats.newThisWeek} tone={stats.newThisWeek > 0 ? "text-emerald-300" : "text-zinc-100"} />
+      </div>
+
+      <AccountTypesTable
+        counts={{ owners: stats.owners, admins: stats.admins, leaders: stats.leaders, members: stats.members }}
+      />
 
       <form action="/admin/users" className="mb-4 flex gap-2">
         <input
