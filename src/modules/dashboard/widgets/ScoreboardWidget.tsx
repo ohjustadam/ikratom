@@ -16,7 +16,7 @@ export async function ScoreboardWidget({
 }) {
   const supabase = await createClient();
 
-  const [{ count: emailsCount }, { count: callsCount }] = await Promise.all([
+  const [{ count: emailsCount }, { count: callsCount }, { data: prof }] = await Promise.all([
     supabase
       .from("campaign_actions")
       .select("id", { count: "exact", head: true })
@@ -27,15 +27,18 @@ export async function ScoreboardWidget({
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
       .eq("method", "call"),
+    supabase.from("profiles").select("points_total").eq("id", userId).single(),
   ]);
 
   const emails = emailsCount ?? 0;
   const calls = callsCount ?? 0;
+  const points = prof?.points_total ?? 0;
 
   // Hide entirely if user has done nothing — empty scoreboards demoralize.
   if (
     emails === 0 &&
     calls === 0 &&
+    points === 0 &&
     streak.current === 0 &&
     streak.longest === 0
   ) {
@@ -48,7 +51,8 @@ export async function ScoreboardWidget({
         <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">scoreboard</p>
         <h2 className="text-sm font-bold text-zinc-100">Your record</h2>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <Stat value={points.toLocaleString()} label="Points" tone="amber" />
         <Stat value={emails.toLocaleString()} label="Emails sent" tone="emerald" />
         <Stat value={calls.toLocaleString()} label="Calls made" tone="emerald" />
         <Stat value={streak.current.toLocaleString()} label="Current streak" tone={streak.current > 0 ? "amber" : "zinc"} suffix={streak.current === 1 ? "day" : "days"} />

@@ -224,6 +224,8 @@ export async function logCampaignAction(input: {
     await releaseRateLimit(`campaign:send:user:${user.id}`, reserved.length);
     return { error: error.message };
   }
+  // Achievement points accrue automatically via the campaign_actions insert
+  // trigger (Academy P1, migration 0236) — no award call needed here.
   return { count: rows.length, skipped: scopedIds.length - rows.length };
 }
 
@@ -380,6 +382,7 @@ export async function sendCampaignViaGmail(input: {
       referred_from: referredFrom,
     }));
     await supabase.from("campaign_actions").insert(rows);
+    // Points accrue via the campaign_actions insert trigger (mig 0236).
   }
 
   // Update last_used_at
