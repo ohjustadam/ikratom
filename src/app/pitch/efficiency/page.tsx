@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MermaidLoader } from "../MermaidLoader";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const metadata = {
   title: "iKratom · AI router efficiency & free-tier stack",
@@ -116,11 +117,18 @@ export default async function EfficiencyPage() {
 
   // ai_jobs_stats() is SECURITY DEFINER + anon-callable, so these aggregates
   // come back even for a logged-out partner viewing the page.
+  //
+  // The pipeline freshness read uses the service-role client: mig 0233 made
+  // scraper_runs_latest respect the admin-only scraper_runs RLS (anon could
+  // previously read raw error_message). This page deliberately shows a
+  // CURATED public subset (PUBLIC_PIPELINES, safe columns only) — the same
+  // radical-transparency choice /status makes, via the same mechanism.
+  const telemetry = createServiceRoleClient();
   const [u30, u24, uAll, cronRuns] = await Promise.all([
     aiUsage(supabase, 720), // 30d
     aiUsage(supabase, 24),
     aiUsage(supabase, 24 * 3650), // all-time
-    supabase
+    telemetry
       .from("scraper_runs_latest")
       .select("source, started_at, status")
       .in("source", PUBLIC_PIPELINES),
