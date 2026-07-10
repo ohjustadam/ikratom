@@ -201,7 +201,10 @@ export async function clearOldLoungeMessages(hoursOld = 24, room = "lounge") {
 export async function listMutedChatUsers() {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
-  const supabase = await createClient();
+  // Service-role: mig 0233 revoked client SELECT on the chat_muted_users
+  // view (it exposes full_name, which must never be readable by non-admin
+  // roles — public-anonymity rule). This action is admin-gated above.
+  const supabase = createServiceRoleClient();
   const { data, error } = await supabase
     .from("chat_muted_users")
     .select("id, full_name, chat_muted_until")
