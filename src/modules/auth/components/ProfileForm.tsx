@@ -53,7 +53,12 @@ export function ProfileForm({ profile, email }: { profile: Profile | null; email
         title="Civic info"
         subtitle="We use this to autofill emails to your legislators. Address stays private — never shown publicly."
       >
-        <Field label="Street" name="street" defaultValue={profile?.street ?? ""} />
+        <Field
+          label="Street"
+          name="street"
+          defaultValue={profile?.street ?? ""}
+          hint="Used ONLY to find your exact districts — your street is never included in any email or shown to anyone."
+        />
         <Row>
           <Field label="City" name="city" defaultValue={profile?.city ?? ""} />
           <Select label="State" name="state" defaultValue={profile?.state ?? ""} options={STATES} />

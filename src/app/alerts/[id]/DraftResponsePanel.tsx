@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { draftAlertResponse } from "@/modules/alerts/rebuttal-actions";
+import { logOfficialContact } from "@/modules/compose/actions";
+import { buildGmailComposeUrl, buildOutlookComposeUrl } from "@/modules/compose/send-links";
 
 /**
  * Inline "draft my response" UI on /alerts/[id].
@@ -51,16 +53,29 @@ export function DraftResponsePanel({
     });
   }
 
+  // Fire-and-forget send log — mirrors the compose module convention.
+  function logSend() {
+    void logOfficialContact({
+      officialId: null,
+      source: "alert_response",
+      subject: editedSubject,
+      body: editedBody,
+    }).catch(() => {});
+  }
+
   function copyToClipboard() {
     if (typeof navigator === "undefined" || !navigator.clipboard) return;
     const text = `Subject: ${editedSubject}\n\n${editedBody}`;
     navigator.clipboard.writeText(text).catch(() => {});
+    logSend();
   }
 
   // mailto: with edited subject + body pre-filled. User picks recipient.
   const mailtoHref = draft
     ? `mailto:?subject=${encodeURIComponent(editedSubject)}&body=${encodeURIComponent(editedBody)}`
     : "";
+  const gmailHref = draft ? buildGmailComposeUrl("", editedSubject, editedBody) : "";
+  const outlookHref = draft ? buildOutlookComposeUrl("", editedSubject, editedBody) : "";
 
   return (
     <section className="rounded-lg border border-emerald-700/50 bg-emerald-950/15 p-5">
@@ -158,9 +173,28 @@ export function DraftResponsePanel({
             </button>
             <a
               href={mailtoHref}
+              onClick={logSend}
               className="rounded border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
             >
               ✉ Open in email
+            </a>
+            <a
+              href={gmailHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={logSend}
+              className="rounded border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
+            >
+              Open in Gmail
+            </a>
+            <a
+              href={outlookHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={logSend}
+              className="rounded border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
+            >
+              Open in Outlook
             </a>
             {sourceUrl && (
               <a

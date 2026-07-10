@@ -8,6 +8,7 @@ import { personalizeCampaignBody } from "../actions-personalize";
 import { CallActionPanel } from "./CallActionPanel";
 import { AttachmentRecorder } from "./AttachmentRecorder";
 import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
 type SendMethod = "mailto" | "gmail" | "outlook" | "copy" | "platform_gmail";
 
@@ -19,6 +20,7 @@ export type TargetIntelSignal = {
 
 export function CampaignAction({
   campaignId,
+  billId,
   targets,
   targetIntel,
   targetRoles,
@@ -41,6 +43,8 @@ export function CampaignAction({
   emailNeedsReconnect,
 }: {
   campaignId: string;
+  /** The campaign's bill (if any) — grounds the fallback composer's draft. */
+  billId?: string | null;
   targets: Legislator[];
   targetIntel?: Record<string, TargetIntelSignal>;
   targetRoles: string[];
@@ -108,6 +112,13 @@ export function CampaignAction({
   // mailable and would land as garbage in the compose "To". Mirrors the
   // server-side filter in actions.ts so client + server agree on who's emailable.
   const allWithEmail = targets.filter((t) => !!t.email && !t.email.startsWith("http"));
+  // Targets reachable ONLY via a web form (email is an http URL) or via their
+  // official site (no email but a website) — surfaced separately so a mixed
+  // campaign doesn't silently drop them (finding: LA Gov/AG + a real-inbox
+  // senator on one campaign). Bulk-emailable targets are excluded here.
+  const formOnlyTargets = targets.filter(
+    (t) => (!!t.email && t.email.startsWith("http")) || (!t.email && !!t.website),
+  );
   const alreadySentSet = new Set(alreadySentLegislatorIds);
   const targetsWithEmail = allWithEmail.filter((t) => !alreadySentSet.has(t.id));
   const skippedAlreadySent = allWithEmail.length - targetsWithEmail.length;
@@ -141,11 +152,12 @@ export function CampaignAction({
   }
 
   function buildMailto() {
-    const params = new URLSearchParams();
-    params.set("subject", subject);
-    if (bccList) params.set("bcc", bccList);
-    params.set("body", body);
-    return `mailto:${to}?${params.toString()}`;
+    // encodeURIComponent (%20), NOT URLSearchParams ('+') — RFC 6068 mailto
+    // bodies treat '+' as a literal plus sign in several mail clients.
+    const parts = [`subject=${encodeURIComponent(subject)}`];
+    if (bccList) parts.push(`bcc=${encodeURIComponent(bccList)}`);
+    parts.push(`body=${encodeURIComponent(body)}`);
+    return `mailto:${to}?${parts.join("&")}`;
   }
 
   function buildGmailUrl() {
@@ -361,21 +373,60 @@ export function CampaignAction({
   // Only show "no public emails" when no rep EVER had a sendable email.
   // If `allWithEmail.length > 0` but `targetsWithEmail.length === 0`, that
   // means everyone's in the cooldown window — handled by allAlreadySent below.
+  // NOT a dead end anymore: officials without an inbox (state executives,
+  // most governors/AGs) get the shared composer's contact-form/website flow —
+  // draft here, copy, paste into their form. (The LA Gov/AG campaign gap.)
   if (allWithEmail.length === 0) {
+    const contactable = targets.filter((t) => t.email || t.website);
     return (
       <Card>
         <h2 className="text-lg font-semibold text-amber-300">
-          No public emails on file for your reps yet
+          {contactable.length > 0
+            ? "These offices don't publish an email — use their contact form"
+            : "No public emails on file for your reps yet"}
         </h2>
         <p className="mt-2 text-sm text-zinc-400">
-          Public sources don&apos;t have email addresses for these legislators. Use the
-          phone numbers and websites on the legislators page in the meantime.
+          {contactable.length > 0 ? (
+            <>Draft your message right here (AI can help), copy it, and paste it into
+            the office&apos;s official contact form — same voice, same record, one extra click.</>
+          ) : (
+            <>Public sources don&apos;t have contact channels for these officials yet. Use the
+            phone numbers on the legislators page in the meantime.</>
+          )}
         </p>
+        {contactable.length > 0 && (
+          <ul className="mt-4 space-y-2">
+            {contactable.map((t) => (
+              <li
+                key={t.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2"
+              >
+                <span className="text-sm">
+                  <span className="text-emerald-300">{t.title ?? ROLE_SHORT[t.role] ?? t.role}</span>{" "}
+                  <span className="text-zinc-200">{t.full_name}</span>
+                </span>
+                <EmailOfficialButton
+                  official={{
+                    id: t.id,
+                    name: t.full_name,
+                    role: t.role,
+                    title: t.title,
+                    state: t.state,
+                    email: t.email,
+                    website: t.website,
+                  }}
+                  context={billId ? { kind: "bill", billId } : undefined}
+                  source="campaign_no_email"
+                />
+              </li>
+            ))}
+          </ul>
+        )}
         <a
           href={`/legislators?state=${userState ?? campaignState}`}
           className="mt-4 inline-block rounded-md border border-zinc-700 px-4 py-2 text-sm hover:border-emerald-500"
         >
-          See contact info →
+          See all contact info →
         </a>
       </Card>
     );
@@ -720,6 +771,50 @@ export function CampaignAction({
       <p className="mt-3 text-center text-xs text-zinc-500">
         The email comes from <em>your</em> address — what legislators actually read.
       </p>
+      )}
+
+      {/* Web-form / no-inbox targets. The bulk send above only covers real
+          inboxes (allWithEmail filters out http contact-form "emails"), so
+          without this, officials who only take web contact — e.g. most
+          governors/AGs, and some legislators — were silently dropped from a
+          mixed campaign. Each gets the shared composer's contact-form flow. */}
+      {formOnlyTargets.length > 0 && (
+        <div className="mt-5 rounded-lg border border-amber-800/40 bg-amber-950/10 p-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-amber-300">
+            {formOnlyTargets.length} of these take web contact only
+          </p>
+          <p className="mt-1 text-sm text-zinc-300">
+            These offices don&apos;t publish an email inbox. Draft your message (AI can
+            help), copy it, and paste it into each one&apos;s official form — one extra click.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {formOnlyTargets.map((t) => (
+              <li
+                key={t.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2"
+              >
+                <span className="text-sm">
+                  <span className="text-emerald-300">{t.title ?? ROLE_SHORT[t.role] ?? t.role}</span>{" "}
+                  <span className="text-zinc-200">{t.full_name}</span>
+                  {t.district && <span className="text-zinc-500"> · D{t.district}</span>}
+                </span>
+                <EmailOfficialButton
+                  official={{
+                    id: t.id,
+                    name: t.full_name,
+                    role: t.role,
+                    title: t.title,
+                    state: t.state,
+                    email: t.email,
+                    website: t.website,
+                  }}
+                  context={billId ? { kind: "bill", billId } : undefined}
+                  source="campaign_webform"
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* One-click phone call section — only renders if any target has a phone */}

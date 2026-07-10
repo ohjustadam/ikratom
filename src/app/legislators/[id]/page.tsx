@@ -4,6 +4,8 @@ import { ROLE_LABEL } from "@/lib/legislators";
 import { ShareButtons } from "@/components/ShareButtons";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { getLegislatorIntel } from "@/lib/legislator-intel";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { httpUrlOrNull } from "@/modules/compose/send-links";
 
 const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
 
@@ -217,10 +219,14 @@ export default async function LegislatorDetailPage({
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">Contact</h2>
         <ul className="space-y-2 text-sm">
-          {leg.email && (
+          {(leg.email || leg.website) && (
             <li>
-              <span className="text-zinc-500">Email: </span>
-              <a href={`mailto:${leg.email}`} className="text-emerald-400 hover:underline">{leg.email}</a>
+              <EmailOfficialButton
+                official={{ id: leg.id, name: leg.full_name, role: leg.role, title: leg.title, state: leg.state, email: leg.email, website: leg.website }}
+                context={{ kind: "legislator" }}
+                source="legislator_profile"
+                variant="button"
+              />
             </li>
           )}
           {leg.phone && (
@@ -236,9 +242,9 @@ export default async function LegislatorDetailPage({
               <span className="text-zinc-200">{leg.office_address}</span>
             </li>
           )}
-          {leg.website && (
+          {httpUrlOrNull(leg.website) && (
             <li>
-              <a href={leg.website} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">
+              <a href={httpUrlOrNull(leg.website)!} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">
                 Official website ↗
               </a>
             </li>

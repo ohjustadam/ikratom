@@ -168,11 +168,32 @@ for (const [path, text] of files) {
   });
   if (!activeRole) continue;
   const office = (doc.offices ?? []).find((o) => o?.voice) ?? (doc.offices ?? [])[0] ?? {};
+  // Contact channel (the LA-campaign gap: every executive used to sync with
+  // email=NULL because we never read these fields). Precedence:
+  //   1. a real inbox from the YAML `email` field (or an office email)
+  //   2. an explicit contact-page/webform link from `links` — stored in the
+  //      email column as an http URL (the sync-congress convention; all send
+  //      paths detect `startsWith('http')` and render a contact-form flow)
+  // A bare homepage is NOT treated as a contact form — the UI falls back to
+  // `website` with honest labeling instead.
+  const rawEmail = String(doc.email ?? office.email ?? "").trim();
+  // Only accept a link that clearly means "reach the official". Deliberately
+  // NOT matching bare "feedback"/"write"/"forms" — those hit gov-site footer
+  // links like "Website feedback" or "disclosure forms" and would be stored as
+  // the office's contact channel (a wrong destination for advocates). Matches
+  // real patterns: '…/contact/', note 'webform', '…/contact-form', '…/email-the-governor'.
+  const contactLink = (doc.links ?? []).find((l) => {
+    const hay = `${l?.note ?? ""} ${l?.url ?? ""}`.toLowerCase();
+    return /^https?:\/\//i.test(String(l?.url ?? ""))
+      && /\bcontact\b|contact-?(us|the|form)|webform|constituent|email-?(the|us|your)|share-?your-?(views|opinion|story)/i.test(hay)
+      && !/website.?feedback|report.?a.?(problem|bug)|technical|disclosure/i.test(hay);
+  })?.url ?? null;
   current.push({
     state: st,
     role: ROLE_MAP.get(String(activeRole.type).toLowerCase()),
     full_name: String(doc.name).trim(),
     party: (Array.isArray(doc.party) ? doc.party[0]?.name : null) ?? null,
+    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail) ? rawEmail : contactLink,
     phone: office.voice ?? null,
     website: (doc.links ?? [])[0]?.url ?? null,
     term_end_date: toIso(activeRole.end_date),
@@ -202,7 +223,8 @@ for (const ex of seats) {
   const stale = (rows ?? []).filter((r) => r.active && r.full_name.toLowerCase() !== ex.full_name.toLowerCase());
 
   if (DRY) {
-    console.log(`  · [${ex.state}] ${title}: ${ex.full_name}${matching ? " (update)" : " (insert)"}${stale.length ? ` + deactivate ${stale.length}` : ""}`);
+    const channel = !ex.email ? "no contact channel" : ex.email.startsWith("http") ? `form: ${ex.email}` : `email: ${ex.email}`;
+    console.log(`  · [${ex.state}] ${title}: ${ex.full_name}${matching ? " (update)" : " (insert)"}${stale.length ? ` + deactivate ${stale.length}` : ""} — ${channel}`);
     continue;
   }
   const sources = `- openstates/people (clerk-grade public roster): https://github.com/openstates/people/blob/main/${ex.sourcePath}`;
@@ -211,6 +233,9 @@ for (const ex of seats) {
       party: ex.party, phone: ex.phone, website: ex.website,
       term_end_date: ex.term_end_date, title, active: true,
       verified_sources_md: sources, last_synced_at: NOW(),
+      // Only write email when the YAML yielded a channel — never clobber a
+      // manually-entered address with null.
+      ...(ex.email ? { email: ex.email } : {}),
     }).eq("id", matching.id);
     if (error) { console.log(`  ✗ [${ex.state}] ${title} update: ${error.message.slice(0, 80)}`); continue; }
     updated++;
@@ -218,6 +243,7 @@ for (const ex of seats) {
     const { error } = await sb.from("legislators").insert({
       full_name: ex.full_name, state: ex.state, role: ex.role, level: "state",
       title, party: ex.party, phone: ex.phone, website: ex.website,
+      email: ex.email ?? null,
       term_end_date: ex.term_end_date, active: true,
       verified_sources_md: sources, last_synced_at: NOW(),
     });

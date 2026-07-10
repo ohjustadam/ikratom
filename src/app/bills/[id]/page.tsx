@@ -23,6 +23,7 @@ import { Markdown } from "@/components/Markdown";
 import { mdToPlainText } from "@/lib/markdown";
 import { AudioReader } from "@/components/AudioReader";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -474,6 +475,8 @@ export default async function BillDetailPage({
     party: string | null;
     phone: string | null;
     email: string | null;
+    website: string | null;
+    title: string | null;
     committee_role: string; // chair / vice_chair / member
     tier: string;
     tier_label: string;
@@ -495,7 +498,7 @@ export default async function BillDetailPage({
       // legislator_committees.committee_name).
       const { data: stateCommittees } = await supabase
         .from("legislator_committees")
-        .select("legislator_id, committee_name, role, is_kratom_relevant, legislators!inner(id, full_name, state, role, district, party, phone, email, active)")
+        .select("legislator_id, committee_name, role, is_kratom_relevant, legislators!inner(id, full_name, state, role, district, party, phone, email, website, title, active)")
         .eq("legislators.state", bill.state)
         .eq("legislators.active", true)
         .limit(2000);
@@ -507,8 +510,9 @@ export default async function BillDetailPage({
         legislators: {
           id: string; full_name: string; state: string; role: string;
           district: string | null; party: string | null;
-          phone: string | null; email: string | null; active: boolean;
-        } | Array<{ id: string; full_name: string; state: string; role: string; district: string | null; party: string | null; phone: string | null; email: string | null; active: boolean }> | null;
+          phone: string | null; email: string | null;
+          website: string | null; title: string | null; active: boolean;
+        } | Array<{ id: string; full_name: string; state: string; role: string; district: string | null; party: string | null; phone: string | null; email: string | null; website: string | null; title: string | null; active: boolean }> | null;
       };
       const matched = ((stateCommittees ?? []) as CmtRow[]).filter((c) =>
         committeesMatch(currentCommitteeName!, c.committee_name),
@@ -602,6 +606,8 @@ export default async function BillDetailPage({
             party: l.party,
             phone: l.phone,
             email: l.email,
+            website: l.website,
+            title: l.title,
             committee_role: c.role,
             tier: assess.tier,
             tier_label: assess.tier_label,
@@ -1959,14 +1965,21 @@ export default async function BillDetailPage({
                             📞 {m.phone}
                           </a>
                         )}
-                        {m.email && (
-                          <a
-                            href={`mailto:${m.email}?subject=${encodeURIComponent(`Re: ${bill.bill_number} — constituent concern`)}`}
-                            className="rounded bg-emerald-950/40 px-2 py-0.5 font-mono text-emerald-200 hover:bg-emerald-900/40"
-                          >
-                            ✉ email
-                          </a>
-                        )}
+                        <EmailOfficialButton
+                          official={{
+                            id: m.legislator_id,
+                            name: m.full_name,
+                            role: m.role,
+                            title: m.title,
+                            state: m.state,
+                            email: m.email,
+                            website: m.website,
+                          }}
+                          context={{ kind: "bill", billId: bill.id }}
+                          source="bill_committee"
+                          variant="inline"
+                          label={m.email ? "✉ email" : "🌐 contact"}
+                        />
                         <span className="text-zinc-500">— {m.tier === "flippable_target" ? "highest conversion ROI" : m.committee_role === "chair" ? "controls the calendar" : "blocking leverage"}</span>
                       </div>
                     )}
@@ -2103,7 +2116,12 @@ export default async function BillDetailPage({
                           <p className="mt-1 text-[11px] leading-snug text-zinc-300">{s.reasoning}</p>
                           {(s.email || s.phone || s.website || s.twitter_handle || s.linkedin_url) && (
                             <p className="mt-1 flex flex-wrap gap-2 text-[10px]">
-                              {s.email && <a href={`mailto:${s.email}`} className="text-emerald-400 hover:underline">{s.email}</a>}
+                              <EmailOfficialButton
+                                official={{ id: null, name: s.name, title: s.title, email: s.email, website: s.website }}
+                                context={{ kind: "stakeholder", billId: bill.id }}
+                                source="bill_stakeholder"
+                                variant="inline"
+                              />
                               {s.phone && <a href={`tel:${s.phone}`} className="text-emerald-400 hover:underline">{s.phone}</a>}
                               {s.website && <a href={s.website} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">website</a>}
                               {s.twitter_handle && <a href={`https://twitter.com/${s.twitter_handle.replace(/^@/, "")}`} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">@{s.twitter_handle.replace(/^@/, "")}</a>}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient, getCachedClaims } from "@/lib/supabase/server";
 import { getUserLegislators } from "@/lib/legislators";
 import { committeesMatch } from "@/lib/bill-committee";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
 /**
  * "YOUR rep is deciding this bill" — district-level urgency callout.
@@ -161,7 +162,6 @@ export async function YourRepDecidingThisBill({
             const roleLabel = ROLE_LABEL[role] ?? "Member";
             const roleAccent = role === "chair" ? "text-amber-300" : role === "vice_chair" ? "text-sky-300" : "text-zinc-300";
             const tel = rep.phone?.replace(/[^\d+]/g, "");
-            const mailtoSubject = encodeURIComponent(`Constituent ask: kratom bill ${billState}`);
             return (
               <li
                 key={rep.id}
@@ -192,15 +192,19 @@ export async function YourRepDecidingThisBill({
                       📞 Call {rep.phone}
                     </a>
                   )}
-                  {rep.email && (
-                    <a
-                      href={`mailto:${rep.email}?subject=${mailtoSubject}`}
-                      className="rounded-md border border-emerald-700 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
-                      data-event="rep_email_committee"
-                    >
-                      ✉ Email
-                    </a>
-                  )}
+                  <EmailOfficialButton
+                    official={{
+                      id: rep.id,
+                      name: rep.full_name,
+                      role: rep.role,
+                      state: rep.state,
+                      email: rep.email,
+                      website: rep.website,
+                    }}
+                    context={{ kind: "bill", billId }}
+                    source="bill_rep_committee"
+                    variant="chip"
+                  />
                   <Link
                     href={`/legislators/${rep.id}/briefing`}
                     className="rounded-md border border-emerald-700 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"

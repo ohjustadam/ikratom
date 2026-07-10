@@ -17,6 +17,8 @@ import { computeIntelVerdict, industriesFromDonor } from "@/lib/legislator-intel
 import { RemindMeButton } from "@/components/RemindMeButton";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { getAdminContext } from "@/modules/admin/actions";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { httpUrlOrNull } from "@/modules/compose/send-links";
 
 export const dynamic = "force-dynamic";
 
@@ -647,7 +649,6 @@ export default async function BriefingPage({ params }: { params: Params }) {
   // Display helpers
   const displayRole = leg.role.replace(/_/g, " ");
   const tel = leg.phone?.replace(/[^\d+]/g, "");
-  const mailtoSubject = encodeURIComponent(`Constituent ask: kratom policy — ${leg.state}`);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -919,7 +920,10 @@ export default async function BriefingPage({ params }: { params: Params }) {
           </div>
         </div>
 
-        {/* Quick-action buttons */}
+        {/* Quick-action buttons. Email opens the shared composer (prefilled
+            letter + AI draft + edit + logging) — was a bodiless mailto, which
+            is also why webform-only "emails" used to render as broken
+            mailto:https:// links here. */}
         <div className="mt-5 flex flex-wrap gap-2 border-t border-zinc-800 pt-4">
           {tel && (
             <a
@@ -929,17 +933,22 @@ export default async function BriefingPage({ params }: { params: Params }) {
               📞 Call {leg.phone}
             </a>
           )}
-          {leg.email && (
+          <EmailOfficialButton
+            official={{
+              id: leg.id,
+              name: leg.full_name,
+              role: leg.role,
+              title: leg.title,
+              state: leg.state,
+              email: leg.email,
+              website: leg.website,
+            }}
+            source="legislator_briefing"
+            variant="button"
+          />
+          {httpUrlOrNull(leg.website) && (
             <a
-              href={`mailto:${leg.email}?subject=${mailtoSubject}`}
-              className="rounded-md border border-emerald-700 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
-            >
-              ✉ Email
-            </a>
-          )}
-          {leg.website && (
-            <a
-              href={leg.website}
+              href={httpUrlOrNull(leg.website)!}
               target="_blank"
               rel="noopener noreferrer"
               className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-emerald-500"

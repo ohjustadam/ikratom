@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
 /**
  * Collapsible officials directory for the state war-room page (owner spec
@@ -18,6 +19,7 @@ type Official = {
   phone: string | null;
   title: string | null;
   portrait_url: string | null;
+  website: string | null;
 };
 
 const GROUPS: Array<{ label: string; roles: string[] }> = [
@@ -32,7 +34,7 @@ export async function StateOfficials({ state, stateName }: { state: string; stat
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("legislators")
-    .select("id, full_name, role, party, district, email, phone, title, portrait_url")
+    .select("id, full_name, role, party, district, email, phone, title, portrait_url, website")
     .eq("state", state)
     .eq("active", true)
     .order("role")
@@ -108,13 +110,13 @@ export async function StateOfficials({ state, stateName }: { state: string; stat
                         );
                       })()}
                       <div className="mt-2 flex flex-wrap gap-2 pb-1">
-                        {o.email ? (
-                          <a
-                            href={`mailto:${o.email}`}
-                            className="rounded-md border border-emerald-700/40 bg-emerald-950/20 px-3 py-1.5 text-[11px] font-semibold text-emerald-300 hover:border-emerald-500"
-                          >
-                            ✉ Email now
-                          </a>
+                        {o.email || o.website ? (
+                          <EmailOfficialButton
+                            official={{ id: o.id, name: o.full_name, role: o.role, title: o.title, state, email: o.email, website: o.website }}
+                            source="state_officials"
+                            variant="chip"
+                            label="✉ Email now"
+                          />
                         ) : (
                           <span className="rounded-md border border-zinc-800 px-3 py-1.5 text-[11px] text-zinc-600">no email on file</span>
                         )}

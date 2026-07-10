@@ -90,7 +90,7 @@ export function CampaignForm({ initial }: { initial?: Initial }) {
         <Field name="subject_template" label="Subject *" required defaultValue={initial?.subject_template} placeholder="Constituent input on kratom policy in {{state}}" />
         <Textarea
           name="body_template"
-          label="Body * — placeholders: {{full_name}}, {{street}}, {{city}}, {{state}}, {{zip}}, {{legislator_name}}"
+          label="Body * — placeholders: {{full_name}}, {{city}}, {{state}}, {{zip}}, {{legislator_name}} (street is never included — privacy)"
           required
           defaultValue={initial?.body_template}
           rows={14}

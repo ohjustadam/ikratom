@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
 type Row = {
   id: string;
@@ -143,7 +144,15 @@ export function PeopleBrowser({ rows }: { rows: Row[] }) {
                 <p className="mt-2 text-[12px] leading-relaxed text-zinc-300">{r.reasoning}</p>
                 {(r.email || r.phone || r.website || r.twitter_handle || r.linkedin_url) && (
                   <p className="mt-2 flex flex-wrap gap-3 text-[11px]">
-                    {r.email && <a href={`mailto:${r.email}`} className="text-emerald-400 hover:underline">📧 {r.email}</a>}
+                    {(r.email || r.website) && (
+                      <EmailOfficialButton
+                        official={{ id: null, name: r.name, title: r.title, email: r.email, website: r.website }}
+                        context={{ kind: "stakeholder", billId: r.bill_id }}
+                        source="people_browser"
+                        variant="inline"
+                        label={r.email ? "email" : "contact"}
+                      />
+                    )}
                     {r.phone && <a href={`tel:${r.phone}`} className="text-emerald-400 hover:underline">📞 {r.phone}</a>}
                     {r.website && <a href={r.website} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">🔗 website</a>}
                     {r.twitter_handle && <a href={`https://twitter.com/${r.twitter_handle.replace(/^@/, "")}`} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">@{r.twitter_handle.replace(/^@/, "")}</a>}

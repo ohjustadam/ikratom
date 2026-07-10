@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
     case "actions": {
       const { data } = await supabase
         .from("campaign_actions")
-        .select("id, user_id, campaign_id, legislator_id, method, sent_at, is_non_resident, referred_from")
+        .select("id, user_id, campaign_id, legislator_id, method, source, sent_at, is_non_resident, referred_from")
         .order("sent_at", { ascending: false });
       rows = (data ?? []) as Record<string, unknown>[];
       break;

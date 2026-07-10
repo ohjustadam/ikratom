@@ -208,3 +208,11 @@ Campaign de-duplication is enforced in three places that **do not share a key fo
 0186 safety: it **depends on 0183** (the trigger's 23505 auto-link — keyword-free bill steps now collide at insert where they didn't before), which is already applied to prod. Its back-fill is non-destructive — non-live rows bulk-update; live rows update oldest-first and any collision keeps its old key (the existing cleanup crons / engine collapse the dup later). Pre-apply sizing: `scripts/diagnose-topic-key-0186.mjs`.
 
 **Doc drift, corrected:** migration 0107's header claimed its keyword+event lists "match `cleanup-pending-campaigns.mjs`". They don't — the janitor's `EVENT_RX` is far broader. The 0107 comment has been corrected to point here.
+
+## Street addresses never enter email bodies (2026-07-09)
+
+**Decision:** `buildVars()` (`src/modules/campaigns/templates.ts`) always renders `{{street}}` as empty, and `renderTemplate()` drops placeholder-only lines that resolve empty. `profiles.street` exists **only** for Census district matching. Letters carry the constituent signal via name + city + state + zip — what legislative CRMs actually match on.
+
+**Why:** Field report (2026-07-09): an advocate in a felony-status state deleted his street from his profile specifically to keep it out of campaign emails ("not tryin to get swatted") — which also silently broke his district auto-matching, the worse outcome. 139+ active campaign templates (the per-state trio) embedded `{{street}}` in signatures via the old wizard default. Fixing at the renderer covers every template, past and future, with no DB rewrite; legacy `{{street}}` lines collapse cleanly.
+
+**Don't** re-add street to `TemplateVars` output or "fix" the empty street var — it's load-bearing privacy, pinned by `tests/compose-uniform.test.ts`. The AI paths (`actions-personalize.ts`, `compose/actions.ts`, `rebuttal-actions.ts`) already strip street/zip from prompts; keep it that way.

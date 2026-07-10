@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
 export const dynamic = "force-dynamic";
 
@@ -186,14 +187,12 @@ export default async function CommitteeMembersPage({
                     📞 {m.phone}
                   </a>
                 )}
-                {m.email && (
-                  <a
-                    href={`mailto:${m.email}`}
-                    className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-emerald-500"
-                  >
-                    ✉ Email
-                  </a>
-                )}
+                <EmailOfficialButton
+                  official={{ id: m.id, name: m.full_name, role: m.leg_role, state: m.state, email: m.email, website: m.website }}
+                  context={{ kind: "legislator" }}
+                  source="committee_page"
+                  variant="chip"
+                />
                 <Link
                   href={`/legislators/${m.id}/briefing`}
                   className="rounded-md border border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:border-emerald-500"

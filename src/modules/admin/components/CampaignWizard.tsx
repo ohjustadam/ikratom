@@ -47,7 +47,6 @@ Thank you for your service.
 
 Sincerely,
 {{full_name}}
-{{street}}
 {{city}}, {{state}} {{zip}}`;
 
 export function CampaignWizard({
@@ -352,7 +351,7 @@ export function CampaignWizard({
             onChange={setSubject}
           />
           <Textarea
-            label="Body * — placeholders: {{full_name}}, {{street}}, {{city}}, {{state}}, {{zip}}, {{legislator_name}}"
+            label="Body * — placeholders: {{full_name}}, {{city}}, {{state}}, {{zip}}, {{legislator_name}} (street is never included — privacy)"
             value={body}
             onChange={setBody}
             rows={14}

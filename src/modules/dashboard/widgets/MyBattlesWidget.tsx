@@ -20,6 +20,11 @@ export async function MyBattlesWidget({ userId }: { userId: string }) {
       "id, campaign_id, sent_at, method, campaigns:campaign_id(id, title, slug, bill_id, bills:bill_id(id, state, bill_number, title, status, kratom_relevance))",
     )
     .eq("user_id", userId)
+    // Campaign actions only — direct (non-campaign) compose sends carry a null
+    // campaign_id (migration 0232) and have no bill "battle". Without this
+    // filter, recent direct sends fill the limit(8) window and the user's real
+    // campaign battles get dropped by the .filter(b => b.bill) below.
+    .not("campaign_id", "is", null)
     .order("sent_at", { ascending: false })
     .limit(8);
 

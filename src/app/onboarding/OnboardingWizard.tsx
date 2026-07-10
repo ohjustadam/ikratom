@@ -270,6 +270,7 @@ export function OnboardingWizard({
             </p>
             <ul className="mt-3 space-y-1 rounded-md border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-400">
               <li>· Other users never see your address — only your city + state if you choose.</li>
+              <li>· Your street is <strong className="text-zinc-300">never included in any email</strong> — letters sign with city + state only.</li>
               <li>· We don&apos;t sell, share, or transfer it to advocacy orgs.</li>
               <li>· You can delete it anytime from <span className="font-mono text-zinc-300">/account</span>.</li>
             </ul>

@@ -7,6 +7,8 @@ import { resolveBillHrefs } from "@/modules/state-status/evidence";
 import { STATE_NAMES } from "@/lib/state-names";
 import { normalizeLocality } from "@/lib/locality";
 import { rankActions, type RankableBill, type RankableCampaign } from "@/modules/district/rank";
+import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { httpUrlOrNull } from "@/modules/compose/send-links";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -205,9 +207,14 @@ export default async function MyDistrictPage() {
                   <span className="font-medium text-zinc-100">{r.full_name}</span>
                   <span className="text-xs text-zinc-500">{r.title || r.role}</span>
                   <span className="flex gap-2 text-xs">
-                    {r.email && <a href={`mailto:${r.email}`} className="text-emerald-400 hover:underline">email</a>}
+                    <EmailOfficialButton
+                      official={{ id: r.id, name: r.full_name, role: r.role, title: r.title, state, email: r.email, website: r.website }}
+                      source="my_district"
+                      variant="inline"
+                      label={r.email ? "email" : "contact"}
+                    />
                     {r.phone && <a href={`tel:${r.phone}`} className="text-emerald-400 hover:underline">call</a>}
-                    {r.website && <a href={r.website} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">site</a>}
+                    {httpUrlOrNull(r.website) && <a href={httpUrlOrNull(r.website)!} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">site</a>}
                   </span>
                 </li>
               ))}
