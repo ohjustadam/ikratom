@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { hasMfaBypass } from "@/modules/auth/mfa-bypass";
 
 export type AdminCheck =
@@ -91,7 +92,11 @@ export async function getAdminQueueCounts(): Promise<AdminQueueCounts> {
         .eq("vendor_status", "pending"),
       supabase.from("kratom_stories").select("id", { count: "exact", head: true })
         .eq("moderation_status", "pending"),
-      supabase.rpc("chat_ban_review_queue"),
+      // Service-role: chat_ban_review_queue()'s EXECUTE was revoked from
+      // authenticated (mig 0236_lock, audit #5), so the user client 400s here
+      // and the badge silently reads 0. Admin already gated by getAdminContext
+      // in the callers; mirrors listBanReviewQueue's service-role fix (#793).
+      createServiceRoleClient().rpc("chat_ban_review_queue"),
       supabase.from("discord_integrations").select("id", { count: "exact", head: true })
         .eq("active", false),
       supabase.from("policy_alerts").select("id", { count: "exact", head: true })
