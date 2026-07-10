@@ -124,7 +124,9 @@ const getStatusSnapshot = unstable_cache(
         .eq("moderation_status", "approved")
         .gte("meeting_at", new Date(now).toISOString())
         .lte("meeting_at", horizon90d),
-      supabase.from("policy_alerts").select("*", { count: "exact", head: true })
+      // count by id (PK, granted col) — mig 0237 revoked anon SELECT on some
+      // policy_alerts columns, so a `select("*")` count errors (same as 0227).
+      supabase.from("policy_alerts").select("id", { count: "exact", head: true })
         .eq("moderation_status", "approved")
         .in("severity", ["critical", "alert"])
         .gte("created_at", since7d),

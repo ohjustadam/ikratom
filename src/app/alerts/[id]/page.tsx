@@ -67,9 +67,12 @@ export async function generateMetadata({ params }: Props) {
 export default async function AlertDetailPage({ params }: Props) {
   const { id } = await params;
   const sb = await createClient();
+  // Explicit public-safe columns (mig 0237 revoked blanket SELECT; a bare select("*")
+  // would now error for the anon/authenticated role). submitted_by_user_id/is_anonymous
+  // are intentionally omitted — never exposed on this public page.
   const { data: a } = await sb
     .from("policy_alerts")
-    .select("*")
+    .select("id, kind, severity, title, body, locality, source_url, bill_id, briefing_slug, bop_board_id, action_required, campaign_id, moderation_status, moderation_note, moderated_by, moderated_at, occurs_at, expires_at, created_at, updated_at, discord_posted_at, dedupe_key, auto_pushed_at, auto_pushed_count, specific_locality, officials_extracted_at, public_byline")
     .eq("id", id)
     .maybeSingle();
 
@@ -259,6 +262,9 @@ export default async function AlertDetailPage({ params }: Props) {
           )}
           {expires && expires.getTime() > Date.now() && (
             <> · Expires {expires.toLocaleString(undefined, { month: "short", day: "numeric" })}</>
+          )}
+          {a.public_byline && (
+            <> · Reported by <span className="text-zinc-400">{a.public_byline}</span></>
           )}
         </p>
       </header>

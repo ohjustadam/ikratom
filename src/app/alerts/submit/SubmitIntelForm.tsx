@@ -28,11 +28,15 @@ const SEVERITIES: { id: "watch" | "alert" | "critical"; label: string; hint: str
 
 export function SubmitIntelForm({
   defaultState,
+  username = "",
   initialTitle = "",
   initialBody = "",
   initialUrl = "",
 }: {
   defaultState: string;
+  /** The signed-in user's @handle (already prefixed), for the "credit me
+   *  publicly" option. Empty when signed out / no handle. */
+  username?: string;
   /** Prefilled from the PWA share target (manifest.ts) when a user
    *  shares a link/article into iKratom. Empty for normal visits. */
   initialTitle?: string;
@@ -49,7 +53,7 @@ export function SubmitIntelForm({
   const [sourceUrl, setSourceUrl] = useState(initialUrl);
   const [occursAt, setOccursAt] = useState("");
   const [actionRequired, setActionRequired] = useState(false);
-  const [anon, setAnon] = useState(false);
+  const [visibility, setVisibility] = useState<"anonymous" | "private" | "public">("private");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -101,7 +105,8 @@ export function SubmitIntelForm({
         source_url: sourceUrl || null,
         occurs_at: occursAt ? new Date(occursAt).toISOString() : null,
         action_required: actionRequired,
-        is_anonymous: anon,
+        is_anonymous: visibility === "anonymous",
+        attribute_publicly: visibility === "public",
       });
       if ("error" in r) setError(r.error ?? "Failed");
       else router.push("/pulse?tip_submitted=1");
@@ -278,15 +283,37 @@ export function SubmitIntelForm({
             </div>
           </div>
         </label>
-        <label className="flex cursor-pointer items-center gap-3">
-          <input
-            type="checkbox"
-            checked={anon}
-            onChange={(e) => setAnon(e.target.checked)}
-            className="h-4 w-4 rounded border-zinc-700 bg-zinc-950"
-          />
-          <span className="text-sm text-zinc-200">Submit anonymously (admins still see your account, but it isn&apos;t shown publicly)</span>
-        </label>
+        <div>
+          <div className="text-sm text-zinc-200">How should this tip be credited?</div>
+          <div className="mt-2 grid gap-2">
+            {[
+              { id: "private" as const, label: "Just my account", hint: "Linked to you for admin review + your reporter trust score. Never shown publicly.", disabled: false },
+              { id: "public" as const, label: username ? `Credit me publicly as ${username}` : "Credit me publicly", hint: "Your @username shows on the approved tip. Your real name and email are never exposed.", disabled: !username },
+              { id: "anonymous" as const, label: "Fully anonymous", hint: "No link to your account at all — not even admins can see who sent it.", disabled: false },
+            ].map((o) => (
+              <label
+                key={o.id}
+                className={`flex items-start gap-3 rounded-md border p-3 text-sm transition ${
+                  visibility === o.id ? "border-emerald-500 bg-emerald-950/30" : "border-zinc-800 hover:border-zinc-700"
+                } ${o.disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+              >
+                <input
+                  type="radio"
+                  name="visibility"
+                  value={o.id}
+                  checked={visibility === o.id}
+                  disabled={o.disabled}
+                  onChange={() => setVisibility(o.id)}
+                  className="mt-0.5 h-4 w-4 border-zinc-700 bg-zinc-950"
+                />
+                <div>
+                  <div className="text-zinc-200">{o.label}</div>
+                  <div className="text-xs text-zinc-500">{o.hint}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
       </div>
 
       {error && (
