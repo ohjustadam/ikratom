@@ -34,7 +34,7 @@ export default async function SubmitIntelPage({
   const profile = user
     ? (await supabase
         .from("profiles")
-        .select("state, intel_tier, intel_approved_count, intel_rejected_count")
+        .select("state, username, intel_tier, intel_approved_count, intel_rejected_count")
         .eq("id", user.id)
         .single()).data
     : null;
@@ -109,6 +109,10 @@ export default async function SubmitIntelPage({
 
       <SubmitIntelForm
         defaultState={(profile as { state: string | null } | null)?.state ?? ""}
+        username={(() => {
+          const u = (profile as { username: string | null } | null)?.username;
+          return u ? `@${u}` : "";
+        })()}
         initialTitle={sharedTitle}
         initialBody={sharedBody}
         initialUrl={sharedUrl}

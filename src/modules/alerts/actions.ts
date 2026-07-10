@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
@@ -40,6 +41,9 @@ export async function submitIntelTip(input: {
   source_url?: string | null;
   occurs_at?: string | null;  // ISO datetime if event has a deadline/meeting
   is_anonymous?: boolean;
+  // "credit me publicly": when true (and NOT anonymous), the server stamps the
+  // reporter's own @username into public_byline. Never exposes the raw user id.
+  attribute_publicly?: boolean;
   action_required?: boolean;
 }) {
   const supabase = await createClient();
@@ -108,11 +112,19 @@ export async function submitIntelTip(input: {
   // Field reporters + rookies still queue for moderation.
   const { data: profile } = await supabase
     .from("profiles")
-    .select("intel_tier")
+    .select("intel_tier, username")
     .eq("id", user.id)
     .single();
   const tier = (profile as { intel_tier: string } | null)?.intel_tier ?? "rookie";
   const isTrusted = tier === "trusted_reporter";
+
+  // Attribution choice (server-controlled — never trust a client-supplied byline):
+  //   anonymous → no account link, no byline · private → linked for admins/trust
+  //   only · public → signed with the reporter's OWN @username.
+  const uname = (profile as { username: string | null } | null)?.username ?? null;
+  const publicByline = (!input.is_anonymous && input.attribute_publicly && uname)
+    ? `@${uname}`
+    : null;
 
   const { error, data: row } = await supabase
     .from("policy_alerts")
@@ -131,6 +143,7 @@ export async function submitIntelTip(input: {
       // mig 0235). Mirrors the sibling bill-intel path.
       submitted_by_user_id: input.is_anonymous ? null : user.id,
       is_anonymous: !!input.is_anonymous,
+      public_byline: publicByline,
     })
     .select("id")
     .single();
@@ -153,7 +166,10 @@ export async function listMyIntelTips() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data } = await supabase
+  // Service-role: mig 0237 made submitted_by_user_id readable only by service-role
+  // (column privacy). This query filters on it, so it must bypass the column grant.
+  // Scoped strictly to the caller's own id — safe.
+  const { data } = await createServiceRoleClient()
     .from("policy_alerts")
     .select("id, kind, severity, title, body, locality, source_url, occurs_at, action_required, moderation_status, moderation_note, moderated_at, campaign_id, created_at")
     .eq("submitted_by_user_id", user.id)
@@ -170,10 +186,12 @@ export async function listMyIntelTips() {
 export async function listPendingIntelTips() {
   const ctx = await getAdminContext();
   if (!ctx.ok) return [];
-  const supabase = await createClient();
+  // Service-role: reads submitted_by_user_id/is_anonymous, which are service-role-only
+  // after mig 0237 column privacy. Admin-gated above, so safe.
+  const supabase = createServiceRoleClient();
   const { data: tips } = await supabase
     .from("policy_alerts")
-    .select("id, kind, severity, title, body, locality, source_url, occurs_at, action_required, submitted_by_user_id, is_anonymous, created_at")
+    .select("id, kind, severity, title, body, locality, source_url, occurs_at, action_required, submitted_by_user_id, is_anonymous, public_byline, created_at")
     .eq("moderation_status", "pending")
     .order("created_at", { ascending: false })
     .limit(100);
