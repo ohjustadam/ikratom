@@ -13,6 +13,7 @@ import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
 import { PushBackStop } from "@/components/PushBackStop";
+import { PresenceHeartbeat } from "@/components/PresenceHeartbeat";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import FeedbackWidget from "@/components/FeedbackWidget";
 import ShareBanner from "@/components/ShareBanner";
@@ -105,6 +106,7 @@ export default async function RootLayout({
   // render — falls back to non-admin on error.
   let isAdmin = false;
   let isLeader = false;
+  let signedIn = false;
   let leaderTourPending = false;
   let leaderAcknowledged = true; // assume true so we don't flash a banner for non-leaders
   // Signed-in users' saved UI prefs, server-rendered onto <html> so they
@@ -120,6 +122,7 @@ export default async function RootLayout({
     // getUser() + profile select; now deduped across the chrome.
     const { profile } = await getCachedAuthProfile();
     if (profile) {
+      signedIn = true;
       isAdmin = !!(profile.is_admin || profile.is_owner);
       isLeader = !!(isAdmin || profile.is_advocate_leader);
       leaderTourPending = isLeader && !!profile.leader_tour_pending;
@@ -242,6 +245,7 @@ export default async function RootLayout({
             <nav className="mb-4 flex flex-wrap justify-center gap-x-4 gap-y-2">
               <a href="/how-it-works" className="hover:text-emerald-400">How it works</a>
               <a href="/academy" className="hover:text-emerald-400">Academy</a>
+              <a href="/roles" className="hover:text-emerald-400">Roles</a>
               <a href="/spread" className="hover:text-emerald-400">Storefront kit</a>
               <a href="/ethics" className="hover:text-emerald-400">Ethics</a>
               <a href="/research" className="hover:text-emerald-400">Research</a>
@@ -304,6 +308,7 @@ export default async function RootLayout({
         </div>
         <RegisterSW />
         <PushBackStop />
+        {signedIn && <PresenceHeartbeat />}
         <InstallPrompt />
         <FeedbackWidget />
         {/* Lounge live chat as a floating widget on every page (its full home
