@@ -154,6 +154,12 @@ export default async function AdminPage() {
             >
               ✅ Daily checklist + manual
             </a>
+            <a
+              href="/admin/academy"
+              className="inline-flex items-center gap-2 rounded-md border border-emerald-700/60 px-4 py-2 text-sm font-semibold text-emerald-300 hover:border-emerald-500"
+            >
+              🎓 Academy (review + publish)
+            </a>
             <span className="text-[11px] text-zinc-500">
               Cockpit = one glance · Checklist = the guided routine + tool manual.
             </span>
