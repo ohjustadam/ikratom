@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { publicHandle, handleInitials } from "@/lib/public-handle";
 import { createClient } from "@/lib/supabase/server";
+import { PowerUserBadge } from "@/components/PowerUserBadge";
 
 export async function generateMetadata({
   params,
@@ -42,6 +43,9 @@ export default async function PublicProfilePage({
     .select("id", { count: "exact", head: true })
     .eq("user_id", id);
 
+  // Academy-certified power user? (checkmark next to the handle)
+  const { data: isPowerUser } = await supabase.rpc("is_power_user", { p_id: id });
+
   // Current viewer (for "Send message" button)
   const { data: { user: viewer } } = await supabase.auth.getUser();
   const isSelf = viewer?.id === id;
@@ -67,7 +71,7 @@ export default async function PublicProfilePage({
             {initials || "?"}
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-bold">{display}</h1>
+            <h1 className="flex items-center gap-2 text-2xl font-bold">{display}{isPowerUser && <PowerUserBadge size="md" />}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
               {(profile.city || profile.state) && (
                 <span className="text-zinc-500">

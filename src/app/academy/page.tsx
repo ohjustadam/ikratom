@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { PowerUserBadge } from "@/components/PowerUserBadge";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -16,15 +17,19 @@ export default async function AcademyPage() {
   const { data: { user } } = await sb.auth.getUser();
 
   // RLS returns published content to everyone; drafts only to admins.
-  const [{ data: courses }, progressRes] = await Promise.all([
+  const [{ data: courses }, progressRes, certRes] = await Promise.all([
     sb.from("academy_courses")
       .select("id, slug, title, summary, status, ord, academy_modules(id, slug, title, summary, ord, status, academy_lessons(id, slug, title, ord, status))")
       .order("ord"),
     user
       ? sb.from("academy_progress").select("lesson_id").eq("user_id", user.id)
       : Promise.resolve({ data: [] as { lesson_id: string }[] }),
+    user
+      ? sb.from("academy_certifications").select("cert_code").eq("user_id", user.id).limit(1).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   const done = new Set((progressRes.data ?? []).map((p) => p.lesson_id));
+  const certCode = (certRes.data as { cert_code: string } | null)?.cert_code ?? null;
   const list = ((courses ?? []) as Course[]).filter((c) => c.academy_modules?.length);
 
   return (
@@ -35,6 +40,21 @@ export default async function AcademyPage() {
         A free, cited course on kratom &amp; 7-OH — the science, the law, and how to move a legislator.
         Finish lessons to earn points. Facts, not hype; never medical advice.
       </p>
+
+      {user && list.length > 0 && (
+        certCode ? (
+          <div className="mt-6 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-700/50 bg-emerald-950/20 p-4">
+            <PowerUserBadge size="md" />
+            <span className="text-sm font-semibold text-emerald-200">You&apos;re Academy-certified.</span>
+            <Link href={`/academy/certificate/${certCode}`} className="text-sm text-emerald-400 hover:underline">View certificate →</Link>
+          </div>
+        ) : (
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+            <span className="text-sm text-zinc-300">Studied the lessons? Pass the final exam to earn your certificate + the power-user checkmark.</span>
+            <Link href="/academy/exam" className="shrink-0 rounded-md bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500">Take the final exam →</Link>
+          </div>
+        )
+      )}
 
       {list.length === 0 ? (
         <p className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950/40 p-6 text-sm text-zinc-400">
