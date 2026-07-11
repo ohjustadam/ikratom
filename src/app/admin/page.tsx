@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCreatorContext, getAdminQueueCounts } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { siteConfig } from "@/config/site.config";
+import { WhosOnline } from "./WhosOnline";
 
 export const metadata = { title: "Admin" };
 // Owner directive 2026-05-14: 'the campaigns stats number is wrong, this
@@ -159,6 +160,9 @@ export default async function AdminPage() {
           </p>
         )}
       </header>
+
+      {/* Owner-only live presence */}
+      {ctx.isOwner && <WhosOnline />}
 
       {/* ── P0 Inbox + Emergency mode ────────────────────────────── */}
       {adminOnly && (inbox.length > 0 || true) && (
