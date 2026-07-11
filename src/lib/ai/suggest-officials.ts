@@ -17,6 +17,7 @@
 
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { resolveLegistarTenant, fetchLegistarRoster } from "@/lib/legistar-roster";
+import { classifyUsPlace } from "@/lib/place-classify";
 
 export type SuggestedOfficial = {
   full_name: string;
@@ -47,6 +48,13 @@ export type SuggestResult =
       /** When true the caller should NOT mark its work item terminally
        *  processed — it will likely succeed on a future retry (batch run). */
       transient?: boolean;
+      /** True when the locality is an unincorporated place (CDP / community)
+       *  with NO municipal government — this can NEVER resolve as municipal.
+       *  The caller should surface it as an informational dead-end, not a
+       *  retryable error. `parentAdmin` names the county/parish that IS the
+       *  local government (already covered at the county level). */
+      unincorporated?: boolean;
+      parentAdmin?: string | null;
     };
 
 /**
@@ -59,6 +67,11 @@ export async function suggestLocalOfficials(input: {
   state: string;
   /** Caller label for telemetry (e.g. "admin-inline-suggest"). */
   caller?: string;
+  /** Request level. When "municipal", an unincorporated place (CDP) is a
+   *  hard dead-end (no city government exists) — reported distinctly so the
+   *  UI stops telling the admin to "check back". County requests skip the
+   *  check (the county/parish IS the government). */
+  level?: "municipal" | "county";
 }): Promise<SuggestResult> {
   const city = input.city.trim();
   const state = input.state.trim().toUpperCase();
@@ -84,6 +97,23 @@ export async function suggestLocalOfficials(input: {
       }
     } catch {
       /* fall through to queued */
+    }
+  }
+
+  // Before punting to the batch: is this even a place with a city government?
+  // An unincorporated community / CDP (Poydras, LA) has none — the batch would
+  // churn `no-extract` forever. Authoritative keyless Wikidata check; only a
+  // CONFIDENT "unincorporated" short-circuits (unknown/error falls through).
+  if (input.level !== "county") {
+    const cls = await classifyUsPlace(state, city);
+    if (cls.kind === "unincorporated") {
+      return {
+        error: cls.parentAdmin
+          ? `${locality} is an unincorporated community — it has no city government of its own. Its local government is ${cls.parentAdmin}; look up coverage at the county level.`
+          : `${locality} is an unincorporated community (CDP) with no municipal government to resolve.`,
+        unincorporated: true,
+        parentAdmin: cls.parentAdmin ?? null,
+      };
     }
   }
 

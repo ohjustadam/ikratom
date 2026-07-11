@@ -110,10 +110,16 @@ for (const req of pending ?? []) {
       break;
     }
     if (res.reason === "unincorporated-cdp") {
-      // A Census-designated place has no municipal government to find —
-      // mark rejected so it stops being retried every night (like Elkhorn CDP).
-      console.log("  ⊘ unincorporated CDP (no local government) — marking rejected");
-      await sb.from("local_rep_requests").update({ status: "rejected", resolved_at: new Date().toISOString() })
+      // A Census-designated place / unincorporated community has no municipal
+      // government to find — its local government is the parent county/parish.
+      // Mark rejected (with a reason naming the parish, when known) so it stops
+      // being retried every night (like Elkhorn CDP / Poydras, LA).
+      const reason = res.parentAdmin
+        ? `Unincorporated community — no city government. Local government is ${res.parentAdmin}.`
+        : `Unincorporated community (CDP) — no municipal government to resolve.`;
+      console.log(`  ⊘ unincorporated (no local government) — marking rejected${res.parentAdmin ? ` → ${res.parentAdmin}` : ""}`);
+      await sb.from("local_rep_requests")
+        .update({ status: "rejected", resolved_at: new Date().toISOString(), reject_reason: reason.slice(0, 200) })
         .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");
       continue;
     }
