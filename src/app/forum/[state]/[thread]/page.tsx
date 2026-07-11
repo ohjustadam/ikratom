@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { publicHandle } from "@/lib/public-handle";
+import { PowerUserBadge } from "@/components/PowerUserBadge";
 import { createClient } from "@/lib/supabase/server";
 import { TAG_COLORS, TAG_LABELS, type ForumTag } from "@/modules/forum/types";
 import { ThreadView } from "./ThreadView";
@@ -77,6 +78,12 @@ export default async function ThreadPage({
   for (const r of (authorRows ?? []) as { id: string; username: string | null; state: string | null }[]) {
     authorNames[r.id] = publicHandle(r);
   }
+
+  // Academy-certified authors → checkmark (one batch call for everyone in the thread).
+  const { data: puRows } = idArr.length
+    ? await supabase.rpc("power_users", { p_ids: idArr })
+    : { data: [] as { id: string }[] };
+  const powerUsers = new Set(((puRows ?? []) as { id: string }[]).map((r) => r.id));
 
   // Current user info for actions
   const { data: { user } } = await supabase.auth.getUser();
@@ -166,8 +173,9 @@ export default async function ThreadPage({
         <h1 className="mt-3 text-2xl font-bold sm:text-3xl">{thread.title}</h1>
         <p className="mt-1 text-xs text-zinc-500">
           {thread.author_id ? (
-            <a href={`/profile/${thread.author_id}`} className="text-zinc-300 hover:text-emerald-400">
+            <a href={`/profile/${thread.author_id}`} className="inline-flex items-center gap-1 text-zinc-300 hover:text-emerald-400">
               {authorNames[thread.author_id] ?? "Member"}
+              {powerUsers.has(thread.author_id) && <PowerUserBadge />}
             </a>
           ) : (
             <span>Member</span>
