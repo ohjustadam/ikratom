@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { normalizeLocality } from "@/lib/locality";
+import { isValidCountyName } from "@/lib/county-name";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
@@ -134,6 +135,73 @@ export async function hasUserRequestedCoverage(input: {
     .limit(1);
 
   return !!(data && data.length > 0);
+}
+
+/**
+ * Pin a derived parent county/parish onto the current user's own profile.
+ *
+ * A resident of an unincorporated community / CDP (e.g. Poydras, LA) has NO
+ * municipal government — their local government is the parent county/parish
+ * (St. Bernard Parish). The Census geocoder only fills profiles.county from a
+ * full, resolvable street address, so a resident who signed up with just
+ * city+state has a null county and never matches the parish council that
+ * already represents them (getUserLegislators + /my-district key off county).
+ *
+ * The dashboard derives the parent admin from the keyless Wikidata classifier
+ * and offers this one-click adopt. Setting county here makes the parish council
+ * flow into EVERY rep surface exactly as a Census-derived county would — no new
+ * rendering, one source of truth. Self-service, own row only; we re-verify
+ * server-side that the county actually has coverage so a junk value can never
+ * be stored (never trust the client).
+ */
+export async function adoptDerivedCounty(input: {
+  state: string;
+  county: string;
+}): Promise<{ ok: true } | { error: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sign in." };
+
+  const stateRaw = input.state.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(stateRaw)) return { error: "Invalid state." };
+
+  const countyRaw = input.county.trim().replace(/\s+/g, " ");
+  if (!isValidCountyName(countyRaw)) return { error: "Invalid county." };
+
+  const countyCanonical = normalizeLocality(countyRaw, stateRaw);
+  if (!countyCanonical) return { error: "Invalid county." };
+
+  // Rate-limit the profile write (user-driven mutation).
+  const allowed = await checkRateLimit(`adopt-county:${user.id}`, 10, 3600);
+  if (!allowed) return { error: "Too many changes just now — try again shortly." };
+
+  // Never store a county we can't actually match: re-verify coverage exists.
+  // (head:true count on an existing table is a real integer; treat null — which
+  // would only happen on error — as 0 so we fail closed and don't write junk.)
+  const { count } = await supabase
+    .from("legislators")
+    .select("id", { count: "exact", head: true })
+    .eq("state", stateRaw)
+    .eq("active", true)
+    .eq("level", "county")
+    .eq("locality", countyCanonical);
+  if ((count ?? 0) === 0) {
+    return { error: "We don't have that county's officials yet." };
+  }
+
+  // Store the bare county name (Census convention — downstream re-appends the
+  // state via normalizeLocality).
+  const { error } = await supabase
+    .from("profiles")
+    .update({ county: countyRaw, updated_at: new Date().toISOString() })
+    .eq("id", user.id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/dashboard");
+  revalidatePath("/my-district");
+  return { ok: true };
 }
 
 // ============================================================
