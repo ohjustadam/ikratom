@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasUserRequestedCoverage } from "@/modules/local-reps/actions";
 import { normalizeLocality } from "@/lib/locality";
+import { classifyUsPlace } from "@/lib/place-classify";
 import { RequestCoverageButton } from "./RequestCoverageButton";
+import { ParishCoverageBanner, ParishRequestBanner } from "./ParishCoverageBanners";
 
 /**
  * Cockpit widget that surfaces "we don't have your local reps yet —
@@ -86,6 +88,51 @@ export async function RepCoverageWidget({
   if ((localCount ?? 0) > 0) {
     // Already covered — nothing to do.
     return null;
+  }
+
+  // Unincorporated-place path. A resident whose city is a CDP / unincorporated
+  // community (e.g. Poydras, LA) has NO municipal government — their local
+  // government is the parent county/parish. Offering a municipal "Request
+  // coverage" is a dead end (it auto-rejects, PR #806). We reach for this only
+  // when there's no county on file yet: the Census geocoder fills county from a
+  // full street address, so a resident with a county already gets matched
+  // above, and this stays off the hot path for everyone else. Keyless Wikidata,
+  // in-process cached; any "unknown" / network error falls through to the
+  // municipal flow below, so the worst case is the prior behavior.
+  if (!countyCanonical) {
+    const cls = await classifyUsPlace(userState, userCity);
+    if (cls.kind === "unincorporated" && cls.parentAdmin) {
+      const parishCanonical = normalizeLocality(cls.parentAdmin, userState);
+      if (parishCanonical) {
+        const { count: parishCount } = await supabase
+          .from("legislators")
+          .select("id", { count: "exact", head: true })
+          .eq("state", userState)
+          .eq("active", true)
+          .eq("level", "county")
+          .eq("locality", parishCanonical);
+
+        if ((parishCount ?? 0) > 0) {
+          return (
+            <ParishCoverageBanner state={userState} city={userCity} parish={cls.parentAdmin} />
+          );
+        }
+
+        const countyRequested = await hasUserRequestedCoverage({
+          locality: cls.parentAdmin,
+          state: userState,
+          level: "county",
+        });
+        return (
+          <ParishRequestBanner
+            state={userState}
+            city={userCity}
+            parish={cls.parentAdmin}
+            requested={countyRequested}
+          />
+        );
+      }
+    }
   }
 
   // Have we asked already?
