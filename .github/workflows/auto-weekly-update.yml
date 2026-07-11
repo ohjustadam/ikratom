@@ -1,0 +1,73 @@
+name: Weekly update auto-draft
+
+# Drafts a WEEKLY "what's new" digest (7-day lookback) and opens a PR for the
+# owner to CURATE — unlike the daily auto-patch-note (auto-patch-notes.yml),
+# this one does NOT auto-merge, because the weekly digest is the user-facing
+# newsletter the owner edits by impact before it goes out.
+#
+# IMPORTANT: this workflow sends NO notifications. It only writes a markdown
+# draft + opens a PR. The push broadcast is always a separate, manual step
+# (scripts/broadcast-whats-new.mjs) the owner fires after reviewing + merging —
+# never automated. See private/ACHIEVEMENTS_AND_ACADEMY_PLAN.md / the compose
+# work for why mass push stays manual.
+#
+# Schedule: Sunday 15:00 UTC (~10am ET) — after the Sunday state syncs, quiet
+# weekend window, fresh draft waiting Monday morning.
+
+on:
+  schedule:
+    - cron: "0 15 * * 0"
+  workflow_dispatch: {}
+
+concurrency:
+  group: auto-weekly-update
+  cancel-in-progress: false
+
+jobs:
+  draft-weekly-digest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history for the 7-day git-log lookback
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Generate weekly digest draft (last 7 days)
+        id: gen
+        run: |
+          node scripts/generate-patch-note.mjs --since "7 days ago"
+          NEW=$(git status --porcelain src/content/patch-notes/ | awk '/^\?\?/ {print $2}' | head -1)
+          if [ -z "$NEW" ]; then
+            echo "No new digest generated (no commits in last 7d, or file already exists)."
+            echo "should_pr=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Generated $NEW"
+          echo "patch_file=$NEW" >> "$GITHUB_OUTPUT"
+          echo "should_pr=true" >> "$GITHUB_OUTPUT"
+          TITLE=$(grep -m1 '^title:' "$NEW" | sed -E 's/title: "(.*)"/\1/')
+          echo "patch_title=$TITLE" >> "$GITHUB_OUTPUT"
+
+      - name: Open PR for owner review (NO auto-merge, NO send)
+        if: steps.gen.outputs.should_pr == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BR="auto-weekly-update-$(date -u +%Y%m%d)"
+          git config user.name "ikratom-bot"
+          git config user.email "noreply@ikratom.org"
+          git checkout -b "$BR"
+          git add "${{ steps.gen.outputs.patch_file }}"
+          git commit -m "docs(weekly): ${{ steps.gen.outputs.patch_title }} (auto-draft)"
+          git push -u origin "$BR"
+          gh pr create \
+            --title "docs(weekly): ${{ steps.gen.outputs.patch_title }} (curate before broadcast)" \
+            --body "Weekly digest auto-draft (last 7 days), markdown-only. **Curate the headlines by user impact, then merge.** After it deploys, fire the push manually: \`node --env-file=.env.local scripts/broadcast-whats-new.mjs --slug <slug> --all-users\` (dry-run first). This workflow sends nothing on its own. 🤖 .github/workflows/auto-weekly-update.yml" \
+            --label "patch-notes,weekly-digest"
+          echo "PR opened — left for owner review (not auto-merged)."
