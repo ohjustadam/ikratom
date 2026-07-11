@@ -68,8 +68,19 @@ export async function previewSuggestions(input: {
   const localityNorm = normalizeLocality(input.locality, stateRaw) ?? input.locality;
   const city = localityNorm.replace(/,\s*[A-Z]{2}$/, "");
 
-  const suggestion = await suggestLocalOfficials({ city, state: stateRaw, caller: "admin-inline-suggest" });
+  const suggestion = await suggestLocalOfficials({ city, state: stateRaw, level: input.level, caller: "admin-inline-suggest" });
   if ("error" in suggestion) {
+    // An unincorporated place (CDP) has NO city government — this can never
+    // resolve as municipal. Tell the truth (and where the reps actually are)
+    // instead of "check back shortly", which would loop forever.
+    if (suggestion.unincorporated) {
+      return {
+        ok: false,
+        error: suggestion.parentAdmin
+          ? `📍 ${localityNorm} is an unincorporated community — no city government of its own. Its local government is ${suggestion.parentAdmin}. Reject this municipal request; residents are covered at the county level.`
+          : `📍 ${localityNorm} is an unincorporated community (CDP) with no municipal government. Reject this municipal request.`,
+      };
+    }
     // De-Gemini'd: a Legistar miss returns a transient "queued for batch"
     // result. Surface it as an informational note, not a red error box.
     if (suggestion.transient) {

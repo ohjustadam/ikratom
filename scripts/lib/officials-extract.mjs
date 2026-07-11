@@ -25,6 +25,7 @@ import { searxngConfigured, searxngSearch } from "./searxng.mjs";
 import { reconcileLocality, STATE_NAMES, STATE_ABBRS } from "./geo-resolver.mjs";
 import { aiRouter } from "./ai-router.mjs";
 import { fetchPageText } from "./page-text.mjs";
+import { classifyUsPlace } from "./place-classify.mjs";
 
 const VALID_ROLES = new Set([
   "mayor", "city_council", "county_executive", "county_commissioner", "school_board", "other_local",
@@ -205,10 +206,22 @@ export async function findAndExtractOfficials({ sb, city, state, locality, level
   const cityName = city ?? loc.replace(/,\s*[A-Z]{2}$/i, "").trim();
   const lvl = level ?? (/\b(county|parish|borough)\b/i.test(loc) ? "county" : "municipal");
 
-  // Census-designated places are unincorporated — there IS no municipal
-  // government to find. Searching would surface some same-named real city
-  // (the Hamilton, MI → Hamilton, OH failure shape). Leave for a human.
-  if (/\bcdp\b/i.test(loc)) return { queued: true, reason: "unincorporated-cdp" };
+  // Census-designated places / unincorporated communities have NO municipal
+  // government to find — their local government is the parent county/parish.
+  // Searching would surface some same-named real city (the Hamilton, MI →
+  // Hamilton, OH failure shape) or just churn `no-extract` forever (the
+  // Poydras, LA case). Fast literal check first (free), then — for a MUNICIPAL
+  // request — an authoritative keyless Wikidata classify that catches CDPs even
+  // after normalizeLocality() strips the "CDP" suffix from the stored string.
+  // parentAdmin is passed back so the caller can tell residents where their
+  // reps actually live. `unknown`/error → fall through (never a false reject).
+  if (/\bcdp\b/i.test(loc)) return { queued: true, reason: "unincorporated-cdp", parentAdmin: null };
+  if (lvl === "municipal") {
+    const cls = await classifyUsPlace(state, cityName);
+    if (cls.kind === "unincorporated") {
+      return { queued: true, reason: "unincorporated-cdp", parentAdmin: cls.parentAdmin };
+    }
+  }
 
   // ---- Tier 1: Legistar (authoritative clerk roster, keyless) ----
   try {
