@@ -1,5 +1,5 @@
 -- ============================================================
--- 0243 — Engagement points (extends the 0236 achievement-points spine)
+-- 0245 — Engagement points (extends the 0236 achievement-points spine)
 -- ============================================================
 -- Owner ask (2026-07-11): award points for signing up, using features, and
 -- interacting with others / passing information along — not just advocacy
