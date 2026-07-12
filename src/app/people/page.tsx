@@ -3,8 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { PeopleBrowser } from "./PeopleBrowser";
 
 export const metadata = {
-  title: "People of interest — every named opponent, ally, expert, and journalist tracked across kratom policy",
-  description: "Browseable directory of every stakeholder we've editorial-curated across active kratom bills. Filter by role, state, or search by name.",
+  title: "People of interest — documented positions of every named figure across kratom policy",
+  description: "Browseable directory of named figures across kratom bills, with each one's documented position on natural leaf and on 7-OH (with sources). Filter by role, state, or search by name.",
 };
 export const dynamic = "force-dynamic";
 
@@ -33,6 +33,11 @@ type Row = {
   organization: string | null;
   role_type: string;
   reasoning: string;
+  leaf_stance: string | null;
+  seven_oh_stance: string | null;
+  leaf_evidence_url: string | null;
+  seven_oh_evidence_url: string | null;
+  stance_summary: string | null;
   email: string | null;
   phone: string | null;
   website: string | null;
@@ -54,6 +59,7 @@ export default async function PeoplePage() {
     .from("bill_stakeholders")
     .select(`
       id, name, title, organization, role_type, reasoning,
+      leaf_stance, seven_oh_stance, leaf_evidence_url, seven_oh_evidence_url, stance_summary,
       email, phone, website, twitter_handle, linkedin_url, bill_id,
       bill:bills (state, bill_number, title, status, kratom_relevance)
     `)
@@ -72,7 +78,7 @@ export default async function PeoplePage() {
           Every named stakeholder in the kratom-policy fight.
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-zinc-400">
-          Editorial-curated directory of allies (legislators most likely to carry KCPA), opponents (sponsors of restrictive bills + state agencies pushing schedule decisions), experts (academic + medical voices), journalists (covering the policy beat), and affected business owners. All extracted from per-bill research, aggregated here so you can browse the whole map at once.
+          A neutral directory of named figures in kratom policy — legislators, officials, experts, journalists, and affected business owners. For each, we track their <strong className="text-zinc-200">documented position</strong> on two separate axes — the natural leaf, and concentrated 7-OH — with sources. We show where people stand; we don&apos;t label them &quot;ally&quot; or &quot;opponent.&quot; A figure can back the leaf and still split on 7-OH.
         </p>
         <p className="mt-3 max-w-3xl text-[11px] text-zinc-500">
           {rows.length} {rows.length === 1 ? "person" : "people"} tracked across {new Set(rows.map(r => r.bill?.state).filter(Boolean)).size} states.{" "}
@@ -85,7 +91,7 @@ export default async function PeoplePage() {
       <footer className="mt-10 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-[11px] text-zinc-400">
         <p>
           <strong className="text-zinc-200">How this directory grows.</strong>{" "}
-          Each time we curate takeback intel for a banning state or research a moving bill, we add the named stakeholders to bill_stakeholders with role_type + reasoning. Going forward: every editorial pass through a state should leave the directory richer. Allies get pinged when their bill moves; opponents get tracked across the bills they sponsor.
+          Each time we research a banning state or a moving bill, we add the named figures with their documented position on the leaf and on 7-OH, plus sources. Every editorial pass through a state should leave the directory richer and better-sourced. Positions are stated as facts, with links — spot something wrong? Use the intel-tip form on any bill page.
         </p>
       </footer>
     </div>

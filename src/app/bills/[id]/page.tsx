@@ -25,6 +25,7 @@ import { mdToPlainText } from "@/lib/markdown";
 import { AudioReader } from "@/components/AudioReader";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { StanceChips, roleMeta, orderedDisplayRoles, displayRole, type StanceValue } from "@/lib/stakeholder-stance";
 
 // Force dynamic so a bill that just synced doesn't get cached for hours
 export const dynamic = "force-dynamic";
@@ -192,9 +193,9 @@ export default async function BillDetailPage({
   }
 
   // Bill stakeholders — people of interest beyond gov officials.
-  // Editorial-curated allies, experts, journalists, opponents,
-  // affected business owners. Defensive so pre-migration falls
-  // through to empty.
+  // Neutral tracker (mig 0243): each figure's documented position on the
+  // natural leaf and on 7-OH, with evidence — never an ally/opponent verdict.
+  // Defensive so a pre-migration deploy falls through to empty.
   type StakeholderRow = {
     id: string;
     name: string;
@@ -202,6 +203,11 @@ export default async function BillDetailPage({
     organization: string | null;
     role_type: string;
     reasoning: string;
+    leaf_stance: string | null;
+    seven_oh_stance: string | null;
+    leaf_evidence_url: string | null;
+    seven_oh_evidence_url: string | null;
+    stance_summary: string | null;
     email: string | null;
     phone: string | null;
     website: string | null;
@@ -212,7 +218,7 @@ export default async function BillDetailPage({
   try {
     const { data } = await supabase
       .from("bill_stakeholders")
-      .select("id, name, title, organization, role_type, reasoning, email, phone, website, twitter_handle, linkedin_url")
+      .select("id, name, title, organization, role_type, reasoning, leaf_stance, seven_oh_stance, leaf_evidence_url, seven_oh_evidence_url, stance_summary, email, phone, website, twitter_handle, linkedin_url")
       .eq("bill_id", id)
       .order("role_type", { ascending: true });
     stakeholders = (data ?? []) as StakeholderRow[];
@@ -2113,24 +2119,17 @@ export default async function BillDetailPage({
         </section>
       )}
 
-      {/* People of interest (bill_stakeholders) — allies, experts,
-          journalists, opponents, affected business owners. Editorial
-          curation. Surfaces grouped by role_type. */}
+      {/* People of interest (bill_stakeholders) — NEUTRAL TRACKER (mig 0243).
+          Each figure's documented position on the natural leaf and on 7-OH,
+          with evidence. No ally/opponent verdict; grouped by neutral role. */}
       {stakeholders.length > 0 && (() => {
-        const ROLE_META: Record<string, { emoji: string; label: string; tone: string }> = {
-          ally: { emoji: "🤝", label: "Allies", tone: "border-emerald-700/40 bg-emerald-950/15" },
-          expert: { emoji: "🎓", label: "Subject-matter experts", tone: "border-sky-700/40 bg-sky-950/15" },
-          journalist: { emoji: "📰", label: "Journalists / outlets", tone: "border-amber-700/40 bg-amber-950/15" },
-          opponent: { emoji: "⚠", label: "Opponents to track", tone: "border-red-700/40 bg-red-950/15" },
-          affected: { emoji: "🏪", label: "Affected business / community", tone: "border-violet-700/40 bg-violet-950/15" },
-          community: { emoji: "🌐", label: "Community + harm-reduction", tone: "border-teal-700/40 bg-teal-950/15" },
-        };
         const grouped = new Map<string, StakeholderRow[]>();
         for (const s of stakeholders) {
-          if (!grouped.has(s.role_type)) grouped.set(s.role_type, []);
-          grouped.get(s.role_type)!.push(s);
+          const dr = displayRole(s.role_type);
+          if (!grouped.has(dr)) grouped.set(dr, []);
+          grouped.get(dr)!.push(s);
         }
-        const order = ["ally", "expert", "affected", "community", "journalist", "opponent"];
+        const order = orderedDisplayRoles(stakeholders.map(s => s.role_type));
         return (
           <section className="mb-6 rounded-lg border border-violet-700/30 bg-zinc-950/40 p-5">
             <div className="flex items-baseline justify-between gap-2">
@@ -2145,16 +2144,16 @@ export default async function BillDetailPage({
               />
             </div>
             <p className="mt-1 text-[11px] text-zinc-500">
-              Allies, experts, journalists, affected business owners, and opponents to track — beyond the sponsors above. Editorial-curated; submit local intel with the button above to grow this list.
+              Named figures tied to this bill, with each one&apos;s <strong className="text-zinc-300">documented position</strong> on the natural leaf and on 7-OH (two separate axes, with sources). We state where people stand as fact — not as &quot;ally&quot; or &quot;opponent.&quot; Submit intel with the button above to grow this list.
             </p>
             <div className="mt-4 space-y-3">
               {order.flatMap(role => {
                 const rows = grouped.get(role) ?? [];
                 if (rows.length === 0) return [];
-                const meta = ROLE_META[role] ?? { emoji: "·", label: role, tone: "border-zinc-700 bg-zinc-950/40" };
+                const meta = roleMeta(role);
                 return [(
-                  <div key={role} className={`rounded-md border p-3 ${meta.tone}`}>
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-200">
+                  <div key={role} className={`rounded-md border p-3 ${meta.cls}`}>
+                    <p className={`mb-2 text-[11px] font-semibold uppercase tracking-wider ${meta.valueCls}`}>
                       {meta.emoji} {meta.label} ({rows.length})
                     </p>
                     <ul className="space-y-2">
@@ -2166,6 +2165,13 @@ export default async function BillDetailPage({
                               {s.title}{s.title && s.organization ? " · " : ""}{s.organization}
                             </p>
                           )}
+                          <StanceChips
+                            leafStance={s.leaf_stance as StanceValue}
+                            sevenOhStance={s.seven_oh_stance as StanceValue}
+                            leafUrl={s.leaf_evidence_url}
+                            sevenOhUrl={s.seven_oh_evidence_url}
+                            summary={s.stance_summary}
+                          />
                           <p className="mt-1 text-[11px] leading-snug text-zinc-300">{s.reasoning}</p>
                           {(s.email || s.phone || s.website || s.twitter_handle || s.linkedin_url) && (
                             <p className="mt-1 flex flex-wrap gap-2 text-[10px]">

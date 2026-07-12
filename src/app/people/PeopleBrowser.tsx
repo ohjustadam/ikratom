@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { StanceChips, roleMeta, displayRole, orderedDisplayRoles, type StanceValue } from "@/lib/stakeholder-stance";
 
 type Row = {
   id: string;
@@ -11,6 +12,11 @@ type Row = {
   organization: string | null;
   role_type: string;
   reasoning: string;
+  leaf_stance: string | null;
+  seven_oh_stance: string | null;
+  leaf_evidence_url: string | null;
+  seven_oh_evidence_url: string | null;
+  stance_summary: string | null;
   email: string | null;
   phone: string | null;
   website: string | null;
@@ -26,42 +32,49 @@ type Row = {
   } | null;
 };
 
-const ROLE_META: Record<string, { emoji: string; label: string; cls: string; valueCls: string }> = {
-  ally:       { emoji: "🤝", label: "Allies",                    cls: "border-emerald-700/40 bg-emerald-950/15", valueCls: "text-emerald-300" },
-  expert:     { emoji: "🎓", label: "Experts",                   cls: "border-sky-700/40 bg-sky-950/15",         valueCls: "text-sky-300" },
-  journalist: { emoji: "📰", label: "Journalists",               cls: "border-amber-700/40 bg-amber-950/15",     valueCls: "text-amber-300" },
-  opponent:   { emoji: "⚠",  label: "Opponents",                 cls: "border-red-700/40 bg-red-950/15",         valueCls: "text-red-300" },
-  affected:   { emoji: "🏪", label: "Affected business",         cls: "border-violet-700/40 bg-violet-950/15",   valueCls: "text-violet-300" },
-  community:  { emoji: "🌐", label: "Community / harm-reduction", cls: "border-teal-700/40 bg-teal-950/15",       valueCls: "text-teal-300" },
-};
+// Neutral stance filters (facts, not ally/opponent). Value = "axis:stance".
+const STANCE_FILTERS: { value: string; label: string }[] = [
+  { value: "leaf:supportive", label: "🌿 Supports leaf" },
+  { value: "leaf:restrictive", label: "🌿 Restricts leaf" },
+  { value: "seven_oh:supportive", label: "⚗️ Supports 7-OH" },
+  { value: "seven_oh:restrictive", label: "⚗️ Restricts 7-OH" },
+];
 
 export function PeopleBrowser({ rows }: { rows: Row[] }) {
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [stateFilter, setStateFilter] = useState<string>("all");
+  const [stanceFilter, setStanceFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
 
   const statesPresent = useMemo(() => {
     return Array.from(new Set(rows.map(r => r.bill?.state).filter(Boolean) as string[])).sort();
   }, [rows]);
 
+  // Count by NEUTRAL display role (ally/opponent collapse into "policy").
+  const rolesPresent = useMemo(() => orderedDisplayRoles(rows.map(r => r.role_type)), [rows]);
   const roleCounts = useMemo(() => {
     const c: Record<string, number> = { all: rows.length };
-    for (const r of rows) c[r.role_type] = (c[r.role_type] ?? 0) + 1;
+    for (const r of rows) { const dr = displayRole(r.role_type); c[dr] = (c[dr] ?? 0) + 1; }
     return c;
   }, [rows]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const [stanceAxis, stanceVal] = stanceFilter !== "all" ? stanceFilter.split(":") : [null, null];
     return rows.filter(r => {
-      if (roleFilter !== "all" && r.role_type !== roleFilter) return false;
+      if (roleFilter !== "all" && displayRole(r.role_type) !== roleFilter) return false;
       if (stateFilter !== "all" && r.bill?.state !== stateFilter) return false;
+      if (stanceAxis) {
+        const v = stanceAxis === "leaf" ? r.leaf_stance : r.seven_oh_stance;
+        if (v !== stanceVal) return false;
+      }
       if (q) {
-        const hay = `${r.name} ${r.title ?? ""} ${r.organization ?? ""} ${r.reasoning ?? ""}`.toLowerCase();
+        const hay = `${r.name} ${r.title ?? ""} ${r.organization ?? ""} ${r.reasoning ?? ""} ${r.stance_summary ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [rows, roleFilter, stateFilter, query]);
+  }, [rows, roleFilter, stateFilter, stanceFilter, query]);
 
   return (
     <div>
@@ -84,16 +97,26 @@ export function PeopleBrowser({ rows }: { rows: Row[] }) {
           <option value="all">All states ({statesPresent.length})</option>
           {statesPresent.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
+        <select
+          value={stanceFilter}
+          onChange={(e) => setStanceFilter(e.target.value)}
+          className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+          aria-label="Filter by documented position"
+        >
+          <option value="all">Any position</option>
+          {STANCE_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+        </select>
       </div>
 
-      {/* Role chips */}
+      {/* Role chips — neutral functions only (ally/opponent collapse to "Policy figure") */}
       <div className="mb-6 flex flex-wrap gap-2 text-xs">
         <Chip active={roleFilter === "all"} onClick={() => setRoleFilter("all")} count={roleCounts.all}>
           All
         </Chip>
-        {Object.entries(ROLE_META).map(([role, meta]) => {
+        {rolesPresent.map((role) => {
           const n = roleCounts[role] ?? 0;
           if (n === 0) return null;
+          const meta = roleMeta(role);
           return (
             <Chip
               key={role}
@@ -119,7 +142,7 @@ export function PeopleBrowser({ rows }: { rows: Row[] }) {
       ) : (
         <ul className="space-y-3">
           {filtered.map(r => {
-            const meta = ROLE_META[r.role_type] ?? { emoji: "·", label: r.role_type, cls: "border-zinc-700 bg-zinc-950/40", valueCls: "text-zinc-300" };
+            const meta = roleMeta(r.role_type);
             return (
               <li key={r.id} className={`rounded-md border p-4 ${meta.cls}`}>
                 <div className="flex flex-wrap items-baseline gap-2">
@@ -141,7 +164,15 @@ export function PeopleBrowser({ rows }: { rows: Row[] }) {
                     {r.title}{r.title && r.organization ? " · " : ""}{r.organization}
                   </p>
                 )}
-                <p className="mt-2 text-[12px] leading-relaxed text-zinc-300">{r.reasoning}</p>
+                <StanceChips
+                  leafStance={r.leaf_stance as StanceValue}
+                  sevenOhStance={r.seven_oh_stance as StanceValue}
+                  leafUrl={r.leaf_evidence_url}
+                  sevenOhUrl={r.seven_oh_evidence_url}
+                  summary={r.stance_summary}
+                />
+                <p className="mt-2 text-[11px] uppercase tracking-wider text-zinc-500">Why they&apos;re relevant</p>
+                <p className="text-[12px] leading-relaxed text-zinc-300">{r.reasoning}</p>
                 {(r.email || r.phone || r.website || r.twitter_handle || r.linkedin_url) && (
                   <p className="mt-2 flex flex-wrap gap-3 text-[11px]">
                     {(r.email || r.website) && (
