@@ -35,6 +35,38 @@ html[data-theme="light"] {
   --color-zinc-800: #e4e4e7;
   --color-zinc-900: #f4f4f5;
   --color-zinc-950: #fafafa;
+
+  /*
+   * Readability fix (owner: "some words and titles are hard to read" in day
+   * mode). The zinc remap above flips neutrals, but every ACCENT/semantic
+   * family stayed frozen at its dark-mode value — and the light tints
+   * (-200/-300/-400) are used all over as TEXT (eyebrows, colored headings,
+   * chip labels, links). Light-green text on a white page is ~1.5-2:1 — well
+   * below WCAG AA. We darken ONLY the tint tiers that get used as text; the
+   * 500-950 shades (buttons, borders, faint bg washes) stay put so fills and
+   * primary buttons are unchanged. emerald-700 (#047857) on #fafafa = 5.3:1.
+   * NOTE: named-accent presets + custom Theme Studio remap the emerald ramp
+   * for their own hue; their light-mode text tiers are darkened in the
+   * per-accent blocks below and by the theme-aware ramp math in the runtime.
+   */
+  --color-emerald-200: #047857;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-red-200: #b91c1c;
+  --color-red-300: #dc2626;
+  --color-red-400: #dc2626;
+  --color-amber-200: #b45309;
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-purple-200: #7e22ce;
+  --color-purple-300: #7e22ce;
+  --color-sky-200: #0369a1;
+  --color-sky-300: #0369a1;
+  --color-orange-300: #c2410c;
+
+  /* The "faint" muted tier (zinc-600) was #a1a1aa ≈ 2.5:1 as text on white.
+     Nudge it a touch darker for legibility without turning borders heavy. */
+  --color-zinc-600: #8f8f98;
 }
 
 @theme inline {
@@ -67,6 +99,10 @@ html[data-theme="light"] .md-content blockquote {
   color: #52525b;
 }
 html[data-theme="light"] .md-content hr { border-top-color: rgba(0, 0, 0, 0.12); }
+/* Link color was the one .md-content rule missing a light override — the
+   dark #34d399 link read as pale green on white in forum/library markdown. */
+html[data-theme="light"] .md-content a { color: #047857; }
+html[data-theme="light"] .md-content a:hover { color: #059669; }
 
 html[data-theme="light"] .briefing-md p,
 html[data-theme="light"] .briefing-md li,
@@ -434,6 +470,27 @@ html[data-accent="rose"] {
   --color-emerald-300: #fda4af; --color-emerald-400: #fb7185; --color-emerald-500: #f43f5e;
   --color-emerald-600: #e11d48; --color-emerald-700: #be123d; --color-emerald-800: #9f1239;
   --color-emerald-900: #881337; --color-emerald-950: #4c0519;
+}
+
+/*
+ * Light-mode readability for the named accent presets. Each preset above
+ * remaps the whole emerald ramp to its hue; in light mode the -200/-300/-400
+ * tiers (used as TEXT) are then too pale on white — same problem the default
+ * emerald block fixes. These 3-attribute selectors (theme+accent) out-specify
+ * both the preset block and the light block, so they win in either source
+ * order and darken just the text tiers. Fills/buttons (500-950) untouched.
+ */
+html[data-theme="light"][data-accent="blue"] {
+  --color-emerald-200: #1d4ed8; --color-emerald-300: #1d4ed8; --color-emerald-400: #2563eb;
+}
+html[data-theme="light"][data-accent="violet"] {
+  --color-emerald-200: #6d28d9; --color-emerald-300: #6d28d9; --color-emerald-400: #7c3aed;
+}
+html[data-theme="light"][data-accent="amber"] {
+  --color-emerald-200: #b45309; --color-emerald-300: #b45309; --color-emerald-400: #d97706;
+}
+html[data-theme="light"][data-accent="rose"] {
+  --color-emerald-200: #be123d; --color-emerald-300: #be123d; --color-emerald-400: #e11d48;
 }
 
 /*
