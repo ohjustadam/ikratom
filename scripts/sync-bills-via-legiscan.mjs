@@ -106,6 +106,30 @@ async function legiscanFetch(op, params) {
   return data;
 }
 
+/** Pull 4-digit years out of a stored session label ("2019-2020", "2023",
+ *  "2017 Regular Session", even garbage like "1841"). */
+function sessionYearsFromLabel(s) {
+  const m = String(s ?? "").match(/(?:19|20)\d{2}/g);
+  return m ? m.map(Number) : null;
+}
+
+/**
+ * True when the LegiScan-resolved bill clearly belongs to a DIFFERENT
+ * legislative session than the stored row. LegiScan search matches by
+ * bill_number only, so "SB 433" can resolve to the CURRENT session's bill even
+ * when this row is an old session — the Frankenstein-record bug (MI SB 433: a
+ * 2019-2020 kratom row got 2025-2026 THC school-bill text + actions stapled on).
+ * Precision over recall: when either side is unparseable we return false (don't
+ * block a legitimate update).
+ */
+function isSessionMismatch(storedSessionId, detailSession) {
+  const stored = sessionYearsFromLabel(storedSessionId);
+  const dy = Number(detailSession?.year_start ?? detailSession?.year_end ?? 0);
+  if (!stored || !dy) return false;
+  if (stored.includes(dy)) return false;
+  return Math.abs(dy - Math.max(...stored)) > 1;
+}
+
 async function findLegiScanId(bill) {
   // Use search to find bill by state + bill_number. LegiScan's search
   // is keyword-based; "state=TN bill_number=SB1656" works because
@@ -160,6 +184,19 @@ async function syncOne(bill) {
   }
   if (!detail) {
     console.log("  ⏭  no bill detail returned");
+    return "skip";
+  }
+
+  // GUARD: never staple a DIFFERENT session's actions/text onto this row.
+  // (See isSessionMismatch — this is the fix for the MI SB 433 Frankenstein
+  // record.) If the resolved bill is a different biennium than the stored
+  // session_id, skip the merge entirely rather than corrupt the record.
+  if (isSessionMismatch(bill.session_id, detail.session)) {
+    console.log(
+      `  ⚠ SESSION MISMATCH — stored '${bill.session_id}' vs LegiScan ` +
+      `${detail.session?.year_start}-${detail.session?.year_end} (${detail.session?.session_name ?? "?"}); ` +
+      `skipping merge to avoid a Frankenstein record`,
+    );
     return "skip";
   }
 
