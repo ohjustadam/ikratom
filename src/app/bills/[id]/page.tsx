@@ -942,7 +942,7 @@ export default async function BillDetailPage({
       {bill.kratom_relevance === "anti"
         && (bill.scope === "county" || bill.scope === "municipal")
         && (bill.status === "committee" || bill.status === "introduced") && (
-        <section className="mb-6 rounded-lg border-2 border-red-600/60 bg-red-950/25 p-5">
+        <section className="mb-6 rounded-xl border-2 border-red-600/60 bg-red-950/25 p-5">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-300">⚠ Active battle</p>
           <h2 className="mt-1 text-lg font-bold text-zinc-100">
             {bill.locality ?? bill.state} kratom ban — fight is ongoing
@@ -988,7 +988,7 @@ export default async function BillDetailPage({
           adjacent. Only fires when at least one column is populated, which is
           by-design only for the 7 banning states + imminent TN. */}
       {(bill.opposition_summary_md || bill.repeal_plan_md) && (
-        <details open className="group mb-6 rounded-lg border-2 border-amber-700/40 bg-gradient-to-br from-zinc-950/60 to-amber-950/15 p-5">
+        <details open className="group mb-6 rounded-xl border-2 border-amber-700/40 bg-gradient-to-br from-zinc-950/60 to-amber-950/15 p-5">
           <summary className="flex cursor-pointer list-none flex-wrap items-baseline gap-2 [&::-webkit-details-marker]:hidden">
             <span className="inline-block text-[10px] text-amber-300/70 transition-transform group-open:rotate-90">▸</span>
             <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-300">
@@ -1060,7 +1060,7 @@ export default async function BillDetailPage({
 
       {/* Stale warning — most important for SB-1639-style problems */}
       {isStale && (
-        <div className="mb-6 rounded-lg border border-amber-700/50 bg-amber-950/20 p-4 text-sm">
+        <div className="mb-6 rounded-xl border border-amber-700/50 bg-amber-950/20 p-4 text-sm">
           <p className="font-semibold text-amber-300">
             ⚠ This bill appears to be from a closed legislative session
           </p>
@@ -1102,7 +1102,7 @@ export default async function BillDetailPage({
           before any prose. Five fixed substance classes ensure the
           rendering is consistent across every bill. */}
       {bill.substance_targeting && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
               Substance impact
@@ -1167,7 +1167,7 @@ export default async function BillDetailPage({
           once, show the full trajectory (introduced → each amendment →
           current state → cumulative impact). */}
       {bill.journey_narrative && (bill.amendments_count ?? 0) >= 2 && (
-        <details open className="group mb-6 rounded-lg border border-emerald-900/40 bg-gradient-to-br from-zinc-950/40 to-emerald-950/10 p-5">
+        <details open className="group mb-6 rounded-xl border border-emerald-900/40 bg-gradient-to-br from-zinc-950/40 to-emerald-950/10 p-5">
           <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 [&::-webkit-details-marker]:hidden">
             <span className="inline-block text-[10px] text-emerald-300/70 transition-transform group-open:rotate-90">▸</span>
             <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
@@ -1211,7 +1211,7 @@ export default async function BillDetailPage({
           present, this REPLACES the 2-sentence summary_ai because it
           covers everything the short version did and more. */}
       {bill.summary_long ? (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
               Briefing
@@ -1244,7 +1244,7 @@ export default async function BillDetailPage({
           )}
         </section>
       ) : bill.summary_ai && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
               Plain English
@@ -1287,7 +1287,7 @@ export default async function BillDetailPage({
 
       {/* Linked campaigns */}
       {campaigns.length > 0 && campaigns.some((c) => c.active) && (
-        <section className="mb-6 rounded-lg border-2 border-emerald-700/50 bg-gradient-to-br from-emerald-950/30 to-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border-2 border-emerald-700/50 bg-gradient-to-br from-emerald-950/30 to-zinc-950/40 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
             Take action
           </h2>
@@ -1322,7 +1322,7 @@ export default async function BillDetailPage({
           Gmail/Outlook/mail app. Recipients are always populated (fixes the
           empty-"To" the old alert-response panel produced on bill pages). */}
       {officialGroups && (officialGroups.groups.length > 0 || officialGroups.needsProfile) && (
-        <section id="email-officials" className="mb-6 rounded-lg border-2 border-emerald-700/50 bg-gradient-to-br from-emerald-950/25 to-zinc-950/40 p-5">
+        <section id="email-officials" className="mb-6 rounded-xl border-2 border-emerald-700/50 bg-gradient-to-br from-emerald-950/25 to-zinc-950/40 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
             ✉ Email your officials about this bill
           </h2>
@@ -1346,7 +1346,7 @@ export default async function BillDetailPage({
           the working, recipient-populated send. DraftResponsePanel still lives
           on /alerts/[id] for genuine regulatory public-comment.) */}
       {(billAlerts.length > 0 || bill.active === true) && (
-        <section id="draft-response" className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section id="draft-response" className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
             📡 Alerts &amp; your response
           </h2>
@@ -1389,7 +1389,7 @@ export default async function BillDetailPage({
 
       {/* Inactive linked campaigns (legacy, for transparency) */}
       {campaigns.some((c) => !c.active) && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <details>
             <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
               Past campaigns for this bill (inactive) ▾
@@ -1412,7 +1412,7 @@ export default async function BillDetailPage({
 
       {/* OpenStates abstracts (additional summaries) */}
       {detail && detail.abstracts.length > 0 && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <details open>
             <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
               Official abstracts
@@ -1433,7 +1433,7 @@ export default async function BillDetailPage({
 
       {/* DB raw summary (fallback if no live detail abstracts) */}
       {!detail?.abstracts?.length && bill.summary && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <details open>
             <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
               Official abstract
@@ -1444,7 +1444,7 @@ export default async function BillDetailPage({
       )}
 
       {/* Official versions + sources (slim — patterns/momentum stay below) */}
-      <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+      <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
         <details open>
           <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
             Official bill versions &amp; sources
@@ -1495,7 +1495,7 @@ export default async function BillDetailPage({
           variant or a 7-OH ban, the top match is usually the bill it
           was templated from. Cosine similarity ≥ 0.7 filter, top 5. */}
       {similarBills.length > 0 && (
-        <section className="mb-6 rounded-lg border border-violet-500/30 bg-violet-950/10 p-5">
+        <section className="mb-6 rounded-xl border border-violet-500/30 bg-violet-950/10 p-5">
           <h2 className="mb-2 flex flex-wrap items-baseline gap-2 text-sm font-semibold uppercase tracking-wider text-violet-300">
             🔗 Similar bills in other states
             <span className="text-[10px] font-normal text-zinc-500">
@@ -1590,7 +1590,7 @@ export default async function BillDetailPage({
           collapse into a single entry. Tells the bill's story
           chronologically. */}
       {newsCoverage.length > 0 && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
               📰 News coverage · {newsCoverage.length}
@@ -1641,7 +1641,7 @@ export default async function BillDetailPage({
           /bills/<id>. Falls back to "start the discussion" when no thread
           exists yet. */}
       {forumThread ? (
-        <section className="mb-6 rounded-lg border border-sky-700/40 bg-sky-950/15 p-4">
+        <section className="mb-6 rounded-xl border border-sky-700/40 bg-sky-950/15 p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-sky-300">
               💬 Community discussion
@@ -1665,7 +1665,7 @@ export default async function BillDetailPage({
           </p>
         </section>
       ) : (bill.kratom_relevance === "anti" || bill.kratom_relevance === "pro") && bill.scope === "state" && bill.state && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
             💬 Community discussion
           </h2>
@@ -1682,7 +1682,7 @@ export default async function BillDetailPage({
       )}
 
       {/* Patterns + momentum (versions/sources moved above full text) */}
-      <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+      <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
           Patterns &amp; momentum
         </h2>
@@ -1857,7 +1857,7 @@ export default async function BillDetailPage({
                 const name = s.legislator?.full_name ?? s.name;
                 const party = s.party ?? s.legislator?.party ?? null;
                 const card = (
-                  <span className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
+                  <span className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${
                     isPrimary ? "border-amber-700/50 bg-amber-950/20" : "border-zinc-800 bg-zinc-950/40"
                   }`}>
                     <OfficialAvatar name={name} portraitUrl={s.legislator?.portrait_url} size="md" />
@@ -2097,7 +2097,7 @@ export default async function BillDetailPage({
 
       {/* Sponsors */}
       {detail?.sponsorships && detail.sponsorships.length > 0 && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Sponsors
           </h2>
@@ -2132,7 +2132,7 @@ export default async function BillDetailPage({
         }
         const order = ["ally", "expert", "affected", "community", "journalist", "opponent"];
         return (
-          <section className="mb-6 rounded-lg border border-violet-700/30 bg-zinc-950/40 p-5">
+          <section className="mb-6 rounded-xl border border-violet-700/30 bg-zinc-950/40 p-5">
             <div className="flex items-baseline justify-between gap-2">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-violet-300">
                 People of interest ({stakeholders.length})
@@ -2194,7 +2194,7 @@ export default async function BillDetailPage({
 
       {/* Action history */}
       {detail?.actions && detail.actions.length > 0 && (
-        <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Action history
           </h2>
