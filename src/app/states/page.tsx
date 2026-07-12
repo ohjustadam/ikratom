@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { Reveal } from "@/components/motion/Reveal";
 
 export const metadata = {
   title: "All 50 states · iKratom",
@@ -107,7 +108,7 @@ export default async function StatesIndexPage() {
       </header>
 
       {hot.length > 0 && (
-        <section className="mb-6">
+        <Reveal as="section" className="mb-6">
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-300">
             Active right now · {hot.length} state{hot.length === 1 ? "" : "s"}
           </h2>
@@ -119,7 +120,7 @@ export default async function StatesIndexPage() {
                 <Link
                   key={code}
                   href={`/states/${code}`}
-                  className="rounded-md border border-emerald-700/30 bg-emerald-950/10 p-3 hover:border-emerald-500"
+                  className="ik-lift block rounded-xl border border-emerald-700/30 bg-emerald-950/10 p-3 hover:border-emerald-500"
                 >
                   <div className="flex items-baseline justify-between">
                     <p className="font-mono text-lg font-bold text-zinc-100">{code}</p>
@@ -135,11 +136,11 @@ export default async function StatesIndexPage() {
               );
             })}
           </div>
-        </section>
+        </Reveal>
       )}
 
       {cool.length > 0 && (
-        <section>
+        <Reveal as="section">
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Quiet right now · {cool.length} state{cool.length === 1 ? "" : "s"}
           </h2>
@@ -148,14 +149,14 @@ export default async function StatesIndexPage() {
               <Link
                 key={code}
                 href={`/states/${code}`}
-                className="rounded-md border border-zinc-800 bg-zinc-950/40 p-2 hover:border-zinc-600"
+                className="ik-lift block rounded-lg border border-zinc-800 bg-zinc-950/40 p-2 hover:border-zinc-600"
               >
                 <p className="font-mono text-sm font-bold text-zinc-300">{code}</p>
                 <p className="text-[10px] text-zinc-600">{STATE_NAMES[code]}</p>
               </Link>
             ))}
           </div>
-        </section>
+        </Reveal>
       )}
     </div>
   );
