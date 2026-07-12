@@ -52,8 +52,9 @@ export default async function MfaLoginPage({
         </div>
 
         <p className="mt-6 text-center text-xs text-zinc-500">
-          Lost your authenticator? Contact the platform owner — they can clear your
-          2FA factor from the admin console so you can re-enroll.
+          Locked out? Use a backup code or recover by email from the options above.
+          If none of those work, the platform owner can clear your 2FA factor from
+          the admin console so you can re-enroll.
         </p>
       </div>
     </div>

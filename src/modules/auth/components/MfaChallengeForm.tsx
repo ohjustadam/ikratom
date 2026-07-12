@@ -3,9 +3,10 @@
 import { useState, useTransition } from "react";
 import { challengeAndVerify } from "../actions-mfa";
 import { verifyBackupCode } from "../actions-backup-codes";
+import { requestMfaEmailRecovery } from "../actions-mfa-recovery";
 import { trustThisDevice } from "../actions-trusted-devices";
 
-type Mode = "totp" | "backup";
+type Mode = "totp" | "backup" | "email";
 
 export function MfaChallengeForm({
   factorId,
@@ -19,6 +20,7 @@ export function MfaChallengeForm({
   const [backup, setBackup] = useState("");
   const [rememberDevice, setRememberDevice] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recoverySent, setRecoverySent] = useState(false);
   const [pending, startTransition] = useTransition();
 
   /**
@@ -63,6 +65,66 @@ export function MfaChallengeForm({
       await maybeTrust();
       window.location.href = redirectTo;
     });
+  }
+
+  function onEmailRecovery() {
+    setError(null);
+    startTransition(async () => {
+      const r = await requestMfaEmailRecovery();
+      if ("error" in r) {
+        setError(r.error);
+        return;
+      }
+      setRecoverySent(true);
+    });
+  }
+
+  if (mode === "email") {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-sm font-medium text-zinc-300">Recover by email</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Locked out of your authenticator <em>and</em> out of backup codes? We can
+            email a secure sign-in link to the address on your account. Opening it
+            restores access for one hour so you can re-enroll — open it on this device.
+          </p>
+        </div>
+
+        {recoverySent ? (
+          <p className="rounded-md border border-emerald-800/40 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
+            Check your email — we sent a recovery link to the address on your account.
+            It expires in about 15 minutes. Didn&apos;t get it? Check spam, then try again.
+          </p>
+        ) : (
+          <>
+            {error && (
+              <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+                {error}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={onEmailRecovery}
+              disabled={pending}
+              className="w-full rounded-md bg-emerald-500 px-4 py-2.5 font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
+            >
+              {pending ? "Sending…" : "Email me a recovery link"}
+            </button>
+          </>
+        )}
+
+        <p className="text-center text-xs text-zinc-500">
+          <button
+            type="button"
+            onClick={() => { setMode("totp"); setError(null); }}
+            className="hover:text-emerald-400 underline-offset-2 hover:underline"
+          >
+            ← Back to authenticator code
+          </button>
+        </p>
+      </div>
+    );
   }
 
   if (mode === "totp") {
@@ -128,6 +190,15 @@ export function MfaChallengeForm({
             Lost your authenticator? Use a backup code →
           </button>
         </p>
+        <p className="text-center text-xs text-zinc-600">
+          <button
+            type="button"
+            onClick={() => { setMode("email"); setError(null); }}
+            className="hover:text-emerald-400 underline-offset-2 hover:underline"
+          >
+            No authenticator or backup codes? Recover by email →
+          </button>
+        </p>
       </form>
     );
   }
@@ -176,6 +247,15 @@ export function MfaChallengeForm({
           className="hover:text-emerald-400 underline-offset-2 hover:underline"
         >
           ← Back to authenticator code
+        </button>
+      </p>
+      <p className="text-center text-xs text-zinc-600">
+        <button
+          type="button"
+          onClick={() => { setMode("email"); setError(null); }}
+          className="hover:text-emerald-400 underline-offset-2 hover:underline"
+        >
+          Out of backup codes too? Recover by email →
         </button>
       </p>
     </form>
