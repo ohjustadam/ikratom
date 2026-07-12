@@ -194,11 +194,14 @@ async function syncState(state) {
     rows.push(row);
   }
 
-  // Dedupe by (state, bill_number) — same bill can match multiple keywords,
-  // and Postgres ON CONFLICT can't handle dupes within a single upsert batch.
+  // Dedupe by (state, bill_number, session_id) — same bill can match multiple
+  // keywords, and Postgres ON CONFLICT can't handle dupes within a single
+  // upsert batch. session_id is part of the key so different sessions' reuse of
+  // the same number (every biennium has an "SB 433") stays as distinct rows
+  // instead of collapsing/overwriting — the Frankenstein-record fix (mig 0243).
   const dedupedMap = new Map();
   for (const r of rows) {
-    const key = `${r.state}::${r.bill_number}`;
+    const key = `${r.state}::${r.bill_number}::${r.session_id ?? ""}`;
     const existing = dedupedMap.get(key);
     if (!existing || (r.summary?.length ?? 0) > (existing.summary?.length ?? 0)) {
       dedupedMap.set(key, r);
@@ -206,10 +209,12 @@ async function syncState(state) {
   }
   const deduped = Array.from(dedupedMap.values());
 
-  // Upsert by (state, bill_number) — bills update over time as they progress
+  // Upsert by (state, bill_number, session_id) — matches the mig-0243 unique
+  // index. Bills update over time as they progress, but a new session's bill of
+  // the same number lands as its own row.
   const { error } = await supabase
     .from("bills")
-    .upsert(deduped, { onConflict: "state,bill_number" });
+    .upsert(deduped, { onConflict: "state,bill_number,session_id" });
 
   if (error) {
     console.log(`DB ERROR — ${error.message}`);

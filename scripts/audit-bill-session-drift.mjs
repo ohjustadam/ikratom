@@ -30,9 +30,11 @@ const sb = createClient(
 
 const args = process.argv.slice(2);
 const APPLY = args.includes("--apply");
+const VERIFY = args.includes("--verify");
 const deconflateIdx = args.indexOf("--deconflate");
 const DECONFLATE_ID = deconflateIdx >= 0 ? args[deconflateIdx + 1] : null;
 const NOW_YEAR = new Date().getFullYear();
+const LEGISCAN_KEY = process.env.LEGISCAN_API_KEY;
 
 function years(s) {
   const m = String(s ?? "").match(/(?:19|20)\d{2}/g);
@@ -95,6 +97,105 @@ async function deconflate(billId, apply) {
   console.log(apply ? `  ✓ applied (${n} alert(s) retracted)` : `  (dry-run — pass --apply to write; ${n} alert(s) would retract)`);
 }
 
+// ── LegiScan ground-truth verify + repair ─────────────────────────────────
+async function legiscanBill(id) {
+  if (!LEGISCAN_KEY) throw new Error("LEGISCAN_API_KEY not set");
+  const u = new URL("https://api.legiscan.com/");
+  u.searchParams.set("key", LEGISCAN_KEY);
+  u.searchParams.set("op", "getBill");
+  u.searchParams.set("id", String(id));
+  const r = await fetch(u, { signal: AbortSignal.timeout(20_000) });
+  if (!r.ok) throw new Error(`LegiScan ${r.status}`);
+  const d = await r.json();
+  if (d.status === "ERROR") throw new Error(d.alert?.message ?? "error");
+  return d.bill;
+}
+function titleWords(s) {
+  return String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 3);
+}
+/** 0..1 fraction of the stored title's words that appear in the LegiScan title. */
+function titleOverlap(stored, legiscan) {
+  const A = new Set(titleWords(stored));
+  const B = titleWords(legiscan);
+  if (A.size === 0 || B.length === 0) return 0;
+  return B.filter((w) => A.has(w)).length / Math.max(A.size, B.length);
+}
+
+/**
+ * For every flagged (frankenstein/garbage) row with a legiscan_bill_id, fetch
+ * the real LegiScan bill and split into:
+ *   - label_stale: LegiScan session ≠ stored, but titles match → same bill, the
+ *     session LABEL is just stale → fix session_id (safe). If that collides with
+ *     the real current-session row, this one's a dup → deactivate.
+ *   - true_frankenstein: session ≠ stored AND titles differ → a different bill's
+ *     data is on this row → deactivate + retract alerts (the MI SB 433 pattern).
+ *   - ok: session matches → heuristic false-positive, left alone.
+ *   - unverifiable: no legiscan_bill_id or LegiScan error → left for review.
+ */
+async function verifyAndRepair(apply) {
+  const { data: bills } = await sb
+    .from("bills")
+    .select("id, state, bill_number, session_id, active, last_action_at, kratom_relevance, title, legiscan_bill_id")
+    .eq("active", true)
+    .limit(5000);
+  const flagged = (bills ?? []).filter((b) => ["frankenstein", "garbage_session"].includes(classify(b)));
+  console.log(`\n=== LegiScan-verify ${flagged.length} flagged bills (${apply ? "REPAIR" : "dry-run"}) ===`);
+  const buckets = { label_stale: [], true_frankenstein: [], ok: [], unverifiable: [] };
+
+  for (const b of flagged) {
+    if (!b.legiscan_bill_id) { buckets.unverifiable.push({ b, why: "no legiscan_id" }); continue; }
+    let d;
+    try { d = await legiscanBill(b.legiscan_bill_id); }
+    catch (e) { buckets.unverifiable.push({ b, why: (e.message ?? "err").slice(0, 40) }); continue; }
+    const ys = d?.session?.year_start, ye = d?.session?.year_end;
+    const lsSession = ys && ye ? (ys === ye ? String(ys) : `${ys}-${ye}`) : null;
+    const stored = years(b.session_id);
+    const mismatch = lsSession && stored.length > 0 && !stored.includes(ys) && !stored.includes(ye);
+    const overlap = titleOverlap(b.title, d?.title);
+    if (!mismatch) buckets.ok.push({ b, lsSession, overlap });
+    else if (overlap >= 0.5) buckets.label_stale.push({ b, lsSession, overlap });
+    else buckets.true_frankenstein.push({ b, lsSession, overlap, lsTitle: d?.title });
+  }
+
+  for (const [k, arr] of Object.entries(buckets)) {
+    console.log(`\n## ${k}: ${arr.length}`);
+    for (const x of arr.slice(0, 25)) {
+      console.log(`  ${x.b.state} ${x.b.bill_number}  stored=${x.b.session_id} → legiscan=${x.lsSession ?? "?"}  overlap=${(x.overlap ?? 0).toFixed(2)}  ${x.b.id.slice(0, 8)}${x.why ? ` (${x.why})` : ""}`);
+      if (k === "true_frankenstein" && x.lsTitle) console.log(`      stored: "${(x.b.title ?? "").slice(0, 70)}"\n      legisc: "${x.lsTitle.slice(0, 70)}"`);
+    }
+    if (arr.length > 25) console.log(`  … +${arr.length - 25} more`);
+  }
+
+  if (!apply) { console.log(`\n(dry-run — pass --apply to fix stale labels + deactivate true-frankensteins)`); return; }
+
+  let fixedLabels = 0, dupDeact = 0;
+  for (const x of buckets.label_stale) {
+    const { error } = await sb.from("bills").update({ session_id: x.lsSession }).eq("id", x.b.id);
+    if (error) {
+      // Collides with the real current-session row (mig-0243 unique index) → dup.
+      await sb.from("bills").update({
+        active: false,
+        verification_note: `Duplicate of the ${x.lsSession} row (same bill, stale session label); deactivated ${new Date().toISOString().slice(0, 10)}.`,
+      }).eq("id", x.b.id);
+      dupDeact++;
+    } else fixedLabels++;
+  }
+  let deact = 0, heldGarbage = 0;
+  for (const x of buckets.true_frankenstein) {
+    // Only deactivate when the STORED session is parseable AND closed — then
+    // the row is a genuinely-dead old-session bill whose recent action was
+    // stapled from the unrelated current bill (safe, reversible). A garbage
+    // session ("1841") can't be confirmed dead → hold for review. Clear the
+    // wrong legiscan_bill_id so it can't re-pollute + frees the unique id.
+    if (classify(x.b) !== "frankenstein") { heldGarbage++; continue; }
+    const note = `De-conflated ${new Date().toISOString().slice(0, 10)}: legiscan_bill_id ${x.b.legiscan_bill_id} points to a ${x.lsSession} bill with a different title (overlap ${(x.overlap).toFixed(2)}). This is a dead ${x.b.session_id} bill whose recent action was stapled from an unrelated current bill. Deactivated.`;
+    await sb.from("bills").update({ active: false, legiscan_bill_id: null, verification_note: note }).eq("id", x.b.id);
+    await retractAlerts(x.b.id, true);
+    deact++;
+  }
+  console.log(`\n✓ ${fixedLabels} session labels corrected · ${dupDeact} duplicates deactivated · ${deact} dead-session bills deactivated (+ alerts retracted) · ${heldGarbage} garbage-session held for review`);
+}
+
 async function report() {
   const { data: bills } = await sb
     .from("bills")
@@ -120,4 +221,5 @@ async function report() {
 }
 
 if (DECONFLATE_ID) await deconflate(DECONFLATE_ID, APPLY);
+else if (VERIFY) await verifyAndRepair(APPLY);
 else await report();
