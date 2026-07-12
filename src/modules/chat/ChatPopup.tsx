@@ -33,6 +33,12 @@ type AuthorInfo = { name: string; isAdmin: boolean };
 const ROOM = "lounge";
 const INITIAL_LIMIT = 25;
 const MAX_BODY = 500;
+// The Lounge defaults OPEN on load so visitors see the live chat immediately
+// (owner: encourage social participation). Once a user closes it we remember
+// that and stay collapsed on future loads; reopening via the launcher clears
+// the flag so it greets them again next time. Lazy history/realtime still only
+// run while open, and anon users never open a WebSocket (see the realtime effect).
+const DISMISS_KEY = "ikratom-lounge-dismissed";
 
 export function ChatPopup() {
   const { user, ready, requireSignIn } = useSignIn();
@@ -50,6 +56,26 @@ export function ChatPopup() {
 
   const signedIn = !!user;
   const meId = user?.id ?? null;
+
+  // Default-open on first mount (per full page load) unless the user has
+  // previously dismissed it. Runs client-only, so no SSR/localStorage clash.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(DISMISS_KEY) !== "1") setOpen(true);
+    } catch {
+      // storage disabled — fall back to opening (encourage participation)
+      setOpen(true);
+    }
+  }, []);
+
+  function openLounge() {
+    setOpen(true);
+    try { localStorage.removeItem(DISMISS_KEY); } catch {}
+  }
+  function closeLounge() {
+    setOpen(false);
+    try { localStorage.setItem(DISMISS_KEY, "1"); } catch {}
+  }
 
   // Resolve author ids → public handles via the SECURITY DEFINER RPC (the only
   // RLS-safe way to read other users' public fields). Idempotent + deduped.
@@ -190,7 +216,7 @@ export function ChatPopup() {
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        onClick={openLounge}
         aria-label="Open the Lounge live chat"
         className={`${anchor} z-40 flex items-center gap-1.5 rounded-full border border-emerald-700/40 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-950/40 transition hover:bg-emerald-500`}
       >
@@ -214,7 +240,7 @@ export function ChatPopup() {
         </h2>
         <div className="flex items-center gap-1">
           <a href="/forum" className="rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:text-emerald-300" title="Open the full forum + Lounge">Forum ↗</a>
-          <button onClick={() => setOpen(false)} aria-label="Close chat" className="rounded px-2 py-0.5 text-zinc-500 hover:text-zinc-200">✕</button>
+          <button onClick={closeLounge} aria-label="Close chat" className="rounded px-2 py-0.5 text-zinc-500 hover:text-zinc-200">✕</button>
         </div>
       </div>
 
