@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { buildMfaRecoverReqToken } from "./mfa-bypass";
 
 /**
  * Email-based 2FA recovery — the "I can't reach my authenticator AND I don't
@@ -45,6 +46,11 @@ export async function requestMfaEmailRecovery(): Promise<
   }
 
   const appUrl = process.env.APP_URL ?? "http://localhost:3001";
+  // Signed token that ONLY this password-gated action can mint. The callback
+  // requires it before stamping the recovery marker, so a code from the public
+  // email-only /forgot flow can't be repurposed to reach aal2 — password is a
+  // genuinely independent factor here.
+  const mrt = buildMfaRecoverReqToken(user.id);
   // Magic sign-in link → same working callback the password reset uses (PKCE,
   // same-device). next=/auth/mfa-recovered is where the aal2 bypass is granted.
   // shouldCreateUser:false — never mint an account from this path.
@@ -52,7 +58,7 @@ export async function requestMfaEmailRecovery(): Promise<
     email: user.email,
     options: {
       shouldCreateUser: false,
-      emailRedirectTo: `${appUrl}/auth/callback?next=/auth/mfa-recovered`,
+      emailRedirectTo: `${appUrl}/auth/callback?next=/auth/mfa-recovered&mrt=${encodeURIComponent(mrt)}`,
     },
   });
   if (error) {

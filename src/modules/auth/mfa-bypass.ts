@@ -34,8 +34,42 @@ const SECRET = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY 
 // Domain-separated HMAC: the `purpose` tag makes a bypass cookie and a
 // recovery-pending cookie NON-interchangeable even for the same user/expiry, so
 // one can never be replayed as the other (review finding — defense in depth).
-function sign(purpose: "bypass" | "recovery_pending", userId: string, expiryMs: number): string {
+function sign(
+  purpose: "bypass" | "recovery_pending" | "recover_req",
+  userId: string,
+  expiryMs: number,
+): string {
   return createHmac("sha256", SECRET).update(`${purpose}.${userId}.${expiryMs}`).digest("hex");
+}
+
+const REQ_TTL_SECONDS = 20 * 60; // 20 min — cover email-open + click latency
+
+/**
+ * A signed, user-bound token minted ONLY by the password-gated
+ * requestMfaEmailRecovery action and embedded in the magic link's redirect. The
+ * callback requires it before stamping the recovery-pending marker — so a code
+ * from the PUBLIC email-only /forgot flow (which carries no such token) can't be
+ * repurposed to reach aal2. This makes the password a genuinely independent
+ * factor: recovery needs the password (to mint this) AND email (to click).
+ */
+export function buildMfaRecoverReqToken(userId: string): string {
+  const expiryMs = Date.now() + REQ_TTL_SECONDS * 1000;
+  return `${expiryMs}.${sign("recover_req", userId, expiryMs)}`;
+}
+
+export function verifyMfaRecoverReqToken(userId: string, token: string | null | undefined): boolean {
+  if (!SECRET || !token) return false;
+  const dot = token.indexOf(".");
+  if (dot < 1) return false;
+  const expiry = parseInt(token.slice(0, dot), 10);
+  const sig = token.slice(dot + 1);
+  if (!Number.isFinite(expiry) || Date.now() >= expiry) return false;
+  const expected = sign("recover_req", userId, expiry);
+  let a: Buffer, b: Buffer;
+  try { a = Buffer.from(sig, "hex"); b = Buffer.from(expected, "hex"); }
+  catch { return false; }
+  if (a.length === 0 || a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { buildMfaRecoveryPendingCookie } from "@/modules/auth/mfa-bypass";
+import { buildMfaRecoveryPendingCookie, verifyMfaRecoverReqToken } from "@/modules/auth/mfa-bypass";
 
 /**
  * Auth callback for Supabase magic links — handles both:
@@ -93,7 +93,12 @@ export async function GET(request: NextRequest) {
   if (safeNext === "/auth/mfa-recovered") {
     const { data: { user } } = await supabase.auth.getUser();
     const res = NextResponse.redirect(new URL(safeNext, request.url));
-    if (user) {
+    // Only stamp the marker when the link carries a valid `mrt` token — which
+    // ONLY the password-gated requestMfaEmailRecovery mints. A repurposed
+    // public /forgot reset code (email-only, no valid mrt) therefore can't reach
+    // aal2. If the token is missing/invalid, /auth/mfa-recovered will find no
+    // marker and deny.
+    if (user && verifyMfaRecoverReqToken(user.id, url.searchParams.get("mrt"))) {
       const m = buildMfaRecoveryPendingCookie(user.id);
       res.cookies.set(m.name, m.value, m.options);
     }
