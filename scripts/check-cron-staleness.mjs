@@ -87,6 +87,8 @@ const REGISTRY = [
       "dedupe_pending_alerts",
       "expire_rotating_campaigns",
       "locality_state_audit",
+      "review_lapsed_items",
+      "sync_legislative_sessions",
      ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
 
   // weekly

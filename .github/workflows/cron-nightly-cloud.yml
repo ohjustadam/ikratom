@@ -102,3 +102,22 @@ jobs:
       - name: News digests — full in-app write-up (cloud router)
         continue-on-error: true
         run: node scripts/generate-news-digest.mjs --limit 300 --days 90
+
+      # Session calendar (LegiScan sine_die) — feeds the review failsafe below.
+      # Cheap (~51 calls); run before the review step so it sees fresh sine_die.
+      - name: Legislative session calendar (LegiScan sine_die)
+        continue-on-error: true
+        run: node scripts/sync-legislative-sessions.mjs
+
+      # Review-by failsafe: retire bills whose session adjourned without passage
+      # (+ cascade to their alerts/campaigns), stamp review_by up front, and
+      # revive any wrongly-buried bill with a fresh action. Reversible; logs to
+      # scraper_runs. Keeps the active count honest as sessions end.
+      - name: Review lapsed bills/alerts/campaigns (dead-session failsafe)
+        continue-on-error: true
+        run: node scripts/review-lapsed-items.mjs --apply
+
+      # Self-heal the Frankenstein/session-drift residue (LegiScan-verified).
+      - name: Bill session-drift self-heal (LegiScan-verified)
+        continue-on-error: true
+        run: node scripts/audit-bill-session-drift.mjs --verify --apply
