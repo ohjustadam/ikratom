@@ -536,7 +536,7 @@ export default async function PulsePage({
               <li key={c.id}>
                 <a
                   href={`/campaigns/${c.slug}`}
-                  className="flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/40 p-3 hover:border-emerald-500"
+                  className="ik-lift flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 hover:border-emerald-500"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="font-semibold text-zinc-100">{c.title}</span>
@@ -560,7 +560,7 @@ export default async function PulsePage({
               <li key={b.slug}>
                 <a
                   href={`/briefings/${b.slug}`}
-                  className="block rounded-md border border-zinc-800 bg-zinc-950/40 p-3 hover:border-emerald-500"
+                  className="ik-lift block rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 hover:border-emerald-500"
                 >
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     {b.published && <span className="font-mono text-zinc-500">{b.published}</span>}
@@ -619,7 +619,7 @@ function AlertCard({ alert, campaign, compact, isMyLeverage }: { alert: Alert; c
   return (
     <article
       id={`alert-${alert.id}`}
-      className={`scroll-mt-20 rounded-lg border p-4 ${
+      className={`scroll-mt-20 rounded-xl border p-4 ${
         alert.severity === "critical"
           ? "border-red-700/50 bg-red-950/10"
           : alert.severity === "alert"
@@ -720,7 +720,7 @@ function NewsList({ items, accent }: { items: NewsItem[]; accent: "purple" | "em
             href={n.url ?? "#"}
             target="_blank"
             rel="noopener noreferrer"
-            className={`block rounded border border-zinc-800 bg-zinc-950/60 p-3 transition ${accentBorder}`}
+            className={`ik-lift block rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 ${accentBorder}`}
           >
             <div className="flex items-baseline gap-2">
               {n.state && (
