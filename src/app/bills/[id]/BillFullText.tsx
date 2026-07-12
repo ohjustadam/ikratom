@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AudioReader } from "@/components/AudioReader";
 
 /**
  * Full bill text viewer — renders every captured version with a tab
@@ -86,7 +87,8 @@ export function BillFullText({ versions }: { versions: BillTextVersion[] }) {
         })}
       </div>
 
-      {/* Active version metadata */}
+      {/* Active version metadata + read-aloud (reads the cleaned statute text
+          of the selected version; re-keyed so switching versions resets it). */}
       <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] text-zinc-500">
         <span>{active.text.length.toLocaleString()} characters</span>
         <a
@@ -97,6 +99,13 @@ export function BillFullText({ versions }: { versions: BillTextVersion[] }) {
         >
           ↗ Open original PDF
         </a>
+        <AudioReader
+          key={activeIdx}
+          id={`billtext-${activeIdx}`}
+          text={cleanBillText(active.text)}
+          label="Listen to this version"
+          compact
+        />
       </div>
 
       {/* Text body — monospace, scrollable, max-height capped so the

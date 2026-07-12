@@ -55,7 +55,16 @@ async function getTTS(onProgress?: (fraction: number) => void): Promise<unknown>
       }
     };
     const load = (device: "webgpu" | "wasm") =>
-      KokoroTTS.from_pretrained(MODEL_ID, { dtype: "q8", device, progress_callback });
+      KokoroTTS.from_pretrained(MODEL_ID, {
+        // dtype MUST vary by device. int8/q8 matmul on the transformers.js +
+        // onnxruntime-web WebGPU backend returns numerically-wrong tensors —
+        // garbled "mumbo jumbo" speech — and does NOT throw, so the try/catch
+        // WASM fallback below never fires and the user just hears gibberish.
+        // fp32 is the known-good WebGPU dtype; q8 stays correct on WASM/CPU.
+        dtype: device === "webgpu" ? "fp32" : "q8",
+        device,
+        progress_callback,
+      });
     const hasWebGPU = typeof navigator !== "undefined" && "gpu" in navigator && !!(navigator as { gpu?: unknown }).gpu;
     if (hasWebGPU) {
       try { return await load("webgpu"); } catch { /* GPU init can fail — fall back */ }
