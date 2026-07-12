@@ -6,6 +6,7 @@ import { HomeMemorialBand } from "@/components/HomeMemorialBand";
 import { HomeLivePulse } from "@/components/HomeLivePulse";
 import { StateLegalMap } from "@/components/StateLegalMap";
 import { HomeOnboarding } from "@/components/HomeOnboarding";
+import { Reveal } from "@/components/motion/Reveal";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { getMessages } from "@/i18n/messages";
 
@@ -177,7 +178,10 @@ export default async function HomePage() {
           message across clearly and broadly what we are here to do and
           that we will accomplish our mission together.' Lead with the
           mission, follow with the live signal, end with the call to act. */}
-      <section className="border-b border-zinc-800 pb-8">
+      <section className="relative overflow-hidden border-b border-zinc-800 pb-8">
+        {/* Decorative drifting accent glow behind the hero (reduced-motion aware). */}
+        <div className="ik-aurora" aria-hidden />
+        <div className="relative z-10">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
           ◉ {t.hero.eyebrow}
         </p>
@@ -228,6 +232,7 @@ export default async function HomePage() {
           >
             🚨 {t.hero.ctaPulse}
           </Link>
+        </div>
         </div>
       </section>
 
@@ -285,7 +290,7 @@ export default async function HomePage() {
                 <li key={c.id}>
                   <Link
                     href={`/campaigns/${c.slug}`}
-                    className={`block h-full rounded-lg border p-5 transition ${
+                    className={`ik-lift block h-full rounded-xl border p-5 ${
                       sev === "critical"
                         ? "border-red-700/50 bg-red-950/15 hover:border-red-500"
                         : sev === "alert"
@@ -346,7 +351,7 @@ export default async function HomePage() {
       </section>
 
       {/* Band 3 — What you actually get (B voice: concrete) */}
-      <section className="mt-16 border-t border-zinc-800 pt-12">
+      <Reveal as="section" className="mt-16 border-t border-zinc-800 pt-12">
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
             What you get when you sign up
@@ -372,11 +377,11 @@ export default async function HomePage() {
             body="State forums, topical communities (Veterans, Shop owners, Caregivers), and a chat room that's actually populated. Quiet some days, urgent others."
           />
         </div>
-      </section>
+      </Reveal>
 
       {/* Band 4 — Stories (B: social proof done right). Hide if none. */}
       {(stories?.length ?? 0) > 0 && (
-        <section className="mt-16 border-t border-zinc-800 pt-12">
+        <Reveal as="section" className="mt-16 border-t border-zinc-800 pt-12">
           <div className="text-center">
             <h2 className="text-2xl font-bold">Real stories from advocates</h2>
             <p className="mt-2 text-sm text-zinc-400">
@@ -390,7 +395,7 @@ export default async function HomePage() {
                 <Link
                   key={s.id}
                   href="/stories"
-                  className="block rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 transition hover:border-emerald-500"
+                  className="ik-card block rounded-xl border border-zinc-800 bg-zinc-950/40 p-5 hover:border-emerald-500"
                 >
                   <p className="text-xs uppercase tracking-wider text-emerald-400">
                     {author}{s.state ? ` · ${s.state}` : ""}
@@ -409,11 +414,11 @@ export default async function HomePage() {
               All stories →
             </Link>
           </div>
-        </section>
+        </Reveal>
       )}
 
       {/* Band 5 — Soft close (B: warm pitch) */}
-      <section className="mt-16 rounded-lg border border-emerald-700/40 bg-emerald-950/15 p-8 text-center">
+      <Reveal as="section" className="mt-16 rounded-2xl border border-emerald-700/40 bg-emerald-950/15 p-8 text-center">
         <p className="text-2xl font-bold leading-snug">
           We don&apos;t need a million people.<br/>
           We need the right ones — paying attention.
@@ -441,14 +446,14 @@ export default async function HomePage() {
             Live policy feed
           </Link>
         </div>
-      </section>
+      </Reveal>
     </div>
   );
 }
 
 function Card({ icon, title, body }: { icon: string; title: string; body: string }) {
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-6">
+    <div className="ik-card rounded-xl border border-zinc-800 bg-zinc-950/40 p-6">
       <p className="text-3xl">{icon}</p>
       <h3 className="mt-3 text-lg font-semibold">{title}</h3>
       <p className="mt-2 text-sm leading-relaxed text-zinc-400">{body}</p>
@@ -474,10 +479,10 @@ function MissionStat({ value, label, tone, href }: {
     </>
   );
   if (!href) {
-    return <div className={`rounded-md border p-3 text-center ${cls}`}>{inner}</div>;
+    return <div className={`rounded-xl border p-3 text-center ${cls}`}>{inner}</div>;
   }
   return (
-    <Link href={href} className={`block rounded-md border p-3 text-center transition ${cls}`}>
+    <Link href={href} className={`ik-lift block rounded-xl border p-3 text-center ${cls}`}>
       {inner}
     </Link>
   );

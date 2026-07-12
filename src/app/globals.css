@@ -595,6 +595,19 @@ html[data-theme="light"] .ik-glass {
 }
 .ik-card:hover::after { opacity: 0.35; }
 
+/* Neutral hover-lift — for cards that carry their OWN semantic tone
+ * (red/amber/emerald severity), where .ik-card's accent-colored glow would
+ * clash. Just a lift + soft neutral elevation. */
+.ik-lift {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.ik-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 34px -18px rgba(0, 0, 0, 0.6);
+}
+html[data-theme="light"] .ik-lift:hover { box-shadow: 0 16px 34px -18px rgba(0, 0, 0, 0.18); }
+
 /* Accent focus ring pulse (used sparingly on live/urgent chips). */
 .ik-pulse-ring { animation: ik-pulse-ring 2.4s ease-out infinite; border-radius: 9999px; }
 
@@ -644,6 +657,8 @@ html[data-theme="light"] .ik-aurora { opacity: 0.28; }
   .ik-aurora::after {
     animation: none !important;
   }
-  .ik-card { transition: none; }
-  .ik-card:hover { transform: none; }
+  .ik-card,
+  .ik-lift { transition: none; }
+  .ik-card:hover,
+  .ik-lift:hover { transform: none; }
 }
