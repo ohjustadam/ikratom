@@ -31,8 +31,11 @@ const PENDING_TTL_SECONDS = 15 * 60; // 15 min — time to open the email + clic
 // the browser. (Falls back to the service-role key so we never sign with "".)
 const SECRET = process.env.CRON_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-function sign(userId: string, expiryMs: number): string {
-  return createHmac("sha256", SECRET).update(`${userId}.${expiryMs}`).digest("hex");
+// Domain-separated HMAC: the `purpose` tag makes a bypass cookie and a
+// recovery-pending cookie NON-interchangeable even for the same user/expiry, so
+// one can never be replayed as the other (review finding — defense in depth).
+function sign(purpose: "bypass" | "recovery_pending", userId: string, expiryMs: number): string {
+  return createHmac("sha256", SECRET).update(`${purpose}.${userId}.${expiryMs}`).digest("hex");
 }
 
 /**
@@ -49,7 +52,7 @@ export function buildMfaBypassCookie(userId: string): {
   const expiryMs = Date.now() + BYPASS_TTL_SECONDS * 1000;
   return {
     name: BYPASS_COOKIE,
-    value: `${expiryMs}.${sign(userId, expiryMs)}`,
+    value: `${expiryMs}.${sign("bypass", userId, expiryMs)}`,
     options: { httpOnly: true, secure: true, sameSite: "lax", maxAge: BYPASS_TTL_SECONDS, path: "/" },
   };
 }
@@ -63,17 +66,26 @@ export async function setMfaBypassCookie(userId: string): Promise<void> {
 
 export const MFA_RECOVERY_PENDING_COOKIE = PENDING_COOKIE;
 
-/** Mark that THIS browser just requested an email 2FA-recovery link (server action). */
-export async function setMfaRecoveryPending(userId: string): Promise<void> {
+/**
+ * Build the recovery-pending marker as a descriptor. CRITICAL: this is stamped
+ * ONLY by /auth/callback AFTER a successful magic-link code exchange for
+ * next=/auth/mfa-recovered — i.e. only once the user has PROVEN email control by
+ * clicking the emailed link (mirrors the pw_recovery marker for /reset-password).
+ * It is deliberately NOT set at request time: doing so let a password-only
+ * attacker press the button and navigate straight to /auth/mfa-recovered,
+ * bypassing the email entirely (review finding — critical).
+ */
+export function buildMfaRecoveryPendingCookie(userId: string): {
+  name: string;
+  value: string;
+  options: { httpOnly: true; secure: true; sameSite: "lax"; maxAge: number; path: string };
+} {
   const expiryMs = Date.now() + PENDING_TTL_SECONDS * 1000;
-  const c = await cookies();
-  c.set(PENDING_COOKIE, `${expiryMs}.${sign(userId, expiryMs)}`, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    maxAge: PENDING_TTL_SECONDS,
-    path: "/",
-  });
+  return {
+    name: PENDING_COOKIE,
+    value: `${expiryMs}.${sign("recovery_pending", userId, expiryMs)}`,
+    options: { httpOnly: true, secure: true, sameSite: "lax", maxAge: PENDING_TTL_SECONDS, path: "/" },
+  };
 }
 
 /**
@@ -92,7 +104,7 @@ export async function consumeMfaRecoveryPending(userId: string): Promise<boolean
   const expiry = parseInt(raw.slice(0, dot), 10);
   const sig = raw.slice(dot + 1);
   if (!Number.isFinite(expiry) || Date.now() >= expiry) return false;
-  const expected = sign(userId, expiry);
+  const expected = sign("recovery_pending", userId, expiry);
   let a: Buffer, b: Buffer;
   try { a = Buffer.from(sig, "hex"); b = Buffer.from(expected, "hex"); }
   catch { return false; }
@@ -129,7 +141,7 @@ export async function hasMfaBypass(): Promise<boolean> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
 
-  const expected = sign(user.id, expiry);
+  const expected = sign("bypass", user.id, expiry);
   let a: Buffer, b: Buffer;
   try { a = Buffer.from(sig, "hex"); b = Buffer.from(expected, "hex"); }
   catch { return false; }

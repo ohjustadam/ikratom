@@ -2,7 +2,6 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
-import { setMfaRecoveryPending } from "./mfa-bypass";
 
 /**
  * Email-based 2FA recovery — the "I can't reach my authenticator AND I don't
@@ -62,9 +61,9 @@ export async function requestMfaEmailRecovery(): Promise<
     // no enumeration risk, but we still don't leak provider errors.
   }
 
-  // Mark this browser as having initiated recovery. /auth/mfa-recovered will
-  // ONLY grant the bypass if this marker is present — so a signed-in user can't
-  // self-grant aal2 by navigating to that route directly.
-  await setMfaRecoveryPending(user.id);
+  // NOTE: we do NOT set the recovery-pending marker here. It is stamped by
+  // /auth/callback only AFTER the user clicks the emailed magic link and the
+  // code exchange succeeds — that click is the proof of email control. Setting
+  // it here would let a password-only attacker skip the email entirely.
   return { ok: true };
 }

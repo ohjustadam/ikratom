@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { buildMfaRecoveryPendingCookie } from "@/modules/auth/mfa-bypass";
 
 /**
  * Auth callback for Supabase magic links — handles both:
@@ -80,6 +81,21 @@ export async function GET(request: NextRequest) {
         path: "/",
         maxAge: 1800, // 30 min — ample to set the new password
       });
+    }
+    return res;
+  }
+
+  // Email 2FA-recovery: this exchange means the user just clicked the magic link
+  // we emailed (proof of email control). Stamp the short-lived, user-bound
+  // recovery-pending marker that /auth/mfa-recovered requires before it grants
+  // the aal2 bypass. Mirrors the pw_recovery marker above — the marker is minted
+  // by the email round-trip, never by the request button.
+  if (safeNext === "/auth/mfa-recovered") {
+    const { data: { user } } = await supabase.auth.getUser();
+    const res = NextResponse.redirect(new URL(safeNext, request.url));
+    if (user) {
+      const m = buildMfaRecoveryPendingCookie(user.id);
+      res.cookies.set(m.name, m.value, m.options);
     }
     return res;
   }
