@@ -84,6 +84,12 @@ export function AudioReader({ text, id, label = "Listen", compact = false, hideV
   const [ssPlaying, setSsPlaying] = useState(false);
   const [ssPaused, setSsPaused] = useState(false);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  // speechSynthesis chokes on one long utterance (Chromium silently
+  // truncates/garbles past ~15s / a few hundred words). We queue sentence-
+  // sized chunks and keep the engine awake across them.
+  const ssQueueRef = useRef<string[]>([]);
+  const ssIdxRef = useRef(0);
+  const ssKeepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Decide engine + load persisted prefs after mount (client only).
   useEffect(() => {
@@ -114,6 +120,7 @@ export function AudioReader({ text, id, label = "Listen", compact = false, hideV
   useEffect(() => {
     return () => {
       playerRef.current?.stop();
+      if (ssKeepAliveRef.current) clearInterval(ssKeepAliveRef.current);
       if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     };
   }, []);
@@ -128,19 +135,58 @@ export function AudioReader({ text, id, label = "Listen", compact = false, hideV
   }, [ssVoices, ssVoiceName]);
 
   // ── speechSynthesis controls ──────────────────────────────────────
+  function stopKeepAlive() {
+    if (ssKeepAliveRef.current) { clearInterval(ssKeepAliveRef.current); ssKeepAliveRef.current = null; }
+  }
+
+  // Split into sentence-sized chunks, hard-wrapping long sentences on word
+  // boundaries so no single utterance exceeds ~220 chars.
+  function ssChunks(t: string): string[] {
+    const raw = t.match(/[^.!?\n]+[.!?]*|\n+/g) ?? [t];
+    const out: string[] = [];
+    for (const seg of raw) {
+      const s = seg.trim();
+      if (!s) continue;
+      if (s.length <= 220) { out.push(s); continue; }
+      let cur = "";
+      for (const word of s.split(/\s+/)) {
+        if ((cur ? cur.length + 1 + word.length : word.length) > 220) { if (cur) out.push(cur); cur = word; }
+        else cur = cur ? `${cur} ${word}` : word;
+      }
+      if (cur) out.push(cur);
+    }
+    return out;
+  }
+
+  function speakNext() {
+    const q = ssQueueRef.current;
+    if (ssIdxRef.current >= q.length) { stopKeepAlive(); setSsPlaying(false); setSsPaused(false); return; }
+    const u = new SpeechSynthesisUtterance(q[ssIdxRef.current]);
+    u.rate = rate; u.pitch = 1.0; u.volume = 1.0; u.lang = "en-US";
+    if (activeSsVoice) u.voice = activeSsVoice;
+    u.onend = () => { ssIdxRef.current += 1; speakNext(); };
+    u.onerror = () => { ssIdxRef.current += 1; speakNext(); };
+    utteranceRef.current = u;
+    window.speechSynthesis.speak(u);
+  }
+
   function browserPlay() {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(phoneticize(text));
-    u.rate = rate; u.pitch = 1.0; u.volume = 1.0; u.lang = "en-US";
-    if (activeSsVoice) u.voice = activeSsVoice;
-    u.onend = () => { setSsPlaying(false); setSsPaused(false); };
-    u.onerror = () => { setSsPlaying(false); setSsPaused(false); };
-    utteranceRef.current = u;
-    window.speechSynthesis.speak(u);
+    ssQueueRef.current = ssChunks(phoneticize(text));
+    ssIdxRef.current = 0;
     setSsPlaying(true); setSsPaused(false);
+    // Chrome pauses the queue after ~15s — a periodic pause+resume keeps a
+    // long multi-utterance read alive (no-op while the user has it paused).
+    stopKeepAlive();
+    ssKeepAliveRef.current = setInterval(() => {
+      const s = window.speechSynthesis;
+      if (s.speaking && !s.paused) { s.pause(); s.resume(); }
+    }, 10_000);
+    speakNext();
   }
   function browserStop() {
+    stopKeepAlive();
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     setSsPlaying(false); setSsPaused(false);
   }

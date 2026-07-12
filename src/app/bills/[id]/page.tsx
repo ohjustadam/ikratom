@@ -1185,7 +1185,7 @@ export default async function BillDetailPage({
           <div className="mb-3">
             <AudioReader
               id={`bill-${bill.id}-journey`}
-              text={bill.journey_narrative}
+              text={mdToPlainText(bill.journey_narrative)}
               label="Listen"
               compact
             />
@@ -1212,9 +1212,12 @@ export default async function BillDetailPage({
           covers everything the short version did and more. */}
       {bill.summary_long ? (
         <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
-            Briefing
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
+              Briefing
+            </h2>
+            <AudioReader id={`bill-${bill.id}-briefing`} text={mdToPlainText(bill.summary_long)} label="Listen" compact />
+          </div>
           <div className="mt-3 space-y-3 text-sm leading-relaxed text-zinc-200">
             {bill.summary_long
               .split(/\n\s*\n/)
@@ -1242,9 +1245,12 @@ export default async function BillDetailPage({
         </section>
       ) : bill.summary_ai && (
         <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-            Plain English
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+              Plain English
+            </h2>
+            <AudioReader id={`bill-${bill.id}-summary`} text={mdToPlainText(bill.summary_ai)} label="Listen" compact />
+          </div>
           {(() => {
             // Note: this IIFE inside JSX is server-side; await is fine.
             return null;
