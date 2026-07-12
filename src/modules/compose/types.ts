@@ -13,6 +13,21 @@ export type ComposeOfficial = {
   website?: string | null;
 };
 
+/**
+ * A targetable group of officials for a bill-level send (all Representatives,
+ * all Senators, the executive trio). `emailable` = real inbox (to+bcc batch);
+ * `formOnly` = webform/website-only officials that can't be batched and are
+ * contacted one at a time via the single-official contact-form flow.
+ */
+export type ComposeGroup = {
+  key: "representatives" | "senators" | "executives" | "my_delegation";
+  label: string;
+  /** Salutation for the batch letter, e.g. "Members of the Michigan House". */
+  greeting: string;
+  emailable: ComposeOfficial[];
+  formOnly: ComposeOfficial[];
+};
+
 export type ComposeContext = {
   kind?: "legislator" | "bill" | "stakeholder" | "local";
   billId?: string | null;

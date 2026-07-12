@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { draftAlertResponse } from "@/modules/alerts/rebuttal-actions";
 import { logOfficialContact } from "@/modules/compose/actions";
-import { buildGmailComposeUrl, buildOutlookComposeUrl } from "@/modules/compose/send-links";
+import { buildGmailComposeUrl, buildMailtoUrl, buildOutlookComposeUrl, mailtoWithinLimit } from "@/modules/compose/send-links";
 
 /**
  * Inline "draft my response" UI on /alerts/[id].
@@ -22,10 +22,15 @@ export function DraftResponsePanel({
   alertId,
   alertTitle,
   sourceUrl,
+  recipients,
 }: {
   alertId: string;
   alertTitle: string;
   sourceUrl: string | null;
+  /** Optional preset recipients (real inboxes only). When supplied the send
+   *  links are addressed; when omitted this is a public-comment draft the user
+   *  pastes into a portal or addresses themselves — so Copy is the primary CTA. */
+  recipients?: { name: string; email: string }[];
 }) {
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState<{ subject: string; body: string; provider: string } | null>(null);
@@ -70,12 +75,18 @@ export function DraftResponsePanel({
     logSend();
   }
 
-  // mailto: with edited subject + body pre-filled. User picks recipient.
-  const mailtoHref = draft
-    ? `mailto:?subject=${encodeURIComponent(editedSubject)}&body=${encodeURIComponent(editedBody)}`
-    : "";
-  const gmailHref = draft ? buildGmailComposeUrl("", editedSubject, editedBody) : "";
-  const outlookHref = draft ? buildOutlookComposeUrl("", editedSubject, editedBody) : "";
+  // Recipient wiring. When preset recipients are supplied, the first goes in
+  // `to` and the rest are BCC'd; otherwise this is a public-comment draft with
+  // no addressee (Copy is the primary path — see button order below).
+  const emails = (recipients ?? []).map((r) => r.email).filter((e) => e && !e.startsWith("http"));
+  const to = emails[0] ?? "";
+  const bcc = emails.slice(1).join(",");
+  const mailtoHref = draft ? buildMailtoUrl(to, editedSubject, editedBody, bcc) : "";
+  // An empty-recipient mailto (or one over the client length cap) is the exact
+  // "Open in email does nothing" failure — only offer it when it will work.
+  const showMailto = !!draft && !!to && mailtoWithinLimit(mailtoHref);
+  const gmailHref = draft ? buildGmailComposeUrl(to, editedSubject, editedBody, bcc) : "";
+  const outlookHref = draft ? buildOutlookComposeUrl(to, editedSubject, editedBody, bcc) : "";
 
   return (
     <section className="rounded-lg border border-emerald-700/50 bg-emerald-950/15 p-5">
@@ -171,13 +182,15 @@ export function DraftResponsePanel({
             >
               📋 Copy
             </button>
-            <a
-              href={mailtoHref}
-              onClick={logSend}
-              className="rounded border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
-            >
-              ✉ Open in email
-            </a>
+            {showMailto && (
+              <a
+                href={mailtoHref}
+                onClick={logSend}
+                className="rounded border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
+              >
+                ✉ Open in email
+              </a>
+            )}
             <a
               href={gmailHref}
               target="_blank"
@@ -216,6 +229,13 @@ export function DraftResponsePanel({
             </button>
           </div>
 
+          {!to && (
+            <p className="text-[11px] text-zinc-400">
+              No preset recipient — this is a public-comment draft. Most reliable:{" "}
+              <strong className="text-zinc-300">Copy</strong> it and paste into the agency&apos;s comment
+              portal, or open Gmail/Outlook and add the address yourself.
+            </p>
+          )}
           <p className="text-[11px] text-zinc-500">
             💡 Personalize the letter before submitting — agencies count
             duplicate text as one comment. Yours is already unique; tweaks
