@@ -273,7 +273,7 @@ function CampaignCard({ c, actions, isMine }: { c: Campaign; actions: number; is
     <li>
       <a
         href={`/campaigns/${c.slug}`}
-        className={`block h-full rounded-lg border p-5 transition ${
+        className={`ik-lift block h-full rounded-xl border p-5 ${
           isCritical
             ? "border-red-700/50 bg-red-950/15 hover:border-red-500"
             : isAlert
@@ -532,7 +532,7 @@ function ActionNudge({
     return (
       <a
         href={`/campaigns/${topCampaign.slug}`}
-        className="mb-6 block rounded-lg border border-emerald-700/40 bg-emerald-950/15 p-4 hover:border-emerald-500"
+        className="ik-card mb-6 block rounded-xl border border-emerald-700/40 bg-emerald-950/15 p-4 hover:border-emerald-500"
       >
         <p className="text-xs font-bold uppercase tracking-widest text-emerald-300">
           ✓ Email connected · one-click ready{urgent ? " · 🔴 urgent" : ""}
