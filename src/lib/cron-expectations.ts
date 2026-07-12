@@ -21,6 +21,7 @@ export const EXPECTED_INTERVAL_HOURS: Record<string, number> = {
   sync_research_pubmed: 36, generate_state_briefing: 36, fire_meeting_reminders: 36,
   fire_daily_brief_push: 36, sync_bills_legiscan_all: 36, vercel_daily_sync: 36,
   sync_committees_openstates: 36, derive_state_status: 36,
+  review_lapsed_items: 36, sync_legislative_sessions: 36,
   // weekly pipeline
   sync_nonprofit_990s: 216, broadcast_whats_new: 216, sync_elections: 216,
   official_portraits_sync: 216, bill_topics_classify: 216,
