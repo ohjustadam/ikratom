@@ -7,6 +7,7 @@ import { HomeLivePulse } from "@/components/HomeLivePulse";
 import { StateLegalMap } from "@/components/StateLegalMap";
 import { HomeOnboarding } from "@/components/HomeOnboarding";
 import { Reveal } from "@/components/motion/Reveal";
+import { HomeCustomizeProvider, PersonalizeBar, Customizable } from "@/components/home/HomeCustomize";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { getMessages } from "@/i18n/messages";
 
@@ -167,6 +168,7 @@ export default async function HomePage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+      <HomeCustomizeProvider>
       {/* International callout — only shows for non-English locales */}
       {isIntl && (
         <div className="mb-6 rounded-lg border border-amber-700/40 bg-amber-950/20 p-4 text-center text-sm text-amber-100">
@@ -236,18 +238,26 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Memorial / tribute-video placeholder (in honor of Scot Rubi) */}
+      {/* Personalize affordance + first-run how-to (owner: let users shape their space) */}
+      <PersonalizeBar />
+
+      {/* Memorial / tribute-video placeholder (in honor of Scot Rubi) — always shown */}
       <HomeMemorialBand />
 
       {/* Live pulse — proof the platform is awake right now */}
-      <HomeLivePulse />
+      <Customizable id="pulse" label="Live pulse">
+        <HomeLivePulse />
+      </Customizable>
 
       {/* "Where it stands" — the canonical legal-status map */}
-      <StateLegalMap />
+      <Customizable id="map" label="Legal status map">
+        <StateLegalMap />
+      </Customizable>
 
       {/* Get set up — dual onboarding (signed-out only; members are already in) */}
       {!isSignedIn && <HomeOnboarding />}
 
+      <Customizable id="campaigns" label="Active campaigns">
       {/* Band 1.5 — Active actions header */}
       <section className="mt-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
@@ -349,8 +359,10 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
+      </Customizable>
 
       {/* Band 3 — What you actually get (B voice: concrete) */}
+      <Customizable id="learn" label="What you get">
       <Reveal as="section" className="mt-16 border-t border-zinc-800 pt-12">
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
@@ -378,9 +390,11 @@ export default async function HomePage() {
           />
         </div>
       </Reveal>
+      </Customizable>
 
       {/* Band 4 — Stories (B: social proof done right). Hide if none. */}
       {(stories?.length ?? 0) > 0 && (
+        <Customizable id="stories" label="Advocate stories">
         <Reveal as="section" className="mt-16 border-t border-zinc-800 pt-12">
           <div className="text-center">
             <h2 className="text-2xl font-bold">Real stories from advocates</h2>
@@ -415,6 +429,7 @@ export default async function HomePage() {
             </Link>
           </div>
         </Reveal>
+        </Customizable>
       )}
 
       {/* Band 5 — Soft close (B: warm pitch) */}
@@ -447,6 +462,7 @@ export default async function HomePage() {
           </Link>
         </div>
       </Reveal>
+      </HomeCustomizeProvider>
     </div>
   );
 }
