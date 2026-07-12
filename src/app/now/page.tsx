@@ -241,7 +241,7 @@ export default async function NowPage() {
       {/* PRIMARY CTA — big, vertical, thumb-friendly */}
       <Link
         href={primary.href}
-        className={`block rounded-2xl border-2 ${TONE_CLASSES[primary.tone]} p-6 transition active:scale-[0.98]`}
+        className={`block rounded-2xl border-2 ${TONE_CLASSES[primary.tone]} p-6 transition hover:brightness-110 active:scale-[0.98]`}
         aria-label={primary.title}
       >
         <div className="text-4xl">{primary.emoji}</div>
@@ -256,7 +256,7 @@ export default async function NowPage() {
       <section className="mt-6 space-y-2">
         <Link
           href="/brief"
-          className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 transition active:scale-[0.98]"
+          className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 transition hover:border-zinc-600 active:scale-[0.98]"
         >
           <span className="text-2xl">☕</span>
           <span className="flex-1">
@@ -268,7 +268,7 @@ export default async function NowPage() {
 
         <Link
           href="/pulse"
-          className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 transition active:scale-[0.98]"
+          className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 transition hover:border-zinc-600 active:scale-[0.98]"
         >
           <span className="text-2xl">⚡</span>
           <span className="flex-1">
@@ -281,7 +281,7 @@ export default async function NowPage() {
         {user && (
           <Link
             href="/coalitions"
-            className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 transition active:scale-[0.98]"
+            className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 transition hover:border-zinc-600 active:scale-[0.98]"
           >
             <span className="text-2xl">🤝</span>
             <span className="flex-1">
@@ -294,7 +294,7 @@ export default async function NowPage() {
 
         <Link
           href="/support"
-          className="flex items-center gap-3 rounded-xl border border-emerald-700/40 bg-emerald-950/15 p-4 transition active:scale-[0.98]"
+          className="flex items-center gap-3 rounded-xl border border-emerald-700/40 bg-emerald-950/15 p-4 transition hover:border-emerald-500 active:scale-[0.98]"
         >
           <span className="text-2xl">♥</span>
           <span className="flex-1">
