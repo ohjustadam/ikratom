@@ -8,10 +8,22 @@
  * URLSearchParams is correct.
  */
 
-export function buildMailtoUrl(to: string, subject: string, body: string): string {
+export function buildMailtoUrl(to: string, subject: string, body: string, bcc?: string): string {
   // Encode the recipient too — synced/admin email data could contain spaces or
   // extra `?`/`&` that would otherwise inject mailto header fields.
-  return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const parts = [`subject=${encodeURIComponent(subject)}`];
+  if (bcc) parts.push(`bcc=${encodeURIComponent(bcc)}`);
+  parts.push(`body=${encodeURIComponent(body)}`);
+  return `mailto:${encodeURIComponent(to)}?${parts.join("&")}`;
+}
+
+/**
+ * Rough guard against the ~2000-char mailto ceiling that Chromium / Windows
+ * ShellExecute silently drop (the "Open in email does nothing" class of bug).
+ * Callers show a copy-first fallback when this returns false.
+ */
+export function mailtoWithinLimit(url: string): boolean {
+  return url.length <= 1900;
 }
 
 /**
@@ -23,19 +35,21 @@ export function httpUrlOrNull(url: string | null | undefined): string | null {
   return url && /^https?:\/\//i.test(url) ? url : null;
 }
 
-export function buildGmailComposeUrl(to: string, subject: string, body: string): string {
+export function buildGmailComposeUrl(to: string, subject: string, body: string, bcc?: string): string {
   const params = new URLSearchParams();
   params.set("view", "cm");
   params.set("fs", "1");
   params.set("to", to);
+  if (bcc) params.set("bcc", bcc);
   params.set("su", subject);
   params.set("body", body);
   return `https://mail.google.com/mail/?${params.toString()}`;
 }
 
-export function buildOutlookComposeUrl(to: string, subject: string, body: string): string {
+export function buildOutlookComposeUrl(to: string, subject: string, body: string, bcc?: string): string {
   const params = new URLSearchParams();
   params.set("to", to);
+  if (bcc) params.set("bcc", bcc);
   params.set("subject", subject);
   params.set("body", body);
   return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;

@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { jsonLdSafe } from "@/lib/jsonld";
-import { DraftResponsePanel } from "@/app/alerts/[id]/DraftResponsePanel";
+import { EmailGroupButton } from "@/modules/compose/EmailGroupButton";
+import { getBillOfficialGroups } from "@/modules/compose/bill-officials";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 import { RemindMeButton } from "@/components/RemindMeButton";
 import { SignUpNudge } from "@/components/SignUpNudge";
@@ -358,6 +359,32 @@ export default async function BillDetailPage({
       .maybeSingle();
     initiallySubscribed = !!sub;
   }
+
+  // Bill-level "email your officials" targeting (all reps / all senators /
+  // exec trio for a state bill; the user's delegation for a federal bill).
+  // Skipped for local scope — BillLocalActionCard already lists the council.
+  // Federal groups need the viewer's districts, so only then do we fetch the
+  // civic profile.
+  const isFederalBill = bill.scope === "federal" || bill.state === "US";
+  let viewerCivic: {
+    state: string | null; congressional_district: string | null;
+    state_senate_district: string | null; state_house_district: string | null;
+    city: string | null; county: string | null;
+  } | null = null;
+  if (viewer && isFederalBill) {
+    const { data: cp } = await supabase
+      .from("profiles")
+      .select("state, congressional_district, state_senate_district, state_house_district, city, county")
+      .eq("id", viewer.id)
+      .single();
+    viewerCivic = cp ?? null;
+  }
+  const officialGroups =
+    bill.scope === "municipal" || bill.scope === "county"
+      ? null
+      : await getBillOfficialGroups(supabase, { state: bill.state, scope: bill.scope }, viewerCivic);
+  const billStance: "oppose" | "support" | "neutral" =
+    bill.kratom_relevance === "anti" ? "oppose" : bill.kratom_relevance === "pro" ? "support" : "neutral";
 
   // Action count across all campaigns for this bill
   const { count: totalActions } = campaigns.length > 0
@@ -1282,9 +1309,36 @@ export default async function BillDetailPage({
         </section>
       )}
 
-      {/* Alerts for this bill + the draft-response anchor target.
-          BillTimeline's "✍ Draft response →" lands HERE now (the anchor
-          previously didn't exist on bill pages). */}
+      {/* Email your officials about this bill — direct action outside a
+          campaign. Pick a target group (all Representatives / all Senators /
+          the executive trio for a state bill; your U.S. delegation for a
+          federal bill) → AI-drafted, personalized letter → send via
+          Gmail/Outlook/mail app. Recipients are always populated (fixes the
+          empty-"To" the old alert-response panel produced on bill pages). */}
+      {officialGroups && (officialGroups.groups.length > 0 || officialGroups.needsProfile) && (
+        <section id="email-officials" className="mb-6 rounded-lg border-2 border-emerald-700/50 bg-gradient-to-br from-emerald-950/25 to-zinc-950/40 p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
+            ✉ Email your officials about this bill
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Draft a personalized letter and send it to the officials who decide this bill — your voice, your email address. Pick a group:
+          </p>
+          <div className="mt-3">
+            <EmailGroupButton
+              groups={officialGroups.groups}
+              billId={bill.id}
+              stance={billStance}
+              needsProfile={officialGroups.needsProfile}
+              scope={officialGroups.scope}
+            />
+          </div>
+        </section>
+      )}
+
+      {/* Alerts for this bill. (The old empty-recipient DraftResponsePanel was
+          removed from bill pages — the "Email your officials" section above is
+          the working, recipient-populated send. DraftResponsePanel still lives
+          on /alerts/[id] for genuine regulatory public-comment.) */}
       {(billAlerts.length > 0 || bill.active === true) && (
         <section id="draft-response" className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
@@ -1310,18 +1364,11 @@ export default async function BillDetailPage({
               ))}
             </ul>
           )}
-          {viewerSignedIn && billAlerts[0] ? (
-            <div className="mt-4">
-              <DraftResponsePanel
-                alertId={billAlerts[0].id}
-                alertTitle={billAlerts[0].title}
-                sourceUrl={billAlerts[0].source_url}
-              />
-            </div>
-          ) : billAlerts[0] ? (
+          {billAlerts[0] ? (
             <p className="mt-3 text-xs text-zinc-400">
-              <Link href="/login" className="text-emerald-400 hover:underline">Sign in</Link> to
-              draft a personalized response letter with one click.
+              Open an alert above to draft a public-comment response — or use{" "}
+              <a href="#email-officials" className="text-emerald-400 hover:underline">✉ Email your officials</a>{" "}
+              above to write the officials deciding this bill directly.
             </p>
           ) : (
             <p className="mt-3 text-xs text-zinc-400">
