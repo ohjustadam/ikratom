@@ -49,6 +49,10 @@ const onlyIdx = args.indexOf("--only");
 const ONLY = onlyIdx >= 0 ? args[onlyIdx + 1] : null;
 const skipIdx = args.indexOf("--skip");
 const SKIP = new Set(skipIdx >= 0 ? args[skipIdx + 1].split(",") : []);
+// --force: bypass the equal-counts resume-skip. Needed for tables whose
+// migration SEEDS coincidentally match prod counts (site_config, states, …) —
+// count parity there does NOT prove content parity; force the exact mirror.
+const FORCE = args.includes("--force");
 
 if (!TOKEN || !OLD_REF) { console.error("Missing SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF"); process.exit(1); }
 if (!MODE) { console.error("Pick a mode: --dry-run | --schema | --copy | --verify | --finalize"); process.exit(1); }
@@ -99,8 +103,14 @@ async function listPublicTables() {
 
 // Insertable columns = intersection of old+new, minus generated columns.
 // identity_generation='ALWAYS' columns force OVERRIDING SYSTEM VALUE.
+// fq is like `public."bills"` or `auth.users` — catalog lookups need BARE names.
+function parts(fq) {
+  const [schema, tableRaw] = fq.split(".");
+  return { schema, table: tableRaw.replaceAll('"', "") };
+}
+
 async function columnPlan(fq) {
-  const [schema, table] = fq.split(".");
+  const { schema, table } = parts(fq);
   const colSql = (extra) => `select column_name, is_generated, identity_generation
     from information_schema.columns where table_schema='${schema}' and table_name='${table}'${extra ?? ""}`;
   const oldCols = await qOld(colSql());
@@ -121,7 +131,7 @@ async function columnPlan(fq) {
 }
 
 async function pkOf(fq) {
-  const [schema, table] = fq.split(".");
+  const { schema, table } = parts(fq);
   const rows = await qOld(`select a.attname from pg_index i
     join pg_class c on c.oid = i.indrelid
     join pg_namespace n on n.oid = c.relnamespace
@@ -137,7 +147,7 @@ async function countOn(q, fq) {
 }
 
 async function batchSizeFor(fq, rowCount) {
-  const [schema, table] = fq.split(".");
+  const { schema, table } = parts(fq);
   const r = await qOld(`select pg_total_relation_size(c.oid) as bytes from pg_class c
     join pg_namespace n on n.oid=c.relnamespace where n.nspname='${schema}' and c.relname='${table}'`);
   const avg = Math.max(64, Number(r[0]?.bytes ?? 0) / Math.max(1, rowCount));
@@ -153,7 +163,7 @@ async function copyTable(fq) {
   // equal counts ⇒ the exact-mirror pass for this table already completed.
   // Lets a re-run after a timeout skip straight to the remaining tables.
   const already = await countOn(qNew, fq).catch(() => -1);
-  if (already === total) { console.log(`  ${fq}: already mirrored (${total}) — skip`); return { fq, total, copied: total }; }
+  if (!FORCE && already === total) { console.log(`  ${fq}: already mirrored (${total}) — skip`); return { fq, total, copied: total }; }
   const { cols, overriding, droppedOnNew } = await columnPlan(fq);
   if (droppedOnNew.length) console.log(`  ⚠ ${fq}: columns missing on NEW, not copied: ${droppedOnNew.join(", ")}`);
   if (cols.length === 0) { console.log(`  ⚠ ${fq}: no shared columns — skip`); return { fq, total, copied: 0 }; }
@@ -269,7 +279,7 @@ async function main() {
     console.log(`COPY ${OLD_REF} → ${NEW_REF}\n`);
     const publicTables = (await listPublicTables()).map((t) => `public.${qi(t)}`);
     let tables = [...AUTH_TABLES, ...STORAGE_TABLES, ...publicTables];
-    if (ONLY) tables = tables.filter((t) => t.includes(ONLY));
+    if (ONLY) { const wants = ONLY.split(","); tables = tables.filter((t) => wants.some((w) => t.includes(w))); }
     tables = tables.filter((t) => ![...SKIP].some((s) => t.includes(s)));
     const results = [];
     for (const fq of tables) results.push(await copyTable(fq));
