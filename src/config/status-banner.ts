@@ -7,6 +7,8 @@
  * DB-driven banner could not be turned on because the DB was the outage).
  *
  * To change: edit this file and merge — one-line flip of `enabled`.
+ * (This comment line also serves as a cache-busting touch: a fresh commit
+ * forces Vercel to re-bake NEXT_PUBLIC_* env values into the client bundle.)
  * Keep the DB-driven EmergencyBanner for everything short of a DB outage.
  */
 export const statusBanner = {
