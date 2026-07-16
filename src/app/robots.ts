@@ -64,6 +64,32 @@ export default function robots(): MetadataRoute.Robots {
     "Amazonbot",           // Amazon training / Alexa
   ];
 
+  // BLOCK: commercial SEO / backlink / market-intel crawlers. These are
+  // reputable (they DO honor robots.txt) but crawl aggressively and give a
+  // nonprofit advocacy site ZERO value — no search referrals, no citations,
+  // just repeated hits against uncached dynamic pages that each run DB reads.
+  // Added 2026-07-16 as part of the egress-survival diet: with ~10 MAU the
+  // free-tier 5GB/mo Supabase egress cap was blown by bot + cron reads, and
+  // these SEO crawlers are pure DB-egress cost. Complements the read-caching
+  // work; robots.txt is honor-system, so it only stops the compliant ones,
+  // but the compliant ones are exactly the heavy-yet-useless SEO fleet.
+  const BLOCK_SEO_SCRAPER_BOTS = [
+    "AhrefsBot",           // Ahrefs backlink index — very aggressive
+    "SemrushBot",          // Semrush SEO audit crawler
+    "MJ12bot",             // Majestic backlink crawler
+    "DotBot",              // Moz / OpenSiteExplorer
+    "rogerbot",            // Moz (legacy UA)
+    "BLEXBot",             // WebMeUp backlink crawler
+    "PetalBot",            // Huawei Petal search — heavy, low referral value
+    "MegaIndex.ru",        // MegaIndex SEO
+    "SeekportBot",         // Seekport
+    "serpstatbot",         // Serpstat SEO
+    "Barkrowler",          // Babbar.tech backlink crawler
+    "ZoominfoBot",         // ZoomInfo B2B data resale
+    "magpie-crawler",      // Brandwatch
+    "DataForSeoBot",       // SEO data resale (also listed above for AI; explicit here)
+  ];
+
   return {
     rules: [
       // Default: ordinary search engines allowed everywhere except private paths
@@ -78,6 +104,9 @@ export default function robots(): MetadataRoute.Robots {
 
       // Explicit block for training crawlers
       ...BLOCK_AI_TRAINING_BOTS.map((bot) => ({ userAgent: bot, disallow: "/" })),
+
+      // Explicit block for aggressive SEO / market-intel crawlers (egress diet)
+      ...BLOCK_SEO_SCRAPER_BOTS.map((bot) => ({ userAgent: bot, disallow: "/" })),
     ],
     sitemap: `${base}/sitemap.xml`,
     host: base,
