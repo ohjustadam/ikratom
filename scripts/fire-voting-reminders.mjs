@@ -9,7 +9,11 @@
  *      users; local scope → city/county match (geofenced).
  *   2. Inserts a `voting_reminder` in-app notification per user (the 0200
  *      category gate auto-skips users who muted notify_voting_reminder).
- *   3. Fans out a web push to each subscription, respecting DND/quiet-hours.
+ *   3. Lets the hourly push fan-out (fanoutPushNotifications) deliver it —
+ *      coalesced into ONE buzz with the user's other pending rows, honoring
+ *      opt-out (in_app/digest), DND/quiet-hours, and the per-user rate-cap.
+ *      (No direct send: it double-buzzed users because the fan-out re-delivered
+ *      the same pushed_at=NULL rows, and it ignored the global push opt-out.)
  *   4. Stamps reminder_Nd_sent_at so the next run skips it.
  *
  * Windows are THRESHOLDS, not exact days, so a skipped cron run still fires
@@ -25,7 +29,6 @@
  *   node --env-file=.env.local scripts/fire-voting-reminders.mjs --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
-import { canPushUser, loadPushPrefs, recordPush } from "./lib/push-gate.mjs";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -90,15 +93,6 @@ async function fireWindow(win) {
     return { window: win.key, sent: 0, recipients: 0 };
   }
 
-  const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const priv = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT || "mailto:noreply@ikratom.org";
-  let webpush = null;
-  if (pub && priv) {
-    webpush = (await import("web-push")).default;
-    webpush.setVapidDetails(subject, pub, priv);
-  }
-
   let totalRecipients = 0;
   for (const e of elections) {
     const daysOut = Math.round((Date.parse(`${e.election_date}T12:00:00Z`) - NOW_MS) / 86_400_000);
@@ -131,36 +125,13 @@ async function fireWindow(win) {
       if (error) console.log(`    ✗ notif chunk: ${error.message?.slice(0, 80)}`);
     }
 
-    // Push fanout — quiet-hours / DND never buzz a muted user; the in-app row stays.
-    let pushSent = 0, pushHeld = 0;
-    const pushGone = [];
-    if (webpush) {
-      const prefsMap = await loadPushPrefs(sb, userIds);
-      const pushedUsers = new Set();
-      const { data: subs } = await sb
-        .from("push_subscriptions")
-        .select("id, user_id, endpoint, p256dh, auth")
-        .in("user_id", userIds)
-        .limit(10_000);
-      const payload = JSON.stringify({ title, body, link, tag: `voting-reminder-${e.id}-${win.key}` });
-      for (const s of subs ?? []) {
-        if (!canPushUser(prefsMap.get(s.user_id), NOW_MS)) { pushHeld++; continue; }
-        try {
-          await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 24 * 60 * 60 });
-          pushSent++;
-          pushedUsers.add(s.user_id);
-        } catch (err) {
-          const status = err?.statusCode ?? 0;
-          if (status === 404 || status === 410) pushGone.push(s.id);
-        }
-      }
-      if (pushGone.length > 0) await sb.from("push_subscriptions").delete().in("id", pushGone);
-      await recordPush(sb, [...pushedUsers]);
-    }
+    // Delivery is handled by the hourly push fan-out (fanoutPushNotifications
+    // via /api/cron/fire-waves) — coalesced into one buzz, opt-out/DND/rate-cap
+    // honored. No direct send here (that double-buzzed + ignored opt-out).
 
     await sb.from("election_dates").update({ [win.col]: new Date().toISOString() }).eq("id", e.id);
     totalRecipients += userIds.length;
-    console.log(`    ✓ ${e.title}: ${userIds.length} notif, ${pushSent} push${pushHeld > 0 ? `, ${pushHeld} held (quiet/DND)` : ""}`);
+    console.log(`    ✓ ${e.title}: ${userIds.length} notif queued (delivered via fan-out)`);
   }
 
   return { window: win.key, sent: elections.length, recipients: totalRecipients };

@@ -146,6 +146,9 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
     ? `Kratom is on the agenda. Join the Zoom now or watch the livestream.`
     : `Kratom is on the agenda. Tap for the link.`;
   const link = `/calendar?state=${meeting.state}`;
+  // Captured before we insert the meeting_live rows so the pushed_at stamp
+  // below can be scoped to ONLY this broadcast's rows.
+  const broadcastStartedAt = new Date().toISOString();
 
   // 1. In-app notifications inserted for every target user
   if (userIds.length > 0) {
@@ -163,23 +166,32 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
     }
   }
 
-  // 2. Web push fanout to all subscriptions for these users
+  // 2. Web push fanout to all subscriptions for these users. LIVE-NOW stays
+  // INSTANT (unlike the day-ahead reminders, which route through the fan-out),
+  // but it now (a) honors the global push opt-out + the notify_meetings category
+  // mute, and (b) stamps pushed_at on the rows it delivers so the hourly fan-out
+  // does NOT re-buzz them (the double-buzz fix). DND/quiet-hours users are left
+  // UNstamped so the fan-out delivers once their quiet window clears.
   let pushSent = 0;
   let pushHeld = 0;
+  let pushSuppressed = 0;
   let pushGone: string[] = [];
+  const pushedUserIds = new Set<string>();
   if (isPushConfigured() && userIds.length > 0) {
-    // Quiet-hours / DND: hold the buzz for muted users — they still get the
-    // in-app notification + the critical /pulse alert created below.
+    type BroadcastPrefs = PushGatePrefs & {
+      in_app?: boolean | null;
+      digest?: string | null;
+      notify_meetings?: boolean | null;
+    };
     const { data: prefsRows } = await admin
       .from("notification_preferences")
-      .select("user_id, dnd_enabled, quiet_hours_start, quiet_hours_end, timezone")
+      .select("user_id, dnd_enabled, quiet_hours_start, quiet_hours_end, timezone, in_app, digest, notify_meetings")
       .in("user_id", userIds);
-    const prefsByUser = new Map<string, PushGatePrefs>();
-    for (const p of (prefsRows ?? []) as Array<PushGatePrefs & { user_id: string }>) {
+    const prefsByUser = new Map<string, BroadcastPrefs>();
+    for (const p of (prefsRows ?? []) as Array<BroadcastPrefs & { user_id: string }>) {
       prefsByUser.set(p.user_id, p);
     }
     const nowMs = Date.now();
-    const pushedUserIds = new Set<string>();
     const { data: subs } = await admin
       .from("push_subscriptions")
       .select("id, user_id, endpoint, p256dh, auth")
@@ -187,7 +199,13 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
       .limit(10_000);
     const payload = { title, body, link, tag: `meeting-${meeting.id}` };
     for (const s of (subs ?? []) as Array<{ id: string; user_id: string; endpoint: string; p256dh: string; auth: string }>) {
-      if (!canPushUser(prefsByUser.get(s.user_id), nowMs)) { pushHeld++; continue; }
+      const prefs = prefsByUser.get(s.user_id);
+      // Global push opt-out or notify_meetings mute → never buzz. The fan-out
+      // marks the in-app row delivered (in_app=false/digest='off') or the
+      // insert trigger already dropped it (notify_meetings=false).
+      if (prefs && (prefs.in_app === false || prefs.digest === "off" || prefs.notify_meetings === false)) { pushSuppressed++; continue; }
+      // DND / quiet-hours → HOLD: leave the row for the fan-out to deliver later.
+      if (!canPushUser(prefs, nowMs)) { pushHeld++; continue; }
       const r = await sendPush(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         payload,
@@ -199,12 +217,22 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
     if (pushGone.length > 0) {
       await admin.from("push_subscriptions").delete().in("id", pushGone);
     }
-    // Stamp last_push_at so the fanout cron's rate-cap accounts for this buzz.
     if (pushedUserIds.size > 0) {
+      const pushedList = [...pushedUserIds];
+      // Stamp last_push_at so the fan-out cron's rate-cap accounts for this buzz.
       await admin
         .from("notification_preferences")
         .update({ last_push_at: new Date().toISOString() })
-        .in("user_id", [...pushedUserIds]);
+        .in("user_id", pushedList);
+      // Stamp pushed_at on the meeting_live rows we just delivered so the hourly
+      // fan-out doesn't re-buzz them. Scoped to THIS broadcast's rows.
+      await admin
+        .from("notifications")
+        .update({ pushed_at: new Date().toISOString() })
+        .in("user_id", pushedList)
+        .eq("kind", "meeting_live")
+        .is("pushed_at", null)
+        .gte("created_at", broadcastStartedAt);
     }
   }
 
@@ -229,6 +257,11 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
     expires_at: new Date(when.getTime() + 6 * 60 * 60 * 1000).toISOString(), // 6h
     action_required: true,
     moderation_status: "approved",
+    // Pre-stamp so push-critical-alerts.mjs (which fans out approved alerts with
+    // auto_pushed_at IS NULL) does NOT re-push this to the same in-state users —
+    // they already got the LIVE-NOW meeting_live buzz above. This alert exists
+    // for /pulse visibility, not a third notification (the triple-touch fix).
+    auto_pushed_at: new Date().toISOString(),
   });
 
   // 4. Mark broadcast complete
@@ -255,6 +288,7 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
       user_count: userIds.length,
       push_sent: pushSent,
       push_held: pushHeld,
+      push_suppressed: pushSuppressed,
       push_pruned: pushGone.length,
       zoom_url: meeting.zoom_url ?? null,
     },

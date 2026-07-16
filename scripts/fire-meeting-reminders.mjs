@@ -7,7 +7,12 @@
  * reminder windows AND a NULL `reminder_Xd_sent_at`, this script:
  *   1. Finds in-state users
  *   2. Inserts a `meeting_upcoming` in-app notification per user
- *   3. Fans out a web push to each subscription
+ *   3. Lets the hourly push fan-out (fanoutPushNotifications) deliver — it
+ *      COALESCES all of a user's pending rows into ONE buzz and honors
+ *      opt-out (in_app/digest), the notify_meetings category mute, DND /
+ *      quiet-hours, and the per-user rate-cap. (This script no longer
+ *      direct-sends: a per-item direct push double-buzzed users because the
+ *      fan-out re-delivered the same pushed_at=NULL rows an hour later.)
  *   4. Stamps `reminder_Xd_sent_at` so the next cron run skips it
  *
  * Windows (in days from now):
@@ -24,7 +29,6 @@
  *   node --env-file=.env.local scripts/fire-meeting-reminders.mjs --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
-import { canPushUser, loadPushPrefs, recordPush } from "./lib/push-gate.mjs";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -109,53 +113,16 @@ async function fireWindow(win) {
       if (error) console.log(`    ✗ notif chunk: ${error.message?.slice(0, 80)}`);
     }
 
-    // Push fanout
-    const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    const priv = process.env.VAPID_PRIVATE_KEY;
-    const subject = process.env.VAPID_SUBJECT || "mailto:noreply@ikratom.org";
-    let pushSent = 0;
-    let pushHeld = 0;
-    let pushGone = [];
-    if (pub && priv) {
-      const webpush = (await import("web-push")).default;
-      webpush.setVapidDetails(subject, pub, priv);
-      // Quiet-hours / DND: never buzz a muted user or one in their quiet
-      // window. The in-app notification above still reaches their inbox.
-      const prefsMap = await loadPushPrefs(sb, userIds);
-      const nowMs = Date.now();
-      const pushedUsers = new Set();
-      const { data: subs } = await sb
-        .from("push_subscriptions")
-        .select("id, user_id, endpoint, p256dh, auth")
-        .in("user_id", userIds)
-        .limit(10_000);
-      const payload = JSON.stringify({ title, body, link, tag: `meeting-reminder-${m.id}-${win.days}` });
-      for (const s of subs ?? []) {
-        if (!canPushUser(prefsMap.get(s.user_id), nowMs)) { pushHeld++; continue; }
-        try {
-          await webpush.sendNotification(
-            { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-            payload,
-            { TTL: 24 * 60 * 60 },
-          );
-          pushSent++;
-          pushedUsers.add(s.user_id);
-        } catch (e) {
-          const status = e?.statusCode ?? 0;
-          if (status === 404 || status === 410) pushGone.push(s.id);
-        }
-      }
-      if (pushGone.length > 0) {
-        await sb.from("push_subscriptions").delete().in("id", pushGone);
-      }
-      await recordPush(sb, [...pushedUsers]);
-    }
+    // Delivery is handled by the hourly push fan-out (fanoutPushNotifications
+    // via /api/cron/fire-waves), which coalesces this row with anything else
+    // the user has pending into ONE buzz and honors every opt-out + DND +
+    // rate-cap. No direct send here — that was the source of the double-buzz.
 
     // Stamp so we don't re-fire
     await sb.from("municipal_meetings").update({ [win.col]: new Date().toISOString() }).eq("id", m.id);
 
     totalRecipients += userIds.length;
-    console.log(`    ✓ ${m.locality ?? m.state}: ${userIds.length} notif, ${pushSent} push${pushHeld > 0 ? `, ${pushHeld} held (quiet/DND)` : ""}`);
+    console.log(`    ✓ ${m.locality ?? m.state}: ${userIds.length} notif queued (delivered via fan-out)`);
   }
 
   return { window: win.label, sent: meetings.length, recipients: totalRecipients };
