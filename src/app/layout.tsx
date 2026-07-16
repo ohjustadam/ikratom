@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { siteConfig } from "@/config/site.config";
+import { statusBanner } from "@/config/status-banner";
 import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
 import { MobileAuthPill } from "@/modules/auth/components/MobileAuthPill";
 import { HeaderNav } from "@/components/HeaderNav";
@@ -177,6 +178,19 @@ export default async function RootLayout({
         {/* Site-wide soft announcement (editable from /admin/content) — renders
             only when admin sets global.announcement content. */}
         <GlobalAnnouncement />
+
+        {/* Static service-status banner — code-committed so it renders even
+            when the DATABASE is the outage (the DB-driven EmergencyBanner
+            below can't turn on in that case). Flip off in status-banner.ts. */}
+        {statusBanner.enabled && (
+          <div role="alert" className="border-b-2 border-amber-500 bg-amber-950/40 text-amber-100">
+            <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6 lg:px-8">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-300">⚠ Service notice</p>
+              <p className="mt-0.5 text-sm font-semibold leading-tight sm:text-base">{statusBanner.title}</p>
+              <p className="mt-0.5 text-xs sm:text-sm">{statusBanner.body}</p>
+            </div>
+          </div>
+        )}
 
         {/* Site-wide emergency banner — renders only when admin toggles emergency_mode on */}
         <EmergencyBanner />
