@@ -149,6 +149,11 @@ async function batchSizeFor(fq, rowCount) {
 async function copyTable(fq) {
   const total = await countOn(qOld, fq);
   if (total === 0) { console.log(`  ${fq}: empty — skip`); return { fq, total: 0, copied: 0 }; }
+  // Resume support: the old project is frozen (restricted = no writers), so
+  // equal counts ⇒ the exact-mirror pass for this table already completed.
+  // Lets a re-run after a timeout skip straight to the remaining tables.
+  const already = await countOn(qNew, fq).catch(() => -1);
+  if (already === total) { console.log(`  ${fq}: already mirrored (${total}) — skip`); return { fq, total, copied: total }; }
   const { cols, overriding, droppedOnNew } = await columnPlan(fq);
   if (droppedOnNew.length) console.log(`  ⚠ ${fq}: columns missing on NEW, not copied: ${droppedOnNew.join(", ")}`);
   if (cols.length === 0) { console.log(`  ⚠ ${fq}: no shared columns — skip`); return { fq, total, copied: 0 }; }
