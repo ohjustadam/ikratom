@@ -196,52 +196,76 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
+      # Every step below is continue-on-error: they are INDEPENDENT automations
+      # sharing one job for runner economy — an early hard throw (e.g. a schema
+      # drift in one script) used to abort the tick and silently skip the ~15
+      # steps after it (audit 2026-07-16). Each script writes its own
+      # scraper_runs telemetry, so real persistent failures still page via
+      # check-cron-staleness — job-level green just means "the tick ran".
       - name: Auto-push approved critical alerts to in-state users
+        continue-on-error: true
         run: node scripts/push-critical-alerts.mjs
       - name: Push bill_actions to users who took action on them
+        continue-on-error: true
         run: node scripts/push-bill-actions-to-actors.mjs
       - name: Push high-relevance state news to in-state users
+        continue-on-error: true
         run: node scripts/push-state-news.mjs
       - name: Auto-create campaigns from new actionable alerts (safety net)
         # Real-time path is the 0068 Postgres trigger; this is the backstop.
+        continue-on-error: true
         run: node scripts/auto-campaign-from-alert.mjs --all-pending
       - name: Promote city-ordinance alerts into bills rows
+        continue-on-error: true
         run: node scripts/promote-alert-to-bill.mjs --all-bill-events
       - name: Extract structured local-event metadata from alerts
+        continue-on-error: true
         run: node scripts/extract-local-meta.mjs --all-municipal
       - name: Seed full city-council slate for new municipal bills
+        continue-on-error: true
         run: node scripts/seed-bill-officials.mjs --all-municipal
       - name: Extract officials from news alerts + make them actionable
         # A 429/parse failure here must not fail the whole leg (self-heals next hour).
         continue-on-error: true
         run: node scripts/extract-news-officials.mjs --limit 25
       - name: Extract future civic events from news → calendar
+        continue-on-error: true
         run: node scripts/extract-news-events.mjs --limit 25
       - name: Auto-approve high-confidence municipal meetings
+        continue-on-error: true
         run: node scripts/auto-approve-meetings.mjs
       - name: Auto-approve high-confidence campaigns (shadow until owner promotes)
         continue-on-error: true
         run: node scripts/auto-approve-campaigns.mjs
       - name: Auto-post active anti/pro bills to state forums
+        continue-on-error: true
         run: node scripts/auto-post-bills-to-forum.mjs
       - name: LegiScan primary sync for active anti bills (Layer 2)
+        continue-on-error: true
         run: node scripts/sync-bills-via-legiscan.mjs --priority
       - name: Post critical bill alerts to Discord channels
+        continue-on-error: true
         run: node scripts/post-bill-alerts-to-discord.mjs
       - name: Fan out bill subscription notifications
+        continue-on-error: true
         run: node scripts/fanout-bill-reminders.mjs
       - name: Extract bill numbers from alerts + news (auto-promote to bills)
         # --limit 500: pulling 2000+2000 rows materialized a multi-MB working
         # set on the ~400MB instance hourly; 500 still drains across ticks.
+        continue-on-error: true
         run: node scripts/extract-bills-from-alerts.mjs --limit 500
       - name: Fire user-set custom reminders
+        continue-on-error: true
         run: node scripts/fire-custom-reminders.mjs
       - name: Scrape protectkratom.org state alert pages
         # AKA posts time-sensitive state alerts hours-to-days ahead of news.
+        continue-on-error: true
         run: node scripts/scrape-protectkratom-org.mjs
       - name: Correlate news_items to bills (regex pass)
+        continue-on-error: true
         run: node scripts/correlate-news-to-bills.mjs
       - name: Dedupe news by title (exact-syndication case)
+        continue-on-error: true
         run: node scripts/dedupe-news-by-title.mjs
 
   watchdog:

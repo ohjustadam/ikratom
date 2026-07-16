@@ -114,3 +114,16 @@ for (const r of due) {
 }
 
 console.log(`\nDone — ${fired} fired, ${failed} failed`);
+
+// Telemetry — user-set reminders are a user-facing hourly automation; without
+// this row the staleness monitor could never detect it dying (audit 2026-07-16).
+try {
+  await sb.from("scraper_runs").insert({
+    source: "fire_custom_reminders",
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: failed > 0 && fired === 0 ? "error" : fired > 0 ? "success" : "empty",
+    rows_updated: fired,
+    notes: `${fired} fired · ${failed} failed`,
+  });
+} catch { /* best-effort */ }

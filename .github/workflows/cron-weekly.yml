@@ -14,7 +14,11 @@ name: Weekly cron
 
 on:
   schedule:
-    - cron: "0 9 * * 0"
+    # :13 offset (was :00) — the heavy all-51-state committee sync used to
+    # launch on the exact clock-edge as the hourly news pipeline, the same
+    # simultaneous-launch DB-load pattern cron-daily was offset to :17 to
+    # avoid after the 2026-06-08 OOM.
+    - cron: "13 9 * * 0"
   workflow_dispatch: {}
 
 concurrency:

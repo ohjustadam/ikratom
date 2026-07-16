@@ -22,6 +22,9 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "node:module";
+// Canonical source list — extracted module so tests can assert every entry
+// has a real scraper_runs writer (kills the phantom-source class for good).
+import { REGISTRY } from "./lib/cron-pager-registry.mjs";
 
 const args = process.argv.slice(2);
 const DRY = args.includes("--dry-run");
@@ -30,133 +33,6 @@ const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
-
-// Inline mirror of CRON_REGISTRY. Kept in sync manually — the
-// TS source is the canonical version; this is a flat copy of the
-// expected-interval portion. Format: { source, label, interval_hours,
-// system, cadence }
-const REGISTRY = [
-  // hourly (every 30min → expect at least every 1h)
-  ...["sync_news_rss","classify_news_policy","push_critical_alerts","push_state_news",
-      "scrape_protectkratom_org","correlate_news_to_bills","auto_campaign_from_alert",
-      "promote_alert_to_bill","extract_local_meta","seed_bill_officials",
-      "auto_post_bills_to_forum","sync_bills_legiscan_priority","post_bill_alerts_to_discord",
-      "push_bill_actions_to_actors","resolve_news_urls",
-      // fire_waves = /api/cron/fire-waves — the SOLE push/email delivery path,
-      // hit hourly by cron-hourly.yml. Now writes a scraper_runs row so a silent
-      // stall of ALL notification delivery finally pages the owner.
-      "fire_waves",
-      "fanout_bill_reminders",
-      "dedupe_news_by_title",
-      "extract_news_officials",
-      "extract_news_events",
-      "auto_approve_meetings",
-      "auto_approve_campaigns",
-     ].map((source) => ({ source, interval_hours: 4, system: "gh-hourly", cadence: "every-30min" })),
-
-  // daily
-  // NOTE: `source` values here must match the EXACT string each script
-  // writes to scraper_runs.source — NOT the workflow step name. Many
-  // scripts use the upstream API name (e.g. "openstates", "usaspending")
-  // rather than the cron-step verb. Mismatches show up as "never
-  // observed" false-positives in /admin/automation.
-  // verify_bill_status_ai RETIRED 2026-06-11 (de-Gemini/free-tier policy; it was
-  // failing 50/50 and authoritative status now comes from the LegiScan sync +
-  // terminalStatusFromAction). De-registered so the monitor stops false-alarming
-  // on an intentionally-dead source (cron-daily.yml keeps the retirement note).
-  ...["auto_resolve_sync_discrepancies","sync_legislator_donors",
-      "sync_bill_sponsors","sync_bills_legiscan_all","sync_lda_kratom",
-      "usaspending","regulations.gov","courtlistener",
-      "senate_stock_watcher","house_stock_watcher",
-      "generate_state_briefing",
-      "sync_committees_openstates","draft_legislator_stance",
-      "discover_municipal_meetings","fire_meeting_reminders","fire_voting_reminders",
-      "scan_legistar_tenants","scan_granicus_tenants","sync_research_pubmed",
-      "align_bills_to_research",
-      "openstates","detect_bill_clusters",
-      "classify_bill_substance",
-      "derive_state_status",
-      "sync_legistar_officials",
-      "discover_legistar_tenants",
-      "fire_daily_brief_push",
-      "render_daily_brief_audio",
-      "extract_news_content",
-      "summarize_news",
-      "generate_news_digest",
-      "feed_news_from_alerts",
-      // verify_news_body runs DAILY (cron-daily.yml), not hourly. It was
-      // mis-registered in the hourly array (12h threshold) which false-alarmed
-      // ~12h after every daily run and "recovered" on the next — cry-wolf that
-      // trained the owner to ignore staleness pushes. Moved here (36h).
-      "verify_news_body",
-      "queue_due_state_flips",
-      "daily_stale_campaign_cleanup",
-      "cleanup_pending_campaigns",
-      "reject_wrongstate_pending_alerts",
-      "dedupe_pending_alerts",
-      "expire_rotating_campaigns",
-      "locality_state_audit",
-      "review_lapsed_items",
-      "sync_legislative_sessions",
-     ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
-
-  // weekly
-  // NOTE: the weekly committee-sync + stance jobs write the SAME source strings
-  // as their daily counterparts (sync_committees_openstates, draft_legislator_stance),
-  // monitored via the daily block above. The old weekly-only names
-  // (weekly_committee_sync, weekly_legislator_stance_all, weekly_patch_note_draft)
-  // were never written by ANY script → permanent "never observed" phantoms that
-  // faked weekly-cadence coverage. Removed. (A dedicated weekly-workflow
-  // heartbeat row is a tracked follow-up.)
-  ...["sync_nonprofit_990s","broadcast_whats_new","official_portraits_sync",
-      "state_portraits_bulk","bill_topics_classify",
-     ].map((source) => ({ source, interval_hours: 216, system: "gh-weekly", cadence: "weekly" })),
-
-  // vercel (different system, but still monitorable)
-  { source: "vercel_daily_sync", interval_hours: 36, system: "vercel", cadence: "daily" },
-  // Officials-freshness failsafe (/api/cron/reverify-local-officials, Vercel
-  // daily). Now writes scraper_runs so a silent stall of the "don't list a
-  // former official" guarantee finally pages the owner. Matches cron-registry.ts.
-  { source: "reverify_local_officials", interval_hours: 36, system: "vercel", cadence: "daily" },
-
-  // Long-tail officials drain. Primary runtime is now GitHub Actions
-  // (cron-localreps-cloud.yml, every 6h, in-job SearXNG + headless Chromium);
-  // the owner box nightly still writes this source as a fallback. 12h interval
-  // → a 3×12h (~36h) silence across BOTH runtimes alerts; the box alone keeps
-  // it under 24h, so this only cries wolf if cloud AND box are both down.
-  { source: "auto_fulfill_local_reps", interval_hours: 12, system: "github-actions", cadence: "daily" },
-  // PR-A: local-ban verification + the unified locality-intelligence sweep
-  // both run on the box too (SearXNG find → fetch → local/free-tier extract).
-  { source: "verify_local_bans", interval_hours: 72, system: "local-box", cadence: "daily" },
-  { source: "sweep_locality_intel", interval_hours: 72, system: "local-box", cadence: "daily" },
-  // Review-queue liveness fact-check (owner 2026-07-03): needs SearXNG → box-only.
-  { source: "clear_review_queues", interval_hours: 72, system: "local-box", cadence: "daily" },
-  // Phase-2 multi-topic discovery (LegiScan getSearch) runs on the box — the
-  // query API refuses GitHub Actions IPs. Self-gates weekly; box runs nightly,
-  // so a success lands ~weekly (216h interval gives margin).
-  { source: "topic_bill_discovery", interval_hours: 216, system: "local-box", cadence: "weekly" },
-  // PR-E: Hermes (hermes3:8b) writes campaign briefings nightly on the box.
-  { source: "auto_brief_campaigns", interval_hours: 72, system: "local-box", cadence: "daily" },
-  // PR-F: session-prep regen (codebase map + state snapshot) on the box.
-  { source: "session_prep", interval_hours: 72, system: "local-box", cadence: "daily" },
-  // PR-D: backlog drains on the box (summarize_news is already registered
-  // under gh-daily — any system writing the source keeps it fresh).
-  { source: "translate_content", interval_hours: 72, system: "local-box", cadence: "daily" },
-  { source: "bill_embeddings", interval_hours: 72, system: "local-box", cadence: "daily" },
-  // Dossier Phase 1: one Hermes deep-dive per night on the box.
-  { source: "dossier_research", interval_hours: 72, system: "local-box", cadence: "daily" },
-  // ---- MOVED TO GITHUB ACTIONS (Phase 1 offload, 2026-06-12) ----
-  // cron-nightly-cloud.yml @ 08:30 UTC. The staleness checker only cares
-  // that SOMETHING wrote the source recently; system label = where it
-  // now lives.
-  { source: "state_executives_sync", interval_hours: 216, system: "github-actions", cadence: "weekly" },
-  { source: "fetch_bill_texts", interval_hours: 72, system: "github-actions", cadence: "daily" },
-  // #19 Elections calendar: sync-elections.mjs (NCSL primaries + federal
-  // general) self-gates to weekly inside the nightly cloud chassis.
-  { source: "sync_elections", interval_hours: 216, system: "github-actions", cadence: "weekly" },
-  // #19 calendar-completeness: derive local_vote_outcomes from alerts (cron-daily).
-  { source: "extract_local_vote_outcomes", interval_hours: 72, system: "github-actions", cadence: "daily" },
-];
 
 const t0 = Date.now();
 console.log(`Checking ${REGISTRY.length} cron sources for staleness…`);
@@ -210,7 +86,21 @@ for (const entry of REGISTRY) {
   else if (isSilent && wasAlerted) stillSilent.push({ ...entry, last_seen_at: last });
 }
 if (neverRun.length > 0) {
-  console.log(`  ${neverRun.length} sources have never written telemetry (skipped; grace period)`);
+  console.log(`  ${neverRun.length} sources have never written telemetry: ${neverRun.join(", ")}`);
+  // ESCALATION (2026-07-16 audit): a perpetual grace-skip is how dead-from-birth
+  // automations stayed invisible. Alert ONCE per never-observed source (dedup'd
+  // via cron_staleness_alerts like ordinary silences; clears automatically when
+  // the source writes its first row and the "recovered" path deletes the row).
+  for (const source of neverRun) {
+    if (!alertedSources.has(source)) {
+      const entry = REGISTRY.find((r) => r.source === source);
+      newlySilent.push({
+        ...entry,
+        last_seen_at: null,
+        age_hours: -1, // sentinel: never observed
+      });
+    }
+  }
 }
 
 console.log(`  ${newlySilent.length} newly silent · ${recovered.length} recovered · ${stillSilent.length} still silent`);

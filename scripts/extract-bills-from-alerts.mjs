@@ -287,7 +287,12 @@ for (let i = 0; i < rows.length; i += BATCH) {
   const chunk = rows.slice(i, i + BATCH);
   const { error, data } = await sb
     .from("bills")
-    .upsert(chunk, { onConflict: "state,bill_number", ignoreDuplicates: true })
+    // 0243 replaced the (state,bill_number) unique index with
+    // (state,bill_number,session_id) NULLS NOT DISTINCT — the old onConflict
+    // target no longer matches any index, so every upsert errored silently
+    // (this script had no telemetry; found 2026-07-16). Rows carry
+    // session_id:null, which the NULLS-NOT-DISTINCT index dedupes correctly.
+    .upsert(chunk, { onConflict: "state,bill_number,session_id", ignoreDuplicates: true })
     .select("id");
   if (error) {
     console.error(`  Batch ${i / BATCH} failed: ${error.message?.slice(0, 200)}`);
@@ -297,3 +302,16 @@ for (let i = 0; i < rows.length; i += BATCH) {
 }
 
 console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${written} bills auto-extracted + created.`);
+
+// Telemetry — this hourly user-facing automation was invisible to the
+// staleness monitor (and its 0243 breakage went unseen for days).
+try {
+  await sb.from("scraper_runs").insert({
+    source: "extract_bills_from_alerts",
+    started_at: new Date(t0).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: written > 0 ? "success" : "empty",
+    rows_added: written,
+    notes: `scanned ${scannedAlerts} alerts + ${scannedNews} news · ${rows.length} candidates`,
+  });
+} catch { /* best-effort */ }

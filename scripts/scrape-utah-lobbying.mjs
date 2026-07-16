@@ -259,3 +259,14 @@ if (!aErr && active) {
     console.log(`  ${r.lobbyist_name.padEnd(28)} for ${r.principal_name.padEnd(40)} since ${r.start_date}`);
   }
 }
+
+// Telemetry (audit 2026-07-16: registered in cron-registry.ts but never wrote).
+try {
+  await sb.from("scraper_runs").insert({
+    source: "scrape_utah_lobbyist_registry",
+    started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+    status: "success",
+    rows_updated: active?.length ?? 0,
+    notes: `${active?.length ?? 0} active kratom-industry registrations`,
+  });
+} catch { /* best-effort */ }

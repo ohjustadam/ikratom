@@ -230,4 +230,13 @@ for (const f of findings) {
 }
 
 console.log(`\nDone. ${ok} classified, ${fail} failed.`);
+// Telemetry (audit 2026-07-16: registered in cron-registry.ts but never wrote).
+try {
+  await sb.from("scraper_runs").insert({
+    source: "classify_bop_findings_ai",
+    started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+    status: ok > 0 ? "success" : fail > 0 ? "error" : "empty",
+    rows_updated: ok, notes: `${ok} classified · ${fail} failed`,
+  });
+} catch { /* best-effort */ }
 process.exit(fail > 0 ? 0 : 0); // never non-zero — partial failures are fine

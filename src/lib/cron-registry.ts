@@ -207,12 +207,8 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
 
   // ─── GH Daily (cron-daily.yml — once per day) ──────────────
-  {
-    source: "verify_bill_status_ai",
-    label: "AI bill-status verification",
-    purpose: "Verify status of 50 most-stale tracked bills via AI grounding",
-    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "bills",
-  },
+  // verify_bill_status_ai RETIRED 2026-06-11 (de-Gemini policy) — entry removed
+  // 2026-07-16 so /admin/automation stops showing a forever-silent phantom row.
   {
     source: "auto_resolve_sync_discrepancies",
     label: "Auto-resolve sync discrepancies",
@@ -237,10 +233,18 @@ export const CRON_REGISTRY: CronEntry[] = [
     purpose: "Sync sponsorship rows across all states",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "bills",
   },
+  // sync-stock-act-trades.mjs writes TWO sources (one per data mirror) — the
+  // old single "sync_federal_trades" entry matched neither (phantom, 2026-07-16).
   {
-    source: "sync_federal_trades",
-    label: "Federal STOCK Act trades",
-    purpose: "Sync personal-trades data for federal legislators",
+    source: "senate_stock_watcher",
+    label: "Federal STOCK Act trades (Senate)",
+    purpose: "Sync Senate personal-trades data for federal legislators",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "donors",
+  },
+  {
+    source: "house_stock_watcher",
+    label: "Federal STOCK Act trades (House)",
+    purpose: "Sync House personal-trades data for federal legislators",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "donors",
   },
   {
@@ -250,7 +254,9 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
   },
   {
-    source: "scrape_bop_findings",
+    // Renamed from phantom "scrape_bop_findings" — matches the writer added
+    // to scripts/scrape-bop-browser.mjs (2026-07-16).
+    source: "bop_browser_scrape",
     label: "Scrape BoP findings (browser)",
     purpose: "Headless-Chrome scrape of TLS-blocked Board of Pharmacy sources",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
