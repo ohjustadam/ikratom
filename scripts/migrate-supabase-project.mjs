@@ -181,11 +181,17 @@ async function copyTable(fq) {
     }
     if (!rows.length) break;
 
-    // WRITE the batch into NEW inside a replica-mode transaction
+    // WRITE the batch into NEW inside a replica-mode transaction.
+    // First batch DELETEs existing rows (exact-mirror semantics): migrations
+    // seed some tables (states, site_config, …) and ON CONFLICT DO NOTHING
+    // would let stale seeds beat live prod values. Replica mode suspends FKs,
+    // so the delete+reload is safe; re-running a table restarts the mirror.
     const json = JSON.stringify(rows).replaceAll("\\u0000", ""); // PG jsonb rejects NUL
     const tag = "$mig" + Math.random().toString(36).slice(2, 8) + "$";
+    const firstBatch = copied === 0 && (keyset ? lastKey === null : offset === 0);
     const insertSql = `begin;
 set local session_replication_role = replica;
+${firstBatch ? `delete from ${fq};` : ""}
 insert into ${fq} (${colList}) ${overriding ? "overriding system value " : ""}
 select ${colList} from jsonb_populate_recordset(null::${fq}, ${tag}${json}${tag}::jsonb)
 on conflict do nothing;
