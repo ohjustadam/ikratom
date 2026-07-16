@@ -151,8 +151,53 @@ async function batchSizeFor(fq, rowCount) {
   const r = await qOld(`select pg_total_relation_size(c.oid) as bytes from pg_class c
     join pg_namespace n on n.oid=c.relnamespace where n.nspname='${schema}' and c.relname='${table}'`);
   const avg = Math.max(64, Number(r[0]?.bytes ?? 0) / Math.max(1, rowCount));
-  // Target ~1.5MB of JSON per batch (relation size overcounts vs JSON, safe direction).
-  return Math.max(25, Math.min(2000, Math.floor(1_500_000 / avg)));
+  // Target ~400KB of JSON per batch — the Management API 413s write bodies
+  // around ~1MB (hit live on public.bills), so leave generous headroom.
+  return Math.max(1, Math.min(2000, Math.floor(400_000 / avg)));
+}
+
+// Oversize-row fallback: a SINGLE row whose JSON exceeds the API body limit.
+// Insert it with its fat columns emptied, then stream each fat value into a
+// scratch table in ~250KB slices and apply it with one UPDATE (casting via
+// text handles jsonb/arrays too). Replica mode throughout.
+async function insertRowChunked(fq, row, cols, overriding, pk) {
+  const SLICE = 250_000;
+  const fat = cols.filter((c) => typeof row[c] === "string" && row[c].length > SLICE);
+  const lite = { ...row };
+  for (const c of fat) lite[c] = null;
+  const colList = cols.map(qi).join(", ");
+  const tag0 = "$mig" + Math.random().toString(36).slice(2, 8) + "$";
+  await qNew(`begin; set local session_replication_role = replica;
+insert into ${fq} (${colList}) ${overriding ? "overriding system value " : ""}
+select ${colList} from jsonb_populate_recordset(null::${fq}, ${tag0}${JSON.stringify([lite]).replaceAll("\\u0000", "")}${tag0}::jsonb)
+on conflict do nothing; commit;`);
+  const where = pk.map((k) => `${qi(k)} = ${sqlLit(row[k])}`).join(" and ");
+  await qNew(`create table if not exists public._mig_scratch (v text)`);
+  for (const c of fat) {
+    await qNew(`truncate public._mig_scratch; insert into public._mig_scratch values ('')`);
+    const v = row[c];
+    for (let i = 0; i < v.length; i += SLICE) {
+      const tag = "$mig" + Math.random().toString(36).slice(2, 8) + "$";
+      const slice = v.slice(i, i + SLICE).replaceAll("\u0000", "");
+      await qNew(`update public._mig_scratch set v = v || ${tag}${slice}${tag}`);
+    }
+    // Cast through the column's own type via a subselect assignment.
+    await qNew(`begin; set local session_replication_role = replica;
+update ${fq} set ${qi(c)} = (select v from public._mig_scratch)::text::${await colType(fq, c)} where ${where}; commit;`);
+  }
+}
+
+const colTypeCache = new Map();
+async function colType(fq, col) {
+  const key = fq + "." + col;
+  if (colTypeCache.has(key)) return colTypeCache.get(key);
+  const { schema, table } = parts(fq);
+  const r = await qNew(`select format_type(a.atttypid, a.atttypmod) as t from pg_attribute a
+    join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname='${schema}' and c.relname='${table}' and a.attname='${col}'`);
+  const t = r[0]?.t ?? "text";
+  colTypeCache.set(key, t);
+  return t;
 }
 
 // ---------- Copy one table ----------
@@ -173,9 +218,16 @@ async function copyTable(fq) {
   const keyset = pk.length >= 1; // tuple keyset works for composite PKs too
   const orderBy = pk.length ? pk.map(qi).join(", ") : cols.slice(0, 1).map(qi).join(", ");
 
+  // Exact-mirror semantics: clear the table up front (migration seeds must not
+  // outlive prod values). Replica mode suspends FKs; a re-run re-clears.
+  await qNew(`begin; set local session_replication_role = replica; delete from ${fq}; commit;`);
+
   let copied = 0;
   let lastKey = null; // array of PK values
   let offset = 0;
+  const failedRows = [];
+  const batchCap = batch;
+  let okStreak = 0;
   while (copied < total) {
     // READ a batch from OLD as one JSON blob
     let where = "";
@@ -196,17 +248,12 @@ async function copyTable(fq) {
     }
     if (!rows.length) break;
 
-    // WRITE the batch into NEW inside a replica-mode transaction.
-    // First batch DELETEs existing rows (exact-mirror semantics): migrations
-    // seed some tables (states, site_config, …) and ON CONFLICT DO NOTHING
-    // would let stale seeds beat live prod values. Replica mode suspends FKs,
-    // so the delete+reload is safe; re-running a table restarts the mirror.
+    // WRITE the batch into NEW inside a replica-mode transaction. (The mirror
+    // DELETE already ran once before the loop.)
     const json = JSON.stringify(rows).replaceAll("\\u0000", ""); // PG jsonb rejects NUL
     const tag = "$mig" + Math.random().toString(36).slice(2, 8) + "$";
-    const firstBatch = copied === 0 && (keyset ? lastKey === null : offset === 0);
     const insertSql = `begin;
 set local session_replication_role = replica;
-${firstBatch ? `delete from ${fq};` : ""}
 insert into ${fq} (${colList}) ${overriding ? "overriding system value " : ""}
 select ${colList} from jsonb_populate_recordset(null::${fq}, ${tag}${json}${tag}::jsonb)
 on conflict do nothing;
@@ -214,18 +261,45 @@ commit;`;
     try {
       await qNew(insertSql);
     } catch (e) {
-      if (batch > 25) { batch = Math.max(25, Math.floor(batch / 2)); console.log(`    ↓ write failed (${e.message.slice(0, 80)}), halving batch to ${batch}`); continue; }
-      throw e;
+      const tooLarge = /413|entity too large/i.test(e.message);
+      if (batch > 1) {
+        batch = Math.max(1, Math.floor(batch / 2));
+        console.log(`    ↓ write failed (${e.message.slice(0, 80)}), halving batch to ${batch}`);
+        continue; // re-read the same window at the smaller size
+      }
+      // batch === 1: this single row is the problem.
+      const row = rows[0];
+      if (tooLarge && keyset) {
+        try {
+          await insertRowChunked(fq, row, cols, overriding, pk);
+          console.log(`    ✚ oversize row streamed in chunks (${pk.map((k) => row[k]).join("/")})`);
+        } catch (e2) {
+          failedRows.push(pk.map((k) => row[k]).join("/"));
+          console.log(`    ✗ oversize row FAILED (${e2.message.slice(0, 80)}) — recorded, continuing`);
+        }
+      } else {
+        failedRows.push(keyset ? pk.map((k) => row[k]).join("/") : `offset ${offset}`);
+        console.log(`    ✗ row failed (${e.message.slice(0, 80)}) — recorded, continuing`);
+      }
+      // Advance past the problem row either way.
+      copied += 1;
+      if (keyset) lastKey = pk.map((k) => row[k]);
+      else offset += 1;
+      continue;
     }
 
     copied += rows.length;
     if (keyset) lastKey = pk.map((k) => rows[rows.length - 1][k]);
     else offset += rows.length;
+    // Recover batch size after a halving episode: one fat row must not doom
+    // the rest of a 12k-row table to tiny batches.
+    if (batch < batchCap && ++okStreak >= 5) { batch = Math.min(batchCap, batch * 2); okStreak = 0; }
     process.stdout.write(`  ${fq}: ${copied}/${total}\r`);
     await sleep(120); // stay polite to the Management API rate limit
   }
-  console.log(`  ${fq}: ${copied}/${total} ✓`);
-  return { fq, total, copied };
+  const failNote = failedRows.length ? ` (⚠ ${failedRows.length} rows failed: ${failedRows.slice(0, 5).join(", ")}${failedRows.length > 5 ? "…" : ""})` : "";
+  console.log(`  ${fq}: ${copied}/${total} ✓${failNote}`);
+  return { fq, total, copied: copied - failedRows.length, failed: failedRows.length };
 }
 
 // SQL literal for keyset WHERE values (strings/uuids/timestamps quoted; numbers raw)
@@ -332,6 +406,8 @@ async function main() {
     // 3. REPLICA IDENTITY parity (realtime DELETE filtering pitfall #2 in AGENTS.md).
     const idents = await qOld(`select n.nspname || '.' || c.relname as t, c.relreplident from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relreplident = 'f'`);
     for (const r of idents) { await qNew(`alter table ${r.t} replica identity full`); console.log(`  ✓ replica identity full: ${r.t}`); }
+    // 4. Drop the oversize-row scratch table if the copy created it.
+    await qNew(`drop table if exists public._mig_scratch`);
     console.log("\nFinalize complete. Cut over env vars, redeploy, and smoke-test login.");
     return;
   }
