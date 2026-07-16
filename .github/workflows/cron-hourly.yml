@@ -33,11 +33,18 @@ name: Hourly cron
 
 on:
   schedule:
-    # Single hourly schedule. We previously ran TWO (:00 and :30) but that
-    # doubled sustained DB load on the free-tier (~400MB) Postgres and
-    # contributed to the 2026-06-08 OOM. News + alerts target <1h latency,
-    # not real-time; the pipeline drains any backlog across ticks.
-    - cron: "0 * * * *"
+    # EGRESS-SURVIVAL CADENCE (2026-07-16): widened from hourly (`0 * * * *`)
+    # to every 2h. The free-tier Supabase project hit its 5GB/mo EGRESS cap
+    # (7.3GB, 146%) and was restricted — with only ~10 MAU the driver is this
+    # fixed-schedule cron read volume, not user traffic. This hourly workflow
+    # (~24 runs/day of RSS sync + classify + fan-out + ~18 action steps) is the
+    # single biggest recurring reader; halving its cadence ~halves its egress.
+    # News/alerts target <1h latency, not real-time, and the pipeline drains
+    # any backlog across ticks, so ~2h latency is an acceptable TEMPORARY cost.
+    # FULLY REVERSIBLE: restore `0 * * * *` once the read-caching work (PR3 /
+    # Lever A — unstable_cache on public pages) lands and egress headroom is
+    # confirmed. Kept single-schedule (not :00+:30) since the 2026-06-08 OOM.
+    - cron: "0 */2 * * *"
   workflow_dispatch: {}
 
 concurrency:
