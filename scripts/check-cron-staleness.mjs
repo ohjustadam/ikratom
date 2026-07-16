@@ -41,7 +41,11 @@ const REGISTRY = [
       "scrape_protectkratom_org","correlate_news_to_bills","auto_campaign_from_alert",
       "promote_alert_to_bill","extract_local_meta","seed_bill_officials",
       "auto_post_bills_to_forum","sync_bills_legiscan_priority","post_bill_alerts_to_discord",
-      "push_bill_actions_to_actors","resolve_news_urls","verify_news_body",
+      "push_bill_actions_to_actors","resolve_news_urls",
+      // fire_waves = /api/cron/fire-waves — the SOLE push/email delivery path,
+      // hit hourly by cron-hourly.yml. Now writes a scraper_runs row so a silent
+      // stall of ALL notification delivery finally pages the owner.
+      "fire_waves",
       "fanout_bill_reminders",
       "dedupe_news_by_title",
       "extract_news_officials",
@@ -80,6 +84,11 @@ const REGISTRY = [
       "summarize_news",
       "generate_news_digest",
       "feed_news_from_alerts",
+      // verify_news_body runs DAILY (cron-daily.yml), not hourly. It was
+      // mis-registered in the hourly array (12h threshold) which false-alarmed
+      // ~12h after every daily run and "recovered" on the next — cry-wolf that
+      // trained the owner to ignore staleness pushes. Moved here (36h).
+      "verify_news_body",
       "queue_due_state_flips",
       "daily_stale_campaign_cleanup",
       "cleanup_pending_campaigns",
@@ -92,13 +101,23 @@ const REGISTRY = [
      ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
 
   // weekly
-  ...["weekly_committee_sync","sync_nonprofit_990s","weekly_patch_note_draft",
-      "broadcast_whats_new","weekly_legislator_stance_all","official_portraits_sync",
+  // NOTE: the weekly committee-sync + stance jobs write the SAME source strings
+  // as their daily counterparts (sync_committees_openstates, draft_legislator_stance),
+  // monitored via the daily block above. The old weekly-only names
+  // (weekly_committee_sync, weekly_legislator_stance_all, weekly_patch_note_draft)
+  // were never written by ANY script → permanent "never observed" phantoms that
+  // faked weekly-cadence coverage. Removed. (A dedicated weekly-workflow
+  // heartbeat row is a tracked follow-up.)
+  ...["sync_nonprofit_990s","broadcast_whats_new","official_portraits_sync",
       "state_portraits_bulk","bill_topics_classify",
      ].map((source) => ({ source, interval_hours: 216, system: "gh-weekly", cadence: "weekly" })),
 
   // vercel (different system, but still monitorable)
   { source: "vercel_daily_sync", interval_hours: 36, system: "vercel", cadence: "daily" },
+  // Officials-freshness failsafe (/api/cron/reverify-local-officials, Vercel
+  // daily). Now writes scraper_runs so a silent stall of the "don't list a
+  // former official" guarantee finally pages the owner. Matches cron-registry.ts.
+  { source: "reverify_local_officials", interval_hours: 36, system: "vercel", cadence: "daily" },
 
   // Long-tail officials drain. Primary runtime is now GitHub Actions
   // (cron-localreps-cloud.yml, every 6h, in-job SearXNG + headless Chromium);

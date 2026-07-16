@@ -473,6 +473,14 @@ jobs:
     # today's bill/news/BoP/state-lobbying state. ~5s per state × 51
     # states ≈ 5 min.
     needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom]
+    # Never cascade-skip on an upstream failure. These 5 needs are external-API
+    # collectors (the BoP Playwright chain notes House/state 403s); GitHub's
+    # default `needs` requires SUCCESS, so one flaky API would SKIP this job —
+    # which bundles the daily 50-state briefing regen, the intel-coverage check,
+    # AND ~7 production queue-cleanup steps. Briefings degrade fine on yesterday's
+    # intel and the cleanup steps are idempotent, so run regardless (matches the
+    # legiscan-wide-pass dependents' `if: !cancelled()` hardening).
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
