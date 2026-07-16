@@ -275,4 +275,13 @@ for (const f of findings) {
 console.log(
   `\nDone. ${ok} parsed, ${failed} failed, ${upgraded} re-classified.`
 );
+// Telemetry (audit 2026-07-16: registered in cron-registry.ts but never wrote).
+try {
+  await sb.from("scraper_runs").insert({
+    source: "parse_bop_pdfs",
+    started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+    status: ok + upgraded > 0 ? "success" : failed > 0 ? "error" : "empty",
+    rows_updated: ok, notes: `${ok} parsed · ${failed} failed · ${upgraded} re-classified`,
+  });
+} catch { /* best-effort */ }
 process.exit(0);

@@ -54,5 +54,20 @@ for (const r of results) {
   }
 }
 
+// Telemetry — the Playwright TLS-blocked-source subset (KS/NH/MA/AR) had no
+// independent staleness signal (only the Vercel RPC sweep covers other BoP).
+try {
+  const inserted = results.reduce((a, r) => a + (r.inserted ?? 0), 0);
+  const errored = results.filter((r) => r.status === "error").length;
+  await supabase.from("scraper_runs").insert({
+    source: "bop_browser_scrape",
+    started_at: new Date(t0).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: errored === results.length && results.length > 0 ? "error" : inserted > 0 ? "success" : "empty",
+    rows_added: inserted,
+    notes: `${results.length} sources walked · ${errored} errored`,
+  });
+} catch { /* best-effort */ }
+
 // Exit cleanly so any lingering browser process gets reaped.
 process.exit(0);

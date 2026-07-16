@@ -267,4 +267,19 @@ const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
 console.log(`\n----------------------------------------`);
 console.log(`Done in ${elapsed} min — ${total} bills across ${found.length}/${targets.length} states`);
 if (failed.length) console.log(`Failed: ${failed.map((f) => f.state).join(", ")}`);
+
+// Telemetry under a DISTINCT source: this sweep is the ONLY refresher of
+// last_action_at for non-LegiScan bills (all NY bills), but the shared
+// "openstates" source is kept fresh by sibling scripts — so this sweep could
+// die silently forever. Its own name makes the staleness monitor see IT.
+try {
+  await supabase.from("scraper_runs").insert({
+    source: "openstates_bill_sweep",
+    started_at: new Date(t0).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: failed.length === targets.length ? "error" : total > 0 ? "success" : "empty",
+    rows_updated: total,
+    notes: `${found.length}/${summary.length} states synced (${targets.length} targeted)${failed.length ? ` · failed: ${failed.map((f) => f.state).join(",").slice(0, 120)}` : ""}`,
+  });
+} catch { /* best-effort */ }
 process.exit(0);

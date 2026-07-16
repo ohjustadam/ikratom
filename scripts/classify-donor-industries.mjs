@@ -434,6 +434,17 @@ for (const r of rows ?? []) {
   updated++;
 }
 
+// Telemetry (audit 2026-07-16: registered in cron-registry.ts but never wrote).
+if (!DRY_RUN) {
+  try {
+    await sb.from("scraper_runs").insert({
+      source: "classify_donor_industries",
+      started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+      status: updated > 0 ? "success" : "empty",
+      rows_updated: updated, notes: `${updated} updated · ${skipped} skipped`,
+    });
+  } catch { /* best-effort */ }
+}
 console.log(`\nDone${DRY_RUN ? " (DRY RUN)" : ""}: updated=${updated}, skipped=${skipped}.`);
 console.log(`Classification coverage: ${classifiedEmployers}/${totalEmployers} (${(classifiedEmployers/Math.max(1,totalEmployers)*100).toFixed(1)}%) employers matched.`);
 console.log(`Unclassified employers: ${unclassified}.`);

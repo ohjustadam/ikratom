@@ -49,12 +49,21 @@ function statesNamedInTitle(title) {
   return found;
 }
 
-const { data: alerts, error } = await sb
-  .from("policy_alerts")
-  .select("id, title, locality")
-  .eq("moderation_status", "pending")
-  .limit(1000);
-if (error) { console.error(error.message); process.exit(1); }
+// Range-paginated: a bare .limit(1000) silently scanned an arbitrary 1000-row
+// window — above that, wrong-state alerts outside the window were never
+// rejected (audit 2026-07-16).
+const alerts = [];
+for (let from = 0; ; from += 1000) {
+  const { data, error } = await sb
+    .from("policy_alerts")
+    .select("id, title, locality")
+    .eq("moderation_status", "pending")
+    .order("id")
+    .range(from, from + 999);
+  if (error) { console.error(error.message); process.exit(1); }
+  alerts.push(...(data ?? []));
+  if (!data || data.length < 1000) break;
+}
 
 const specific = (alerts ?? []).filter((a) => STATE_ABBRS.has(String(a.locality ?? "").toUpperCase()));
 console.log(`${APPLY ? "🔧 APPLY" : "🔍 DRY-RUN"} — ${specific.length} pending state-specific alerts\n`);
