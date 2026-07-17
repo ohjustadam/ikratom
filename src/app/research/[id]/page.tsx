@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { renderMarkdown } from "@/lib/markdown";
 import { jsonLdSafe } from "@/lib/jsonld";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { AudioReader } from "@/components/AudioReader";
@@ -12,6 +13,32 @@ import { getAdminContext } from "@/modules/admin/actions";
 
 export const metadata = { title: "Research paper" };
 export const dynamic = "force-dynamic";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The public paper row is the crawl hit (Google Scholar / Semantic Scholar
+// index these) — cache it per id via a service-role snapshot (#827 pattern).
+// The EXPLICIT column list is the exact public-safe projection 0227 allows
+// (no admin_notes_md / uploaded_storage_path / submitted_by), so service-role
+// here returns the same columns the anon client did — no PII widening. The
+// signed uploaded-PDF URL (1h expiry) and the admin check stay per-request
+// below (never cache a signed URL or a viewer's admin status).
+const getResearchPaper = unstable_cache(
+  async (id: string) => {
+    const sb = createServiceRoleClient();
+    const { data } = await sb
+      .from("research_papers")
+      .select(
+        "id, pubmed_id, doi, semantic_scholar_id, title, authors, journal, journal_iso_abbreviation, publication_year, publication_date, abstract, full_text_url, pdf_url, topics, study_type, ai_methodology_quality, ai_sample_size_adequate, ai_sample_size_notes, ai_bias_indicators, ai_evidence_strength, ai_key_findings_md, ai_relevance_natural_leaf, ai_relevance_7oh, ai_distinguishes_natural_vs_synthetic, ai_evaluated_at, ai_evaluated_by_provider, citation_count, retracted, retraction_url, retraction_reason, admin_quality_override, is_active, ingested_at, ingested_via",
+      )
+      .eq("id", id)
+      .eq("is_active", true)
+      .maybeSingle();
+    return data ?? null;
+  },
+  ["research-paper"],
+  { revalidate: 1800, tags: ["research-paper"] },
+);
 
 const STRENGTH_COLORS: Record<string, string> = {
   strong: "border-emerald-700/50 bg-emerald-950/20 text-emerald-300",
@@ -33,19 +60,8 @@ export default async function ResearchPaperPage({
   const arrivedFromSubmit = sp.from === "submit";
   const wasDuplicate = sp.duplicate === "1";
 
-  const sb = await createClient();
-  // Explicit public-safe columns only — 0227 revoked anon/authenticated SELECT
-  // on admin_notes_md / uploaded_storage_path / submitted_by, so `select("*")`
-  // now errors (permission denied) for a non-service-role client. Must be a
-  // string literal (not a const) so supabase-js can infer the row type.
-  const { data: p } = await sb
-    .from("research_papers")
-    .select(
-      "id, pubmed_id, doi, semantic_scholar_id, title, authors, journal, journal_iso_abbreviation, publication_year, publication_date, abstract, full_text_url, pdf_url, topics, study_type, ai_methodology_quality, ai_sample_size_adequate, ai_sample_size_notes, ai_bias_indicators, ai_evidence_strength, ai_key_findings_md, ai_relevance_natural_leaf, ai_relevance_7oh, ai_distinguishes_natural_vs_synthetic, ai_evaluated_at, ai_evaluated_by_provider, citation_count, retracted, retraction_url, retraction_reason, admin_quality_override, is_active, ingested_at, ingested_via",
-    )
-    .eq("id", id)
-    .eq("is_active", true)
-    .maybeSingle();
+  if (!UUID_RE.test(id)) notFound();
+  const p = await getResearchPaper(id);
   if (!p) notFound();
 
   // uploaded_storage_path is admin-only (0227 column privacy — it embeds the
