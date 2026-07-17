@@ -138,7 +138,8 @@ async function downloadPdfText(url) {
   const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`PDF fetch ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
-  const parser = new PDFParse({ data: buf });
+  // Uint8Array, not Buffer — pdf-parse's engine rejects Buffers since ~2026-07.
+  const parser = new PDFParse({ data: new Uint8Array(buf) });
   const result = await parser.getText();
   return result.text || "";
 }

@@ -153,7 +153,7 @@ Repo-level merge settings (post-PR #254):
 3. **`e.currentTarget` in async transitions:** capture the element synchronously before `startTransition` — React nullifies `currentTarget` after the handler returns.
 4. **Profile reads:** profiles SELECT RLS only allows admin or self. To read other users' public fields, call the `get_public_profile(uuid)` or `get_public_profiles(uuid[])` SECURITY DEFINER RPC.
 5. **Vercel Hobby cron:** only daily intervals allowed. Sub-daily jobs go in `.github/workflows/cron-hourly.yml`.
-6. **pdf-parse v2:** ESM-incompatible. Use `createRequire(import.meta.url)('pdf-parse')` then `new PDFParse(buf)`.
+6. **pdf-parse v2:** ESM-incompatible. Use `createRequire(import.meta.url)('pdf-parse')` then `new PDFParse(new Uint8Array(buf))` — its engine REJECTS Node Buffers (since ~2026-07; the error is swallowed by catch-blocks, so it looks like "docs undecodable"). Always wrap in `Uint8Array`.
 7. **Service worker push:** payloads with a `tag` field deduplicate at the OS level. Use `tag` for replaceable notifications, omit for stacking.
 8. **Slug fields are immutable in production.** Once a partner / campaign slug is printed in the wild (QR codes, share links), changing it breaks every existing link.
 
