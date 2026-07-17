@@ -12,7 +12,7 @@
  * Keep the DB-driven EmergencyBanner for everything short of a DB outage.
  */
 export const statusBanner = {
-  enabled: true,
+  enabled: false,
   title: "We're working through a technical issue",
   body:
     "Some features may be temporarily unavailable while we restore service. " +
