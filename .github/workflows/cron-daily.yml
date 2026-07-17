@@ -17,6 +17,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  egress-watchdog:
+    # The "never restricted again" failsafe (2026-07-16 incident): reads the
+    # project's Prometheus metrics endpoint and pages the owner at 50/75/90%
+    # of the 5GB/mo free-tier egress budget — weeks before a restriction.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Check egress usage vs free-tier budget
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Project ref derives from the URL inside the script — no extra secret.
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node scripts/check-egress-usage.mjs
+
   verify-bill-status:
     # Layer 3 of the real-time pipeline (Layer 1 = bill_actions trigger;
     # Layer 2 = LegiScan primary sync). This is the safety net for
