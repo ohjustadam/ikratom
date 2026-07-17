@@ -151,7 +151,8 @@ async function downloadPdf(url) {
 }
 
 async function extractText(buf) {
-  const parser = new PDFParse({ data: buf });
+  // Uint8Array, not Buffer — pdf-parse's engine rejects Buffers since ~2026-07.
+  const parser = new PDFParse({ data: new Uint8Array(buf) });
   const out = await parser.getText();
   // pdf-parse v2 returns { text, numpages, ... }
   return (out?.text ?? "").trim();

@@ -276,6 +276,17 @@ if (rows.length > 0) {
 
 if (DRY_RUN || rows.length === 0) {
   console.log(`\n${DRY_RUN ? "DRY RUN — skipping insert." : "Nothing to write."}`);
+  // Quiet runs still write telemetry (staleness pager needs a heartbeat).
+  if (!DRY_RUN) {
+    try {
+      await sb.from("scraper_runs").insert({
+        source: "extract_bills_from_alerts",
+        started_at: new Date(t0).toISOString(), finished_at: new Date().toISOString(),
+        status: "empty", rows_added: 0,
+        notes: `scanned ${scannedAlerts} alerts + ${scannedNews} news · 0 new bills`,
+      });
+    } catch { /* best-effort */ }
+  }
   process.exit(0);
 }
 
