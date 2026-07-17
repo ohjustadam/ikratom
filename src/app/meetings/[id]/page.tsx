@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
@@ -9,18 +10,38 @@ import { RemindMeButton } from "@/components/RemindMeButton";
 type Props = { params: Promise<{ id: string }> };
 
 const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Everything on /meetings/[id] is PUBLIC and keyed by the meeting id — there
+// are NO viewer-specific reads (RemindMe/nudges are client components). So the
+// page + generateMetadata share ONE cached service-role read-set (the #827/#831
+// egress pattern). RLS parity: only moderation_status='approved' meetings are
+// public, so that filter is baked into the query — the fn returns null for any
+// non-approved or missing id, and callers notFound()/fall back to a bare title.
+const getMeeting = unstable_cache(
+  async (id: string) => {
+    const sb = createServiceRoleClient();
+    const { data } = await sb
+      .from("municipal_meetings")
+      .select(
+        "id, state, locality, body_name, meeting_at, zoom_url, livestream_url, agenda_url, agenda_text, public_comment_signup_url, in_person_address",
+      )
+      .eq("id", id)
+      .eq("moderation_status", "approved")
+      .maybeSingle();
+    return data ?? null;
+  },
+  ["meeting-detail"],
+  { revalidate: 600, tags: ["meeting-detail"] },
+);
 
 // Per-meeting metadata so the page has rich Open Graph + Twitter
 // cards for Facebook Messenger / iMessage / SMS / Slack / Twitter
 // link previews. The og-image is dynamically generated at /meetings/[id]/opengraph-image.
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;
-  const sb = await createClient();
-  const { data: m } = await sb
-    .from("municipal_meetings")
-    .select("state, locality, body_name, meeting_at, agenda_text")
-    .eq("id", id)
-    .maybeSingle();
+  if (!UUID_RE.test(id)) return { title: "Meeting · iKratom" };
+  const m = await getMeeting(id);
 
   if (!m) {
     return { title: "Meeting · iKratom" };
@@ -73,14 +94,10 @@ function formatGoogleDate(d: Date): string {
 
 export default async function MeetingDetailPage({ params }: Props) {
   const { id } = await params;
-  const sb = await createClient();
-  const { data: m } = await sb
-    .from("municipal_meetings")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  if (!UUID_RE.test(id)) notFound();
+  const m = await getMeeting(id);
 
-  if (!m || m.moderation_status !== "approved") notFound();
+  if (!m) notFound();
 
   const when = new Date(m.meeting_at);
   const now = Date.now();
