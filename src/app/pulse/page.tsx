@@ -1,7 +1,9 @@
 import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
+import { unstable_cache } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TourTooltip } from "@/modules/tour/TourTooltip";
 import { getTourSeen } from "@/modules/tour/actions";
 import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
@@ -61,6 +63,202 @@ const SEV_DOT: Record<string, string> = {
   routine: "bg-zinc-600",
 };
 
+type PulseSnapshot = {
+  alerts: Alert[];
+  billCommitteeByBillId: Record<string, string>;
+  otherCampaigns: Campaign[];
+  nationalNews: NewsItem[];
+  topStateNews: NewsItem[];
+};
+
+/**
+ * Shared public snapshot of the pulse feed (5-min revalidate), keyed by the
+ * optional ?state= filter (normalized 2-letter code or null). Everyone sees
+ * the same alerts / news / campaign list, so these reads are served from one
+ * cached snapshot instead of re-hitting the DB on every visit and crawl.
+ * COOKIELESS service-role client — unstable_cache can't use the request-bound
+ * cookie client. Because service-role bypasses RLS, every query keeps (or
+ * adds) the exact filters the public RLS policies enforce: approved-only
+ * alerts, active-only news, active-only campaigns. Public-safe columns only.
+ */
+const getPulseSnapshot = unstable_cache(
+  async (stateFilter: string | null): Promise<PulseSnapshot> => {
+    const supabase = createServiceRoleClient();
+
+    // Pull alerts. Severity-gated zones (critical / alert / watch). We
+    // don't expose 'routine' on the main feed — too noisy.
+    // If ?state= is set, scope the locality filter.
+    // Freshness gate: ingested in last 30 days (covers the active intel
+    // window). Stale alerts past 30d only surface via /alerts/[id]
+    // direct URL or /states/[code] archive.
+    const since30dIso = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const since14d = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+    let alertsQuery = supabase
+      .from("policy_alerts")
+      .select("id, kind, severity, title, body, locality, source_url, campaign_id, occurs_at, expires_at, created_at, bill_id")
+      .eq("moderation_status", "approved")
+      .in("severity", ["critical", "alert", "watch"])
+      .gte("created_at", since30dIso);
+    if (stateFilter) {
+      alertsQuery = alertsQuery.or(`locality.eq.${stateFilter},locality.ilike.%, ${stateFilter}`);
+    }
+
+    // Alerts + the two viewer-independent news panels fire concurrently.
+    // False-positive defense on news: exclude items whose article-body fetch
+    // proved the kratom keyword only existed in a related-stories sidebar
+    // (body_has_kratom_keyword = false). Items not yet verified (NULL) are
+    // kept visible so we don't blackout fresh news while the verifier
+    // worker catches up — fetch failures are NULL too, same treatment.
+    // See migration 0103 + scripts/verify-news-body.mjs.
+    const [alertsRes, nationalRes, topStateRes] = await Promise.all([
+      alertsQuery
+        .order("severity", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(60), // larger pull — many drop after real-event-date filter
+      supabase
+        .from("news_items")
+        .select("id, title, url, source_name, state, published_at, ai_relevance_score")
+        .eq("active", true)
+        .or("state.is.null,policy_event_kind.in.(fda_action,dea_action,federal)")
+        .gte("ai_relevance_score", 0.75)
+        .gte("published_at", since14d)
+        .not("body_has_kratom_keyword", "is", false)
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .limit(5),
+      supabase
+        .from("news_items")
+        .select("id, title, url, source_name, state, published_at, ai_relevance_score")
+        .eq("active", true)
+        .not("state", "is", null)
+        .gte("ai_relevance_score", 0.85)
+        .gte("published_at", since14d)
+        .not("body_has_kratom_keyword", "is", false)
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .limit(5),
+    ]);
+    const allRecentAlerts = (alertsRes.data ?? []) as Alert[];
+
+    // Second-pass: resolve REAL event date per alert (same logic as
+    // push-critical-alerts.mjs from PR #199) and bucket into
+    //   - 'fresh' (event in last 14d) — shown in critical/alert sections
+    //   - 'recent' (14-30d, but fresh ingest) — shown in watch section
+    // This stops 'Today's breaking' from displaying 100-day-old news
+    // that just got classified today.
+    const alertIds = allRecentAlerts.map((a) => a.id);
+    const billIdsToFetch = allRecentAlerts.map((a) => a.bill_id).filter(Boolean) as string[];
+    const newsByAlertId = new Map<string, string>();   // alert_id → news published_at
+    const billLastActionByBillId = new Map<string, string>();
+    const billCommitteeByBillId: Record<string, string> = {};
+
+    await Promise.all([
+      (async () => {
+        if (alertIds.length === 0) return;
+        const { data: newsLinks } = await supabase
+          .from("news_items")
+          .select("policy_alert_id, published_at")
+          .in("policy_alert_id", alertIds)
+          .eq("active", true)
+          .order("published_at", { ascending: false });
+        for (const n of (newsLinks ?? []) as Array<{ policy_alert_id: string; published_at: string }>) {
+          if (n.policy_alert_id && !newsByAlertId.has(n.policy_alert_id)) {
+            newsByAlertId.set(n.policy_alert_id, n.published_at);
+          }
+        }
+      })(),
+      (async () => {
+        if (billIdsToFetch.length === 0) return;
+        // Pull last_action_at (used for event-age bucketing) + current
+        // committee assignment (used for the per-viewer "Your rep decides"
+        // chip in the page component). Wrapped in try/catch so the page
+        // degrades gracefully on pre-migration deploys where
+        // current_committee_name doesn't exist as a column yet.
+        try {
+          const { data: bills } = await supabase
+            .from("bills")
+            .select("id, last_action_at, current_committee_name")
+            .in("id", billIdsToFetch);
+          for (const b of (bills ?? []) as Array<{ id: string; last_action_at: string | null; current_committee_name: string | null }>) {
+            if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
+            if (b.current_committee_name) billCommitteeByBillId[b.id] = b.current_committee_name;
+          }
+        } catch {
+          // Pre-migration fallback: query without the new column.
+          const { data: bills } = await supabase
+            .from("bills")
+            .select("id, last_action_at")
+            .in("id", billIdsToFetch);
+          for (const b of (bills ?? []) as Array<{ id: string; last_action_at: string | null }>) {
+            if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
+          }
+        }
+      })(),
+    ]);
+
+    function resolveEventAgeDays(a: Alert): number {
+      let eventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;
+      if (!eventDate) {
+        const newsPub = newsByAlertId.get(a.id);
+        if (newsPub) eventDate = new Date(newsPub);
+      }
+      if (!eventDate && a.bill_id) {
+        const billPub = billLastActionByBillId.get(a.bill_id);
+        if (billPub) eventDate = new Date(billPub);
+      }
+      if (!eventDate) eventDate = new Date(a.created_at);
+      return Math.floor((Date.now() - eventDate.getTime()) / 86_400_000);
+    }
+    const FRESH_DAYS = 14;
+    const alerts = allRecentAlerts.filter((a) => resolveEventAgeDays(a) <= FRESH_DAYS);
+
+    // Other active campaigns (bill-driven, hand-built) — top 5 by recency.
+    // Active-only filter matches the public RLS view exactly, so this is
+    // identical for every viewer and safe to snapshot.
+    const alertCampaignIds = alerts.map((a) => a.campaign_id).filter(Boolean) as string[];
+    const { data: otherCampaigns } = await supabase
+      .from("campaigns")
+      .select("id, slug, title, blurb, state, active, mobilization_type, ends_at")
+      .eq("active", true)
+      .not("id", "in", `(${alertCampaignIds.length ? alertCampaignIds.map((id) => `"${id}"`).join(",") : '""'})`)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    return {
+      alerts,
+      billCommitteeByBillId,
+      otherCampaigns: (otherCampaigns ?? []) as Campaign[],
+      nationalNews: (nationalRes.data ?? []) as NewsItem[],
+      topStateNews: (topStateRes.data ?? []) as NewsItem[],
+    };
+  },
+  ["pulse-snapshot"],
+  { revalidate: 300 },
+);
+
+// Viewer's-state news panel, cached per state code (≤51 keys, 5-min
+// revalidate). The DATA is public and identical for everyone looking at a
+// given state — only the choice of WHICH state is per-viewer (profile or
+// ?state=), and that stays in the request path. active=true mirrors the
+// public RLS read policy the request-bound client used to get for free.
+const getStateNews = unstable_cache(
+  async (state: string): Promise<NewsItem[]> => {
+    const supabase = createServiceRoleClient();
+    const since14d = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from("news_items")
+      .select("id, title, url, source_name, state, published_at, ai_relevance_score")
+      .eq("active", true)
+      .eq("state", state)
+      .gte("ai_relevance_score", 0.7)
+      .gte("published_at", since14d)
+      .not("body_has_kratom_keyword", "is", false)
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .limit(5);
+    return (data ?? []) as NewsItem[];
+  },
+  ["pulse-state-news"],
+  { revalidate: 300 },
+);
+
 export default async function PulsePage({
   searchParams,
 }: {
@@ -76,92 +274,19 @@ export default async function PulsePage({
   const isValidState = requestedState && /^[A-Z]{2}$/.test(requestedState);
   const supabase = await createClient();
 
-  // Pull alerts. Severity-gated zones (critical / alert / watch). We
-  // don't expose 'routine' on the main feed — too noisy.
-  // If ?state= is set, scope the locality filter.
-  // Freshness gate: ingested in last 30 days (covers the active intel
-  // window). Stale alerts past 30d only surface via /alerts/[id]
-  // direct URL or /states/[code] archive.
-  const since30dIso = new Date(Date.now() - 30 * 86_400_000).toISOString();
-  let alertsQuery = supabase
-    .from("policy_alerts")
-    .select("id, kind, severity, title, body, locality, source_url, campaign_id, occurs_at, expires_at, created_at, bill_id")
-    .eq("moderation_status", "approved")
-    .in("severity", ["critical", "alert", "watch"])
-    .gte("created_at", since30dIso);
-  if (isValidState) {
-    alertsQuery = alertsQuery.or(`locality.eq.${requestedState},locality.ilike.%, ${requestedState}`);
-  }
-  const { data: alertsRaw } = await alertsQuery
-    .order("severity", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(60);   // larger pull — many drop after real-event-date filter
-  const allRecentAlerts = (alertsRaw ?? []) as Alert[];
-
-  // Second-pass: resolve REAL event date per alert (same logic as
-  // push-critical-alerts.mjs from PR #199) and bucket into
-  //   - 'fresh' (event in last 14d) — shown in critical/alert sections
-  //   - 'recent' (14-30d, but fresh ingest) — shown in watch section
-  // This stops 'Today's breaking' from displaying 100-day-old news
-  // that just got classified today.
-  const alertIds = allRecentAlerts.map((a) => a.id);
-  const newsByAlertId = new Map<string, string>();   // alert_id → news published_at
-  if (alertIds.length > 0) {
-    const { data: newsLinks } = await supabase
-      .from("news_items")
-      .select("policy_alert_id, published_at")
-      .in("policy_alert_id", alertIds)
-      .order("published_at", { ascending: false });
-    for (const n of (newsLinks ?? []) as Array<{ policy_alert_id: string; published_at: string }>) {
-      if (n.policy_alert_id && !newsByAlertId.has(n.policy_alert_id)) {
-        newsByAlertId.set(n.policy_alert_id, n.published_at);
-      }
-    }
-  }
-  const billIdsToFetch = allRecentAlerts.map((a) => a.bill_id).filter(Boolean) as string[];
-  const billLastActionByBillId = new Map<string, string>();
-  const billCommitteeByBillId = new Map<string, string>();
-  if (billIdsToFetch.length > 0) {
-    // Pull last_action_at (used for event-age bucketing) + current
-    // committee assignment (used for the per-viewer "Your rep decides"
-    // chip below). Wrapped in try/catch so the page degrades gracefully
-    // on pre-migration deploys where current_committee_name doesn't
-    // exist as a column yet.
-    try {
-      const { data: bills } = await supabase
-        .from("bills")
-        .select("id, last_action_at, current_committee_name")
-        .in("id", billIdsToFetch);
-      for (const b of (bills ?? []) as Array<{ id: string; last_action_at: string | null; current_committee_name: string | null }>) {
-        if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
-        if (b.current_committee_name) billCommitteeByBillId.set(b.id, b.current_committee_name);
-      }
-    } catch {
-      // Pre-migration fallback: query without the new column.
-      const { data: bills } = await supabase
-        .from("bills")
-        .select("id, last_action_at")
-        .in("id", billIdsToFetch);
-      for (const b of (bills ?? []) as Array<{ id: string; last_action_at: string | null }>) {
-        if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
-      }
-    }
-  }
-  function resolveEventAgeDays(a: Alert): number {
-    let eventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;
-    if (!eventDate) {
-      const newsPub = newsByAlertId.get(a.id);
-      if (newsPub) eventDate = new Date(newsPub);
-    }
-    if (!eventDate && a.bill_id) {
-      const billPub = billLastActionByBillId.get(a.bill_id);
-      if (billPub) eventDate = new Date(billPub);
-    }
-    if (!eventDate) eventDate = new Date(a.created_at);
-    return Math.floor((Date.now() - eventDate.getTime()) / 86_400_000);
-  }
-  const FRESH_DAYS = 14;
-  const alerts = allRecentAlerts.filter((a) => resolveEventAgeDays(a) <= FRESH_DAYS);
+  // All the viewer-independent reads (alerts pipeline + event-age
+  // bucketing, national/top-state news, other active campaigns) come from
+  // one shared cached snapshot — see getPulseSnapshot above. Everything
+  // keyed on the CURRENT VIEWER (auth, profile, rep leverage, tour state,
+  // alert-linked campaign visibility) stays on the request-bound client.
+  const stateFilter = isValidState ? requestedState : null;
+  const {
+    alerts,
+    billCommitteeByBillId,
+    otherCampaigns,
+    nationalNews,
+    topStateNews: cachedTopStateNews,
+  } = await getPulseSnapshot(stateFilter);
 
   const critical = alerts.filter((a) => a.severity === "critical");
   const alert = alerts.filter((a) => a.severity === "alert");
@@ -172,7 +297,12 @@ export default async function PulsePage({
   // it; the value is filled in below.
   let myLeverageBillIds: Set<string> = new Set();
 
-  // Active campaigns linked to alerts (the ones we just auto-generated)
+  // Active campaigns linked to alerts (the ones we just auto-generated).
+  // Deliberately UNCACHED on the request-bound client: campaign visibility
+  // is role-dependent — public RLS only exposes active campaigns, while
+  // admins/creators also see in-review ones (that's what renders the
+  // "campaign in admin review" badge on alert cards). A shared service-role
+  // snapshot would either leak review-state to the public or drop the badge.
   const alertCampaignIds = alerts.map((a) => a.campaign_id).filter(Boolean) as string[];
   const { data: alertCampaigns } = alertCampaignIds.length
     ? await supabase
@@ -181,20 +311,6 @@ export default async function PulsePage({
         .in("id", alertCampaignIds)
     : { data: [] as Campaign[] };
 
-  // Other active campaigns (bill-driven, hand-built) — top 5 by recency
-  const { data: otherCampaigns } = await supabase
-    .from("campaigns")
-    .select("id, slug, title, blurb, state, active, mobilization_type, ends_at")
-    .eq("active", true)
-    .not("id", "in", `(${alertCampaignIds.length ? alertCampaignIds.map((id) => `"${id}"`).join(",") : '""'})`)
-    .order("created_at", { ascending: false })
-    .limit(5);
-
-  // Most-critical news — pulls high-relevance news from the last 14 days,
-  // splits into national (state=null or FED-related) and the viewer's
-  // state (or top-relevance overall). Updates every cron tick. This is
-  // the "what's happening right now in the kratom-policy world" panel.
-  const since14d = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const { data: { user } } = await supabase.auth.getUser();
   let profileState: string | null = null;
   type ViewerProfile = {
@@ -228,7 +344,7 @@ export default async function PulsePage({
   // assignment matching one of the alert-linked bills'
   // current_committee_name. Empty set when any missing — the chip just
   // doesn't render. Wrapped in try/catch so failures degrade silently.
-  if (user && viewerProfile?.state && billCommitteeByBillId.size > 0) {
+  if (user && viewerProfile?.state && Object.keys(billCommitteeByBillId).length > 0) {
     try {
       const { getUserLegislators } = await import("@/lib/legislators");
       const { committeesMatch } = await import("@/lib/bill-committee");
@@ -242,7 +358,7 @@ export default async function PulsePage({
           (a) => (a as { committee_name: string }).committee_name,
         );
         if (myCommitteeNames.length > 0) {
-          for (const [billId, committeeName] of billCommitteeByBillId) {
+          for (const [billId, committeeName] of Object.entries(billCommitteeByBillId)) {
             if (myCommitteeNames.some((mc) => committeesMatch(committeeName, mc))) {
               myLeverageBillIds.add(billId);
             }
@@ -258,45 +374,12 @@ export default async function PulsePage({
   const tourSeen = await getTourSeen();
   const seenPulseNews = !!tourSeen["pulse-news"];
 
-  // False-positive defense: exclude items whose article-body fetch
-  // proved the kratom keyword only existed in a related-stories sidebar
-  // (body_has_kratom_keyword = false). Items not yet verified (NULL) are
-  // kept visible so we don't blackout fresh news while the verifier
-  // worker catches up — fetch failures are NULL too, same treatment.
-  // See migration 0103 + scripts/verify-news-body.mjs.
-  const { data: nationalNews } = await supabase
-    .from("news_items")
-    .select("id, title, url, source_name, state, published_at, ai_relevance_score")
-    .or("state.is.null,policy_event_kind.in.(fda_action,dea_action,federal)")
-    .gte("ai_relevance_score", 0.75)
-    .gte("published_at", since14d)
-    .not("body_has_kratom_keyword", "is", false)
-    .order("published_at", { ascending: false, nullsFirst: false })
-    .limit(5);
-
-  const { data: localNews } = viewerState
-    ? await supabase
-        .from("news_items")
-        .select("id, title, url, source_name, state, published_at, ai_relevance_score")
-        .eq("state", viewerState)
-        .gte("ai_relevance_score", 0.7)
-        .gte("published_at", since14d)
-        .not("body_has_kratom_keyword", "is", false)
-        .order("published_at", { ascending: false, nullsFirst: false })
-        .limit(5)
-    : { data: null };
-
-  const { data: topStateNews } = !viewerState
-    ? await supabase
-        .from("news_items")
-        .select("id, title, url, source_name, state, published_at, ai_relevance_score")
-        .not("state", "is", null)
-        .gte("ai_relevance_score", 0.85)
-        .gte("published_at", since14d)
-        .not("body_has_kratom_keyword", "is", false)
-        .order("published_at", { ascending: false, nullsFirst: false })
-        .limit(5)
-    : { data: null };
+  // Most-critical news — national + top-state panels come from the cached
+  // snapshot above; the viewer's-state panel is cached per state code (see
+  // getStateNews). Same visibility rules as before: localNews only when the
+  // viewer has a state, topStateNews only when they don't.
+  const localNews = viewerState ? await getStateNews(viewerState) : null;
+  const topStateNews = viewerState ? null : cachedTopStateNews;
 
   // Briefings — auto-discovered from src/content/briefings/
   const briefingsDir = path.join(process.cwd(), "src", "content", "briefings");

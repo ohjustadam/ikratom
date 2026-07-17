@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
@@ -10,7 +11,6 @@ import { StateOfficials } from "./StateOfficials";
 import { StateHQLocalReps } from "./StateHQLocalReps";
 import { AudioReader } from "@/components/AudioReader";
 import { renderMarkdown, mdToPlainText } from "@/lib/markdown";
-import { resolveBillHrefs } from "@/modules/state-status/evidence";
 import { STATE_NAMES } from "@/lib/state-names";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +36,447 @@ export async function generateMetadata({ params }: Props) {
   };
 }
 
+// ── Cached public snapshot ──────────────────────────────────────────────
+// Everything the page itself reads is public + identical for every visitor
+// (bills, meetings, alerts, campaigns, briefing, news, threat stats,
+// clusters, operators), so the whole read set is snapshotted per state
+// (15-min revalidate) instead of ~16 live DB reads on every visit/crawl —
+// same pattern as / + /states + /status: a COOKIELESS service-role client
+// inside unstable_cache, selecting only public-safe columns. unstable_cache
+// keys on the codeUpper arg, so each state gets its own entry. User-specific
+// content on this page lives in child components (StateHQLocalReps, the
+// nudges) and stays on the request-bound path, uncached.
+
+type BillRow = {
+  id: string; bill_number: string; title: string | null; status: string | null;
+  kratom_relevance: string | null; last_action: string | null; last_action_at: string | null;
+  scope: string | null; locality: string | null;
+};
+type MeetingRow = {
+  id: string; locality: string | null; body_name: string | null;
+  meeting_at: string; zoom_url: string | null; agenda_url: string | null;
+};
+type PastMeetingRow = {
+  id: string; locality: string | null; body_name: string | null;
+  meeting_at: string; kratom_relevance: string | null; agenda_url: string | null;
+};
+type AlertRow = {
+  id: string; kind: string; severity: string; title: string; body: string | null;
+  locality: string; created_at: string; occurs_at: string | null;
+  bill_id: string | null; source_url: string | null;
+  /** Resolved real-event date (occurs_at → linked news → bill action → created_at). */
+  event_at: string;
+};
+type CampaignRow = { id: string; slug: string; title: string; blurb: string | null };
+type BriefingRow = {
+  state: string; generated_at: string | null; generated_by_provider: string | null;
+  body_md: string | null; manual_addendum_md: string | null;
+};
+type StateClusterRow = { slug: string; name: string; posture: string; bill_count: number };
+type StateOperator = {
+  legislator_id: string;
+  full_name: string;
+  role: string;
+  party: string | null;
+  cluster_slugs: string[];
+  bill_count: number;
+};
+
+const getStateHub = unstable_cache(
+  async (codeUpper: string) => {
+    const supabase = createServiceRoleClient();
+
+    // Canonical status (Mission Control). Resilient: maybeSingle() → null when
+    // no row, and a missing table (migration 0173 not applied) sets `error`
+    // (not a throw) so this stays null and the header simply doesn't render.
+    let stateStatus: StateStatusData | null = null;
+    {
+      const { data } = await supabase
+        .from("state_status")
+        .select(
+          "derived_leaf_status, derived_7oh_status, basis, admin_leaf_status, admin_7oh_status, admin_note, confirmed_at, leaf_evidence_bill, sevenoh_evidence_bill",
+        )
+        .eq("state", codeUpper)
+        .maybeSingle();
+      stateStatus = (data as StateStatusData | null) ?? null;
+    }
+    // Inlined resolveBillHrefs (src/modules/state-status/evidence.ts) — that
+    // helper builds the cookie-bound request client, which can't run inside
+    // unstable_cache. Same query, same output shape.
+    const statusBillHrefs: Record<string, string> = {};
+    if (stateStatus) {
+      const nums = Array.from(
+        new Set([stateStatus.leaf_evidence_bill, stateStatus.sevenoh_evidence_bill].filter(Boolean)),
+      ) as string[];
+      if (nums.length > 0) {
+        const { data } = await supabase
+          .from("bills")
+          .select("id, bill_number")
+          .eq("state", codeUpper)
+          .in("bill_number", nums);
+        for (const b of (data as { id: string; bill_number: string | null }[] | null) ?? []) {
+          if (b.bill_number && !statusBillHrefs[b.bill_number]) statusBillHrefs[b.bill_number] = `/bills/${b.id}`;
+        }
+      }
+    }
+
+    const now = new Date();
+    const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+    const horizon = new Date(now.getTime() + 90 * 86_400_000).toISOString();
+
+    // 2026-06-11: the old 12-month "truly active" wall-clock window is gone —
+    // the bills.active flag (LegiScan session hygiene) is now the truth signal
+    // the 2026-05-14 owner directive wanted. Carryover bills stay visible.
+    // Past-meeting window: meetings in the last 14 days are still narratively
+    // 'live' — the Suffolk County vote happened 2 days ago and is the central
+    // active fight in NY right now; showing it on /states/NY is essential.
+    const pastMeetingWindow = new Date(now.getTime() - 14 * 86_400_000).toISOString();
+
+    // News window: last 60 days of kratom coverage tagged to this state.
+    // Wider window than the 30d alert window because news context can be
+    // a few months stale and still valuable for organizing.
+    const newsSince = new Date(now.getTime() - 60 * 86_400_000).toISOString();
+
+    // Threat-tier stats — surface "your state has X active opponents,
+    // Y flippable targets" so users landing here see exactly how much
+    // work is to be done. Uses the same composite scorer as
+    // /intel/threat-matrix; data pulled in the parallel block below.
+    const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw, takebackBill, stateLegs, stateStances, stateSponsors, stateKratomCommittees] = await Promise.all([
+      supabase
+        .from("bills")
+        .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at, scope, locality")
+        // The truthful `active` flag (LegiScan session hygiene) IS the
+        // currency signal — a wall-clock window here hid whole states whose
+        // carryover bills sat without recent action while fully alive
+        // (post-heal OK rendered zero bills). Moving-vs-quiet bucketing
+        // below still uses last_action_at for emphasis.
+        .eq("state", codeUpper)
+        .eq("active", true)
+        .in("kratom_relevance", ["anti", "pro"])
+        .neq("status", "dead")
+        .order("last_action_at", { ascending: false, nullsFirst: false })
+        .limit(40),
+      supabase
+        .from("municipal_meetings")
+        .select("id, locality, body_name, meeting_at, zoom_url, agenda_url")
+        .eq("state", codeUpper)
+        .eq("moderation_status", "approved")
+        .gte("meeting_at", now.toISOString())
+        .lte("meeting_at", horizon)
+        .order("meeting_at", { ascending: true })
+        .limit(15),
+      // Past meetings within last 14 days — important for things like the
+      // Suffolk County vote that happened 2 days ago and is the live fight.
+      supabase
+        .from("municipal_meetings")
+        .select("id, locality, body_name, meeting_at, kratom_relevance, agenda_url")
+        .eq("state", codeUpper)
+        .eq("moderation_status", "approved")
+        .eq("kratom_relevance", "confirmed")
+        .gte("meeting_at", pastMeetingWindow)
+        .lt("meeting_at", now.toISOString())
+        .order("meeting_at", { ascending: false })
+        .limit(5),
+      supabase
+        .from("policy_alerts")
+        .select("id, kind, severity, title, body, locality, created_at, occurs_at, bill_id, source_url")
+        .or(`locality.eq.${codeUpper},locality.ilike.%, ${codeUpper}`)
+        .eq("moderation_status", "approved")
+        .in("severity", ["critical", "alert"])
+        .gte("created_at", since30d)
+        .order("created_at", { ascending: false })
+        .limit(30),  // larger pull — many drop after real-event-date filter
+      supabase
+        .from("campaigns")
+        .select("id, slug, title, blurb")
+        .eq("state", codeUpper)
+        .eq("active", true)
+        .order("created_at", { ascending: false })
+        .limit(5),
+      supabase
+        .from("state_briefings")
+        .select("state, generated_at, generated_by_provider, body_md, manual_addendum_md")
+        .eq("state", codeUpper)
+        .eq("is_active", true)
+        .maybeSingle(),
+      supabase
+        .from("news_items")
+        .select("id, title, source_name, url, published_at, summary")
+        .eq("state", codeUpper)
+        .eq("active", true)
+        .not("body_has_kratom_keyword", "is", false)
+        .gte("published_at", newsSince)
+        .order("published_at", { ascending: false })
+        .limit(40),
+      // Takeback-status check: does this state have curated banned-state
+      // intel? If opposition_summary_md is populated for an active enacted
+      // (or imminent) state-scope bill, surface the link to its takeback
+      // plan from the page header.
+      supabase
+        .from("bills")
+        .select("id, status, bill_number")
+        .eq("state", codeUpper)
+        .eq("active", true)
+        .eq("scope", "state")
+        .eq("kratom_relevance", "anti")
+        .in("status", ["enacted", "passed_chamber"])
+        .not("opposition_summary_md", "is", null)
+        .order("status", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      // Threat-stat inputs: legislators + stances + anti/pro sponsorships
+      // + kratom-relevant committee memberships, all scoped to this state.
+      supabase
+        .from("legislators")
+        .select("id, role")
+        .eq("state", codeUpper)
+        .eq("active", true)
+        .limit(2000),
+      // Scope stances to THIS state's legislators via the FK join — an unscoped
+      // select hits the PostgREST 1000-row cap (~4k kratom stance rows exist) and
+      // silently drops stances for states beyond the window, misclassifying tiers.
+      supabase.from("legislator_stance").select("legislator_id, stance, legislators!inner(state)").eq("topic", "kratom").eq("legislators.state", codeUpper),
+      supabase
+        .from("bill_sponsors")
+        .select("legislator_id, classification, bills!inner(state, kratom_relevance, active)")
+        .eq("bills.state", codeUpper)
+        .eq("bills.active", true)
+        .in("bills.kratom_relevance", ["anti", "pro"]),
+      supabase
+        .from("legislator_committees")
+        .select("legislator_id, role")
+        .eq("is_kratom_relevant", true)
+        .limit(2000),
+    ]);
+
+    // ── Threat-tier counts using the composite scorer
+    const threatStats = { active_opponent: 0, hostile_decision_maker: 0, flippable_target: 0, champion: 0, sympathetic_ally: 0, education_target: 0, low_priority: 0 };
+    try {
+      const { assessThreat } = await import("@/lib/legislator-threat-score");
+      const legs = ((stateLegs?.data ?? []) as Array<{ id: string; role: string }>);
+      const legIds = new Set(legs.map((l) => l.id));
+      const stanceByLeg = new Map<string, string>();
+      for (const r of (stateStances?.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
+        if (legIds.has(r.legislator_id)) stanceByLeg.set(r.legislator_id, r.stance);
+      }
+      type SpAgg = { has_anti: boolean; has_pro: boolean; anti_primary: number; primary_count: number; cosponsor_count: number };
+      const spByLeg = new Map<string, SpAgg>();
+      for (const s of (stateSponsors?.data ?? []) as Array<{ legislator_id: string; classification: string; bills: { kratom_relevance: string | null } | Array<{ kratom_relevance: string | null }> | null }>) {
+        const b = Array.isArray(s.bills) ? s.bills[0] : s.bills;
+        if (!b) continue;
+        const agg = spByLeg.get(s.legislator_id) ?? { has_anti: false, has_pro: false, anti_primary: 0, primary_count: 0, cosponsor_count: 0 };
+        if (s.classification === "primary") {
+          agg.primary_count++;
+          if (b.kratom_relevance === "anti") agg.anti_primary++;
+        } else agg.cosponsor_count++;
+        if (b.kratom_relevance === "anti") agg.has_anti = true;
+        if (b.kratom_relevance === "pro") agg.has_pro = true;
+        spByLeg.set(s.legislator_id, agg);
+      }
+      const onKratomCmtLegs = new Set<string>();
+      const chairKratomLegs = new Set<string>();
+      for (const c of (stateKratomCommittees?.data ?? []) as Array<{ legislator_id: string; role: string }>) {
+        if (!legIds.has(c.legislator_id)) continue;
+        onKratomCmtLegs.add(c.legislator_id);
+        if (c.role === "chair") chairKratomLegs.add(c.legislator_id);
+      }
+      for (const l of legs) {
+        const stance = (stanceByLeg.get(l.id) ?? "unknown") as "champion" | "sympathetic" | "neutral" | "hostile" | "unknown";
+        const sp = spByLeg.get(l.id);
+        const a = assessThreat({
+          stance,
+          has_anti_sponsorship: !!sp?.has_anti,
+          has_pro_sponsorship: !!sp?.has_pro,
+          primary_sponsorship_count: sp?.anti_primary ?? 0,
+          cosponsorship_count: sp?.cosponsor_count ?? 0,
+          is_chair_of_kratom_relevant: chairKratomLegs.has(l.id),
+          is_member_of_kratom_relevant: onKratomCmtLegs.has(l.id),
+          bills_in_their_committees: 0,
+          pharma_usd: null, alcohol_usd: null, tobacco_usd: null,
+          addiction_treatment_usd: null, cannabis_usd: null, gaming_usd: null, hospital_health_usd: null,
+          kratom_adjacent_trade_count: null,
+        });
+        threatStats[a.tier as keyof typeof threatStats] += 1;
+      }
+    } catch {
+      // threat-score lib unavailable — silent.
+    }
+
+    // Active coordinated operations in this state — surfaces which of
+    // the 8 detected model-legislation patterns have bills here. Single
+    // join through bill_cluster_members → bills(state).
+    let stateClusters: StateClusterRow[] = [];
+    try {
+      const { data: cm } = await supabase
+        .from("bill_cluster_members")
+        .select("bill_clusters!inner(slug, name, posture), bills!inner(state, active)")
+        .eq("bills.state", codeUpper)
+        .eq("bills.active", true);
+      const counts = new Map<string, StateClusterRow>();
+      type CMRow = {
+        bill_clusters: { slug: string; name: string; posture: string }
+                     | Array<{ slug: string; name: string; posture: string }> | null;
+      };
+      for (const m of (cm ?? []) as CMRow[]) {
+        const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+        if (!c) continue;
+        const cur = counts.get(c.slug) ?? { slug: c.slug, name: c.name, posture: c.posture, bill_count: 0 };
+        cur.bill_count += 1;
+        counts.set(c.slug, cur);
+      }
+      stateClusters = [...counts.values()].sort((a, b) => b.bill_count - a.bill_count);
+    } catch { /* pre-0151 deploy */ }
+
+    // Top operators in this state — legislators who primary-sponsor
+    // cluster-membered bills here. Surfaces who's running the local
+    // arm of the coordinated operations. Defensive try around the
+    // multi-step join so a single-cluster table failure doesn't
+    // tear down the state page.
+    let stateOperators: StateOperator[] = [];
+    try {
+      // Cap to 500 — well under Supabase's .in() limit, well above any
+      // realistic per-state active kratom-bill count. Defensive against
+      // future data growth and pathological backfill bugs.
+      const { data: stateBillsForOps } = await supabase
+        .from("bills")
+        .select("id")
+        .eq("state", codeUpper)
+        .eq("active", true)
+        .limit(500);
+      const billIds = (stateBillsForOps ?? []).map((b) => b.id as string);
+      if (billIds.length > 0) {
+        const [sponsorsRes, membersRes] = await Promise.all([
+          supabase
+            .from("bill_sponsors")
+            .select("legislator_id, bill_id, classification, legislators!inner(id, full_name, role, party, active)")
+            .in("bill_id", billIds)
+            .eq("classification", "primary")
+            .eq("legislators.active", true),
+          supabase
+            .from("bill_cluster_members")
+            .select("bill_id, bill_clusters!inner(slug)")
+            .in("bill_id", billIds),
+        ]);
+        type BillCluster = { slug: string };
+        const billToSlugs = new Map<string, Set<string>>();
+        for (const m of (membersRes.data ?? []) as Array<{
+          bill_id: string; bill_clusters: BillCluster | BillCluster[] | null;
+        }>) {
+          const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+          if (!c) continue;
+          if (!billToSlugs.has(m.bill_id)) billToSlugs.set(m.bill_id, new Set());
+          billToSlugs.get(m.bill_id)!.add(c.slug);
+        }
+        type LegInfo = { id: string; full_name: string; role: string; party: string | null };
+        const byLeg = new Map<string, {
+          leg: LegInfo; bills: Set<string>; clusters: Set<string>;
+        }>();
+        for (const s of (sponsorsRes.data ?? []) as Array<{
+          legislator_id: string; bill_id: string;
+          legislators: LegInfo | LegInfo[] | null;
+        }>) {
+          const leg = Array.isArray(s.legislators) ? s.legislators[0] : s.legislators;
+          if (!leg) continue;
+          const slugs = billToSlugs.get(s.bill_id);
+          if (!slugs || slugs.size === 0) continue;
+          const agg = byLeg.get(s.legislator_id) ?? {
+            leg, bills: new Set<string>(), clusters: new Set<string>(),
+          };
+          agg.bills.add(s.bill_id);
+          for (const slug of slugs) agg.clusters.add(slug);
+          byLeg.set(s.legislator_id, agg);
+        }
+        stateOperators = [...byLeg.entries()]
+          .map(([id, v]) => ({
+            legislator_id: id,
+            full_name: v.leg.full_name,
+            role: v.leg.role,
+            party: v.leg.party,
+            cluster_slugs: [...v.clusters],
+            bill_count: v.bills.size,
+          }))
+          .filter((o) => o.cluster_slugs.length >= 1)
+          .sort((a, b) =>
+            b.cluster_slugs.length - a.cluster_slugs.length ||
+            b.bill_count - a.bill_count,
+          );
+      }
+    } catch { /* pre-migration */ }
+
+    // Real-event-date resolution for alerts — match the freshness logic
+    // from PRs #199 + #203 so this page doesn't surface 100-day-old
+    // news as 'recent alerts' just because the alert row was
+    // classified today. The DB lookups (linked news publish date, bill
+    // last action) happen here in the snapshot; the freshness cut itself
+    // runs per-request in the page against live now().
+    const rawAlerts = (alerts.data ?? []) as Array<{
+      id: string; kind: string; severity: string; title: string; body: string | null;
+      locality: string; created_at: string; occurs_at: string | null;
+      bill_id: string | null; source_url: string | null;
+    }>;
+    const alertIds = rawAlerts.map((a) => a.id);
+    const newsByAlertId = new Map<string, string>();
+    if (alertIds.length > 0) {
+      const { data: newsLinks } = await supabase
+        .from("news_items")
+        .select("policy_alert_id, published_at")
+        .in("policy_alert_id", alertIds);
+      for (const n of (newsLinks ?? []) as Array<{ policy_alert_id: string; published_at: string }>) {
+        if (n.policy_alert_id && !newsByAlertId.has(n.policy_alert_id)) {
+          newsByAlertId.set(n.policy_alert_id, n.published_at);
+        }
+      }
+    }
+    const billIds = rawAlerts.map((a) => a.bill_id).filter(Boolean) as string[];
+    const billLastActionByBillId = new Map<string, string>();
+    if (billIds.length > 0) {
+      const { data: bs } = await supabase
+        .from("bills")
+        .select("id, last_action_at")
+        .in("id", billIds);
+      for (const b of (bs ?? []) as Array<{ id: string; last_action_at: string | null }>) {
+        if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
+      }
+    }
+    const alertsWithEvent: AlertRow[] = rawAlerts.map((a) => {
+      let eventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;
+      if (!eventDate) {
+        const newsPub = newsByAlertId.get(a.id);
+        if (newsPub) eventDate = new Date(newsPub);
+      }
+      if (!eventDate && a.bill_id) {
+        const billPub = billLastActionByBillId.get(a.bill_id);
+        if (billPub) eventDate = new Date(billPub);
+      }
+      if (!eventDate) eventDate = new Date(a.created_at);
+      return { ...a, event_at: eventDate.toISOString() };
+    });
+
+    // Dedup news via shared lib (src/lib/news-dedup.ts) — strips outlet
+    // suffixes (News12 affiliates, Newsday, AOL/MSN echoes) and keeps the
+    // earliest-published copy of each story as canonical.
+    const news = dedupNews((newsRaw.data ?? []) as NewsItem[], 12);
+
+    return {
+      stateStatus,
+      statusBillHrefs,
+      allBills: (bills.data ?? []) as BillRow[],
+      meetings: (meetings.data ?? []) as MeetingRow[],
+      pastMeetings: (pastMeetings.data ?? []) as PastMeetingRow[],
+      alerts: alertsWithEvent,
+      campaigns: (campaigns.data ?? []) as CampaignRow[],
+      briefing: (briefing.data as BriefingRow | null) ?? null,
+      news,
+      takebackBill: (takebackBill.data as { id: string; status: string; bill_number: string } | null) ?? null,
+      threatStats,
+      stateClusters,
+      stateOperators,
+    };
+  },
+  ["state-hub"],
+  { revalidate: 900, tags: ["state-hub"] },
+);
+
 /**
  * /states/[code] — single-state aggregated landing page.
  *
@@ -57,207 +498,22 @@ export default async function StatePage({ params }: Props) {
   const stateName = STATE_NAMES[codeUpper];
   if (!stateName) notFound();
 
-  const supabase = await createClient();
+  const {
+    stateStatus,
+    statusBillHrefs,
+    allBills,
+    meetings,
+    pastMeetings,
+    alerts,
+    campaigns,
+    briefing,
+    news,
+    takebackBill,
+    threatStats,
+    stateClusters,
+    stateOperators,
+  } = await getStateHub(codeUpper);
 
-  // Canonical status (Mission Control). Resilient: maybeSingle() → null when
-  // no row, and a missing table (migration 0173 not applied) sets `error`
-  // (not a throw) so this stays null and the header simply doesn't render.
-  let stateStatus: StateStatusData | null = null;
-  {
-    const { data } = await supabase
-      .from("state_status")
-      .select(
-        "derived_leaf_status, derived_7oh_status, basis, admin_leaf_status, admin_7oh_status, admin_note, confirmed_at, leaf_evidence_bill, sevenoh_evidence_bill",
-      )
-      .eq("state", codeUpper)
-      .maybeSingle();
-    stateStatus = (data as StateStatusData | null) ?? null;
-  }
-  const statusBillHrefs = stateStatus
-    ? await resolveBillHrefs(codeUpper, [stateStatus.leaf_evidence_bill, stateStatus.sevenoh_evidence_bill])
-    : {};
-
-  const now = new Date();
-  const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
-  const horizon = new Date(now.getTime() + 90 * 86_400_000).toISOString();
-
-  // 2026-06-11: the old 12-month "truly active" wall-clock window is gone —
-  // the bills.active flag (LegiScan session hygiene) is now the truth signal
-  // the 2026-05-14 owner directive wanted. Carryover bills stay visible.
-  // Past-meeting window: meetings in the last 14 days are still narratively
-  // 'live' — the Suffolk County vote happened 2 days ago and is the central
-  // active fight in NY right now; showing it on /states/NY is essential.
-  const pastMeetingWindow = new Date(now.getTime() - 14 * 86_400_000).toISOString();
-
-  // News window: last 60 days of kratom coverage tagged to this state.
-  // Wider window than the 30d alert window because news context can be
-  // a few months stale and still valuable for organizing.
-  const newsSince = new Date(now.getTime() - 60 * 86_400_000).toISOString();
-
-  // Threat-tier stats — surface "your state has X active opponents,
-  // Y flippable targets" so users landing here see exactly how much
-  // work is to be done. Uses the same composite scorer as
-  // /intel/threat-matrix; data pulled in the parallel block below.
-  const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw, takebackBill, stateLegs, stateStances, stateSponsors, stateKratomCommittees] = await Promise.all([
-    supabase
-      .from("bills")
-      .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at, scope, locality")
-      // The truthful `active` flag (LegiScan session hygiene) IS the
-      // currency signal — a wall-clock window here hid whole states whose
-      // carryover bills sat without recent action while fully alive
-      // (post-heal OK rendered zero bills). Moving-vs-quiet bucketing
-      // below still uses last_action_at for emphasis.
-      .eq("state", codeUpper)
-      .eq("active", true)
-      .in("kratom_relevance", ["anti", "pro"])
-      .neq("status", "dead")
-      .order("last_action_at", { ascending: false, nullsFirst: false })
-      .limit(40),
-    supabase
-      .from("municipal_meetings")
-      .select("id, locality, body_name, meeting_at, zoom_url, agenda_url")
-      .eq("state", codeUpper)
-      .eq("moderation_status", "approved")
-      .gte("meeting_at", now.toISOString())
-      .lte("meeting_at", horizon)
-      .order("meeting_at", { ascending: true })
-      .limit(15),
-    // Past meetings within last 14 days — important for things like the
-    // Suffolk County vote that happened 2 days ago and is the live fight.
-    supabase
-      .from("municipal_meetings")
-      .select("id, locality, body_name, meeting_at, kratom_relevance, agenda_url")
-      .eq("state", codeUpper)
-      .eq("moderation_status", "approved")
-      .eq("kratom_relevance", "confirmed")
-      .gte("meeting_at", pastMeetingWindow)
-      .lt("meeting_at", now.toISOString())
-      .order("meeting_at", { ascending: false })
-      .limit(5),
-    supabase
-      .from("policy_alerts")
-      .select("id, kind, severity, title, body, locality, created_at, occurs_at, bill_id, source_url")
-      .or(`locality.eq.${codeUpper},locality.ilike.%, ${codeUpper}`)
-      .eq("moderation_status", "approved")
-      .in("severity", ["critical", "alert"])
-      .gte("created_at", since30d)
-      .order("created_at", { ascending: false })
-      .limit(30),  // larger pull — many drop after real-event-date filter
-    supabase
-      .from("campaigns")
-      .select("id, slug, title, blurb")
-      .eq("state", codeUpper)
-      .eq("active", true)
-      .order("created_at", { ascending: false })
-      .limit(5),
-    supabase
-      .from("state_briefings")
-      .select("state, generated_at, generated_by_provider, body_md, manual_addendum_md")
-      .eq("state", codeUpper)
-      .eq("is_active", true)
-      .maybeSingle(),
-    supabase
-      .from("news_items")
-      .select("id, title, source_name, url, published_at, summary")
-      .eq("state", codeUpper)
-      .eq("active", true)
-      .not("body_has_kratom_keyword", "is", false)
-      .gte("published_at", newsSince)
-      .order("published_at", { ascending: false })
-      .limit(40),
-    // Takeback-status check: does this state have curated banned-state
-    // intel? If opposition_summary_md is populated for an active enacted
-    // (or imminent) state-scope bill, surface the link to its takeback
-    // plan from the page header.
-    supabase
-      .from("bills")
-      .select("id, status, bill_number")
-      .eq("state", codeUpper)
-      .eq("active", true)
-      .eq("scope", "state")
-      .eq("kratom_relevance", "anti")
-      .in("status", ["enacted", "passed_chamber"])
-      .not("opposition_summary_md", "is", null)
-      .order("status", { ascending: true })
-      .limit(1)
-      .maybeSingle(),
-    // Threat-stat inputs: legislators + stances + anti/pro sponsorships
-    // + kratom-relevant committee memberships, all scoped to this state.
-    supabase
-      .from("legislators")
-      .select("id, role")
-      .eq("state", codeUpper)
-      .eq("active", true)
-      .limit(2000),
-    // Scope stances to THIS state's legislators via the FK join — an unscoped
-    // select hits the PostgREST 1000-row cap (~4k kratom stance rows exist) and
-    // silently drops stances for states beyond the window, misclassifying tiers.
-    supabase.from("legislator_stance").select("legislator_id, stance, legislators!inner(state)").eq("topic", "kratom").eq("legislators.state", codeUpper),
-    supabase
-      .from("bill_sponsors")
-      .select("legislator_id, classification, bills!inner(state, kratom_relevance, active)")
-      .eq("bills.state", codeUpper)
-      .eq("bills.active", true)
-      .in("bills.kratom_relevance", ["anti", "pro"]),
-    supabase
-      .from("legislator_committees")
-      .select("legislator_id, role")
-      .eq("is_kratom_relevant", true)
-      .limit(2000),
-  ]);
-
-  // ── Threat-tier counts using the composite scorer
-  let threatStats = { active_opponent: 0, hostile_decision_maker: 0, flippable_target: 0, champion: 0, sympathetic_ally: 0, education_target: 0, low_priority: 0 };
-  try {
-    const { assessThreat } = await import("@/lib/legislator-threat-score");
-    const legs = ((stateLegs?.data ?? []) as Array<{ id: string; role: string }>);
-    const legIds = new Set(legs.map((l) => l.id));
-    const stanceByLeg = new Map<string, string>();
-    for (const r of (stateStances?.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
-      if (legIds.has(r.legislator_id)) stanceByLeg.set(r.legislator_id, r.stance);
-    }
-    type SpAgg = { has_anti: boolean; has_pro: boolean; anti_primary: number; primary_count: number; cosponsor_count: number };
-    const spByLeg = new Map<string, SpAgg>();
-    for (const s of (stateSponsors?.data ?? []) as Array<{ legislator_id: string; classification: string; bills: { kratom_relevance: string | null } | Array<{ kratom_relevance: string | null }> | null }>) {
-      const b = Array.isArray(s.bills) ? s.bills[0] : s.bills;
-      if (!b) continue;
-      const agg = spByLeg.get(s.legislator_id) ?? { has_anti: false, has_pro: false, anti_primary: 0, primary_count: 0, cosponsor_count: 0 };
-      if (s.classification === "primary") {
-        agg.primary_count++;
-        if (b.kratom_relevance === "anti") agg.anti_primary++;
-      } else agg.cosponsor_count++;
-      if (b.kratom_relevance === "anti") agg.has_anti = true;
-      if (b.kratom_relevance === "pro") agg.has_pro = true;
-      spByLeg.set(s.legislator_id, agg);
-    }
-    const onKratomCmtLegs = new Set<string>();
-    const chairKratomLegs = new Set<string>();
-    for (const c of (stateKratomCommittees?.data ?? []) as Array<{ legislator_id: string; role: string }>) {
-      if (!legIds.has(c.legislator_id)) continue;
-      onKratomCmtLegs.add(c.legislator_id);
-      if (c.role === "chair") chairKratomLegs.add(c.legislator_id);
-    }
-    for (const l of legs) {
-      const stance = (stanceByLeg.get(l.id) ?? "unknown") as "champion" | "sympathetic" | "neutral" | "hostile" | "unknown";
-      const sp = spByLeg.get(l.id);
-      const a = assessThreat({
-        stance,
-        has_anti_sponsorship: !!sp?.has_anti,
-        has_pro_sponsorship: !!sp?.has_pro,
-        primary_sponsorship_count: sp?.anti_primary ?? 0,
-        cosponsorship_count: sp?.cosponsor_count ?? 0,
-        is_chair_of_kratom_relevant: chairKratomLegs.has(l.id),
-        is_member_of_kratom_relevant: onKratomCmtLegs.has(l.id),
-        bills_in_their_committees: 0,
-        pharma_usd: null, alcohol_usd: null, tobacco_usd: null,
-        addiction_treatment_usd: null, cannabis_usd: null, gaming_usd: null, hospital_health_usd: null,
-        kratom_adjacent_trade_count: null,
-      });
-      threatStats[a.tier as keyof typeof threatStats] += 1;
-    }
-  } catch {
-    // threat-score lib unavailable — silent.
-  }
   const actionableThreatCount =
     threatStats.active_opponent +
     threatStats.hostile_decision_maker +
@@ -265,169 +521,13 @@ export default async function StatePage({ params }: Props) {
     threatStats.champion +
     threatStats.sympathetic_ally;
 
-  // Active coordinated operations in this state — surfaces which of
-  // the 8 detected model-legislation patterns have bills here. Single
-  // join through bill_cluster_members → bills(state).
-  type StateClusterRow = { slug: string; name: string; posture: string; bill_count: number };
-  let stateClusters: StateClusterRow[] = [];
-  try {
-    const { data: cm } = await supabase
-      .from("bill_cluster_members")
-      .select("bill_clusters!inner(slug, name, posture), bills!inner(state, active)")
-      .eq("bills.state", codeUpper)
-      .eq("bills.active", true);
-    const counts = new Map<string, StateClusterRow>();
-    type CMRow = {
-      bill_clusters: { slug: string; name: string; posture: string }
-                   | Array<{ slug: string; name: string; posture: string }> | null;
-    };
-    for (const m of (cm ?? []) as CMRow[]) {
-      const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
-      if (!c) continue;
-      const cur = counts.get(c.slug) ?? { slug: c.slug, name: c.name, posture: c.posture, bill_count: 0 };
-      cur.bill_count += 1;
-      counts.set(c.slug, cur);
-    }
-    stateClusters = [...counts.values()].sort((a, b) => b.bill_count - a.bill_count);
-  } catch { /* pre-0151 deploy */ }
-
-  // Top operators in this state — legislators who primary-sponsor
-  // cluster-membered bills here. Surfaces who's running the local
-  // arm of the coordinated operations. Defensive try around the
-  // multi-step join so a single-cluster table failure doesn't
-  // tear down the state page.
-  type StateOperator = {
-    legislator_id: string;
-    full_name: string;
-    role: string;
-    party: string | null;
-    cluster_slugs: string[];
-    bill_count: number;
-  };
-  let stateOperators: StateOperator[] = [];
-  try {
-    // Cap to 500 — well under Supabase's .in() limit, well above any
-    // realistic per-state active kratom-bill count. Defensive against
-    // future data growth and pathological backfill bugs.
-    const { data: stateBillsForOps } = await supabase
-      .from("bills")
-      .select("id")
-      .eq("state", codeUpper)
-      .eq("active", true)
-      .limit(500);
-    const billIds = (stateBillsForOps ?? []).map((b) => b.id as string);
-    if (billIds.length > 0) {
-      const [sponsorsRes, membersRes] = await Promise.all([
-        supabase
-          .from("bill_sponsors")
-          .select("legislator_id, bill_id, classification, legislators!inner(id, full_name, role, party, active)")
-          .in("bill_id", billIds)
-          .eq("classification", "primary")
-          .eq("legislators.active", true),
-        supabase
-          .from("bill_cluster_members")
-          .select("bill_id, bill_clusters!inner(slug)")
-          .in("bill_id", billIds),
-      ]);
-      type BillCluster = { slug: string };
-      const billToSlugs = new Map<string, Set<string>>();
-      for (const m of (membersRes.data ?? []) as Array<{
-        bill_id: string; bill_clusters: BillCluster | BillCluster[] | null;
-      }>) {
-        const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
-        if (!c) continue;
-        if (!billToSlugs.has(m.bill_id)) billToSlugs.set(m.bill_id, new Set());
-        billToSlugs.get(m.bill_id)!.add(c.slug);
-      }
-      type LegInfo = { id: string; full_name: string; role: string; party: string | null };
-      const byLeg = new Map<string, {
-        leg: LegInfo; bills: Set<string>; clusters: Set<string>;
-      }>();
-      for (const s of (sponsorsRes.data ?? []) as Array<{
-        legislator_id: string; bill_id: string;
-        legislators: LegInfo | LegInfo[] | null;
-      }>) {
-        const leg = Array.isArray(s.legislators) ? s.legislators[0] : s.legislators;
-        if (!leg) continue;
-        const slugs = billToSlugs.get(s.bill_id);
-        if (!slugs || slugs.size === 0) continue;
-        const agg = byLeg.get(s.legislator_id) ?? {
-          leg, bills: new Set<string>(), clusters: new Set<string>(),
-        };
-        agg.bills.add(s.bill_id);
-        for (const slug of slugs) agg.clusters.add(slug);
-        byLeg.set(s.legislator_id, agg);
-      }
-      stateOperators = [...byLeg.entries()]
-        .map(([id, v]) => ({
-          legislator_id: id,
-          full_name: v.leg.full_name,
-          role: v.leg.role,
-          party: v.leg.party,
-          cluster_slugs: [...v.clusters],
-          bill_count: v.bills.size,
-        }))
-        .filter((o) => o.cluster_slugs.length >= 1)
-        .sort((a, b) =>
-          b.cluster_slugs.length - a.cluster_slugs.length ||
-          b.bill_count - a.bill_count,
-        );
-    }
-  } catch { /* pre-migration */ }
-
-  // Real-event-date filter for alerts — match the freshness logic
-  // from PRs #199 + #203 so this page doesn't surface 100-day-old
-  // news as 'recent alerts' just because the alert row was
-  // classified today.
-  const rawAlerts = (alerts.data ?? []) as Array<{
-    id: string; kind: string; severity: string; title: string; body: string | null;
-    locality: string; created_at: string; occurs_at: string | null;
-    bill_id: string | null; source_url: string | null;
-  }>;
-  const alertIds = rawAlerts.map((a) => a.id);
-  const newsByAlertId = new Map<string, string>();
-  if (alertIds.length > 0) {
-    const { data: newsLinks } = await supabase
-      .from("news_items")
-      .select("policy_alert_id, published_at")
-      .in("policy_alert_id", alertIds);
-    for (const n of (newsLinks ?? []) as Array<{ policy_alert_id: string; published_at: string }>) {
-      if (n.policy_alert_id && !newsByAlertId.has(n.policy_alert_id)) {
-        newsByAlertId.set(n.policy_alert_id, n.published_at);
-      }
-    }
-  }
-  const billIds = rawAlerts.map((a) => a.bill_id).filter(Boolean) as string[];
-  const billLastActionByBillId = new Map<string, string>();
-  if (billIds.length > 0) {
-    const { data: bs } = await supabase
-      .from("bills")
-      .select("id, last_action_at")
-      .in("id", billIds);
-    for (const b of (bs ?? []) as Array<{ id: string; last_action_at: string | null }>) {
-      if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
-    }
-  }
-  // Dedup news via shared lib (src/lib/news-dedup.ts) — strips outlet
-  // suffixes (News12 affiliates, Newsday, AOL/MSN echoes) and keeps the
-  // earliest-published copy of each story as canonical.
-  const news = dedupNews((newsRaw.data ?? []) as NewsItem[], 12);
-
+  // Freshness cut over the snapshot's resolved event dates — live now()
+  // so a cached snapshot never holds an alert past its 30-day window.
   const STATE_FRESH_DAYS = 30;
   const STATE_FRESH_MS = STATE_FRESH_DAYS * 86_400_000;
-  const freshAlerts = rawAlerts.filter((a) => {
-    let eventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;
-    if (!eventDate) {
-      const newsPub = newsByAlertId.get(a.id);
-      if (newsPub) eventDate = new Date(newsPub);
-    }
-    if (!eventDate && a.bill_id) {
-      const billPub = billLastActionByBillId.get(a.bill_id);
-      if (billPub) eventDate = new Date(billPub);
-    }
-    if (!eventDate) eventDate = new Date(a.created_at);
-    return Date.now() - eventDate.getTime() <= STATE_FRESH_MS;
-  }).slice(0, 10);
+  const freshAlerts = alerts.filter((a) =>
+    Date.now() - new Date(a.event_at).getTime() <= STATE_FRESH_MS
+  ).slice(0, 10);
 
   // Bucket bills: county/municipal-scope active fights surface FIRST
   // because they're concrete + actionable (a vote is happening soon
@@ -435,12 +535,6 @@ export default async function StatePage({ params }: Props) {
   // bills are split into "moving recently" (last 90 days) vs "tracked
   // but quiet" so the page doesn't drown a hot local fight under a
   // pile of stale state-scope bills.
-  type BillRow = {
-    id: string; bill_number: string; title: string | null; status: string | null;
-    kratom_relevance: string | null; last_action: string | null; last_action_at: string | null;
-    scope: string | null; locality: string | null;
-  };
-  const allBills = (bills.data ?? []) as BillRow[];
   const RECENT_STATE_DAYS = 90;
   const recentCutoff = Date.now() - RECENT_STATE_DAYS * 86_400_000;
   const localFights = allBills.filter(b => b.scope === "county" || b.scope === "municipal");
@@ -455,10 +549,10 @@ export default async function StatePage({ params }: Props) {
   );
 
   const totalSignals = allBills.length
-    + (meetings.data?.length ?? 0)
-    + (pastMeetings.data?.length ?? 0)
+    + meetings.length
+    + pastMeetings.length
     + freshAlerts.length
-    + (campaigns.data?.length ?? 0);
+    + campaigns.length;
 
   // Schema.org WebPage with CollectionPage mainEntity — describes this
   // as a state-policy hub for AI summarizers and search engines. The
@@ -483,14 +577,14 @@ export default async function StatePage({ params }: Props) {
       "@type": "CollectionPage",
       numberOfItems: totalSignals,
       itemListElement: [
-        ...((bills.data ?? []).slice(0, 5).map((b: { id: string; bill_number: string; title: string | null }) => ({
+        ...(allBills.slice(0, 5).map((b: { id: string; bill_number: string; title: string | null }) => ({
           "@type": "Legislation",
           name: `${codeUpper} ${b.bill_number}`,
           description: b.title?.slice(0, 200),
           url: `${SITE}/bills/${b.id}`,
           legislationJurisdiction: { "@type": "AdministrativeArea", name: stateName },
         }))),
-        ...((meetings.data ?? []).slice(0, 5).map((m: { id: string; locality: string | null; body_name: string | null; meeting_at: string }) => ({
+        ...(meetings.slice(0, 5).map((m: { id: string; locality: string | null; body_name: string | null; meeting_at: string }) => ({
           "@type": "Event",
           name: `${m.locality ?? codeUpper} ${m.body_name ?? "meeting"}`,
           startDate: m.meeting_at,
@@ -503,7 +597,7 @@ export default async function StatePage({ params }: Props) {
   // Folded AI field briefing (state_briefings) — narrative prose + Kokoro
   // Listen, rendered inline so /briefings/state/[code] can redirect here.
   // The LIVE sections above/below are the actionable meat; this is context.
-  const b = briefing.data as { body_md?: string | null; manual_addendum_md?: string | null; generated_at?: string | null; generated_by_provider?: string | null } | null;
+  const b = briefing;
   const briefingMd = b?.body_md
     ? (b.manual_addendum_md ? `${b.manual_addendum_md}\n\n---\n\n${b.body_md}` : b.body_md)
     : "";
@@ -628,7 +722,7 @@ export default async function StatePage({ params }: Props) {
               ⚠ No active signals in {codeUpper} right now — quiet is good.
             </span>
           )}
-          {briefing.data?.generated_at && (
+          {briefing?.generated_at && (
             <a
               href="#briefing"
               className="rounded border border-emerald-700/40 bg-emerald-950/15 px-3 py-1 text-emerald-300 hover:border-emerald-500"
@@ -682,9 +776,9 @@ export default async function StatePage({ params }: Props) {
           the curated repeal plan directly from the state landing so an
           organizer in AL/AR/IN/RI/VT/WI/TN sees it without clicking
           through to /banned first. */}
-      {takebackBill?.data && (
+      {takebackBill && (
         <Link
-          href={`/bills/${takebackBill.data.id}`}
+          href={`/bills/${takebackBill.id}`}
           className="mb-6 block rounded-lg border-2 border-amber-700/50 bg-amber-950/15 p-4 hover:border-amber-400"
         >
           <div className="flex flex-wrap items-baseline gap-2">
@@ -692,7 +786,7 @@ export default async function StatePage({ params }: Props) {
               🎯 Takeback plan
             </span>
             <span className="text-[10px] text-zinc-500">
-              {takebackBill.data.status === "passed_chamber" ? "imminent ban" : "enacted ban"} · {takebackBill.data.bill_number}
+              {takebackBill.status === "passed_chamber" ? "imminent ban" : "enacted ban"} · {takebackBill.bill_number}
             </span>
           </div>
           <p className="mt-1 text-sm font-semibold text-zinc-100">
@@ -838,13 +932,13 @@ export default async function StatePage({ params }: Props) {
 
       {/* Active campaigns — after the bills sections per owner spec
           (state bills → local fights → campaigns). */}
-      {(campaigns.data ?? []).length > 0 && (
+      {campaigns.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-emerald-300">
             Active campaigns
           </h2>
           <ul className="space-y-2">
-            {(campaigns.data ?? []).map((c) => (
+            {campaigns.map((c) => (
               <li key={c.id}>
                 <Link
                   href={`/campaigns/${c.slug}`}
@@ -900,13 +994,13 @@ export default async function StatePage({ params }: Props) {
           for the Suffolk County case: vote happened 2 days ago. The page
           would otherwise miss it entirely (the "next 90 days" filter only
           shows future meetings). */}
-      {(pastMeetings.data ?? []).length > 0 && (
+      {pastMeetings.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-orange-300">
             Just happened · last 14 days
           </h2>
           <ul className="space-y-2">
-            {(pastMeetings.data ?? []).map((m: { id: string; locality: string | null; body_name: string | null; meeting_at: string; agenda_url: string | null }) => {
+            {pastMeetings.map((m: { id: string; locality: string | null; body_name: string | null; meeting_at: string; agenda_url: string | null }) => {
               const when = new Date(m.meeting_at);
               const daysAgo = Math.floor((Date.now() - when.getTime()) / 86_400_000);
               return (
@@ -938,13 +1032,13 @@ export default async function StatePage({ params }: Props) {
       )}
 
       {/* Upcoming meetings */}
-      {(meetings.data ?? []).length > 0 && (
+      {meetings.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-amber-300">
             Upcoming meetings · next 90 days
           </h2>
           <ul className="space-y-2">
-            {(meetings.data ?? []).map((m) => {
+            {meetings.map((m) => {
               const when = new Date(m.meeting_at);
               const days = Math.ceil((when.getTime() - Date.now()) / 86_400_000);
               return (
