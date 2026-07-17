@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { createClient, getCachedAuthProfile } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { CalendarSyncButton } from "./CalendarSyncButton";
 import { EVENT_TYPE_LABELS } from "@/modules/events/labels";
@@ -47,6 +49,108 @@ const KIND_BADGE: Record<string, { emoji: string; label: string; cls: string }> 
 // right day for US users — see memory civic-dates-anchor-eastern.
 const etYmd = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
 
+// All 9 calendar sources are public + identical for everyone (elections are
+// geofenced in JS below, per viewer, from the full cached set) → one shared
+// snapshot across requests instead of 9 DB reads per visit/crawl. Service-role
+// client because unstable_cache can't use the cookie-bound request client; the
+// value is JSON-serialized, so raw rows (date strings) are cached and Date
+// objects are built in the page component. State/kind filtering also happens
+// in JS below, so searchParams never fragment the cache.
+const getCalendarData = unstable_cache(
+  async () => {
+    const supabase = createServiceRoleClient();
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 90 * 86_400_000);  // next 90 days
+    // Elections look further out than meetings — the general election + many
+    // primaries sit months ahead — so election rows use a 1-year horizon.
+    const electionHorizon = new Date(now.getTime() + 365 * 86_400_000);
+
+    // Pull from multiple sources in parallel
+    const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective, billsSunset, localVotes] = await Promise.all([
+      supabase.from("municipal_meetings")
+        .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
+        .eq("moderation_status", "approved")
+        .gte("meeting_at", now.toISOString())
+        .lte("meeting_at", horizon.toISOString())
+        .order("meeting_at", { ascending: true }),
+      supabase.from("policy_alerts")
+        .select("id, kind, severity, title, body, locality, source_url, occurs_at, bill_id")
+        .eq("moderation_status", "approved")
+        .not("occurs_at", "is", null)
+        .gte("occurs_at", now.toISOString())
+        .lte("occurs_at", horizon.toISOString())
+        .in("severity", ["critical", "alert"])
+        .order("occurs_at", { ascending: true }),
+      supabase.from("bills")
+        .select("id, state, bill_number, title, last_action, last_action_at, kratom_relevance, status")
+        .eq("active", true)
+        .in("kratom_relevance", ["anti", "pro"])
+        .not("last_action_at", "is", null)
+        .gte("last_action_at", new Date(now.getTime() - 14 * 86_400_000).toISOString())
+        .order("last_action_at", { ascending: false })
+        .limit(80),
+      supabase.from("state_capital_info")
+        .select("state, current_session_id, current_session_start, current_session_end, capital_city, legislature_url, hearing_schedule_url"),
+      supabase.from("election_dates")
+        .select("scope, state, locality, election_type, title, election_date, registration_deadline, source_url")
+        .eq("moderation_status", "approved")
+        // Eastern day, not UTC — else today's election vanishes from the calendar
+        // + every ICS feed after ~8pm ET when the UTC date rolls (memory
+        // civic-dates-anchor-eastern). Same for effective/sunset date columns below.
+        .gte("election_date", etYmd(now))
+        .lte("election_date", etYmd(electionHorizon))
+        .order("election_date", { ascending: true }),
+      supabase.from("legislator_events")
+        .select("id, state, locality, title, description, event_type, starts_at, venue, source_url, legislator_id")
+        .eq("active", true)
+        .gte("starts_at", now.toISOString())
+        .lte("starts_at", horizon.toISOString())
+        .order("starts_at", { ascending: true }),
+      // Upcoming "takes effect" dates for tracked bills — the most-asked
+      // question ("when does this hit me?"). effective_date is a date column
+      // (0029); look 1yr out like elections since laws are dated months ahead.
+      supabase.from("bills")
+        .select("id, state, bill_number, title, effective_date, kratom_relevance")
+        .in("kratom_relevance", ["anti", "pro"])
+        .not("effective_date", "is", null)
+        .gte("effective_date", etYmd(now))
+        .lte("effective_date", etYmd(electionHorizon))
+        .order("effective_date", { ascending: true }),
+      // Upcoming sunset/expiration dates — when a law's kratom provision auto-
+      // repeals (0209). Sparse (most bans are permanent); 1-yr horizon like effective.
+      supabase.from("bills")
+        .select("id, state, bill_number, title, sunset_date, kratom_relevance")
+        .in("kratom_relevance", ["anti", "pro"])
+        .not("sunset_date", "is", null)
+        .gte("sunset_date", etYmd(now))
+        .lte("sunset_date", etYmd(electionHorizon))
+        .order("sunset_date", { ascending: true }),
+      // Local (city/county) kratom vote OUTCOMES (0210) — past events, so a
+      // backward window; they populate calendar history + the month grid with a
+      // pass/fail badge the raw alert never carried.
+      supabase.from("local_vote_outcomes")
+        .select("id, state, locality, vote_date, outcome, measure, source_url, policy_alert_id")
+        .gte("vote_date", new Date(now.getTime() - 180 * 86_400_000).toISOString().slice(0, 10))
+        .order("vote_date", { ascending: false })
+        .limit(200),
+    ]);
+
+    return {
+      meetings: meetings.data ?? [],
+      alerts: alerts.data ?? [],
+      billActions: billActions.data ?? [],
+      sessions: sessions.data ?? [],
+      elections: elections.data ?? [],
+      townhalls: townhalls.data ?? [],
+      billsEffective: billsEffective.data ?? [],
+      billsSunset: billsSunset.data ?? [],
+      localVotes: localVotes.data ?? [],
+    };
+  },
+  ["calendar-events"],
+  { revalidate: 900, tags: ["calendar-events"] },
+);
+
 export default async function CalendarPage({ searchParams }: {
   searchParams?: Promise<{ state?: string; kind?: string; view?: string; month?: string; day?: string }>;
 }) {
@@ -55,97 +159,28 @@ export default async function CalendarPage({ searchParams }: {
   const kindFilter = sp.kind ?? null;
   const view: "list" | "month" = sp.view === "month" ? "month" : "list";
 
-  const sb = await createClient();
   const now = new Date();
   const horizon = new Date(now.getTime() + 90 * 86_400_000);  // next 90 days
-  // Elections look further out than meetings — the general election + many
-  // primaries sit months ahead — so election rows use a 1-year horizon.
-  const electionHorizon = new Date(now.getTime() + 365 * 86_400_000);
 
   // Geofence elections to the viewer's state: an explicit ?state= wins, else
   // the signed-in user's profile state. national-scope elections show to all;
   // state elections only when they match (anon/stateless → national only).
+  // This is the ONLY per-request read — the shared event data comes from the
+  // cached snapshot below.
   const { userId } = await getCachedAuthProfile();
   let userState: string | null = null;
   if (userId) {
+    const sb = await createClient();
     const { data: prof } = await sb.from("profiles").select("state").eq("id", userId).maybeSingle();
     userState = prof?.state ? String(prof.state).toUpperCase() : null;
   }
   const viewerState = stateFilter ?? userState;
 
-  // Pull from multiple sources in parallel
-  const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective, billsSunset, localVotes] = await Promise.all([
-    sb.from("municipal_meetings")
-      .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
-      .eq("moderation_status", "approved")
-      .gte("meeting_at", now.toISOString())
-      .lte("meeting_at", horizon.toISOString())
-      .order("meeting_at", { ascending: true }),
-    sb.from("policy_alerts")
-      .select("id, kind, severity, title, body, locality, source_url, occurs_at, bill_id")
-      .eq("moderation_status", "approved")
-      .not("occurs_at", "is", null)
-      .gte("occurs_at", now.toISOString())
-      .lte("occurs_at", horizon.toISOString())
-      .in("severity", ["critical", "alert"])
-      .order("occurs_at", { ascending: true }),
-    sb.from("bills")
-      .select("id, state, bill_number, title, last_action, last_action_at, kratom_relevance, status")
-      .eq("active", true)
-      .in("kratom_relevance", ["anti", "pro"])
-      .not("last_action_at", "is", null)
-      .gte("last_action_at", new Date(now.getTime() - 14 * 86_400_000).toISOString())
-      .order("last_action_at", { ascending: false })
-      .limit(80),
-    sb.from("state_capital_info")
-      .select("state, current_session_id, current_session_start, current_session_end, capital_city, legislature_url, hearing_schedule_url"),
-    sb.from("election_dates")
-      .select("scope, state, locality, election_type, title, election_date, registration_deadline, source_url")
-      .eq("moderation_status", "approved")
-      // Eastern day, not UTC — else today's election vanishes from the calendar
-      // + every ICS feed after ~8pm ET when the UTC date rolls (memory
-      // civic-dates-anchor-eastern). Same for effective/sunset date columns below.
-      .gte("election_date", etYmd(now))
-      .lte("election_date", etYmd(electionHorizon))
-      .order("election_date", { ascending: true }),
-    sb.from("legislator_events")
-      .select("id, state, locality, title, description, event_type, starts_at, venue, source_url, legislator_id")
-      .eq("active", true)
-      .gte("starts_at", now.toISOString())
-      .lte("starts_at", horizon.toISOString())
-      .order("starts_at", { ascending: true }),
-    // Upcoming "takes effect" dates for tracked bills — the most-asked
-    // question ("when does this hit me?"). effective_date is a date column
-    // (0029); look 1yr out like elections since laws are dated months ahead.
-    sb.from("bills")
-      .select("id, state, bill_number, title, effective_date, kratom_relevance")
-      .in("kratom_relevance", ["anti", "pro"])
-      .not("effective_date", "is", null)
-      .gte("effective_date", etYmd(now))
-      .lte("effective_date", etYmd(electionHorizon))
-      .order("effective_date", { ascending: true }),
-    // Upcoming sunset/expiration dates — when a law's kratom provision auto-
-    // repeals (0209). Sparse (most bans are permanent); 1-yr horizon like effective.
-    sb.from("bills")
-      .select("id, state, bill_number, title, sunset_date, kratom_relevance")
-      .in("kratom_relevance", ["anti", "pro"])
-      .not("sunset_date", "is", null)
-      .gte("sunset_date", etYmd(now))
-      .lte("sunset_date", etYmd(electionHorizon))
-      .order("sunset_date", { ascending: true }),
-    // Local (city/county) kratom vote OUTCOMES (0210) — past events, so a
-    // backward window; they populate calendar history + the month grid with a
-    // pass/fail badge the raw alert never carried.
-    sb.from("local_vote_outcomes")
-      .select("id, state, locality, vote_date, outcome, measure, source_url, policy_alert_id")
-      .gte("vote_date", new Date(now.getTime() - 180 * 86_400_000).toISOString().slice(0, 10))
-      .order("vote_date", { ascending: false })
-      .limit(200),
-  ]);
+  const { meetings, alerts, billActions, sessions, elections, townhalls, billsEffective, billsSunset, localVotes } = await getCalendarData();
 
   const events: Event[] = [];
 
-  for (const m of meetings.data ?? []) {
+  for (const m of meetings) {
     events.push({
       kind: "municipal",
       date: new Date(m.meeting_at),
@@ -163,7 +198,7 @@ export default async function CalendarPage({ searchParams }: {
     });
   }
 
-  for (const a of alerts.data ?? []) {
+  for (const a of alerts) {
     events.push({
       kind: "alert",
       date: new Date(a.occurs_at!),
@@ -179,7 +214,7 @@ export default async function CalendarPage({ searchParams }: {
   }
 
   // Recent bill actions surface for advocates who want to track current legislative motion
-  for (const b of billActions.data ?? []) {
+  for (const b of billActions) {
     if (!b.last_action_at) continue;
     events.push({
       kind: "bill_action",
@@ -192,7 +227,7 @@ export default async function CalendarPage({ searchParams }: {
   }
 
   // State sessions — show start and end dates if upcoming
-  for (const s of sessions.data ?? []) {
+  for (const s of sessions) {
     if (s.current_session_start) {
       const start = new Date(s.current_session_start);
       if (start.getTime() > now.getTime() && start.getTime() < horizon.getTime()) {
@@ -225,7 +260,7 @@ export default async function CalendarPage({ searchParams }: {
 
   // Legislator town halls + hearings (hand-verified). Folded in from the old
   // /events page, which now redirects here — this is the one community calendar.
-  for (const t of townhalls.data ?? []) {
+  for (const t of townhalls) {
     const typeLabel = EVENT_TYPE_LABELS[t.event_type] ?? t.event_type;
     events.push({
       kind: "townhall",
@@ -242,7 +277,7 @@ export default async function CalendarPage({ searchParams }: {
 
   // Elections — geofenced. national-scope rows show to everyone; state rows
   // only when they match the viewer's state. Rendered as all-day events.
-  for (const el of elections.data ?? []) {
+  for (const el of elections) {
     const national = el.scope === "national";
     if (!national && (!viewerState || el.state !== viewerState)) continue;
     // Parse the DATE at noon UTC so it lands on the same calendar day in every
@@ -264,7 +299,7 @@ export default async function CalendarPage({ searchParams }: {
 
   // "Takes effect" dates for tracked bills — when a passed/signed law actually
   // hits. All-day, links to the bill. Answers "when does this affect me?".
-  for (const b of billsEffective.data ?? []) {
+  for (const b of billsEffective) {
     if (!b.effective_date) continue;
     events.push({
       kind: "bill_effective",
@@ -278,7 +313,7 @@ export default async function CalendarPage({ searchParams }: {
   }
 
   // Sunset/expiration dates — when a law auto-repeals. All-day, links to bill.
-  for (const b of billsSunset.data ?? []) {
+  for (const b of billsSunset) {
     if (!b.sunset_date) continue;
     events.push({
       kind: "bill_sunset",
@@ -292,7 +327,7 @@ export default async function CalendarPage({ searchParams }: {
   }
 
   // Local vote outcomes — past city/county kratom votes with a pass/fail badge.
-  for (const v of localVotes.data ?? []) {
+  for (const v of localVotes) {
     events.push({
       kind: "local_vote",
       date: new Date(v.vote_date + "T12:00:00Z"),
@@ -309,7 +344,7 @@ export default async function CalendarPage({ searchParams }: {
   // Whether state-scoped elections exist but are hidden because the viewer has
   // no resolved state — drives the "set your state" nudge below.
   const hasHiddenStateElections =
-    !viewerState && (elections.data ?? []).some((el) => el.scope !== "national");
+    !viewerState && elections.some((el) => el.scope !== "national");
 
   // Apply filters + sort by date. Elections are pre-geofenced above; keep
   // national elections (state === null) visible even under a ?state= filter.

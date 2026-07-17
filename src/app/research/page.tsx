@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { ResearchSubmitCta } from "./ResearchSubmitCta";
 import { ResearchBrowser, type PaperRow } from "./ResearchBrowser";
 
@@ -28,35 +29,51 @@ const STUDY_TYPE_LABEL: Record<string, string> = {
   clinical: "Clinical",
 };
 
+// Public research-library snapshot, cached across requests (30-min revalidate)
+// instead of two table reads per visit. The whole library is public bibliographic
+// data (no user fields), everyone sees the same rows, and the previous filter-pill
+// aggregate already scanned every active row on every request — so caching the
+// full ordered dataset once and filtering/sorting in JS is strictly less egress.
+// Service-role client because unstable_cache can't use the cookie-bound request
+// client. searchParams filters (topic/type/min_quality) are applied in JS below.
+const getResearchLibrary = unstable_cache(
+  async () => {
+    const supabase = createServiceRoleClient();
+    const { data } = await supabase
+      .from("research_papers")
+      .select("id, pubmed_id, title, authors, journal, publication_year, study_type, topics, ai_methodology_quality, ai_evidence_strength, ai_key_findings_md, ai_distinguishes_natural_vs_synthetic, doi, full_text_url, retracted, citation_count")
+      .eq("is_active", true)
+      .order("publication_year", { ascending: false, nullsFirst: false })
+      .order("ai_methodology_quality", { ascending: false, nullsFirst: false })
+      .limit(1000);
+    return data ?? [];
+  },
+  ["research-library"],
+  { revalidate: 1800, tags: ["research-library"] },
+);
+
 export default async function ResearchIndex({ searchParams }: { searchParams?: Promise<{ topic?: string; type?: string; min_quality?: string }> }) {
   const sp = (await searchParams) ?? {};
   const topicFilter = sp.topic ?? null;
   const typeFilter = sp.type ?? null;
   const minQuality = sp.min_quality ? parseInt(sp.min_quality) : null;
 
-  const sb = await createClient();
-  let q = sb.from("research_papers")
-    .select("id, pubmed_id, title, authors, journal, publication_year, study_type, topics, ai_methodology_quality, ai_evidence_strength, ai_key_findings_md, ai_distinguishes_natural_vs_synthetic, doi, full_text_url, retracted, citation_count")
-    .eq("is_active", true)
-    .order("publication_year", { ascending: false, nullsFirst: false })
-    .order("ai_methodology_quality", { ascending: false, nullsFirst: false })
-    .limit(120);
-  if (topicFilter) q = q.contains("topics", [topicFilter]);
-  if (typeFilter) q = q.eq("study_type", typeFilter);
-  if (minQuality) q = q.gte("ai_methodology_quality", minQuality);
+  const all = await getResearchLibrary();
 
-  const { data: papers } = await q;
-  const rows = papers ?? [];
+  // Apply searchParams filters in JS over the cached snapshot (already ordered
+  // by the query above), then cap at 120 like the previous SQL .limit(120).
+  const rows = all
+    .filter((r) =>
+      (!topicFilter || ((r.topics ?? []) as string[]).includes(topicFilter)) &&
+      (!typeFilter || r.study_type === typeFilter) &&
+      (!minQuality || (r.ai_methodology_quality != null && r.ai_methodology_quality >= minQuality)),
+    )
+    .slice(0, 120);
 
-  // For the topic/type filter pills, aggregate counts
-  const { data: all } = await sb
-    .from("research_papers")
-    .select("topics, study_type, ai_methodology_quality")
-    .eq("is_active", true);
   const topicCounts = new Map<string, number>();
   const typeCounts = new Map<string, number>();
   let totalEvaluated = 0;
-  for (const r of all ?? []) {
+  for (const r of all) {
     for (const t of (r.topics ?? []) as string[]) topicCounts.set(t, (topicCounts.get(t) ?? 0) + 1);
     if (r.study_type) typeCounts.set(r.study_type as string, (typeCounts.get(r.study_type as string) ?? 0) + 1);
     if (r.ai_methodology_quality != null) totalEvaluated++;
@@ -78,7 +95,7 @@ export default async function ResearchIndex({ searchParams }: { searchParams?: P
           gets a special badge — that distinction often matters more than the headline finding.
         </p>
         <p className="mt-2 text-xs text-zinc-500">
-          {all?.length ?? 0} papers ingested · {totalEvaluated} AI-evaluated.
+          {all.length} papers ingested · {totalEvaluated} AI-evaluated.
         </p>
         <ResearchSubmitCta />
       </header>
@@ -86,7 +103,7 @@ export default async function ResearchIndex({ searchParams }: { searchParams?: P
       {/* Topic filter */}
       {topicCounts.size > 0 && (
         <nav className="mb-3 flex flex-wrap gap-2 text-xs">
-          <FilterPill label={`All topics (${all?.length ?? 0})`} href={`/research${typeFilter ? `?type=${typeFilter}` : ""}`} active={!topicFilter} />
+          <FilterPill label={`All topics (${all.length})`} href={`/research${typeFilter ? `?type=${typeFilter}` : ""}`} active={!topicFilter} />
           {[...topicCounts.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => (
             <FilterPill
               key={t}
