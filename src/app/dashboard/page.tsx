@@ -29,6 +29,7 @@ import { PolicyPulseWidget } from "@/modules/dashboard/widgets/PolicyPulseWidget
 import { PushOptInBanner } from "@/components/PushOptInBanner";
 import { listMyPushSubscriptions } from "@/modules/auth/actions-push";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
+import { Reveal } from "@/components/motion/Reveal";
 
 /**
  * /dashboard — the cockpit.
@@ -281,7 +282,7 @@ export default async function DashboardPage({
 
       {/* Bottom action grid — quick links to deeper sections. Not a
           customizable widget for now; treated as cockpit chrome. */}
-      <section className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <Reveal as="section" className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card href="/campaigns" title="Active campaigns" body="Take action on bills moving right now." accent />
         <Card href="/legislators" title="All legislators" body={profile?.state ? `Search every official in ${profile.state}.` : "Search every state legislature."} />
         <Card href="/bills" title="Bill tracker" body="Every kratom & 7-OH bill, all 50 states." />
@@ -290,7 +291,7 @@ export default async function DashboardPage({
         <Card href="/library" title="Library" body="Videos, books, transcripts." />
         <Card href="/messages" title="Messages" body="🔒 End-to-end encrypted DMs + groups." />
         <Card href="/account" title="Account" body="Update civic info & notifications." />
-      </section>
+      </Reveal>
 
       {/* Replay panel — re-watch any walkthrough. Lives below the
           configurable widget grid so it's always findable. */}
@@ -334,7 +335,7 @@ function Banner({
   const btnBg = tone === "amber" ? "bg-amber-500" : "bg-emerald-500";
   const btnHover = tone === "amber" ? "hover:bg-amber-400" : "hover:bg-emerald-400";
   return (
-    <div className={`rounded-lg border p-5 ${bg}`}>
+    <div className={`rounded-xl border p-5 ${bg}`}>
       <h2 className={`text-sm font-semibold ${titleCol}`}>{title}</h2>
       <p className="mt-1 text-sm text-zinc-400">{body}</p>
       {slot ? (
@@ -360,7 +361,7 @@ function Card({
   accent?: boolean;
   disabled?: boolean;
 }) {
-  const base = "block rounded-lg border p-5 transition";
+  const base = "ik-lift block rounded-xl border p-5";
   const cls = disabled
     ? "border-zinc-900 bg-zinc-950/40 opacity-50 cursor-not-allowed"
     : accent

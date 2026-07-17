@@ -35,6 +35,53 @@ html[data-theme="light"] {
   --color-zinc-800: #e4e4e7;
   --color-zinc-900: #f4f4f5;
   --color-zinc-950: #fafafa;
+
+  /*
+   * Readability fix (owner: "some words and titles are hard to read" in day
+   * mode). The zinc remap above flips neutrals, but every ACCENT/semantic
+   * family stayed frozen at its dark-mode value — and the light tints
+   * (-200/-300/-400) are used all over as TEXT (eyebrows, colored headings,
+   * chip labels, links). Light-green text on a white page is ~1.5-2:1 — well
+   * below WCAG AA. We darken ONLY the tint tiers that get used as text; the
+   * 500-950 shades (buttons, borders, faint bg washes) stay put so fills and
+   * primary buttons are unchanged. emerald-700 (#047857) on #fafafa = 5.3:1.
+   * NOTE: named-accent presets + custom Theme Studio remap the emerald ramp
+   * for their own hue; their light-mode text tiers are darkened in the
+   * per-accent blocks below and by the theme-aware ramp math in the runtime.
+   */
+  --color-emerald-200: #047857;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-red-200: #b91c1c;
+  --color-red-300: #dc2626;
+  --color-red-400: #dc2626;
+  --color-amber-200: #b45309;
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-purple-200: #7e22ce;
+  --color-purple-300: #7e22ce;
+  --color-sky-200: #0369a1;
+  --color-sky-300: #0369a1;
+  --color-orange-300: #c2410c;
+
+  /* Remaining semantic families used as TEXT across the app (party badges on
+     /legislators, court/intel/briefing chips on /pulse, calendar tones, forum
+     categories, etc.) — same fix: darken the -200/-300/-400 tiers so they read
+     on white. Fills/washes (500-950) untouched. */
+  --color-blue-200: #1d4ed8;    --color-blue-300: #1d4ed8;    --color-blue-400: #2563eb;
+  --color-indigo-200: #4338ca;  --color-indigo-300: #4338ca;  --color-indigo-400: #4f46e5;
+  --color-pink-200: #be185d;    --color-pink-300: #be185d;    --color-pink-400: #db2777;
+  --color-teal-200: #0f766e;    --color-teal-300: #0f766e;    --color-teal-400: #0d9488;
+  --color-cyan-200: #0e7490;    --color-cyan-300: #0e7490;    --color-cyan-400: #0891b2;
+  --color-violet-200: #6d28d9;  --color-violet-300: #6d28d9;  --color-violet-400: #7c3aed;
+  --color-fuchsia-200: #a21caf; --color-fuchsia-300: #a21caf; --color-fuchsia-400: #c026d3;
+  --color-green-200: #15803d;   --color-green-300: #15803d;   --color-green-400: #16a34a;
+  --color-yellow-200: #a16207;  --color-yellow-300: #a16207;  --color-yellow-400: #ca8a04;
+  --color-lime-200: #4d7c0f;    --color-lime-300: #4d7c0f;    --color-lime-400: #65a30d;
+
+  /* The "faint" muted tier (zinc-600) was #a1a1aa ≈ 2.5:1 as text on white.
+     Nudge it a touch darker for legibility without turning borders heavy. */
+  --color-zinc-600: #8f8f98;
 }
 
 @theme inline {
@@ -67,6 +114,10 @@ html[data-theme="light"] .md-content blockquote {
   color: #52525b;
 }
 html[data-theme="light"] .md-content hr { border-top-color: rgba(0, 0, 0, 0.12); }
+/* Link color was the one .md-content rule missing a light override — the
+   dark #34d399 link read as pale green on white in forum/library markdown. */
+html[data-theme="light"] .md-content a { color: #047857; }
+html[data-theme="light"] .md-content a:hover { color: #059669; }
 
 html[data-theme="light"] .briefing-md p,
 html[data-theme="light"] .briefing-md li,
@@ -437,6 +488,27 @@ html[data-accent="rose"] {
 }
 
 /*
+ * Light-mode readability for the named accent presets. Each preset above
+ * remaps the whole emerald ramp to its hue; in light mode the -200/-300/-400
+ * tiers (used as TEXT) are then too pale on white — same problem the default
+ * emerald block fixes. These 3-attribute selectors (theme+accent) out-specify
+ * both the preset block and the light block, so they win in either source
+ * order and darken just the text tiers. Fills/buttons (500-950) untouched.
+ */
+html[data-theme="light"][data-accent="blue"] {
+  --color-emerald-200: #1d4ed8; --color-emerald-300: #1d4ed8; --color-emerald-400: #2563eb;
+}
+html[data-theme="light"][data-accent="violet"] {
+  --color-emerald-200: #6d28d9; --color-emerald-300: #6d28d9; --color-emerald-400: #7c3aed;
+}
+html[data-theme="light"][data-accent="amber"] {
+  --color-emerald-200: #b45309; --color-emerald-300: #b45309; --color-emerald-400: #d97706;
+}
+html[data-theme="light"][data-accent="rose"] {
+  --color-emerald-200: #be123d; --color-emerald-300: #be123d; --color-emerald-400: #e11d48;
+}
+
+/*
  * Custom brand color (Theme Studio): applied as INLINE CSS variables on <html>
  * — the full --color-emerald-* ramp + --accent — computed in JS by the no-flash
  * script in layout.tsx and by AppearanceControls. We deliberately do NOT put a
@@ -462,4 +534,146 @@ html[data-mode="war-room"] body::before {
   background: linear-gradient(90deg, #ef4444, #f59e0b);
   z-index: 60;
   pointer-events: none;
+}
+
+/* ============================================================================
+ * MOTION + FUTURIZE LAYER (2026-07 restyle)
+ * A small, reusable aesthetic vocabulary layered on top of the existing
+ * zinc/emerald system — glass surfaces, elevated cards with an accent
+ * underglow, an animated hero aurora, and entrance keyframes. Everything is
+ * accent-agnostic (uses var(--accent), never color-mix, per the Lightning-CSS
+ * note above) and theme-aware, and ALL motion is disabled under
+ * prefers-reduced-motion at the bottom of this block.
+ * ========================================================================= */
+
+@keyframes ik-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes ik-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes ik-aurora-drift {
+  0%   { transform: translate3d(-6%, -4%, 0) rotate(0deg) scale(1.05); }
+  50%  { transform: translate3d(6%, 4%, 0) rotate(8deg) scale(1.15); }
+  100% { transform: translate3d(-6%, -4%, 0) rotate(0deg) scale(1.05); }
+}
+@keyframes ik-sheen {
+  0%   { background-position: -150% 0; }
+  60%, 100% { background-position: 150% 0; }
+}
+@keyframes ik-pulse-ring {
+  0%   { box-shadow: 0 0 0 0 var(--accent); opacity: 0.55; }
+  70%  { box-shadow: 0 0 0 8px transparent; opacity: 0; }
+  100% { box-shadow: 0 0 0 0 transparent; opacity: 0; }
+}
+
+.ik-fade-up { animation: ik-fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.ik-fade-in { animation: ik-fade-in 0.5s ease both; }
+
+/* Glass surface — frosted translucent panel, theme-aware. */
+.ik-glass {
+  background: rgba(24, 24, 27, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+html[data-theme="light"] .ik-glass {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Elevated card — depth + hover lift + an accent-colored underglow that works
+ * with ANY accent (the glow color is var(--accent); a pseudo-element carries
+ * it at low opacity so it reads as a soft wash, not a hard shadow). */
+.ik-card {
+  position: relative;
+  isolation: isolate;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.ik-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 22px 46px -18px var(--accent);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+  z-index: -1;
+}
+.ik-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+}
+.ik-card:hover::after { opacity: 0.35; }
+
+/* Neutral hover-lift — for cards that carry their OWN semantic tone
+ * (red/amber/emerald severity), where .ik-card's accent-colored glow would
+ * clash. Just a lift + soft neutral elevation. */
+.ik-lift {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.ik-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 34px -18px rgba(0, 0, 0, 0.6);
+}
+html[data-theme="light"] .ik-lift:hover { box-shadow: 0 16px 34px -18px rgba(0, 0, 0, 0.18); }
+
+/* Accent focus ring pulse (used sparingly on live/urgent chips). */
+.ik-pulse-ring { animation: ik-pulse-ring 2.4s ease-out infinite; border-radius: 9999px; }
+
+/* Hero aurora — a slow-drifting accent glow behind the hero. Decorative only:
+ * absolutely positioned, pointer-events:none, sits behind content. */
+.ik-aurora {
+  position: absolute;
+  inset: -20% -10% auto -10%;
+  height: 460px;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  filter: blur(60px);
+  opacity: 0.5;
+}
+html[data-theme="light"] .ik-aurora { opacity: 0.28; }
+.ik-aurora::before,
+.ik-aurora::after {
+  content: "";
+  position: absolute;
+  width: 55%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, var(--accent), transparent 70%);
+  animation: ik-aurora-drift 22s ease-in-out infinite;
+}
+.ik-aurora::after {
+  right: 0;
+  background: radial-gradient(circle at center, #6366f1, transparent 70%);
+  animation-delay: -11s;
+  animation-duration: 28s;
+}
+
+/* Subtle animated top gradient hairline — a "living" signal on key surfaces. */
+.ik-topline {
+  background-image: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 200% 100%;
+  animation: ik-sheen 8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ik-fade-up,
+  .ik-fade-in,
+  .ik-pulse-ring,
+  .ik-topline,
+  .ik-aurora::before,
+  .ik-aurora::after {
+    animation: none !important;
+  }
+  .ik-card,
+  .ik-lift { transition: none; }
+  .ik-card:hover,
+  .ik-lift:hover { transform: none; }
 }

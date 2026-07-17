@@ -37,7 +37,7 @@ export function ReviewPanel({
         <button onClick={onApply} disabled={busy} className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50">
           {busy ? "Applying…" : "Apply changes"}
         </button>
-        <button onClick={onCancel} disabled={busy} className="rounded bg-zinc-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-600 disabled:opacity-50">
+        <button onClick={onCancel} disabled={busy} className="rounded bg-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-100 hover:bg-zinc-600 disabled:opacity-50">
           Back to editing
         </button>
       </div>

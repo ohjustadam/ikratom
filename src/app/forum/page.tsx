@@ -126,7 +126,7 @@ export default async function ForumIndexPage() {
 
       {/* Map — legality + live forum-activity dots. The visual "where's it
           happening" entry point; click any state to enter its forum. */}
-      <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 sm:p-6">
+      <div className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 sm:p-6">
         <USMap statusByAbbr={statusByAbbr} highlightAbbr={userState} activityByAbbr={activityByAbbr} />
       </div>
 
@@ -151,7 +151,7 @@ export default async function ForumIndexPage() {
               return (
                 <div
                   key={c.id}
-                  className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3 hover:border-emerald-500"
+                  className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 hover:border-emerald-500"
                 >
                   <a href={`/forum/c/${c.slug}`} className="flex items-start gap-3">
                     <span className="text-2xl">{c.icon || "💬"}</span>
@@ -203,7 +203,7 @@ export default async function ForumIndexPage() {
         const fedKey = "state:FED";
         const s = stats[fedKey];
         return (
-          <div className="mb-8 rounded-lg border border-emerald-700/40 bg-emerald-950/10 p-4 hover:border-emerald-500">
+          <div className="mb-8 rounded-xl border border-emerald-700/40 bg-emerald-950/10 p-4 hover:border-emerald-500">
             <a href="/forum/FED" className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">

@@ -52,7 +52,7 @@ export async function WelcomeExploreWidget({ userId }: { userId: string }) {
   ];
 
   return (
-    <section className="rounded-lg border border-emerald-700/40 bg-emerald-950/10 p-4">
+    <section className="rounded-xl border border-emerald-700/40 bg-emerald-950/10 p-4">
       <div className="mb-3">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">welcome</p>
         <h2 className="text-base font-bold text-zinc-100">

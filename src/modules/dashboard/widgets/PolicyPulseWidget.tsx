@@ -173,7 +173,7 @@ export async function PolicyPulseWidget({
   const inStateCount = userState ? top.filter((e) => e.state === userState).length : 0;
 
   return (
-    <section className="rounded-lg border border-red-700/30 bg-red-950/10">
+    <section className="rounded-xl border border-red-700/30 bg-red-950/10">
       <div className="flex items-end justify-between border-b border-zinc-900 px-4 py-2.5">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-red-300">
           ◉ Live policy pulse · last 24h

@@ -455,7 +455,7 @@ export default async function CampaignPage({
           existing ShareButtons block (further down) is the per-platform
           tracked-share for in-app metrics; this one is the rapid
           amplification surface. */}
-      <details open className="mb-6 rounded-lg border border-zinc-800/60 bg-zinc-950/20 p-3">
+      <details open className="mb-6 rounded-xl border border-zinc-800/60 bg-zinc-950/20 p-3">
         <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-zinc-400 hover:text-zinc-200">
           📣 Amplify · spread the word
         </summary>
@@ -475,7 +475,7 @@ export default async function CampaignPage({
 
       {/* Story attached banner — when ?story=<id> auto-populated the body */}
       {attachedStoryTitle && (
-        <div className="mb-6 rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-4 text-sm">
+        <div className="mb-6 rounded-xl border border-emerald-700/40 bg-emerald-950/20 p-4 text-sm">
           <p className="font-semibold text-emerald-300">📖 Story attached: {attachedStoryTitle}</p>
           <p className="mt-1 text-emerald-200/80">
             We&apos;ve prepended this advocate&apos;s story to your email. Edit anything you
@@ -544,7 +544,7 @@ export default async function CampaignPage({
       {/* News coverage — every internal /news story about this campaign,
           deduped across syndications. Internal-first: links our own reader. */}
       {newsCoverage.length > 0 && (
-        <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+        <div className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
             📰 In the news · {newsCoverage.length}
           </h2>
@@ -609,7 +609,7 @@ export default async function CampaignPage({
       {/* Share to your network — distributed organic mobilization.
           Deliberately KEPT alongside the top Amplify box: this one fires
           post-action (best conversion moment) and tracks shares in-app. */}
-      <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+      <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
         <details open>
           <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
             📣 Share with your people
@@ -638,7 +638,7 @@ export default async function CampaignPage({
           </summary>
           {/* body_md is MARKDOWN — render it (raw ##/** previously displayed
               as literal text; owner caught it on the AB 1088 campaign). */}
-          <div className="prose prose-invert max-w-none rounded-lg border border-zinc-800 bg-zinc-950/40 p-6 text-sm leading-relaxed text-zinc-300">
+          <div className="prose prose-invert max-w-none rounded-xl border border-zinc-800 bg-zinc-950/40 p-6 text-sm leading-relaxed text-zinc-300">
             <Markdown>{campaign.body_md}</Markdown>
           </div>
           </details>
@@ -646,7 +646,7 @@ export default async function CampaignPage({
       )}
 
       {/* "What happens" footer */}
-      <section className="mt-10 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 text-xs text-zinc-500">
+      <section className="mt-10 rounded-xl border border-zinc-800 bg-zinc-950/40 p-5 text-xs text-zinc-500">
         <p>
           <strong className="text-zinc-300">What happens when you click send?</strong>{" "}
           We open your default email app with the message pre-filled, addressed to your

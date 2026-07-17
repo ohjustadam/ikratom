@@ -123,7 +123,7 @@ export async function MyCommitteeBillsWidget({ userId }: { userId: string }) {
   const overflow = matches.length - top.length;
 
   return (
-    <section className="rounded-lg border-2 border-emerald-500/60 bg-emerald-950/15 p-5 shadow-[0_0_24px_-12px_rgba(16,185,129,0.5)]">
+    <section className="rounded-xl border-2 border-emerald-500/60 bg-emerald-950/15 p-5 shadow-[0_0_24px_-12px_rgba(16,185,129,0.5)]">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-950">
           ⚡ Leverage
