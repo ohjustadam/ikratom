@@ -19,7 +19,7 @@ import { InstallPrompt } from "@/components/InstallPrompt";
 import FeedbackWidget from "@/components/FeedbackWidget";
 import ShareBanner from "@/components/ShareBanner";
 import { ChatPopup } from "@/modules/chat/ChatPopup";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { ThemeQuickControls } from "@/components/ThemeQuickControls";
 import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
 import { SignInProvider } from "@/components/auth/SignInContext";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
@@ -155,7 +155,7 @@ export default async function RootLayout({
             fall back to the app defaults: dark / emerald / normal). */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){var d=document.documentElement;try{var t=d.dataset.theme;if(t==='light'||t==='dark'){localStorage.setItem('ikratom-theme',t)}else{var s=localStorage.getItem('ikratom-theme');d.dataset.theme=(s==='light'||s==='dark')?s:'dark'}function rmp(hex){var mm=/^#?([0-9a-f]{6})$/i.exec(hex);if(!mm)return;var nn=parseInt(mm[1],16),rr=(nn>>16&255)/255,gg=(nn>>8&255)/255,bb=(nn&255)/255,mx=Math.max(rr,gg,bb),mn=Math.min(rr,gg,bb),Lf=(mx+mn)/2,df=mx-mn,sf=df===0?0:df/(1-Math.abs(2*Lf-1)),Hf=0;if(df){if(mx===rr)Hf=((gg-bb)/df)%6;else if(mx===gg)Hf=(bb-rr)/df+2;else Hf=(rr-gg)/df+4;Hf*=60;if(Hf<0)Hf+=360}var SP=sf*100,LP=Lf*100,st=d.style;st.setProperty('--accent',hex);var dl={500:0,400:8,300:18,200:30,100:42,50:50,600:-8,700:-16,800:-24,900:-32,950:-40};for(var kk in dl){var ll=Math.max(0,Math.min(100,LP+dl[kk]));st.setProperty('--color-emerald-'+kk,'hsl('+Hf+' '+SP+'% '+ll+'%)')}d.dataset.accent='custom'}var a=d.dataset.accent;if(a==='custom'){var hx=d.dataset.accentHex;if(hx){localStorage.setItem('ikratom-accent-hex',hx);localStorage.setItem('ikratom-accent','custom');rmp(hx)}}else if(a){localStorage.setItem('ikratom-accent',a);localStorage.removeItem('ikratom-accent-hex')}else{var shx=localStorage.getItem('ikratom-accent-hex');var sa=localStorage.getItem('ikratom-accent');if(sa==='custom'&&shx){rmp(shx)}else if(sa){d.dataset.accent=sa}}var m=d.dataset.mode;if(m){localStorage.setItem('ikratom-mode',m)}else{var sm=localStorage.getItem('ikratom-mode');if(sm)d.dataset.mode=sm}}catch(e){if(!d.dataset.theme)d.dataset.theme='dark'}})();`,
+            __html: `(function(){var d=document.documentElement;try{var t=d.dataset.theme;if(t==='light'||t==='dark'){localStorage.setItem('ikratom-theme',t)}else{var s=localStorage.getItem('ikratom-theme');d.dataset.theme=(s==='light'||s==='dark')?s:'dark'}function rmp(hex){var mm=/^#?([0-9a-f]{6})$/i.exec(hex);if(!mm)return;var nn=parseInt(mm[1],16),rr=(nn>>16&255)/255,gg=(nn>>8&255)/255,bb=(nn&255)/255,mx=Math.max(rr,gg,bb),mn=Math.min(rr,gg,bb),Lf=(mx+mn)/2,df=mx-mn,sf=df===0?0:df/(1-Math.abs(2*Lf-1)),Hf=0;if(df){if(mx===rr)Hf=((gg-bb)/df)%6;else if(mx===gg)Hf=(bb-rr)/df+2;else Hf=(rr-gg)/df+4;Hf*=60;if(Hf<0)Hf+=360}var SP=sf*100,LP=Lf*100,st=d.style;st.setProperty('--accent',hex);var dl={500:0,400:8,300:18,200:30,100:42,50:50,600:-8,700:-16,800:-24,900:-32,950:-40};var cp={400:40,300:34,200:30},li=d.dataset.theme==='light';for(var kk in dl){var ll=Math.max(0,Math.min(100,LP+dl[kk]));if(li&&cp[kk]!=null)ll=Math.min(ll,cp[kk]);st.setProperty('--color-emerald-'+kk,'hsl('+Hf+' '+SP+'% '+ll+'%)')}d.dataset.accent='custom'}var a=d.dataset.accent;if(a==='custom'){var hx=d.dataset.accentHex;if(hx){localStorage.setItem('ikratom-accent-hex',hx);localStorage.setItem('ikratom-accent','custom');rmp(hx)}}else if(a){localStorage.setItem('ikratom-accent',a);localStorage.removeItem('ikratom-accent-hex')}else{var shx=localStorage.getItem('ikratom-accent-hex');var sa=localStorage.getItem('ikratom-accent');if(sa==='custom'&&shx){rmp(shx)}else if(sa){d.dataset.accent=sa}}var m=d.dataset.mode;if(m){localStorage.setItem('ikratom-mode',m)}else{var sm=localStorage.getItem('ikratom-mode');if(sm)d.dataset.mode=sm}}catch(e){if(!d.dataset.theme)d.dataset.theme='dark'}})();`,
           }}
         />
         <PostHogProvider>
@@ -225,7 +225,7 @@ export default async function RootLayout({
               >
                 🔎<span className="sr-only">Search</span>
               </a>
-              <ThemeToggle />
+              <ThemeQuickControls placement="toolbar" />
               <span className="mx-1 h-5 w-px bg-zinc-800" aria-hidden />
               <InstallAppButton variant="desktop" />
               <HeaderShare />
@@ -237,7 +237,7 @@ export default async function RootLayout({
                 Sign in / Dashboard without opening the menu, since
                 that's the most-common destination. */}
             <div className="flex items-center gap-2 md:hidden">
-              <ThemeToggle />
+              <ThemeQuickControls placement="toolbar" />
               <InstallAppButton variant="mobile" />
               <MobileAuthPill />
               <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} isLeader={isLeader} />
@@ -325,6 +325,10 @@ export default async function RootLayout({
         {signedIn && <PresenceHeartbeat />}
         <InstallPrompt />
         <FeedbackWidget />
+        {/* Floating appearance control — a small icon on every screen, sitting
+            just above the Feedback tab. Opens the same theme/color popover the
+            toolbar button does. */}
+        <ThemeQuickControls placement="floating" />
         {/* Lounge live chat as a floating widget on every page (its full home
             stays at /forum, where this self-hides). Gated on the forum flag. */}
         {siteConfig.features.forum && <ChatPopup />}

@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { saveUiPrefs } from "@/modules/ui/actions";
+import {
+  hslToHex,
+  hexToHsl,
+  applyRamp,
+  setTheme as rtSetTheme,
+  setAccentPreset,
+  setCustomHex,
+  setMode as rtSetMode,
+} from "@/modules/ui/theme-runtime";
 
 /**
  * Live appearance controls. Theme + preset accent + war-room apply INSTANTLY
@@ -18,62 +26,9 @@ const ACCENTS: { id: string; label: string; swatch: string }[] = [
   { id: "rose", label: "Rose", swatch: "#f43f5e" },
 ];
 
-// --- color helpers (HSL <-> hex), self-contained, no deps ---
-function hslToHex(h: number, s: number, l: number): string {
-  const sn = s / 100;
-  const ln = l / 100;
-  const k = (n: number) => (n + h / 30) % 12;
-  const a = sn * Math.min(ln, 1 - ln);
-  const f = (n: number) => {
-    const c = ln - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    return Math.round(255 * c).toString(16).padStart(2, "0");
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-function hexToHsl(hex: string): { h: number; s: number; l: number } | null {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const int = parseInt(m[1], 16);
-  const r = ((int >> 16) & 255) / 255;
-  const g = ((int >> 8) & 255) / 255;
-  const b = (int & 255) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  const d = max - min;
-  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-  let h = 0;
-  if (d !== 0) {
-    if (max === r) h = ((g - b) / d) % 6;
-    else if (max === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
-}
-
-// Lightness deltas (percentage points off the base L) that turn one chosen
-// color into the full emerald ramp. Applied as INLINE --color-emerald-* vars
-// on <html> — NOT a CSS color-mix() rule, which Lightning CSS drops (see
-// globals.css note). Mirrors the ramp in layout.tsx's no-flash script.
-const EMERALD_DELTAS: Record<number, number> = {
-  500: 0, 400: 8, 300: 18, 200: 30, 100: 42, 50: 50, 600: -8, 700: -16, 800: -24, 900: -32, 950: -40,
-};
-function applyRamp(h: number, s: number, l: number) {
-  const d = document.documentElement;
-  d.dataset.accent = "custom";
-  d.style.setProperty("--accent", hslToHex(h, s, l));
-  for (const k of Object.keys(EMERALD_DELTAS)) {
-    const ll = Math.max(0, Math.min(100, l + EMERALD_DELTAS[Number(k)]));
-    d.style.setProperty(`--color-emerald-${k}`, `hsl(${h} ${s}% ${ll}%)`);
-  }
-}
-function clearRamp() {
-  const d = document.documentElement;
-  d.style.removeProperty("--accent");
-  for (const k of Object.keys(EMERALD_DELTAS)) d.style.removeProperty(`--color-emerald-${k}`);
-}
+// Color helpers + ramp math now live in the shared theme runtime
+// (src/modules/ui/theme-runtime.ts) so this page, the floating quick control,
+// and the toolbar toggle all apply appearance identically.
 
 export function AppearanceControls() {
   const [mounted, setMounted] = useState(false);
@@ -110,11 +65,9 @@ export function AppearanceControls() {
     window.setTimeout(() => setSaved(false), 1500);
   }
 
-  function applyTheme(next: string) {
-    document.documentElement.dataset.theme = next;
-    try { localStorage.setItem("ikratom-theme", next); } catch {}
+  function applyTheme(next: "dark" | "light") {
+    rtSetTheme(next);
     setTheme(next);
-    void saveUiPrefs({ theme: next }).catch(() => {});
     flash();
   }
 
@@ -126,36 +79,21 @@ export function AppearanceControls() {
 
   // The explicit "Apply" — commit the previewed custom color.
   function applyCustom() {
-    const hex = hslToHex(hue, sat, light);
-    applyRamp(hue, sat, light);
-    try {
-      localStorage.setItem("ikratom-accent", "custom");
-      localStorage.setItem("ikratom-accent-hex", hex);
-    } catch {}
+    setCustomHex(hslToHex(hue, sat, light));
     setAccent("custom");
-    void saveUiPrefs({ accentHex: hex }).catch(() => {});
     flash();
   }
 
   // Pick a named preset → clears any custom color + ramp (accentHex: null).
   function applyAccent(next: string) {
-    const d = document.documentElement;
-    clearRamp();
-    d.dataset.accent = next;
-    try {
-      localStorage.setItem("ikratom-accent", next);
-      localStorage.removeItem("ikratom-accent-hex");
-    } catch {}
+    setAccentPreset(next);
     setAccent(next);
-    void saveUiPrefs({ accent: next, accentHex: null }).catch(() => {});
     flash();
   }
 
-  function applyMode(next: string) {
-    document.documentElement.dataset.mode = next;
-    try { localStorage.setItem("ikratom-mode", next); } catch {}
+  function applyMode(next: "normal" | "war-room") {
+    rtSetMode(next);
     setMode(next);
-    void saveUiPrefs({ mode: next }).catch(() => {});
     flash();
   }
 

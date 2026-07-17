@@ -6,7 +6,7 @@
  * const arrays from the action file triggered Next's
  * `invalid-use-server-value` error (digest @E352), which 500'd every
  * server-action page re-render that pulled this module into its graph
- * (ThemeToggle is in the root layout → on every page).
+ * (ThemeQuickControls is in the root layout → on every page).
  */
 export const UI_THEMES = ["dark", "light"] as const;
 export const UI_ACCENTS = ["emerald", "blue", "violet", "amber", "rose"] as const;
