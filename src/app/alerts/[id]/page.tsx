@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
@@ -29,15 +31,74 @@ const KIND_LABEL: Record<string, string> = {
 
 type Props = { params: Promise<{ id: string }> };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Everything on /alerts/[id] EXCEPT the signed-in-only rebuttal panel is public
+// and keyed by the alert id, so the whole public read-set (alert + linked
+// campaign/news/bill + real-event-date) serves from ONE cached service-role
+// snapshot (#827 egress pattern; part 2 — the /alerts/[id] crawl surface,
+// ~5k alerts). generateMetadata shares it; the viewer (getUser) stays
+// request-bound in the component below.
+const getAlertData = unstable_cache(
+  async (id: string) => {
+    const sb = createServiceRoleClient();
+    const { data: a } = await sb
+      .from("policy_alerts")
+      .select("id, kind, severity, title, body, locality, source_url, bill_id, briefing_slug, bop_board_id, action_required, campaign_id, moderation_status, moderation_note, moderated_by, moderated_at, occurs_at, expires_at, created_at, updated_at, discord_posted_at, dedupe_key, auto_pushed_at, auto_pushed_count, specific_locality, officials_extracted_at, public_byline")
+      .eq("id", id)
+      .maybeSingle();
+    // Public visibility parity: the page renders ONLY approved alerts, and
+    // service-role bypasses RLS — so re-apply the gate here (null → notFound).
+    if (!a || a.moderation_status !== "approved") return null;
+
+    const linkedCampaign = a.campaign_id
+      ? (await sb.from("campaigns")
+          .select("id, slug, title, blurb, active, mobilization_type, state")
+          .eq("id", a.campaign_id)
+          .maybeSingle()).data
+      : null;
+
+    // active=true replicates news public RLS — a deactivated false-positive
+    // must not resurface as the alert's source link.
+    const linkedNews = (await sb
+      .from("news_items")
+      .select("id, duplicate_of, title, source_name, url, resolved_url, published_at")
+      .eq("policy_alert_id", a.id)
+      .eq("active", true)
+      .order("published_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()).data;
+
+    const linkedBill = a.bill_id
+      ? (await sb.from("bills")
+          .select("id, state, bill_number, title, status, kratom_relevance, current_committee_name, last_action_at")
+          .eq("id", a.bill_id)
+          .maybeSingle()).data
+      : null;
+    const linkedBillCommittee =
+      typeof linkedBill?.current_committee_name === "string" && linkedBill.current_committee_name.length > 0
+        ? linkedBill.current_committee_name
+        : null;
+
+    // Real event date (mirrors push-critical-alerts): occurs_at → linked-news
+    // published_at → linked-bill last_action_at. Returned as an ISO STRING —
+    // unstable_cache serializes JSON, so Date objects don't survive.
+    let realEventDate: string | null = a.occurs_at ?? null;
+    if (!realEventDate && linkedNews?.published_at) realEventDate = linkedNews.published_at;
+    if (!realEventDate && linkedBill?.last_action_at) realEventDate = linkedBill.last_action_at;
+
+    return { a, linkedCampaign, linkedNews, linkedBill, linkedBillCommittee, realEventDate };
+  },
+  ["alert-detail"],
+  { revalidate: 600, tags: ["alert-detail"] },
+);
+
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;
-  const sb = await createClient();
-  const { data: a } = await sb
-    .from("policy_alerts")
-    .select("title, body, locality, kind, severity")
-    .eq("id", id)
-    .maybeSingle();
-  if (!a) return { title: "Alert · iKratom" };
+  if (!UUID_RE.test(id)) return { title: "Alert · iKratom" };
+  const snap = await getAlertData(id);
+  if (!snap) return { title: "Alert · iKratom" };
+  const a = snap.a;
   const sevEmoji = a.severity === "critical" ? "🚨" : a.severity === "alert" ? "⚠️" : "👁️";
   return {
     title: `${sevEmoji} ${a.locality ?? "Federal"}: ${a.title.slice(0, 80)} · iKratom`,
@@ -66,78 +127,23 @@ export async function generateMetadata({ params }: Props) {
  */
 export default async function AlertDetailPage({ params }: Props) {
   const { id } = await params;
+  // Validate the id BEFORE the cache so random-uuid crawls can't seed junk.
+  if (!UUID_RE.test(id)) notFound();
+  const snap = await getAlertData(id);
+  if (!snap) notFound();
+  const { a, linkedCampaign, linkedNews, linkedBill, linkedBillCommittee, realEventDate: realEventDateStr } = snap;
+
+  // Viewer stays request-bound (uncached) — drives the signed-in-only AI
+  // rebuttal panel below. All the public data above came from the snapshot.
   const sb = await createClient();
-  // Explicit public-safe columns (mig 0237 revoked blanket SELECT; a bare select("*")
-  // would now error for the anon/authenticated role). submitted_by_user_id/is_anonymous
-  // are intentionally omitted — never exposed on this public page.
-  const { data: a } = await sb
-    .from("policy_alerts")
-    .select("id, kind, severity, title, body, locality, source_url, bill_id, briefing_slug, bop_board_id, action_required, campaign_id, moderation_status, moderation_note, moderated_by, moderated_at, occurs_at, expires_at, created_at, updated_at, discord_posted_at, dedupe_key, auto_pushed_at, auto_pushed_count, specific_locality, officials_extracted_at, public_byline")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (!a || a.moderation_status !== "approved") notFound();
-
-  // Is the viewer signed in? Drives whether to show the AI rebuttal
-  // generator (signed-in only).
   const { data: { user: viewer } } = await sb.auth.getUser();
-
-  // Linked campaign (if auto-created)
-  const linkedCampaign = a.campaign_id
-    ? (await sb.from("campaigns")
-        .select("id, slug, title, blurb, active, mobilization_type, state")
-        .eq("id", a.campaign_id)
-        .maybeSingle()).data
-    : null;
-
-  // Linked news article (if this alert came from the news pipeline). It carries
-  // the clean publisher URL (resolved_url), the headline, and the outlet name —
-  // so we can show a titled source link instead of the bare Google-News redirect
-  // that may be sitting in policy_alerts.source_url.
-  const linkedNews = (await sb
-    .from("news_items")
-    .select("id, duplicate_of, title, source_name, url, resolved_url")
-    .eq("policy_alert_id", a.id)
-    .order("published_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()).data;
 
   const sourceUrl = bestSourceUrl(linkedNews?.resolved_url, linkedNews?.url, a.source_url);
   const sourceTitle = linkedNews?.title ?? null;
   const sourcePublisher = linkedNews?.source_name ?? publisherFromUrl(sourceUrl);
   // Internal-first: link our own /news reader (resolve duplicate → canonical
-  // so we never land on a non-canonical copy), keeping users in-app. The
-  // external publisher URL becomes the secondary "view at source" link.
+  // so we never land on a non-canonical copy), keeping users in-app.
   const internalNewsHref = linkedNews ? `/news/${linkedNews.duplicate_of ?? linkedNews.id}` : null;
-
-  // Linked bill (if attached)
-  const linkedBill = a.bill_id
-    ? (await sb.from("bills")
-        .select("id, state, bill_number, title, status, kratom_relevance")
-        .eq("id", a.bill_id)
-        .maybeSingle()).data
-    : null;
-
-  // Separate fetch for current_committee_name on the linked bill —
-  // wrapped in try/catch so pre-migration deploys don't crash the
-  // page when the column is missing. Used to mount the same
-  // YourRepDecidingThisBill callout the bill-detail page shows,
-  // surfacing the leverage signal at the alert level (often the
-  // user's first touchpoint with the bill).
-  let linkedBillCommittee: string | null = null;
-  if (linkedBill?.id) {
-    try {
-      const { data: cc } = await sb
-        .from("bills")
-        .select("current_committee_name")
-        .eq("id", linkedBill.id)
-        .maybeSingle();
-      const v = (cc as { current_committee_name?: string | null } | null)?.current_committee_name;
-      if (typeof v === "string" && v.length > 0) linkedBillCommittee = v;
-    } catch {
-      // Column doesn't exist — silently skip.
-    }
-  }
 
   const sevEmoji = a.severity === "critical" ? "🚨" : a.severity === "alert" ? "⚠️" : "👁️";
   const sevLabel = a.severity?.toUpperCase() ?? "WATCH";
@@ -150,28 +156,11 @@ export default async function AlertDetailPage({ params }: Props) {
   const occurs = a.occurs_at ? new Date(a.occurs_at) : null;
   const expires = a.expires_at ? new Date(a.expires_at) : null;
 
-  // Resolve "real event date" (mirrors push-critical-alerts.mjs logic
-  // from PR #199). Used to surface a stale-news banner when users
-  // arrive via direct URL, /pulse browse, or a shared link to an
-  // older alert.
-  let realEventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;
-  if (!realEventDate) {
-    const { data: linkedNews } = await sb
-      .from("news_items")
-      .select("published_at")
-      .eq("policy_alert_id", a.id)
-      .order("published_at", { ascending: false })
-      .limit(1);
-    if (linkedNews?.[0]?.published_at) realEventDate = new Date(linkedNews[0].published_at);
-  }
-  if (!realEventDate && a.bill_id) {
-    const { data: linkedBill } = await sb
-      .from("bills")
-      .select("last_action_at")
-      .eq("id", a.bill_id)
-      .maybeSingle();
-    if (linkedBill?.last_action_at) realEventDate = new Date(linkedBill.last_action_at);
-  }
+  // "Real event date" (mirrors push-critical-alerts.mjs, PR #199) — surfaces
+  // the stale-news banner for direct/shared-link arrivals. Computed in the
+  // cached snapshot (occurs_at → linked-news published_at → linked-bill
+  // last_action_at) as an ISO string; rehydrate to a Date here.
+  const realEventDate: Date | null = realEventDateStr ? new Date(realEventDateStr) : null;
   const eventAgeDays = realEventDate
     ? Math.floor((Date.now() - realEventDate.getTime()) / 86_400_000)
     : null;

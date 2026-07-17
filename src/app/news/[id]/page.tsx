@@ -14,7 +14,8 @@
  */
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { NewsVideo } from "./NewsVideo";
 import { AudioReader } from "@/components/AudioReader";
 
@@ -22,83 +23,104 @@ type Params = { id: string };
 
 export const dynamic = "force-dynamic";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Supabase's generated types for foreign-table embeds get confused at the join
+// boundary; cast through unknown to this hand-typed shape.
+type ArticleRow = {
+  id: string;
+  state: string | null;
+  title: string;
+  summary: string | null;
+  body_extract_excerpt: string | null;
+  body_paragraphs: string[] | null;
+  digest_paragraphs: string[] | null;
+  media_urls: Array<{ type: string; url: string; embed_url?: string; video_id?: string; poster?: string; lead?: boolean }> | null;
+  url: string;
+  resolved_url: string | null;
+  source_name: string | null;
+  published_at: string | null;
+  scraped_at: string | null;
+  kratom_topic: string | null;
+  ai_relevance_score: number | null;
+  duplicate_count: number | null;
+  policy_alert_id: string | null;
+  bill_id: string | null;
+  bills:
+    | { id: string; bill_number: string; state: string; title: string | null; status: string | null; last_action: string | null; last_action_at: string | null; kratom_relevance: string | null }
+    | Array<{ id: string; bill_number: string; state: string; title: string | null; status: string | null; last_action: string | null; last_action_at: string | null; kratom_relevance: string | null }>
+    | null;
+};
+
+type Sibling = { id: string; state: string | null; source_name: string | null; published_at: string | null };
+type TriggeredAlert = { id: string; severity: string; title: string; locality: string | null };
+
+// Everything on /news/[id] is PUBLIC and keyed by the article id — there are NO
+// viewer-specific reads — so the whole page serves from ONE cached service-role
+// read-set (the #827 egress pattern; part 2 for the /news/[id] crawl surface,
+// ~12k news items). generateMetadata shares the exact same snapshot.
+const getNewsArticle = unstable_cache(
+  async (id: string) => {
+    const sb = createServiceRoleClient();
+    const [{ data: rawArticle }, { data: siblings }] = await Promise.all([
+      sb
+        .from("news_items")
+        .select(
+          "id, state, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
+          "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
+          "duplicate_count, policy_alert_id, bill_id, " +
+          "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
+        )
+        .eq("id", id)
+        .eq("active", true)
+        .maybeSingle(),
+      sb
+        .from("news_items")
+        .select("id, state, source_name, published_at")
+        .eq("duplicate_of", id)
+        .eq("active", true)
+        .order("state", { ascending: true })
+        .limit(20),
+    ]);
+    const article = (rawArticle as unknown as ArticleRow | null) ?? null;
+    if (!article) return null;
+    let triggeredAlert: TriggeredAlert | null = null;
+    if (article.policy_alert_id) {
+      // moderation_status='approved' replicates the public RLS visibility the
+      // cookie-bound client had (service-role bypasses RLS — must re-apply it).
+      const { data } = await sb
+        .from("policy_alerts")
+        .select("id, severity, title, locality")
+        .eq("id", article.policy_alert_id)
+        .eq("moderation_status", "approved")
+        .maybeSingle();
+      triggeredAlert = (data as TriggeredAlert | null) ?? null;
+    }
+    return { article, siblings: (siblings ?? []) as Sibling[], triggeredAlert };
+  },
+  ["news-detail"],
+  { revalidate: 900, tags: ["news-detail"] },
+);
+
 export async function generateMetadata({ params }: { params: Promise<Params> }) {
   const { id } = await params;
-  const sb = await createClient();
-  const { data } = await sb.from("news_items").select("title,summary,source_name").eq("id", id).maybeSingle();
-  if (!data) return { title: "Article not found" };
+  if (!UUID_RE.test(id)) return { title: "Article not found" };
+  const snap = await getNewsArticle(id);
+  if (!snap) return { title: "Article not found" };
   return {
-    title: `${data.title} — iKratom news`,
-    description: data.summary ?? `Kratom news from ${data.source_name ?? "verified sources"}.`,
+    title: `${snap.article.title} — iKratom news`,
+    description: snap.article.summary ?? `Kratom news from ${snap.article.source_name ?? "verified sources"}.`,
   };
 }
 
 export default async function NewsArticlePage({ params }: { params: Promise<Params> }) {
   const { id } = await params;
-  const sb = await createClient();
-
-  // 1. The article itself, with linked bill if any. Supabase's
-  // generated types for foreign-table embeds get confused at the
-  // join boundary; cast through unknown to a hand-typed shape.
-  type ArticleRow = {
-    id: string;
-    state: string | null;
-    title: string;
-    summary: string | null;
-    body_extract_excerpt: string | null;
-    body_paragraphs: string[] | null;
-    digest_paragraphs: string[] | null;
-    media_urls: Array<{ type: string; url: string; embed_url?: string; video_id?: string; poster?: string; lead?: boolean }> | null;
-    url: string;
-    resolved_url: string | null;
-    source_name: string | null;
-    published_at: string | null;
-    scraped_at: string | null;
-    kratom_topic: string | null;
-    ai_relevance_score: number | null;
-    duplicate_count: number | null;
-    policy_alert_id: string | null;
-    bill_id: string | null;
-    bills:
-      | { id: string; bill_number: string; state: string; title: string | null; status: string | null; last_action: string | null; last_action_at: string | null; kratom_relevance: string | null }
-      | Array<{ id: string; bill_number: string; state: string; title: string | null; status: string | null; last_action: string | null; last_action_at: string | null; kratom_relevance: string | null }>
-      | null;
-  };
-  const { data: rawArticle } = await sb
-    .from("news_items")
-    .select(
-      "id, state, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
-      "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
-      "duplicate_count, policy_alert_id, bill_id, " +
-      "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
-    )
-    .eq("id", id)
-    .eq("active", true)
-    .maybeSingle();
-  const article = (rawArticle as unknown as ArticleRow | null) ?? null;
-  if (!article) notFound();
-
-  // 2. Sibling syndicated articles (same canonical → other states).
-  const { data: siblings } = await sb
-    .from("news_items")
-    .select("id, state, source_name, published_at")
-    .eq("duplicate_of", id)
-    .eq("active", true)
-    .order("state", { ascending: true })
-    .limit(20);
-
-  // 3. Policy alert this article spawned, if any.
-  let triggeredAlert: {
-    id: string; severity: string; title: string; locality: string | null;
-  } | null = null;
-  if (article.policy_alert_id) {
-    const { data } = await sb
-      .from("policy_alerts")
-      .select("id, severity, title, locality")
-      .eq("id", article.policy_alert_id)
-      .maybeSingle();
-    triggeredAlert = data ?? null;
-  }
+  // Validate the id BEFORE touching the cache so random-uuid crawls can't
+  // seed junk cache entries.
+  if (!UUID_RE.test(id)) notFound();
+  const snap = await getNewsArticle(id);
+  if (!snap) notFound();
+  const { article, siblings, triggeredAlert } = snap;
 
   const bill = Array.isArray(article.bills) ? article.bills[0] : article.bills;
   const publishedAt = article.published_at ? new Date(article.published_at) : null;
