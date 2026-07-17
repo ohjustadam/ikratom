@@ -76,6 +76,9 @@ export const REGISTRY = [
       "classify_bop_findings_ai",
       "classify_donor_industries",
       "scrape_utah_lobbyist_registry",
+      // The never-restricted-again failsafe: daily egress budget check that
+      // pages the owner at 50/75/90% of the free-tier 5GB (2026-07-16 incident).
+      "egress_watchdog",
      ].map((source) => ({ source, interval_hours: 36, system: "gh-daily", cadence: "daily" })),
 
   // weekly
