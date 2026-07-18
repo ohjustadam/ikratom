@@ -1,21 +1,319 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
 
 export const dynamic = "force-dynamic";
 
 type Params = Promise<{ slug: string }>;
 
+// ── Cached public snapshot ──────────────────────────────────────────────
+// /intel/operations/[slug] is 100% public and viewer-independent — every read
+// (cluster, member bills, sisters, research alignment, sponsors + stance +
+// donors, top operators, federal lobbying) is public intel, and the page has
+// NO per-viewer reads. So the whole read-set is snapshotted per cluster slug
+// (the #827/#831/#832 egress pattern): one cookieless service-role read-set on
+// a cache miss instead of ~10 DB reads on every visit/crawl. All source tables
+// are `public read using(true)`, so service-role matches the cookie-client view
+// exactly. Maps aren't JSON-serializable, so the render's momentumByBillId is
+// returned as a plain Record and rebuilt in the page. generateMetadata shares
+// this snapshot.
+const getOperationSnapshot = unstable_cache(
+  async (slug: string) => {
+    const sb = createServiceRoleClient();
+
+    const { data: cluster } = await sb
+      .from("bill_clusters")
+      .select("id, slug, name, posture, summary_md, suspected_origin, signature_phrases, bill_count, state_count, earliest_introduced, latest_introduced, updated_at")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (!cluster) return null;
+    const c = cluster as {
+      id: string; slug: string; name: string; posture: string; summary_md: string | null;
+      suspected_origin: string | null; signature_phrases: string[] | null;
+      bill_count: number; state_count: number;
+      earliest_introduced: string | null; latest_introduced: string | null;
+      updated_at: string | null;
+    };
+
+    // Bills in this cluster
+    const { data: membersRaw } = await sb
+      .from("bill_cluster_members")
+      .select("confidence, match_reason, bills!inner(id, state, bill_number, title, kratom_relevance, status, last_action_at, active, current_committee_name)")
+      .eq("cluster_id", c.id)
+      .eq("bills.active", true);
+
+    type BillJoined = {
+      id: string; state: string; bill_number: string; title: string | null;
+      kratom_relevance: string | null; status: string | null;
+      last_action_at: string | null; active: boolean; current_committee_name: string | null;
+    };
+    type MemberJoined = {
+      confidence: number; match_reason: string | null;
+      bills: BillJoined | BillJoined[] | null;
+    };
+    function normalizeBill(b: BillJoined | BillJoined[] | null): BillJoined | null {
+      if (Array.isArray(b)) return b[0] ?? null;
+      return b;
+    }
+    const billsInCluster: Array<{ bill: BillJoined; reason: string | null; confidence: number }> = [];
+    for (const m of (membersRaw ?? []) as MemberJoined[]) {
+      const b = normalizeBill(m.bills);
+      if (!b) continue;
+      billsInCluster.push({ bill: b, reason: m.match_reason, confidence: m.confidence });
+    }
+
+    // Momentum per bill — returned as a serializable Record (rebuilt into a
+    // Map in the page).
+    const momentumById: Record<string, ReturnType<typeof computeBillMomentum>> = {};
+    const momentumDist = { "advancing-fast": 0, active: 0, watch: 0, "likely-stalled": 0, dead: 0 };
+    for (const e of billsInCluster) {
+      const m = computeBillMomentum({
+        last_action_at: e.bill.last_action_at,
+        status: e.bill.status,
+        current_committee_name: e.bill.current_committee_name,
+        sponsor_count: 0,
+        cluster_count: 1,
+        recent_news_mentions: 0,
+        active: e.bill.active !== false,
+      });
+      momentumById[e.bill.id] = m;
+      momentumDist[m.label] += 1;
+    }
+
+    // Group by state
+    const billsByState = new Map<string, Array<{ bill: BillJoined; reason: string | null; confidence: number }>>();
+    for (const e of billsInCluster) {
+      if (!billsByState.has(e.bill.state)) billsByState.set(e.bill.state, []);
+      billsByState.get(e.bill.state)!.push(e);
+    }
+    const statesSorted = [...billsByState.entries()].sort((a, b) => b[1].length - a[1].length);
+
+    // Currently-deciding committees
+    type DecidingRow = { state: string; committee: string; bills: Array<{ id: string; bill_number: string; title: string | null }> };
+    const decidingMap = new Map<string, DecidingRow>();
+    for (const e of billsInCluster) {
+      const cmt = e.bill.current_committee_name?.trim();
+      if (!cmt) continue;
+      const key = `${e.bill.state}::${cmt}`;
+      const row = decidingMap.get(key) ?? { state: e.bill.state, committee: cmt, bills: [] };
+      row.bills.push({ id: e.bill.id, bill_number: e.bill.bill_number, title: e.bill.title });
+      decidingMap.set(key, row);
+    }
+    const decidingRows = [...decidingMap.values()].sort((a, b) =>
+      b.bills.length - a.bills.length || a.state.localeCompare(b.state),
+    );
+
+    // Sister clusters — other clusters that share bills with this one.
+    type SisterCluster = { slug: string; name: string; posture: string; shared: number };
+    const sisters: SisterCluster[] = [];
+    const billIdsForSister = billsInCluster.map((e) => e.bill.id);
+    if (billIdsForSister.length > 0) {
+      const { data: otherMembers } = await sb
+        .from("bill_cluster_members")
+        .select("bill_id, bill_clusters!inner(slug, name, posture)")
+        .in("bill_id", billIdsForSister)
+        .neq("cluster_id", c.id);
+      type Joined = { slug: string; name: string; posture: string };
+      const sisterMap = new Map<string, SisterCluster>();
+      for (const m of (otherMembers ?? []) as Array<{
+        bill_id: string; bill_clusters: Joined | Joined[] | null;
+      }>) {
+        const other = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+        if (!other) continue;
+        const agg = sisterMap.get(other.slug) ?? { slug: other.slug, name: other.name, posture: other.posture, shared: 0 };
+        agg.shared += 1;
+        sisterMap.set(other.slug, agg);
+      }
+      sisters.push(...[...sisterMap.values()].sort((a, b) => b.shared - a.shared));
+    }
+
+    // Research alignment aggregate (bill_research_alignment is public read).
+    type ResearchTally = { aligned: number; contradictory: number; context: number; total: number };
+    const researchTally: ResearchTally = { aligned: 0, contradictory: 0, context: 0, total: 0 };
+    if (billIdsForSister.length > 0) {
+      try {
+        const { data: alignmentRows } = await sb
+          .from("bill_research_alignment")
+          .select("alignment")
+          .in("bill_id", billIdsForSister);
+        for (const r of (alignmentRows ?? []) as Array<{ alignment: "aligned" | "contradictory" | "context" }>) {
+          researchTally[r.alignment] += 1;
+          researchTally.total += 1;
+        }
+      } catch { /* pre-migration */ }
+    }
+
+    // Primary sponsors of bills in this cluster + stance + donor industries
+    const billIds = billsInCluster.map((e) => e.bill.id);
+    const sponsorStanceDist: Record<string, number> = {};
+    let donorIndustryRows: Array<{ industry: string; label: string; advocate_flag: boolean; amount: number; recipients: number }> = [];
+    let federalSponsorCount = 0;
+    type ClusterOperator = {
+      legislator_id: string;
+      full_name: string;
+      state: string;
+      role: string;
+      party: string | null;
+      bills_in_cluster: number;
+      total_clusters: number;
+    };
+    let topOperators: ClusterOperator[] = [];
+    if (billIds.length > 0) {
+      const { data: sps } = await sb
+        .from("bill_sponsors")
+        .select("legislator_id, bill_id, classification")
+        .in("bill_id", billIds)
+        .eq("classification", "primary");
+      const distinctLegIds = [...new Set((sps ?? []).map((s) => s.legislator_id).filter((x): x is string => !!x))];
+      if (distinctLegIds.length > 0) {
+        const [stanceRes, donorRes, legInfoRes, allClusterMembershipsRes] = await Promise.all([
+          sb.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom").in("legislator_id", distinctLegIds),
+          sb.from("legislator_donors")
+            .select("legislator_id, top_industries")
+            .in("legislator_id", distinctLegIds)
+            .eq("resolved_status", "matched"),
+          sb.from("legislators")
+            .select("id, full_name, state, role, party")
+            .in("id", distinctLegIds),
+          sb.from("bill_sponsors")
+            .select("legislator_id, bills!inner(bill_cluster_members(cluster_id))")
+            .in("legislator_id", distinctLegIds)
+            .eq("classification", "primary"),
+        ]);
+        type LegInfo = { id: string; full_name: string; state: string; role: string; party: string | null };
+        const legInfoMap = new Map<string, LegInfo>();
+        for (const l of (legInfoRes.data ?? []) as LegInfo[]) legInfoMap.set(l.id, l);
+        const allClustersByLeg = new Map<string, Set<string>>();
+        type SpRow = {
+          legislator_id: string;
+          bills: { bill_cluster_members: Array<{ cluster_id: string }> | null }
+               | Array<{ bill_cluster_members: Array<{ cluster_id: string }> | null }> | null;
+        };
+        for (const sp of (allClusterMembershipsRes.data ?? []) as SpRow[]) {
+          const bill = Array.isArray(sp.bills) ? sp.bills[0] : sp.bills;
+          const cms = bill?.bill_cluster_members ?? [];
+          if (!allClustersByLeg.has(sp.legislator_id)) allClustersByLeg.set(sp.legislator_id, new Set());
+          for (const m of cms) allClustersByLeg.get(sp.legislator_id)!.add(m.cluster_id);
+        }
+        const billsOnThisCluster = new Map<string, number>();
+        for (const s of (sps ?? []) as Array<{ legislator_id: string | null }>) {
+          if (!s.legislator_id) continue;
+          billsOnThisCluster.set(s.legislator_id, (billsOnThisCluster.get(s.legislator_id) ?? 0) + 1);
+        }
+        topOperators = [...legInfoMap.values()]
+          .map((leg): ClusterOperator => ({
+            legislator_id: leg.id,
+            full_name: leg.full_name,
+            state: leg.state,
+            role: leg.role,
+            party: leg.party,
+            bills_in_cluster: billsOnThisCluster.get(leg.id) ?? 0,
+            total_clusters: allClustersByLeg.get(leg.id)?.size ?? 1,
+          }))
+          .sort((a, b) =>
+            b.total_clusters - a.total_clusters ||
+            b.bills_in_cluster - a.bills_in_cluster,
+          );
+        const stanceByLeg = new Map<string, string>();
+        for (const s of (stanceRes.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
+          stanceByLeg.set(s.legislator_id, s.stance);
+        }
+        for (const legId of distinctLegIds) {
+          const st = stanceByLeg.get(legId) ?? "unknown";
+          sponsorStanceDist[st] = (sponsorStanceDist[st] ?? 0) + 1;
+        }
+        const industryMap = new Map<string, { amount: number; label: string; advocate_flag: boolean; recipients: number }>();
+        type D = { legislator_id: string; top_industries: Array<{ industry: string; label?: string; advocate_flag?: boolean; amount: number }> | null };
+        for (const d of (donorRes.data ?? []) as D[]) {
+          federalSponsorCount += 1;
+          for (const ind of d.top_industries ?? []) {
+            if (!ind.industry || typeof ind.amount !== "number") continue;
+            const cur = industryMap.get(ind.industry) ?? {
+              amount: 0, label: ind.label ?? ind.industry,
+              advocate_flag: !!ind.advocate_flag, recipients: 0,
+            };
+            cur.amount += ind.amount;
+            cur.recipients += 1;
+            industryMap.set(ind.industry, cur);
+          }
+        }
+        donorIndustryRows = [...industryMap.entries()]
+          .map(([id, x]) => ({ industry: id, ...x }))
+          .filter((r) => r.amount >= 1_000)
+          .sort((a, b) => b.amount - a.amount);
+      }
+    }
+
+    // Chronology
+    const perStateEarliest = [...billsByState.entries()].map(([state, entries]) => {
+      const dates = entries.map((e) => e.bill.last_action_at).filter((d): d is string => !!d).sort();
+      return { state, date: dates[0] ?? null, billCount: entries.length };
+    });
+    const chronological = perStateEarliest.filter((s) => s.date).sort((a, b) => (a.date! < b.date! ? -1 : 1));
+
+    // Federal LDA lobbying overlap — filings intersecting the cluster's active
+    // window. Moved out of the render (was an inline async read) so it lands in
+    // the cached snapshot too. lobbying_filings is public read.
+    type LdaRow = {
+      filing_year: number | null; filing_period_display: string | null;
+      registrant_name: string | null; client_name: string | null;
+      lobbyists: unknown; income: number | null;
+      issue_descriptions: string[] | null;
+    };
+    let lobbying: {
+      rows: LdaRow[];
+      totalIncome: number;
+      clientCount: number;
+      registrantCount: number;
+    } | null = null;
+    if (c.earliest_introduced && c.latest_introduced) {
+      const { data: ldas } = await sb
+        .from("lobbying_filings")
+        .select("filing_year, filing_period_display, registrant_name, client_name, lobbyists, income, issue_descriptions")
+        .eq("is_kratom_relevant", true)
+        .gte("dt_posted", c.earliest_introduced)
+        .lte("dt_posted", c.latest_introduced)
+        .order("dt_posted", { ascending: false })
+        .limit(30);
+      const rows = (ldas ?? []) as LdaRow[];
+      if (rows.length > 0) {
+        lobbying = {
+          rows,
+          totalIncome: rows.reduce((s, r) => s + (Number(r.income) || 0), 0),
+          clientCount: new Set(rows.map((r) => r.client_name).filter(Boolean)).size,
+          registrantCount: new Set(rows.map((r) => r.registrant_name).filter(Boolean)).size,
+        };
+      }
+    }
+
+    return {
+      c,
+      billsInCluster,
+      momentumById,
+      momentumDist,
+      statesSorted,
+      decidingRows,
+      sisters,
+      researchTally,
+      sponsorStanceDist,
+      donorIndustryRows,
+      federalSponsorCount,
+      topOperators,
+      chronological,
+      lobbying,
+    };
+  },
+  ["intel-operation"],
+  { revalidate: 900, tags: ["intel-operation"] },
+);
+
 export async function generateMetadata({ params }: { params: Params }) {
   const { slug } = await params;
-  const sb = await createClient();
-  const { data } = await sb
-    .from("bill_clusters")
-    .select("name, summary_md, bill_count, state_count")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (!data) return { title: "Operation not found" };
-  const c = data as { name: string; summary_md: string | null; bill_count: number; state_count: number };
+  const snap = await getOperationSnapshot(slug);
+  if (!snap) return { title: "Operation not found" };
+  const c = snap.c;
   return {
     title: `${c.name} — coordinated kratom-policy operation`,
     description: `${c.bill_count} bills across ${c.state_count} states pushing the same model legislation. ${c.summary_md?.slice(0, 150) ?? ""}`,
@@ -53,259 +351,27 @@ const POSTURE_LABEL: Record<string, string> = {
  */
 export default async function ClusterDetailPage({ params }: { params: Params }) {
   const { slug } = await params;
-  const sb = await createClient();
-
-  const { data: cluster } = await sb
-    .from("bill_clusters")
-    .select("id, slug, name, posture, summary_md, suspected_origin, signature_phrases, bill_count, state_count, earliest_introduced, latest_introduced, updated_at")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (!cluster) notFound();
-  const c = cluster as {
-    id: string; slug: string; name: string; posture: string; summary_md: string | null;
-    suspected_origin: string | null; signature_phrases: string[] | null;
-    bill_count: number; state_count: number;
-    earliest_introduced: string | null; latest_introduced: string | null;
-    updated_at: string | null;
-  };
-
-  // Pull bills in this cluster
-  const { data: membersRaw } = await sb
-    .from("bill_cluster_members")
-    .select("confidence, match_reason, bills!inner(id, state, bill_number, title, kratom_relevance, status, last_action_at, active, current_committee_name)")
-    .eq("cluster_id", c.id)
-    .eq("bills.active", true);
-
-  type BillJoined = {
-    id: string; state: string; bill_number: string; title: string | null;
-    kratom_relevance: string | null; status: string | null;
-    last_action_at: string | null; active: boolean; current_committee_name: string | null;
-  };
-  type MemberJoined = {
-    confidence: number; match_reason: string | null;
-    bills: BillJoined | BillJoined[] | null;
-  };
-  function normalizeBill(b: BillJoined | BillJoined[] | null): BillJoined | null {
-    if (Array.isArray(b)) return b[0] ?? null;
-    return b;
-  }
-  const billsInCluster: Array<{ bill: BillJoined; reason: string | null; confidence: number }> = [];
-  for (const m of (membersRaw ?? []) as MemberJoined[]) {
-    const b = normalizeBill(m.bills);
-    if (!b) continue;
-    billsInCluster.push({ bill: b, reason: m.match_reason, confidence: m.confidence });
-  }
-
-  // Momentum per bill — computed once, used by both the distribution
-  // panel and the per-bill chips below. No sponsor/news data at this
-  // join level, so the heuristic leans on recency + status + cluster
-  // membership (which we know is ≥1 since these bills are clustered).
-  const { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } = await import("@/lib/bill-momentum");
-  const momentumByBillId = new Map<string, ReturnType<typeof computeBillMomentum>>();
-  const momentumDist = { "advancing-fast": 0, active: 0, watch: 0, "likely-stalled": 0, dead: 0 };
-  for (const e of billsInCluster) {
-    const m = computeBillMomentum({
-      last_action_at: e.bill.last_action_at,
-      status: e.bill.status,
-      current_committee_name: e.bill.current_committee_name,
-      sponsor_count: 0,
-      cluster_count: 1,
-      recent_news_mentions: 0,
-      active: e.bill.active !== false,
-    });
-    momentumByBillId.set(e.bill.id, m);
-    momentumDist[m.label] += 1;
-  }
-
-  // Group by state
-  const billsByState = new Map<string, Array<{ bill: BillJoined; reason: string | null; confidence: number }>>();
-  for (const e of billsInCluster) {
-    if (!billsByState.has(e.bill.state)) billsByState.set(e.bill.state, []);
-    billsByState.get(e.bill.state)!.push(e);
-  }
-  const statesSorted = [...billsByState.entries()].sort((a, b) => b[1].length - a[1].length);
-
-  // Currently-deciding committees — bills in this cluster that are
-  // sitting in a committee RIGHT NOW. The live decision-points per
-  // operation: where advocacy can swing the outcome this week.
-  // Grouped by (state, committee_name) since the same committee name
-  // can appear in multiple states (e.g. "Health Committee").
-  type DecidingRow = { state: string; committee: string; bills: Array<{ id: string; bill_number: string; title: string | null }> };
-  const decidingMap = new Map<string, DecidingRow>();
-  for (const e of billsInCluster) {
-    const cmt = e.bill.current_committee_name?.trim();
-    if (!cmt) continue;
-    const key = `${e.bill.state}::${cmt}`;
-    const row = decidingMap.get(key) ?? { state: e.bill.state, committee: cmt, bills: [] };
-    row.bills.push({ id: e.bill.id, bill_number: e.bill.bill_number, title: e.bill.title });
-    decidingMap.set(key, row);
-  }
-  const decidingRows = [...decidingMap.values()].sort((a, b) =>
-    b.bills.length - a.bills.length || a.state.localeCompare(b.state),
-  );
-
-  // Sister clusters — other clusters that share bills with this one.
-  // Reveals the tactical bundling specific to this operation
-  // (e.g. KCPA bills are also Age-21 bills 38% of the time).
-  type SisterCluster = { slug: string; name: string; posture: string; shared: number };
-  const sisters: SisterCluster[] = [];
-  const billIdsForSister = billsInCluster.map((e) => e.bill.id);
-  if (billIdsForSister.length > 0) {
-    const { data: otherMembers } = await sb
-      .from("bill_cluster_members")
-      .select("bill_id, bill_clusters!inner(slug, name, posture)")
-      .in("bill_id", billIdsForSister)
-      .neq("cluster_id", c.id);
-    type Joined = { slug: string; name: string; posture: string };
-    const sisterMap = new Map<string, SisterCluster>();
-    for (const m of (otherMembers ?? []) as Array<{
-      bill_id: string; bill_clusters: Joined | Joined[] | null;
-    }>) {
-      const other = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
-      if (!other) continue;
-      const agg = sisterMap.get(other.slug) ?? { slug: other.slug, name: other.name, posture: other.posture, shared: 0 };
-      agg.shared += 1;
-      sisterMap.set(other.slug, agg);
-    }
-    sisters.push(...[...sisterMap.values()].sort((a, b) => b.shared - a.shared));
-  }
-
-  // Research alignment aggregate — how does the science line up
-  // against this cluster's bills? Counts of aligned / contradictory
-  // / context papers across all cluster-membered bills.
-  type ResearchTally = { aligned: number; contradictory: number; context: number; total: number };
-  const researchTally: ResearchTally = { aligned: 0, contradictory: 0, context: 0, total: 0 };
-  if (billIdsForSister.length > 0) {
-    try {
-      const { data: alignmentRows } = await sb
-        .from("bill_research_alignment")
-        .select("alignment")
-        .in("bill_id", billIdsForSister);
-      for (const r of (alignmentRows ?? []) as Array<{ alignment: "aligned" | "contradictory" | "context" }>) {
-        researchTally[r.alignment] += 1;
-        researchTally.total += 1;
-      }
-    } catch { /* pre-migration */ }
-  }
-
-  // Primary sponsors of bills in this cluster + their stance + donor industries
-  const billIds = billsInCluster.map((e) => e.bill.id);
-  let sponsorStanceDist: Record<string, number> = {};
-  let donorIndustryRows: Array<{ industry: string; label: string; advocate_flag: boolean; amount: number; recipients: number }> = [];
-  let federalSponsorCount = 0;
-  // Top operators on THIS cluster — primary sponsors ranked by how
-  // many other detected operations they're also running. Surfaces
-  // the "ringleaders" of this specific operation. Distinct from the
-  // sister-cluster view (which is bill-level overlap, not person-
-  // level). Tracks bills+states per legislator on this cluster.
-  type ClusterOperator = {
-    legislator_id: string;
-    full_name: string;
-    state: string;
-    role: string;
-    party: string | null;
-    bills_in_cluster: number;
-    total_clusters: number;
-  };
-  let topOperators: ClusterOperator[] = [];
-  if (billIds.length > 0) {
-    const { data: sps } = await sb
-      .from("bill_sponsors")
-      .select("legislator_id, bill_id, classification")
-      .in("bill_id", billIds)
-      .eq("classification", "primary");
-    const distinctLegIds = [...new Set((sps ?? []).map((s) => s.legislator_id).filter((x): x is string => !!x))];
-    if (distinctLegIds.length > 0) {
-      const [stanceRes, donorRes, legInfoRes, allClusterMembershipsRes] = await Promise.all([
-        sb.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom").in("legislator_id", distinctLegIds),
-        sb.from("legislator_donors")
-          .select("legislator_id, top_industries")
-          .in("legislator_id", distinctLegIds)
-          .eq("resolved_status", "matched"),
-        sb.from("legislators")
-          .select("id, full_name, state, role, party")
-          .in("id", distinctLegIds),
-        // For each sponsor, fetch ALL their primary-sponsored bills'
-        // cluster memberships so we can rank by multi-cluster spread.
-        sb.from("bill_sponsors")
-          .select("legislator_id, bills!inner(bill_cluster_members(cluster_id))")
-          .in("legislator_id", distinctLegIds)
-          .eq("classification", "primary"),
-      ]);
-      // Build legislator info + cluster spread maps
-      type LegInfo = { id: string; full_name: string; state: string; role: string; party: string | null };
-      const legInfoMap = new Map<string, LegInfo>();
-      for (const l of (legInfoRes.data ?? []) as LegInfo[]) legInfoMap.set(l.id, l);
-      // legislator_id → set of cluster_ids across all their primary
-      // sponsorships (any cluster, not just this one)
-      const allClustersByLeg = new Map<string, Set<string>>();
-      type SpRow = {
-        legislator_id: string;
-        bills: { bill_cluster_members: Array<{ cluster_id: string }> | null }
-             | Array<{ bill_cluster_members: Array<{ cluster_id: string }> | null }> | null;
-      };
-      for (const sp of (allClusterMembershipsRes.data ?? []) as SpRow[]) {
-        const bill = Array.isArray(sp.bills) ? sp.bills[0] : sp.bills;
-        const cms = bill?.bill_cluster_members ?? [];
-        if (!allClustersByLeg.has(sp.legislator_id)) allClustersByLeg.set(sp.legislator_id, new Set());
-        for (const m of cms) allClustersByLeg.get(sp.legislator_id)!.add(m.cluster_id);
-      }
-      // Count bills-on-this-cluster per legislator
-      const billsOnThisCluster = new Map<string, number>();
-      for (const s of (sps ?? []) as Array<{ legislator_id: string | null }>) {
-        if (!s.legislator_id) continue;
-        billsOnThisCluster.set(s.legislator_id, (billsOnThisCluster.get(s.legislator_id) ?? 0) + 1);
-      }
-      topOperators = [...legInfoMap.values()]
-        .map((leg): ClusterOperator => ({
-          legislator_id: leg.id,
-          full_name: leg.full_name,
-          state: leg.state,
-          role: leg.role,
-          party: leg.party,
-          bills_in_cluster: billsOnThisCluster.get(leg.id) ?? 0,
-          total_clusters: allClustersByLeg.get(leg.id)?.size ?? 1,
-        }))
-        .sort((a, b) =>
-          b.total_clusters - a.total_clusters ||
-          b.bills_in_cluster - a.bills_in_cluster,
-        );
-      const stanceByLeg = new Map<string, string>();
-      for (const s of (stanceRes.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
-        stanceByLeg.set(s.legislator_id, s.stance);
-      }
-      for (const legId of distinctLegIds) {
-        const st = stanceByLeg.get(legId) ?? "unknown";
-        sponsorStanceDist[st] = (sponsorStanceDist[st] ?? 0) + 1;
-      }
-      const industryMap = new Map<string, { amount: number; label: string; advocate_flag: boolean; recipients: number }>();
-      type D = { legislator_id: string; top_industries: Array<{ industry: string; label?: string; advocate_flag?: boolean; amount: number }> | null };
-      for (const d of (donorRes.data ?? []) as D[]) {
-        federalSponsorCount += 1;
-        for (const ind of d.top_industries ?? []) {
-          if (!ind.industry || typeof ind.amount !== "number") continue;
-          const cur = industryMap.get(ind.industry) ?? {
-            amount: 0, label: ind.label ?? ind.industry,
-            advocate_flag: !!ind.advocate_flag, recipients: 0,
-          };
-          cur.amount += ind.amount;
-          cur.recipients += 1;
-          industryMap.set(ind.industry, cur);
-        }
-      }
-      donorIndustryRows = [...industryMap.entries()]
-        .map(([id, x]) => ({ industry: id, ...x }))
-        .filter((r) => r.amount >= 1_000)
-        .sort((a, b) => b.amount - a.amount);
-    }
-  }
-
-  // Chronology
-  const perStateEarliest = [...billsByState.entries()].map(([state, entries]) => {
-    const dates = entries.map((e) => e.bill.last_action_at).filter((d): d is string => !!d).sort();
-    return { state, date: dates[0] ?? null, billCount: entries.length };
-  });
-  const chronological = perStateEarliest.filter((s) => s.date).sort((a, b) => (a.date! < b.date! ? -1 : 1));
+  const snap = await getOperationSnapshot(slug);
+  if (!snap) notFound();
+  const {
+    c,
+    billsInCluster,
+    momentumById,
+    momentumDist,
+    statesSorted,
+    decidingRows,
+    sisters,
+    researchTally,
+    sponsorStanceDist,
+    donorIndustryRows,
+    federalSponsorCount,
+    topOperators,
+    chronological,
+    lobbying,
+  } = snap;
+  // momentumByBillId is a Map in the render; rebuilt from the serializable
+  // Record the snapshot returns (unstable_cache can only cache JSON).
+  const momentumByBillId = new Map(Object.entries(momentumById));
 
   const tone = POSTURE_TONE[c.posture] ?? POSTURE_TONE.mixed;
   const flaggedTotal = donorIndustryRows.filter((r) => r.advocate_flag).reduce((s, r) => s + r.amount, 0);
@@ -520,57 +586,36 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
           were federally lobbying on kratom while this state-level
           operation was spreading. Same-period activity isn't proof
           of causation, but the overlap is intel-worthy. */}
-      {await (async () => {
-        if (!c.earliest_introduced || !c.latest_introduced) return null;
-        const { data: ldas } = await sb
-          .from("lobbying_filings")
-          .select("filing_year, filing_period_display, registrant_name, client_name, lobbyists, income, issue_descriptions")
-          .eq("is_kratom_relevant", true)
-          .gte("dt_posted", c.earliest_introduced)
-          .lte("dt_posted", c.latest_introduced)
-          .order("dt_posted", { ascending: false })
-          .limit(30);
-        const rows = (ldas ?? []) as Array<{
-          filing_year: number | null; filing_period_display: string | null;
-          registrant_name: string | null; client_name: string | null;
-          lobbyists: unknown; income: number | null;
-          issue_descriptions: string[] | null;
-        }>;
-        if (rows.length === 0) return null;
-        const totalIncome = rows.reduce((s, r) => s + (Number(r.income) || 0), 0);
-        const clients = new Set(rows.map((r) => r.client_name).filter(Boolean));
-        const registrants = new Set(rows.map((r) => r.registrant_name).filter(Boolean));
-        return (
-          <section className="mb-6 rounded-lg border border-violet-700/40 bg-violet-950/15 p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-violet-300">
-              📜 Federal lobbying during this operation&apos;s active window
-            </h2>
-            <p className="mt-1 text-[11px] text-zinc-400">
-              {rows.length} kratom-issue federal LDA filings between {c.earliest_introduced} and {c.latest_introduced}.
-              {clients.size > 0 && <> {clients.size} client{clients.size === 1 ? "" : "s"}, {registrants.size} registrant{registrants.size === 1 ? "" : "s"}.</>}
-              {totalIncome > 0 && <> Total disclosed income: <strong className="text-violet-200">${totalIncome.toLocaleString()}</strong>.</>}
-            </p>
-            <ul className="mt-2 space-y-0.5 text-[11px]">
-              {rows.slice(0, 12).map((r, i) => (
-                <li key={i} className="flex flex-wrap items-baseline gap-x-2 border-b border-zinc-900/40 py-0.5">
-                  <span className="font-mono text-zinc-500">{r.filing_year}</span>
-                  <span className="font-semibold">{r.client_name ?? "—"}</span>
-                  <span className="text-zinc-500">via</span>
-                  <span>{r.registrant_name ?? "—"}</span>
-                  {r.income != null && r.income > 0 && (
-                    <span className="ml-auto font-mono text-violet-200">${r.income.toLocaleString()}</span>
-                  )}
-                </li>
-              ))}
-              {rows.length > 12 && (
-                <li className="pt-1 text-[10px] text-zinc-500">
-                  + {rows.length - 12} more. See <Link href="/intel/lobbying" className="text-violet-300 hover:underline">/intel/lobbying</Link> for the full federal LDA index.
-                </li>
-              )}
-            </ul>
-          </section>
-        );
-      })()}
+      {lobbying && (
+        <section className="mb-6 rounded-lg border border-violet-700/40 bg-violet-950/15 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-violet-300">
+            📜 Federal lobbying during this operation&apos;s active window
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            {lobbying.rows.length} kratom-issue federal LDA filings between {c.earliest_introduced} and {c.latest_introduced}.
+            {lobbying.clientCount > 0 && <> {lobbying.clientCount} client{lobbying.clientCount === 1 ? "" : "s"}, {lobbying.registrantCount} registrant{lobbying.registrantCount === 1 ? "" : "s"}.</>}
+            {lobbying.totalIncome > 0 && <> Total disclosed income: <strong className="text-violet-200">${lobbying.totalIncome.toLocaleString()}</strong>.</>}
+          </p>
+          <ul className="mt-2 space-y-0.5 text-[11px]">
+            {lobbying.rows.slice(0, 12).map((r, i) => (
+              <li key={i} className="flex flex-wrap items-baseline gap-x-2 border-b border-zinc-900/40 py-0.5">
+                <span className="font-mono text-zinc-500">{r.filing_year}</span>
+                <span className="font-semibold">{r.client_name ?? "—"}</span>
+                <span className="text-zinc-500">via</span>
+                <span>{r.registrant_name ?? "—"}</span>
+                {r.income != null && r.income > 0 && (
+                  <span className="ml-auto font-mono text-violet-200">${r.income.toLocaleString()}</span>
+                )}
+              </li>
+            ))}
+            {lobbying.rows.length > 12 && (
+              <li className="pt-1 text-[10px] text-zinc-500">
+                + {lobbying.rows.length - 12} more. See <Link href="/intel/lobbying" className="text-violet-300 hover:underline">/intel/lobbying</Link> for the full federal LDA index.
+              </li>
+            )}
+          </ul>
+        </section>
+      )}
 
       {/* Donor industry overlap */}
       {donorIndustryRows.length > 0 && (
