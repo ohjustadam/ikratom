@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
 
@@ -145,9 +146,12 @@ const getOperationSnapshot = unstable_cache(
       } catch { /* pre-migration */ }
     }
 
-    // Primary sponsors of bills in this cluster + stance + donor industries
+    // Primary sponsors of bills in this cluster + donor industries. NOTE:
+    // legislator_stance is RLS-gated (verified/creator only), so it is NOT read
+    // in this shared snapshot — the sponsor stance distribution is computed
+    // request-bound in the page from `sponsorLegIds` (honoring the viewer tier).
     const billIds = billsInCluster.map((e) => e.bill.id);
-    const sponsorStanceDist: Record<string, number> = {};
+    let sponsorLegIds: string[] = [];
     let donorIndustryRows: Array<{ industry: string; label: string; advocate_flag: boolean; amount: number; recipients: number }> = [];
     let federalSponsorCount = 0;
     type ClusterOperator = {
@@ -167,9 +171,9 @@ const getOperationSnapshot = unstable_cache(
         .in("bill_id", billIds)
         .eq("classification", "primary");
       const distinctLegIds = [...new Set((sps ?? []).map((s) => s.legislator_id).filter((x): x is string => !!x))];
+      sponsorLegIds = distinctLegIds;
       if (distinctLegIds.length > 0) {
-        const [stanceRes, donorRes, legInfoRes, allClusterMembershipsRes] = await Promise.all([
-          sb.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom").in("legislator_id", distinctLegIds),
+        const [donorRes, legInfoRes, allClusterMembershipsRes] = await Promise.all([
           sb.from("legislator_donors")
             .select("legislator_id, top_industries")
             .in("legislator_id", distinctLegIds)
@@ -216,14 +220,6 @@ const getOperationSnapshot = unstable_cache(
             b.total_clusters - a.total_clusters ||
             b.bills_in_cluster - a.bills_in_cluster,
           );
-        const stanceByLeg = new Map<string, string>();
-        for (const s of (stanceRes.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
-          stanceByLeg.set(s.legislator_id, s.stance);
-        }
-        for (const legId of distinctLegIds) {
-          const st = stanceByLeg.get(legId) ?? "unknown";
-          sponsorStanceDist[st] = (sponsorStanceDist[st] ?? 0) + 1;
-        }
         const industryMap = new Map<string, { amount: number; label: string; advocate_flag: boolean; recipients: number }>();
         type D = { legislator_id: string; top_industries: Array<{ industry: string; label?: string; advocate_flag?: boolean; amount: number }> | null };
         for (const d of (donorRes.data ?? []) as D[]) {
@@ -297,7 +293,7 @@ const getOperationSnapshot = unstable_cache(
       decidingRows,
       sisters,
       researchTally,
-      sponsorStanceDist,
+      sponsorLegIds,
       donorIndustryRows,
       federalSponsorCount,
       topOperators,
@@ -362,7 +358,7 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
     decidingRows,
     sisters,
     researchTally,
-    sponsorStanceDist,
+    sponsorLegIds,
     donorIndustryRows,
     federalSponsorCount,
     topOperators,
@@ -372,6 +368,28 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
   // momentumByBillId is a Map in the render; rebuilt from the serializable
   // Record the snapshot returns (unstable_cache can only cache JSON).
   const momentumByBillId = new Map(Object.entries(momentumById));
+
+  // Sponsor stance distribution — legislator_stance is RLS-gated to
+  // verified/creator viewers, so it is read REQUEST-BOUND (cookie client) here,
+  // NOT in the shared snapshot. Anon/unverified viewers get an empty read →
+  // all sponsors count as "unknown", exactly as before caching.
+  const supabase = await createClient();
+  const sponsorStanceDist: Record<string, number> = {};
+  if (sponsorLegIds.length > 0) {
+    const { data: stanceRows } = await supabase
+      .from("legislator_stance")
+      .select("legislator_id, stance")
+      .eq("topic", "kratom")
+      .in("legislator_id", sponsorLegIds);
+    const stanceByLeg = new Map<string, string>();
+    for (const s of (stanceRows ?? []) as Array<{ legislator_id: string; stance: string }>) {
+      stanceByLeg.set(s.legislator_id, s.stance);
+    }
+    for (const legId of sponsorLegIds) {
+      const st = stanceByLeg.get(legId) ?? "unknown";
+      sponsorStanceDist[st] = (sponsorStanceDist[st] ?? 0) + 1;
+    }
+  }
 
   const tone = POSTURE_TONE[c.posture] ?? POSTURE_TONE.mixed;
   const flaggedTotal = donorIndustryRows.filter((r) => r.advocate_flag).reduce((s, r) => s + r.amount, 0);
