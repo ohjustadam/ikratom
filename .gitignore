@@ -2,8 +2,12 @@ node_modules
 .next
 out
 build
-.env*.local
-.env
+# Secrets. `.env*` is deliberately broad — `.env*.local` did NOT match sidecar
+# files like `.env.local.bak-20260722`, which is exactly how a service-role key
+# nearly landed in this PUBLIC repo (2026-07-22). The example file is re-allowed
+# below; keep real backups OUTSIDE the repo (C:\claude\_claude-backup\).
+.env*
+!.env.local.example
 *.log
 .DS_Store
 .vercel
