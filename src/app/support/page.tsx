@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getContent } from "@/lib/editable-content";
 
-export const dynamic = "force-dynamic";
+// Static + revalidate (2026-07-23): editorial content, identical for everyone.
+export const revalidate = 3600;
 
 export const metadata = {
   title: "Support iKratom — keep the advocate's toolbelt free + independent",

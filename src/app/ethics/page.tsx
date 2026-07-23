@@ -29,7 +29,8 @@ export const metadata = {
  *   - One quiet zinc treatment for the negations
  *   - No CTAs in the middle (a manifesto is read, not bounced through)
  */
-export const dynamic = "force-dynamic";
+// Static + revalidate (2026-07-23): editorial content, identical for everyone.
+export const revalidate = 3600;
 
 export default async function EthicsPage() {
   const intro = await getContent(

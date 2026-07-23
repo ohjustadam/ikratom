@@ -7,7 +7,8 @@ export const metadata = {
   description: "Substance-policy bills we track, grouped by topic: kratom, cannabis, hemp/CBD, psychedelics, dietary supplements, tobacco/vaping, alcohol.",
 };
 
-export const dynamic = "force-dynamic";
+// Static + revalidate (2026-07-23): public topic index, viewer-independent.
+export const revalidate = 900;
 
 export default async function TopicsPage() {
   const counts = await getTopicCounts();

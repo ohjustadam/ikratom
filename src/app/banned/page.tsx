@@ -7,7 +7,13 @@ export const metadata = {
   title: "Where kratom is banned — every state, county, and city tracking",
   description: "Comprehensive list of US jurisdictions banning kratom — states, counties, and cities. Updated as bans are enacted or repealed.",
 };
-export const dynamic = "force-dynamic";
+// force-dynamic was dropped here (2026-07-23) but the build still emits this
+// route as ƒ Dynamic — something in the render tree reads request state that a
+// surface grep didn't catch. Left as revalidate rather than reinstating
+// force-dynamic: it's harmless while the route renders dynamically, and the
+// page flips to static for free once that read is found and moved. Finding it
+// is worth it — this is a heavily-crawled public surface.
+export const revalidate = 900;
 
 /**
  * /banned — the comprehensive ban tracker.
