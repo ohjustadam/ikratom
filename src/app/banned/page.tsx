@@ -7,13 +7,17 @@ export const metadata = {
   title: "Where kratom is banned — every state, county, and city tracking",
   description: "Comprehensive list of US jurisdictions banning kratom — states, counties, and cities. Updated as bans are enacted or repealed.",
 };
-// force-dynamic was dropped here (2026-07-23) but the build still emits this
-// route as ƒ Dynamic — something in the render tree reads request state that a
-// surface grep didn't catch. Left as revalidate rather than reinstating
-// force-dynamic: it's harmless while the route renders dynamically, and the
-// page flips to static for free once that read is found and moved. Finding it
-// is worth it — this is a heavily-crawled public surface.
-export const revalidate = 900;
+// REVERTED to force-dynamic (2026-07-23). Dropping it made Next try to
+// PRERENDER this page at build time, which needs SUPABASE_SERVICE_ROLE_KEY —
+// absent in CI, so the build died with "Error occurred prerendering page
+// /banned". A local build passed because .env.local supplies the key: a false
+// green. Lesson: converting a page that reads the DB is not just a flag change,
+// it moves the fetch into BUILD time, and the build environment has no secrets.
+//
+// To make this static later, the page's data read must tolerate a missing key
+// at build time (fail soft, like lib/emergency-banner.ts) — worth doing, since
+// this is a heavily-crawled public surface.
+export const dynamic = "force-dynamic";
 
 /**
  * /banned — the comprehensive ban tracker.
