@@ -52,9 +52,21 @@ jobs:
       - name: Build
         # Build needs env vars at compile time; provide minimal stubs.
         # Real values come from Vercel at deploy time.
+        #
+        # SUPABASE_SERVICE_ROLE_KEY stub added 2026-07-23: once the root layout
+        # stopped forcing every route dynamic, pages became eligible to
+        # PRERENDER at build time, and createServiceRoleClient() THROWS when the
+        # key is absent ("fail fast rather than silently masquerading as an anon
+        # client" — correct, don't weaken it). Without a stub the build died on
+        # /states. A fake value is right here: it lets the client construct so
+        # prerender proceeds, while pointing at example.supabase.co means no PR
+        # build ever touches the real database (which would also burn egress).
+        # Vercel supplies the genuine key at deploy time, so production
+        # prerenders against live data as intended.
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: stub-service-role-key
           APP_URL: https://www.ikratom.org
         run: npm run build
 
