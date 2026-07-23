@@ -28,6 +28,13 @@ export const REGISTRY = [
       // previously wrote no telemetry — a silent death was undetectable.
       "fire_custom_reminders",
       "extract_bills_from_alerts",
+      // Registered 2026-07-22: the HOSTING failsafe. check-egress-usage watched
+      // Supabase bandwidth and reported "healthy" while Vercel's CPU meter sat
+      // at 301% and the site served 402 for ~18h. This one checks the live URL
+      // itself, so it catches causes we haven't instrumented — including the
+      // next unknown one. Hourly because an outage found a day later is an
+      // outage nobody caught.
+      "vercel_watchdog",
      ].map((source) => ({ source, interval_hours: 4, system: "gh-hourly", cadence: "every-2h" })),
 
   // daily

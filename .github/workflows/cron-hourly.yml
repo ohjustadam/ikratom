@@ -285,6 +285,24 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Check hosting health (Vercel + live site)
+        # The HOSTING failsafe (2026-07-22 incident: account soft-blocked on
+        # Fluid CPU, site served 402 for ~18h, nothing watching). Checks the
+        # Vercel limited/softBlock flags AND does a synthetic GET of the real
+        # public URL — the latter catches causes we haven't instrumented.
+        # continue-on-error so a Vercel API hiccup can't starve the staleness
+        # check below, which is the older and broader watchdog.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          APP_URL: ${{ secrets.APP_URL }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node scripts/check-vercel-usage.mjs
+
       - name: Check cron staleness (self-monitoring)
         # Compares cron-registry expected cadences against scraper_runs.finished_at;
         # web-pushes the owner once per silent period (cron_staleness_alerts) and
