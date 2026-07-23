@@ -156,7 +156,15 @@ const api = {
     const user = context ? `Current operator context:\n${context}\n\nOwner asks: ${message}` : message;
     try {
       const { provider, parsed, elapsedMs } = await aiRouter({ systemPrompt: system, userPrompt: user, maxTokens: 1200, verbose: false });
-      const text = typeof parsed === "string" ? parsed : (parsed?.text ?? JSON.stringify(parsed));
+      // The router returns provider output already JSON-parsed when it looks
+      // structured (it's built for extraction tasks). For freeform chat, dig
+      // the human-readable field out of common shapes before falling back to
+      // the raw object — otherwise the UI shows `{"answer":"…"}`.
+      const text =
+        typeof parsed === "string"
+          ? parsed
+          : (parsed?.answer ?? parsed?.text ?? parsed?.reply ?? parsed?.response ??
+             parsed?.content ?? parsed?.message ?? JSON.stringify(parsed, null, 2));
       return { reply: text, provider, elapsedMs };
     } catch (e) {
       return { _status: 502, error: `All free AI providers failed: ${String(e?.message ?? e).slice(0, 200)}` };
