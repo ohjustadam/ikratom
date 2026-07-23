@@ -1,7 +1,13 @@
-import { getUnreadDmCount } from "../actions";
+"use client";
 
-export async function MessagesIcon() {
-  const count = await getUnreadDmCount();
+/**
+ * Client component (2026-07-22). The unread count now arrives as a prop from
+ * HeaderAuth (sourced from /api/me) instead of a per-render server action —
+ * this component sits in the root layout, and its server-side read was one of
+ * the cookie reads forcing every route in the app to render dynamically.
+ * See `private/STATIC_CHROME_PLAN.md`.
+ */
+export function MessagesIcon({ count = 0 }: { count?: number }) {
   return (
     <a
       href="/messages"

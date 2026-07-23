@@ -24,9 +24,8 @@ import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
 import { SignInProvider } from "@/components/auth/SignInContext";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
 import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
-import { LocaleSwitcher } from "@/components/LocaleSwitcher";
-import { readLocale } from "@/modules/auth/actions-locale";
-import { getCachedAuthProfile } from "@/lib/supabase/server";
+import { ChromeProvider } from "@/components/chrome/ChromeProvider";
+import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGate } from "@/components/chrome/ChromeGates";
 import "./globals.css";
 
 const geist = Geist({
@@ -97,55 +96,33 @@ export const viewport: Viewport = {
   viewportFit: "cover",  // iPhone notch / safe-area support
 };
 
-export default async function RootLayout({
+/**
+ * ROOT LAYOUT — MUST STAY STATIC.
+ *
+ * This function previously awaited `readLocale()` and `getCachedAuthProfile()`.
+ * In the App Router a cookie read anywhere in the render tree opts that route
+ * out of static generation, and from the ROOT layout that means EVERY route in
+ * the app. The result: 215 pages server-rendered on every hit, 688K function
+ * invocations, 12h of Fluid CPU against a 4h allowance, and the 2026-07-22
+ * account block that took the site down.
+ *
+ * ⚠ DO NOT reintroduce `cookies()`, `headers()`, `getCachedAuthProfile()`,
+ * `readLocale()`, or any cookie-bound Supabase client here or in any component
+ * this layout renders. Per-user state belongs in /api/me, read client-side by
+ * ChromeProvider — crawlers don't execute JS, so they never pay for it.
+ * Full context: `private/STATIC_CHROME_PLAN.md`.
+ */
+export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const locale = await readLocale();
-
-  // Cheap auth check so MobileNav can show admin / leader sub-section,
-  // plus leader-tour bootstrap state. Single row read; never blocks
-  // render — falls back to non-admin on error.
-  let isAdmin = false;
-  let isLeader = false;
-  let signedIn = false;
-  let leaderTourPending = false;
-  let leaderAcknowledged = true; // assume true so we don't flash a banner for non-leaders
-  // Signed-in users' saved UI prefs, server-rendered onto <html> so they
-  // apply cross-device with no flash. Null for anon → the inline script
-  // falls back to localStorage (or the app defaults).
-  let uiTheme: string | undefined;
-  let uiAccent: string | undefined;
-  let uiAccentHex: string | undefined;
-  let uiMode: string | undefined;
-  try {
-    // Request-cached: shares the single auth round-trip + profile read
-    // with HeaderAuth (see getCachedAuthProfile). Was a per-render
-    // getUser() + profile select; now deduped across the chrome.
-    const { profile } = await getCachedAuthProfile();
-    if (profile) {
-      signedIn = true;
-      isAdmin = !!(profile.is_admin || profile.is_owner);
-      isLeader = !!(isAdmin || profile.is_advocate_leader);
-      leaderTourPending = isLeader && !!profile.leader_tour_pending;
-      leaderAcknowledged = !isLeader || !!profile.leader_acknowledged_at;
-      uiTheme = profile.ui_theme ?? undefined;
-      uiAccent = profile.ui_accent ?? undefined;
-      uiAccentHex = profile.ui_accent_hex ?? undefined;
-      uiMode = profile.ui_mode ?? undefined;
-    }
-  } catch {
-    // non-fatal — drawer just hides admin / leader section
-  }
-
+  // No auth/locale reads here — see the header comment. `lang` is static and
+  // the theme `data-*` attributes are now set by the inline script below (from
+  // localStorage) and corrected by ChromeProvider once /api/me lands.
   return (
     <html
-      lang={locale}
+      lang="en"
       className={`${geist.variable} h-full antialiased`}
       suppressHydrationWarning
-      data-theme={uiTheme}
-      data-accent={uiAccentHex ? "custom" : uiAccent}
-      data-accent-hex={uiAccentHex}
-      data-mode={uiMode}
     >
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
         {/* Set theme/accent/mode on <html> before paint to avoid a flash of
@@ -159,21 +136,14 @@ export default async function RootLayout({
           }}
         />
         <PostHogProvider>
+        <ChromeProvider>
         <SignInProvider>
-        {/* Leader-tour banner — visible on every page until a leader
-            completes the multi-page walkthrough + signs the
-            acknowledgment. Non-leaders never see it. */}
-        {isLeader && !leaderAcknowledged && <LeaderTourBanner />}
-
-        {/* Multi-page tour controller. Mounts on every page; only fires
-            when leader_tour_pending=true and acknowledgment is missing.
-            Persists state via localStorage across navigation. */}
-        {isLeader && (
-          <LeaderTourController
-            pending={leaderTourPending}
-            alreadyAcknowledged={leaderAcknowledged}
-          />
-        )}
+        {/* Leader-tour banner + multi-page controller. Visible on every page
+            until a leader completes the walkthrough + signs the
+            acknowledgment; non-leaders never see it. Gated client-side off
+            /api/me now — the leader flags used to come from a server-side
+            profile read in this layout, which forced every route dynamic. */}
+        <LeaderTourGate />
 
         {/* Site-wide soft announcement (editable from /admin/content) — renders
             only when admin sets global.announcement content. */}
@@ -240,7 +210,7 @@ export default async function RootLayout({
               <ThemeQuickControls placement="toolbar" />
               <InstallAppButton variant="mobile" />
               <MobileAuthPill />
-              <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} isLeader={isLeader} />
+              <MobileNavGate />
             </div>
           </div>
         </header>
@@ -280,7 +250,7 @@ export default async function RootLayout({
             </nav>
             <div className="mb-4 flex items-center justify-center gap-2">
               <span className="text-zinc-600">🌐</span>
-              <LocaleSwitcher current={locale} />
+              <LocaleSwitcherGate />
             </div>
             <p>
               {siteConfig.name} is a nonpartisan advocacy tool. Not affiliated with any
@@ -322,7 +292,7 @@ export default async function RootLayout({
         </div>
         <RegisterSW />
         <PushBackStop />
-        {signedIn && <PresenceHeartbeat />}
+        <PresenceHeartbeatGate />
         <InstallPrompt />
         <FeedbackWidget />
         {/* Floating appearance control — a small icon on every screen, sitting
@@ -333,6 +303,7 @@ export default async function RootLayout({
             stays at /forum, where this self-hides). Gated on the forum flag. */}
         {siteConfig.features.forum && <ChatPopup />}
         </SignInProvider>
+        </ChromeProvider>
         </PostHogProvider>
       </body>
     </html>
