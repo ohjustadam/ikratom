@@ -169,7 +169,16 @@ export function UserRolesRow({
           {callerIsOwner && (
             <Toggle label="Owner" checked={isOwner} onChange={setIsOwner} disabled={isSelf} />
           )}
-          <Toggle label="Admin" checked={isAdmin} onChange={setIsAdmin} disabled={isSelf && !isOwner} />
+          {/* Admin is an owner-controlled tier (server enforces it in
+              setUserRoles); render it read-only for non-owner admins so the
+              toggle can't be flipped into a guaranteed server rejection. */}
+          <Toggle
+            label="Admin"
+            checked={isAdmin}
+            onChange={setIsAdmin}
+            disabled={!callerIsOwner || (isSelf && !isOwner)}
+            title={!callerIsOwner ? "Only the owner can change the Admin role" : undefined}
+          />
           <Toggle label="Leader" checked={isLeader} onChange={setIsLeader} />
         </div>
       </td>
@@ -348,10 +357,10 @@ function RoleBadge({ isOwner, isAdmin, isLeader }: { isOwner: boolean; isAdmin: 
 }
 
 function Toggle({
-  label, checked, onChange, disabled,
-}: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  label, checked, onChange, disabled, title,
+}: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; title?: string }) {
   return (
-    <label className={`flex items-center gap-1 ${disabled ? "opacity-40" : "cursor-pointer"}`}>
+    <label title={title} className={`flex items-center gap-1 ${disabled ? "opacity-40" : "cursor-pointer"}`}>
       <input
         type="checkbox"
         checked={checked}

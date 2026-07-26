@@ -68,7 +68,7 @@ export default async function ConsolePage() {
 
       <hr className="my-8 border-zinc-800" />
 
-      <CronTriggerPanel />
+      <CronTriggerPanel isOwner={ctx.isOwner} />
 
       <hr className="my-8 border-zinc-800" />
 

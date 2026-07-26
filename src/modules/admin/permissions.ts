@@ -3,9 +3,20 @@
  * permission. Keep in sync with the v_admin_perms / v_leader_perms arrays
  * in supabase/migrations/0083_granular_permissions.sql.
  *
- * Pure data; no server logic — server checks use the has_permission()
- * Postgres RPC for authoritative answers. This catalog drives the UI
- * matrix on /admin/users/[id]/permissions and the labels users see.
+ * Pure data; no server logic.
+ *
+ * ⚠️ NOT YET ENFORCED. has_permission() exists in migration 0083 and this
+ * catalog drives the UI matrix on /admin/users/[id]/permissions, but no
+ * server action and no RLS policy calls it — grep `has_permission` and the
+ * only hits are the migration itself and this comment. Overrides are
+ * recorded (and audit-logged) but do not restrict anything at runtime.
+ *
+ * Today's real boundary is the three role flags: is_owner / is_admin /
+ * is_advocate_leader. Granting Admin grants everything an admin can reach.
+ *
+ * To finish this: have each admin server action call has_permission(uid, key)
+ * instead of settling for getAdminContext().ok, then drop the red banner on
+ * the permissions page. Until then, keep that banner accurate.
  */
 
 export type PermissionCategory =

@@ -213,6 +213,15 @@ export async function dispatchWorkflow(
 ): Promise<WorkflowDispatchResult> {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  // Owner-only: a dispatched run executes repo code on a runner carrying
+  // SUPABASE_SERVICE_ROLE_KEY and the other pipeline secrets, and several
+  // workflows write production data. The allowlist bounds WHICH workflows,
+  // not what a run can do once started. triggerCron() above stays admin-
+  // available — it only calls our own /api/cron/* endpoints, which are
+  // idempotent syncs with no secret handed to third-party compute.
+  if (!ctx.isOwner) {
+    return { ok: false, error: "Running pipelines is owner-only — a run executes on a cloud runner holding the service-role key." };
+  }
 
   if (!DISPATCHABLE_WORKFLOW_FILES.includes(workflowFile)) {
     return { ok: false, error: `Workflow "${workflowFile}" is not dispatchable.` };

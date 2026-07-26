@@ -11,8 +11,16 @@ import { verifyUserForPromotion } from "@/modules/auth/trust-tier";
 
 /**
  * Set a user's role flags.
- * Strict admin only — owner can grant any flag; admins can grant `is_admin` and
- * `is_advocate_leader` but cannot transfer ownership.
+ *
+ * Owner grants any flag. A non-owner admin may only toggle
+ * `is_advocate_leader` — the admin tier is owner-controlled.
+ *
+ * Why: `is_admin` used to be admin-grantable, which let the admin tier
+ * self-replicate with no owner involvement (an admin could promote an alt
+ * account) and let one admin unilaterally demote every other admin. Admin
+ * carries master-edit, the AI editor, cron triggers, and support tooling —
+ * that trust boundary belongs to the owner alone. Promote to Advocate
+ * Leader instead; ask the owner for admin.
  */
 export async function setUserRoles(input: {
   userId: string;
@@ -47,6 +55,18 @@ export async function setUserRoles(input: {
     .select("is_advocate_leader, is_admin, is_owner")
     .eq("id", input.userId)
     .single();
+
+  // Owner-only trust boundary: only the owner may grant OR revoke admin.
+  // Checked against the CURRENT value so a non-owner admin saving an
+  // unrelated change (e.g. flipping Leader) on an existing admin's row
+  // still succeeds — we only block an actual is_admin transition.
+  if (!ctx.isOwner && !!input.isAdmin !== !!prev?.is_admin) {
+    return {
+      error: !!input.isAdmin
+        ? "Only the owner can grant the Admin role. You can promote to Advocate Leader."
+        : "Only the owner can revoke the Admin role.",
+    };
+  }
 
   // Set leader_tour_pending = true ONLY when leader transitions to true.
   // The tutorial component on /dashboard reads + clears this flag.
@@ -338,16 +358,21 @@ export async function generateTempPassword(input: { userId: string }): Promise<
     return { error: "You've issued a lot of temp passwords this hour. Try again later." };
   }
 
-  // Refuse to overwrite another owner's password. Admins should not be
-  // able to silently take over an owner's account.
+  // Refuse to overwrite another PRIVILEGED account's password. This action
+  // returns the plaintext temp to the CALLER (unlike reset/magic-link, which
+  // only ever email the target), so it is the one true account-takeover path
+  // in the admin toolkit. Previously it guarded owners only, which left admins
+  // able to seize each other's accounts — and an admin account carries
+  // master-edit, the AI editor, and support tooling. Owner-only for any
+  // admin/owner target; admins keep it for ordinary locked-out users.
   const supabase = await createClient();
   const { data: target } = await supabase
     .from("profiles")
-    .select("is_owner")
+    .select("is_owner, is_admin")
     .eq("id", input.userId)
     .single();
-  if (target?.is_owner && !ctx.isOwner) {
-    return { error: "Only the owner can issue a temp password to another owner." };
+  if ((target?.is_owner || target?.is_admin) && !ctx.isOwner) {
+    return { error: "Only the owner can issue a temp password to another admin or owner." };
   }
 
   // Look up the email (so we can echo it back to the admin + audit-log

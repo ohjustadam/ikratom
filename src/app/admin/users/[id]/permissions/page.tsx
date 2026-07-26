@@ -81,6 +81,18 @@ export default async function UserPermissionsPage({
         </div>
       </header>
 
+      {/* Honesty banner: has_permission() is defined (migration 0083) and this
+          matrix writes user_permissions rows, but NO server action or RLS
+          policy reads it yet. Until enforcement is wired, these toggles must
+          not be mistaken for a live constraint on what an admin can do. */}
+      <div className="mb-6 rounded-md border border-red-700/50 bg-red-950/20 p-3 text-xs text-red-200">
+        <strong>Not yet enforced.</strong> These toggles record intent — they are saved and
+        audit-logged — but no server action checks them yet, so they do not currently restrict
+        what this user can do. Role flags (Owner / Admin / Leader) on{" "}
+        <a href="/admin/users" className="underline hover:text-red-100">/admin/users</a> are the
+        real boundary today. Treat granting Admin as granting everything an admin can reach.
+      </div>
+
       {!ctx.isOwner && (
         <div className="mb-6 rounded-md border border-amber-700/40 bg-amber-950/10 p-3 text-xs text-amber-300">
           You can view this matrix but only the owner can flip toggles. Ask the owner if you need
