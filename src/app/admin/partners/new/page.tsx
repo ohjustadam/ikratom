@@ -5,7 +5,7 @@ import { NewPartnerForm } from "./NewPartnerForm";
 export const metadata = { title: "Add partner shop" };
 
 export default async function NewPartnerPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_partners" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (

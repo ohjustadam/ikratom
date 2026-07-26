@@ -21,7 +21,7 @@ import { LoungeModerationPanel } from "./LoungeModerationPanel";
 export const metadata = { title: "Lounge moderation" };
 
 export default async function AdminLoungePage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) redirect("/dashboard");
 
   const [msgs, muted, banReview, held] = await Promise.all([
