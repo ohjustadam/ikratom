@@ -40,6 +40,19 @@
 [build.environment]
   # Match CI + the app's engines expectation.
   NODE_VERSION = "22"
+  # REQUIRED — without this the production build dies:
+  #   FATAL ERROR: Reached heap limit Allocation failed - JS heap out of memory
+  #   Command was killed with SIGABRT: next build --webpack
+  # Node defaults to a ~2GB old-space heap and this build peaked right at
+  # 2034MB in Netlify's container (it survived locally only because a dev box
+  # has more headroom — a classic "works on my machine" that ONLY shows up on
+  # the remote builder). 215 routes compiled with **webpack** is the load;
+  # webpack is markedly hungrier than Turbopack, and we're pinned to it because
+  # Turbopack output can't be edge-bundled by the Netlify adapter. So this is
+  # the cost of that trade, not a code regression.
+  # 4096 leaves plenty of room under the build image's memory while giving the
+  # compile roughly double what it needs.
+  NODE_OPTIONS = "--max-old-space-size=4096"
   # Belt-and-suspenders: the same stub that lets prerender construct the
   # service-role client at BUILD time without the real key (the real key is a
   # Netlify env var used at RUNTIME). Mirrors .github/workflows/ci.yml. Netlify
