@@ -32,7 +32,22 @@
   # A build gate that blocks every deploy is worse than the risk it mitigates.
   # If we ever re-add verification here, do it as `tsc --noEmit` only (fast,
   # deterministic, no test runner) and confirm against a real build log first.
-  command = "next build --webpack"
+  # Plain `next build` = Turbopack (the Next 16 default), and that is now the
+  # CORRECT choice — the `--webpack` flag that used to be here was a workaround
+  # for exactly one problem: the Netlify adapter couldn't edge-bundle Turbopack's
+  # middleware output. That middleware (`proxy.ts`) is now disabled entirely, so
+  # there is no edge function to bundle and the workaround is obsolete.
+  #
+  # Keeping it was actively harmful: webpack is far hungrier, and it OOM'd the
+  # remote build at 2034MB even after raising the heap to 4096 (Netlify's
+  # container evidently can't hand out that much). Turbopack compiles the same
+  # 215 routes in ~19s vs ~93s locally, with a fraction of the memory — and CI's
+  # "Next.js build" check has been passing on Turbopack this whole time, which is
+  # independent evidence it works for this codebase.
+  #
+  # ⚠ If middleware is ever re-enabled, this must go back to `--webpack` (and the
+  # OOM problem returns) unless the adapter has gained Turbopack support by then.
+  command = "next build"
   # The Next.js runtime plugin manages the real publish output; this is the
   # conventional value and the plugin overrides it as needed.
   publish = ".next"
