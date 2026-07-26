@@ -10,17 +10,19 @@ import { requireMfaForMutation } from "./mfa";
 import { verifyUserForPromotion } from "@/modules/auth/trust-tier";
 
 /**
- * Set a user's role flags.
+ * Set a user's role flags. Owner-only — `manage_roles` is owner-reserved.
  *
- * Owner grants any flag. A non-owner admin may only toggle
- * `is_advocate_leader` — the admin tier is owner-controlled.
+ * Why role changes stopped being an admin power: `is_admin` was
+ * admin-grantable, so the admin tier self-replicated with no owner
+ * involvement (an admin could promote an alt account) and one admin could
+ * unilaterally demote every other admin. Admin carries master-edit, the AI
+ * editor, cron triggers, and support tooling — that boundary belongs to the
+ * owner alone.
  *
- * Why: `is_admin` used to be admin-grantable, which let the admin tier
- * self-replicate with no owner involvement (an admin could promote an alt
- * account) and let one admin unilaterally demote every other admin. Admin
- * carries master-edit, the AI editor, cron triggers, and support tooling —
- * that trust boundary belongs to the owner alone. Promote to Advocate
- * Leader instead; ask the owner for admin.
+ * Note this also means admins no longer promote Advocate Leaders. That is
+ * deliberate: role assignment is now one owner decision, and the granular
+ * matrix (/admin/users/[id]/permissions) is how capability gets delegated
+ * without handing over a role.
  */
 export async function setUserRoles(input: {
   userId: string;
@@ -28,8 +30,10 @@ export async function setUserRoles(input: {
   isLeader: boolean;
   isOwner?: boolean; // owner-only — ignored for non-owner callers
 }) {
-  const ctx = await getAdminContext();
-  if (!ctx.ok) return { error: "Admin only." };
+  const ctx = await getAdminContext({ require: "manage_roles" });
+  if (!ctx.ok) {
+    return { error: "Owner only — role changes are not delegable. Use the permissions matrix to grant a specific capability instead." };
+  }
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
   if (!input.userId) return { error: "Missing user id." };
@@ -56,16 +60,12 @@ export async function setUserRoles(input: {
     .eq("id", input.userId)
     .single();
 
-  // Owner-only trust boundary: only the owner may grant OR revoke admin.
-  // Checked against the CURRENT value so a non-owner admin saving an
-  // unrelated change (e.g. flipping Leader) on an existing admin's row
-  // still succeeds — we only block an actual is_admin transition.
+  // Belt-and-braces on the trust boundary. `manage_roles` is owner-reserved so
+  // ctx.isOwner is necessarily true here — but this is the single mutation that
+  // can mint another admin, and it costs one comparison to make that
+  // independent of the catalog staying correct.
   if (!ctx.isOwner && !!input.isAdmin !== !!prev?.is_admin) {
-    return {
-      error: !!input.isAdmin
-        ? "Only the owner can grant the Admin role. You can promote to Advocate Leader."
-        : "Only the owner can revoke the Admin role.",
-    };
+    return { error: "Only the owner can grant or revoke the Admin role." };
   }
 
   // Set leader_tour_pending = true ONLY when leader transitions to true.
@@ -159,7 +159,7 @@ export async function setUserRoles(input: {
  * "Send password reset" on /admin/users and the email goes out.
  */
 export async function sendPasswordResetForUser(input: { userId: string }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "send_password_reset" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!input.userId) return { error: "Missing user id." };
 
@@ -255,7 +255,7 @@ export async function sendPasswordResetForUser(input: { userId: string }) {
  * original link expired). Less destructive than password reset.
  */
 export async function sendMagicLinkForUser(input: { userId: string }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "send_magic_link" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!input.userId) return { error: "Missing user id." };
 
@@ -336,7 +336,7 @@ export async function sendMagicLinkForUser(input: { userId: string }) {
 export async function generateTempPassword(input: { userId: string }): Promise<
   { ok: true; tempPassword: string; email: string } | { error: string }
 > {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "issue_temp_password" });
   if (!ctx.ok) return { error: "Admin only." };
   // No MFA-for-mutation gate here. This is a customer-support action
   // used precisely when an admin is helping a locked-out user, often
@@ -483,7 +483,7 @@ function generateReadableTempPassword(len: number): string {
  * proceed. Owner can unlock by calling with locked=false.
  */
 export async function setAccountLocked(input: { userId: string; locked: boolean; reason?: string }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "lock_accounts" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!ctx.isOwner) return { error: "Owner only." };
   if (!input.userId) return { error: "Missing user id." };

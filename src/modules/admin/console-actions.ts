@@ -67,7 +67,7 @@ export async function runSqlQuery(input: {
   query: string;
   acknowledge?: boolean;
 }): Promise<SqlResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_sql" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
   // Break-glass OWNER tool: admin_exec_sql is SECURITY DEFINER and bypasses RLS,
   // so a non-owner admin could otherwise read auth.users (emails + bcrypt
@@ -159,7 +159,7 @@ const CRON_ENDPOINTS = ["daily-sync", "fire-waves", "reverify-local-officials"] 
 type CronEndpoint = typeof CRON_ENDPOINTS[number];
 
 export async function triggerCron(endpoint: CronEndpoint): Promise<CronTriggerResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "sync_legislators" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   if (!CRON_ENDPOINTS.includes(endpoint)) {
@@ -211,7 +211,7 @@ export type WorkflowDispatchResult =
 export async function dispatchWorkflow(
   workflowFile: string,
 ): Promise<WorkflowDispatchResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "dispatch_workflows" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
   // Owner-only: a dispatched run executes repo code on a runner carrying
   // SUPABASE_SERVICE_ROLE_KEY and the other pipeline secrets, and several
@@ -298,7 +298,7 @@ export type CacheResult =
   | { ok: false; error: string };
 
 export async function flushCacheTag(tag: CacheTag): Promise<CacheResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_ops_console" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   if (!KNOWN_TAGS.includes(tag)) {

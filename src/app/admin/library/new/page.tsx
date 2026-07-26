@@ -14,7 +14,7 @@ export const metadata = { title: "Add to library" };
  * full form at /admin/library/new/manual.
  */
 export default async function NewLibraryItemLanding() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_library" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (

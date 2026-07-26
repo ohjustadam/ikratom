@@ -6,7 +6,7 @@ import { AnnouncementsPanel } from "./AnnouncementsPanel";
 export const metadata = { title: "Announcements" };
 
 export default async function AdminAnnouncementsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "send_announcements" });
   if (!ctx.ok) redirect("/dashboard");
 
   const r = await listAllAnnouncements();

@@ -166,20 +166,28 @@ export function UserRolesRow({
       </td>
       <td className="p-3">
         <div className="flex justify-center gap-2 text-xs">
+          {/* Role assignment is owner-reserved end to end (`manage_roles`).
+              Render every toggle read-only for anyone else rather than
+              offering a control whose save is guaranteed to be rejected —
+              capability is delegated through the permissions matrix now, not
+              by handing out roles. */}
           {callerIsOwner && (
             <Toggle label="Owner" checked={isOwner} onChange={setIsOwner} disabled={isSelf} />
           )}
-          {/* Admin is an owner-controlled tier (server enforces it in
-              setUserRoles); render it read-only for non-owner admins so the
-              toggle can't be flipped into a guaranteed server rejection. */}
           <Toggle
             label="Admin"
             checked={isAdmin}
             onChange={setIsAdmin}
             disabled={!callerIsOwner || (isSelf && !isOwner)}
-            title={!callerIsOwner ? "Only the owner can change the Admin role" : undefined}
+            title={!callerIsOwner ? "Only the owner can change roles" : undefined}
           />
-          <Toggle label="Leader" checked={isLeader} onChange={setIsLeader} />
+          <Toggle
+            label="Leader"
+            checked={isLeader}
+            onChange={setIsLeader}
+            disabled={!callerIsOwner}
+            title={!callerIsOwner ? "Only the owner can change roles" : undefined}
+          />
         </div>
       </td>
       <td className="p-3">

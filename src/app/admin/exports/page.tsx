@@ -11,7 +11,7 @@ const EXPORTS = [
 ] as const;
 
 export default async function ExportsPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "view_admin_dashboard" });
   if (!ctx.ok) redirect("/dashboard");
 
   // The advocates dump is owner-tier (see the route). Hide it outright for

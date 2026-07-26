@@ -38,11 +38,25 @@ const CONSOLE_ACTIONS = "src/modules/admin/console-actions.ts";
 const EXPORTS_ROUTE = "src/app/api/admin/exports/route.ts";
 
 describe("admin privilege gates", () => {
-  it("setUserRoles blocks non-owners from changing is_admin", () => {
+  it("setUserRoles is owner-reserved and keeps its is_admin backstop", () => {
     const body = functionBody(USER_ACTIONS, "setUserRoles");
-    // Guards on an is_admin *transition* (compared against current value),
-    // so a non-owner can still toggle Leader on an existing admin's row.
+    // Primary gate: manage_roles is an ownerOnly key, so this resolves to owner.
+    expect(body).toMatch(/getAdminContext\(\{\s*require:\s*"manage_roles"\s*\}\)/);
+    // Backstop that survives a catalog mistake.
     expect(body).toMatch(/!ctx\.isOwner\s*&&\s*!!input\.isAdmin\s*!==\s*!!prev\?\.is_admin/);
+  });
+
+  it("the owner-reserved actions each require their owner-only permission", () => {
+    const expected: [string, string, string][] = [
+      [USER_ACTIONS, "setAccountLocked", "lock_accounts"],
+      [CONSOLE_ACTIONS, "runSqlQuery", "run_sql"],
+      [CONSOLE_ACTIONS, "dispatchWorkflow", "dispatch_workflows"],
+    ];
+    for (const [file, fn, perm] of expected) {
+      expect(functionBody(file, fn), `${fn} must require "${perm}"`).toMatch(
+        new RegExp(`require:\\s*"${perm}"`),
+      );
+    }
   });
 
   it("generateTempPassword refuses admin AND owner targets for non-owner callers", () => {

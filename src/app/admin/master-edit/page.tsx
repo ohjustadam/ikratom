@@ -11,7 +11,7 @@ export const metadata = { title: "Master edit" };
  * the client gets a plain JSON descriptor, never the engine.
  */
 export default async function MasterEditPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_master_edit" });
   if (!ctx.ok) redirect("/dashboard");
 
   const meta: TypeMeta[] = Object.entries(ENTITIES).map(([type, def]) => ({

@@ -24,7 +24,7 @@ export default async function FalsePositivesPage({
 }: {
   searchParams?: Promise<{ q?: string; page?: string }>;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sp = (await searchParams) ?? {};

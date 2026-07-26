@@ -38,7 +38,7 @@ type Tip = {
 };
 
 export default async function IntelQueuePage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) redirect("/dashboard");
   const tips = (await listPendingIntelTips()) as unknown as Tip[];
 
