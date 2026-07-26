@@ -1,0 +1,50 @@
+# Netlify build config for iKratom (Next.js 16).
+#
+# Added 2026-07-23 for the migration off Vercel (which soft-blocked the account
+# on Fluid CPU — see private/GO_LIVE_NETLIFY.md). Netlify officially supports
+# Next 16 via the OpenNext adapter with zero config; this file just pins the
+# node version and build command so builds are reproducible, and declares the
+# adapter explicitly rather than relying on auto-detection.
+#
+# This file is inert on Vercel (Vercel reads vercel.json), so committing it does
+# not affect the current deployment.
+
+[build]
+  # --webpack is REQUIRED here. next build defaults to Turbopack in Next 16, and
+  # the Netlify adapter compiles proxy.ts (middleware) into an Edge Function via
+  # Deno/esbuild — which cannot resolve Turbopack's runtime chunks
+  # ("Cannot find module './chunks/[turbopack]_runtime.js'", the first deploy's
+  # failure). Webpack-compiled middleware bundles cleanly. Local `npm run build`
+  # (Turbopack) stays fast for dev; only the Netlify production build forces
+  # Webpack.
+  # `npm run verify &&` is a DEPLOY GATE, not a nicety. Netlify's build runs
+  # INDEPENDENTLY of GitHub Actions CI — they race in parallel on every push to
+  # main, so a red CI run cannot by itself stop a deploy. Running typecheck +
+  # the 899-test suite here means a failing build never publishes, regardless of
+  # what GitHub does or whether branch protection is ever bypassed. Convenience
+  # (auto-deploy on push) must not cost correctness; this is what buys both.
+  # Costs ~15s of build time. Layer 1 is branch protection on main; layer 3 is
+  # the post-deploy smoke test in the hourly watchdog.
+  command = "npm run verify && next build --webpack"
+  # The Next.js runtime plugin manages the real publish output; this is the
+  # conventional value and the plugin overrides it as needed.
+  publish = ".next"
+
+[build.environment]
+  # Match CI + the app's engines expectation.
+  NODE_VERSION = "22"
+  # Belt-and-suspenders: the same stub that lets prerender construct the
+  # service-role client at BUILD time without the real key (the real key is a
+  # Netlify env var used at RUNTIME). Mirrors .github/workflows/ci.yml. Netlify
+  # env vars set in the dashboard/API OVERRIDE this block, so production builds
+  # still use the genuine values.
+  SUPABASE_SERVICE_ROLE_KEY = "stub-service-role-key"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# NOTE — crons: vercel.json's two cron jobs (/api/cron/daily-sync,
+# /api/cron/reverify-local-officials) are Vercel-only and will NOT run on
+# Netlify. Coverage plan in private/GO_LIVE_NETLIFY.md — the fix is to add two
+# curl steps to .github/workflows/cron-daily.yml (host-independent), since the
+# GitHub Actions crons already carry the rest of the pipeline.

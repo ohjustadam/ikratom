@@ -285,6 +285,30 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Check hosting health (Netlify meters + Vercel spare + live site)
+        # The HOSTING failsafe (2026-07-22 incident: account soft-blocked on
+        # Fluid CPU, site served 402 for ~18h, nothing watching). Checks:
+        #   - NETLIFY (the live host since 2026-07-26): usages_exceeded +
+        #     bandwidth vs the 100GB free budget, warning at 75%. Netlify has
+        #     block_builds_when_usage_exceeded=true, so a blown meter stops
+        #     deploys the same way Vercel's block stopped serving.
+        #   - VERCEL (cold spare): reported, escalated only if HOST_PLATFORM=vercel.
+        #   - A synthetic GET of the real public URL — cause-agnostic, and the
+        #     only check that survives a host migration without an edit.
+        # continue-on-error so an API hiccup can't starve the staleness check
+        # below, which is the older and broader watchdog.
+        continue-on-error: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          APP_URL: ${{ secrets.APP_URL }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node scripts/check-vercel-usage.mjs
+
       - name: Check cron staleness (self-monitoring)
         # Compares cron-registry expected cadences against scraper_runs.finished_at;
         # web-pushes the owner once per silent period (cron_staleness_alerts) and

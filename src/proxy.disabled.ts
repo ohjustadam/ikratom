@@ -3,6 +3,30 @@ import { createServerClient } from "@supabase/ssr";
 import { buildCsp } from "@/lib/csp";
 
 /**
+ * ⚠️ DISABLED 2026-07-26 for the Netlify migration (renamed from src/proxy.ts →
+ * src/proxy.disabled.ts, so Next no longer treats it as middleware).
+ *
+ * WHY: Netlify's @netlify/plugin-nextjs (v5.15.12, latest) bundles Next 16
+ * middleware into a Deno/esbuild Edge Function, and cannot resolve the external
+ * runtime chunk Next 16 emits for it ("Cannot find module ./webpack-runtime.js"
+ * — and ./chunks/[turbopack]_runtime.js under Turbopack). Per Netlify support,
+ * there is no way to disable edge-middleware handling. This is the "version
+ * trap" (Next 16 proxy architecture vs the current adapters) — Cloudflare's
+ * adapter has the same issue. It works natively on Vercel.
+ *
+ * WHAT WE DIDN'T LOSE: the security headers + CSP live in next.config.ts
+ * headers() already (enforced, all paths) — this file only sent a redundant
+ * REPORT-ONLY CSP. Bot-blocking moved to Cloudflare Bot Fight Mode (stronger).
+ * Supabase session refresh is covered by the browser SDK's auto-refresh.
+ *
+ * STILL TO RESTORE (post-go-live, tracked in private/GO_LIVE_NETLIFY.md):
+ *   - the account-lock / force-password-change REDIRECT (data is still
+ *     RLS/server-protected meanwhile; this was the UX bounce to /locked)
+ *   - the embed-referral / invite / landing-state cookie capture (attribution)
+ * Restore path: re-relocate those into a route handler or the app shell, OR —
+ * if we return to Vercel — rename this file back to src/proxy.ts.
+ *
+ * Original doc:
  * Next.js 16 proxy (replaces middleware.ts).
  * Refreshes the Supabase auth cookie on every request and gates protected routes.
  */

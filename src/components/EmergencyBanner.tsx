@@ -1,11 +1,17 @@
-import { getEmergencyConfig } from "@/modules/admin/emergency-actions";
+import { getPublicEmergencyBanner } from "@/lib/emergency-banner";
 
 /**
- * Site-wide emergency banner — server component, runs on every page render.
+ * Site-wide emergency banner — server component, renders in the ROOT layout.
  * Renders nothing when emergency_mode is off.
+ *
+ * Reads through the COOKIELESS cached helper (`lib/emergency-banner.ts`), not
+ * `getEmergencyConfig()`. The banner is identical for every visitor, so a
+ * session-bound read bought nothing — and because this renders in the root
+ * layout, that one cookie read opted EVERY route in the app out of static
+ * generation. Do not point this back at the cookie client.
  */
 export async function EmergencyBanner() {
-  const config = await getEmergencyConfig();
+  const config = await getPublicEmergencyBanner();
   if (!config.emergencyMode || !config.title) return null;
 
   const severity = config.severity;

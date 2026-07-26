@@ -1,0 +1,94 @@
+name: Rescue console
+
+# Diagnose iKratom from a PHONE BROWSER when the site is down and you have no
+# laptop and no Claude.
+#
+# Actions tab -> "Rescue console" -> "Run workflow" -> Run.
+#
+# This exists because the 2026-07-22 outage ran ~18h with no way to answer "why
+# is my site down": the AI Editor-in-Chief lives inside /admin, so when the site
+# is down the tool for fixing it is down too. This runs on GitHub's infra
+# instead, against the platform APIs directly — so it works precisely when
+# nothing else does. Free on public repos.
+#
+# The transcript prints to the run log. NOTE: this repo is PUBLIC, so run logs
+# are world-readable — scripts/rescue.mjs is read-only and prints no secret
+# values, and it must stay that way.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "What to do"
+        type: choice
+        required: true
+        default: diagnose
+        options:
+          - diagnose
+      json:
+        description: "Machine-readable JSON output"
+        type: boolean
+        required: false
+        default: false
+
+# Never let two rescue runs overlap — when things are broken you want one
+# clear answer, not an interleaved log.
+concurrency:
+  group: rescue-console
+  cancel-in-progress: false
+
+jobs:
+  rescue:
+    runs-on: ubuntu-latest
+    # Generous vs the ~4s the diagnose actually takes: every probe has its own
+    # 25s timeout, so this only trips if the runner itself is wedged.
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: Diagnose
+        # continue-on-error because rescue.mjs deliberately exits non-zero when
+        # the SITE IS DOWN — which is the normal case for running this. A red X
+        # on the job would hide the diagnosis we came for. The summary step
+        # below reports the real state.
+        continue-on-error: true
+        id: diag
+        env:
+          # Vercel + GitHub: name the cause when the cause is the platform.
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Supabase Management API — the door that stays open when the project
+          # gateway is restricted. This is what makes DB probes work in an outage.
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          set +e
+          if [ "${{ inputs.json }}" = "true" ]; then
+            node scripts/rescue.mjs --diagnose --json | tee rescue-output.txt
+          else
+            node scripts/rescue.mjs --diagnose | tee rescue-output.txt
+          fi
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to job summary
+        # The summary renders on the run page itself — readable on a phone
+        # without opening raw logs, which is the entire point of this workflow.
+        if: always()
+        run: |
+          {
+            echo "## iKratom rescue — diagnose"
+            echo ""
+            echo '```'
+            cat rescue-output.txt 2>/dev/null || echo "(no output captured)"
+            echo '```'
+            echo ""
+            echo "_Read-only. Nothing was changed._"
+          } >> "$GITHUB_STEP_SUMMARY"

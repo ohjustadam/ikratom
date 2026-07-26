@@ -7,6 +7,12 @@ export const metadata = {
   description: "Substance-policy bills we track, grouped by topic: kratom, cannabis, hemp/CBD, psychedelics, dietary supplements, tobacco/vaping, alcohol.",
 };
 
+// Held at force-dynamic (2026-07-23). Viewer-independent, so it SHOULD be
+// static — but it reads the DB via getTopicCounts(), and going static moves
+// that fetch into BUILD time where no secrets exist. /banned failed exactly
+// this way in CI. getTopicCounts hasn't been confirmed to fail soft on a
+// missing key (unlike getContent, which returns a fallback), so this stays
+// dynamic until that's verified rather than gambling on a red build.
 export const dynamic = "force-dynamic";
 
 export default async function TopicsPage() {

@@ -28,6 +28,13 @@ export const REGISTRY = [
       // previously wrote no telemetry — a silent death was undetectable.
       "fire_custom_reminders",
       "extract_bills_from_alerts",
+      // Registered 2026-07-22: the HOSTING failsafe. check-egress-usage watched
+      // Supabase bandwidth and reported "healthy" while Vercel's CPU meter sat
+      // at 301% and the site served 402 for ~18h. This one checks the live URL
+      // itself, so it catches causes we haven't instrumented — including the
+      // next unknown one. Hourly because an outage found a day later is an
+      // outage nobody caught.
+      "vercel_watchdog",
      ].map((source) => ({ source, interval_hours: 4, system: "gh-hourly", cadence: "every-2h" })),
 
   // daily
@@ -92,8 +99,17 @@ export const REGISTRY = [
      ].map((source) => ({ source, interval_hours: 216, system: "gh-weekly", cadence: "weekly" })),
 
   // vercel (different system, but still monitorable)
-  { source: "vercel_daily_sync", interval_hours: 36, system: "vercel", cadence: "daily" },
-  { source: "reverify_local_officials", interval_hours: 36, system: "vercel", cadence: "daily" },
+  // Re-homed 2026-07-26 (Vercel → Netlify migration): declared in vercel.json
+  // "crons", which only Vercel ran. Now an HTTP step in cron-daily.yml. The
+  // source string is unchanged (the route writes it); only the system label
+  // moved — mislabelling would send a future debugger to the wrong platform.
+  { source: "reverify_local_officials", interval_hours: 36, system: "gh-daily", cadence: "daily" },
+  // `vercel_daily_sync` REMOVED 2026-07-26 — deliberately no longer invoked.
+  // /api/cron/daily-sync can't finish inside Netlify's 30s function budget
+  // (verified: 502), and its work is already done by sync-news-rss.mjs +
+  // sync-bills*.mjs as node scripts. Keeping it registered would make the
+  // self-pager cry wolf forever about a source nothing writes — exactly the
+  // "phantom source" class this registry + its CI guard exist to prevent.
 
   // Long-tail officials drain (GHA q6h + owner-box nightly fallback).
   { source: "auto_fulfill_local_reps", interval_hours: 12, system: "github-actions", cadence: "daily" },

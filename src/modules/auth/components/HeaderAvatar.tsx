@@ -1,9 +1,13 @@
+"use client";
+
 /**
  * HeaderAvatar — user's pic + username, surfaced in the top action
  * bar. On desktop shows avatar circle + @username + dropdown caret.
  * On mobile shows just the avatar (clicks open the menu drawer).
  *
- * Server component — pre-rendered from the user's profile row.
+ * Client component (2026-07-22): purely presentational — it takes its props
+ * from HeaderAuth, which now reads /api/me on the client. It never fetched
+ * anything itself, so the conversion is the "use client" line alone.
  */
 import Link from "next/link";
 
