@@ -34,7 +34,7 @@ export type PendingCall = {
 };
 
 export async function listPendingCalls(): Promise<PendingCall[]> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_calls" });
   if (!ctx.ok) return [];
   const sb = await createClient();
   const { data } = await sb
@@ -50,7 +50,7 @@ export async function listPendingCalls(): Promise<PendingCall[]> {
 }
 
 export async function pendingCallCount(): Promise<number> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_calls" });
   if (!ctx.ok) return 0;
   const sb = await createClient();
   const { count } = await sb
@@ -65,7 +65,7 @@ export async function setCallModeration(input: {
   action: "approve" | "reject";
   note?: string;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_calls" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!/^[0-9a-f-]{36}$/i.test(input.id)) return { error: "Invalid id." };
   if (input.action !== "approve" && input.action !== "reject") return { error: "Unknown action." };

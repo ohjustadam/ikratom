@@ -29,7 +29,7 @@ export async function setAcademyStatus(input: {
   id: string;
   status: "draft" | "published";
 }): Promise<{ ok: boolean; error?: string }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
   const table = TABLE[input.kind];
   if (!table || !UUID_RE.test(input.id) || !["draft", "published"].includes(input.status)) {
@@ -49,7 +49,7 @@ export async function setCourseTreeStatus(input: {
   courseId: string;
   status: "draft" | "published";
 }): Promise<{ ok: boolean; error?: string }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
   if (!UUID_RE.test(input.courseId) || !["draft", "published"].includes(input.status)) {
     return { ok: false, error: "Invalid request." };
@@ -73,7 +73,7 @@ export async function updateLesson(input: {
   body_md: string;
   citations: { n?: number; label: string; url: string }[];
 }): Promise<{ ok: boolean; error?: string }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
   if (!UUID_RE.test(input.id)) return { ok: false, error: "Invalid lesson." };
   const sb = await createClient();
@@ -95,7 +95,7 @@ export async function updateQuestion(input: {
   correctIndex: number;
   explanation: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
   if (!UUID_RE.test(input.id)) return { ok: false, error: "Invalid question." };
   if (!Array.isArray(input.choices) || input.choices.length < 2) return { ok: false, error: "Need at least 2 choices." };

@@ -60,7 +60,7 @@ export async function previewSuggestions(input: {
   locality: string;
   level: "municipal" | "county";
 }): Promise<PreviewSuggestionsResult> {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) return { ok: false, error: "Sign in as an admin or advocate leader." };
 
   const stateRaw = input.state.trim().toUpperCase();
@@ -151,7 +151,7 @@ export async function acceptSelectedOfficials(input: {
   officials: Array<SuggestedOfficial & { tier: "verified" | "tentative" | "rejected"; verifier_note?: string }>;
   sources: string[];
 }): Promise<AcceptSelectedResult> {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) return { ok: false, error: "Sign in as an admin or advocate leader." };
 
   const stateRaw = input.state.trim().toUpperCase();

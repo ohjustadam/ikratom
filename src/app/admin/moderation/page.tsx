@@ -33,7 +33,7 @@ const QUEUES: { kind: QueueKind; title: string; blurb: string; href: string }[] 
 ];
 
 export default async function ModerationPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_forum" });
   if (!ctx.ok) redirect("/dashboard");
   const counts = await queueCounts();
   const countOf = (k: QueueKind) => (k === "campaigns" ? counts.campaigns : counts.intel);

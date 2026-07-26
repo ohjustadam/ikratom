@@ -18,7 +18,7 @@ import { ResolveQueueButton } from "./ResolveQueueButton";
 export const metadata = { title: "Local rep requests" };
 
 export default async function LocalRepRequestsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "review_local_rep_requests" });
   if (!ctx.ok) redirect("/dashboard");
 
   const r = await listPendingCoverageRequests();

@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  *   - Env-var sanity (owner-only; names only, never values)
  */
 export default async function DiagnosticsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) redirect("/dashboard");
 
   // Pull the list of Discord integrations so we can render per-row test buttons.

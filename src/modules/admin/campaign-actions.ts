@@ -108,7 +108,7 @@ async function screenForReview(
 }
 
 export async function createCampaign(formData: FormData): Promise<CampaignFormResult> {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_campaigns" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
   // MFA mandatory for leader authoring (PR4); admins/owner keep the soft gate.
   const mfaErr = ctx.isLeader && !ctx.isAdmin && !ctx.isOwner
@@ -162,7 +162,7 @@ export async function updateCampaign(
   id: string,
   formData: FormData
 ): Promise<CampaignFormResult> {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_campaigns" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
   // MFA mandatory for leader authoring (PR4); admins/owner keep the soft gate.
   const mfaErr = ctx.isLeader && !ctx.isAdmin && !ctx.isOwner
@@ -228,7 +228,7 @@ export async function updateCampaign(
 }
 
 export async function setCampaignActive(id: string, active: boolean) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_campaigns" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
