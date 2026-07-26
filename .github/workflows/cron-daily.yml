@@ -17,6 +17,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  vercel-migrated-crons:
+    # MIGRATED OFF VERCEL 2026-07-26. These were declared in vercel.json's
+    # "crons" block, which ONLY Vercel executes — after the move to Netlify
+    # (which has no cron primitive) they would have silently stopped running
+    # forever. Re-homed here as an authenticated HTTP call, host-independent:
+    # it hits whatever APP_URL points at, so a future host move needs no edit.
+    #
+    # ONLY reverify-local-officials is called here. `/api/cron/daily-sync` was
+    # DELIBERATELY NOT migrated, for two independent reasons:
+    #   1. It CANNOT complete on Netlify — verified live: the function is killed
+    #      at exactly 30s and returns 502. Its work (Google News RSS for every
+    #      state + OpenStates bills for every state) takes minutes, not seconds.
+    #   2. It is REDUNDANT anyway — `sync-news-rss.mjs --max-minutes 14`
+    #      (cron-hourly) and `sync-bills.mjs --max-minutes 18` +
+    #      `sync-bills-via-legiscan.mjs` (this workflow) already do that work as
+    #      node scripts, with minutes of runway instead of a 30s HTTP budget.
+    # The HTTP route was a Vercel-era convenience that the script pipeline
+    # outgrew. Leaving it uncalled loses nothing. (Route left in the codebase —
+    # it still works on a long-timeout host if we ever go back.)
+    #
+    # Verified live 2026-07-26: reverify returns 200 in ~7.6s with real stats.
+    # continue-on-error so a slow endpoint can't take down the daily fan-out —
+    # the route writes its own scraper_runs telemetry, so genuine failures
+    # surface through the staleness watchdog, not a red workflow badge.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Hit /api/cron/reverify-local-officials
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
+            echo "::error::Missing CRON_SECRET or APP_URL repo secret"
+            exit 1
+          fi
+          # A browser-ish UA keeps Cloudflare's Bot Fight Mode (enabled
+          # 2026-07-26) from challenging our own origin call.
+          curl -fsS --max-time 600 \
+            -A "iKratom-Cron/1.0 (+https://www.ikratom.org; Mozilla/5.0 compatible)" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/reverify-local-officials"
+
   egress-watchdog:
     # The "never restricted again" failsafe (2026-07-16 incident): reads the
     # project's Prometheus metrics endpoint and pages the owner at 50/75/90%
