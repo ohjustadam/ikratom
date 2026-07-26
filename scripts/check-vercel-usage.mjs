@@ -105,6 +105,52 @@ if (!VERCEL_TOKEN) {
   } catch (e) { console.log(`vercel /v2/teams failed: ${e.message}`); }
 }
 
+// ── 2b. NETLIFY meters — the live host since 2026-07-26 ──────────────────────
+// The whole lesson of the Vercel outage was "a meter nobody watched killed the
+// site." Moving hosts does not solve that; it just changes which meters matter.
+// Netlify free has its own ceilings (bandwidth, build minutes, function
+// invocations) and `block_builds_when_usage_exceeded` is TRUE on this account —
+// so blowing a limit stops deploys, exactly like Vercel's block stopped serving.
+// Watch them from day one instead of discovering them the hard way.
+const NETLIFY_TOKEN = process.env.NETLIFY_AUTH_TOKEN;
+const NETLIFY_ACCOUNT = process.env.NETLIFY_ACCOUNT_SLUG || "ohjustadam";
+if (!NETLIFY_TOKEN) {
+  console.log("NETLIFY_AUTH_TOKEN not set — skipping Netlify meter checks");
+} else {
+  const nh = { Authorization: `Bearer ${NETLIFY_TOKEN}` };
+  try {
+    const aRes = await fetch(`https://api.netlify.com/api/v1/accounts/${NETLIFY_ACCOUNT}`, { headers: nh });
+    if (aRes.ok) {
+      const acct = await aRes.json();
+      // Netlify's OWN authoritative "you are over" list. Non-empty = builds
+      // and/or serving are at risk right now.
+      const exceeded = acct.usages_exceeded ?? [];
+      if (Array.isArray(exceeded) && exceeded.length) {
+        problems.push(`Netlify USAGE EXCEEDED: ${exceeded.join(", ")} — builds may be blocked`);
+      }
+      console.log(`netlify usages_exceeded = ${JSON.stringify(exceeded)}`);
+    } else {
+      console.log(`netlify /accounts → ${aRes.status}`);
+    }
+  } catch (e) { console.log(`netlify account check failed: ${e.message}`); }
+
+  try {
+    const bRes = await fetch(`https://api.netlify.com/api/v1/accounts/${NETLIFY_ACCOUNT}/bandwidth`, { headers: nh });
+    if (bRes.ok) {
+      const bw = await bRes.json();
+      const usedGb = (bw.used ?? 0) / 1e9;
+      // Free tier is 100 GB/mo. `included` comes back null on free, so budget
+      // from the documented figure rather than trusting a null.
+      const budgetGb = (bw.included ? bw.included / 1e9 : 100);
+      const pct = (usedGb / budgetGb) * 100;
+      // Warn EARLY. The Vercel lesson: by the time you're at 100% you're already
+      // down, and on a monthly meter there is no way to un-spend usage.
+      if (pct >= 75) problems.push(`Netlify bandwidth ${usedGb.toFixed(1)}GB / ${budgetGb}GB (${pct.toFixed(0)}%) this cycle`);
+      console.log(`netlify bandwidth = ${usedGb.toFixed(2)}GB / ${budgetGb}GB (${pct.toFixed(1)}%) · resets ${String(bw.period_end_date ?? "").slice(0, 10)}`);
+    }
+  } catch (e) { console.log(`netlify bandwidth check failed: ${e.message}`); }
+}
+
 // ── 3. Synthetic site check — the cause-agnostic one ─────────────────────────
 let siteStatus = 0;
 let siteErr = "";
