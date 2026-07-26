@@ -60,6 +60,16 @@ const sb = createClient(URL_SB, KEY, { auth: { persistSession: false } });
 const problems = [];
 let vercelChecked = false;
 
+// Which platform actually SERVES production. Since 2026-07-26 that's Netlify;
+// Vercel is a paused cold spare. This matters because Vercel's account is still
+// soft-blocked and always will be until its cycle resets — if we kept counting
+// that as a "problem" this watchdog would page the owner every 6h forever about
+// a platform we don't use. Classic cry-wolf, and cry-wolf is how a real alert
+// gets ignored. Vercel state is still REPORTED (useful if we ever fail back),
+// just not escalated unless Vercel is the live host.
+const HOST_PLATFORM = (process.env.HOST_PLATFORM || "netlify").toLowerCase();
+const vercelIsLive = HOST_PLATFORM === "vercel";
+
 // ── 1 + 2. Vercel account / team state ───────────────────────────────────────
 if (!VERCEL_TOKEN) {
   console.log("VERCEL_TOKEN not set — skipping Vercel API checks (site check still runs)");
@@ -70,7 +80,7 @@ if (!VERCEL_TOKEN) {
     if (uRes.ok) {
       vercelChecked = true;
       const { user } = await uRes.json();
-      if (user?.limited) problems.push("Vercel account is LIMITED (usage cap hit)");
+      if (user?.limited && vercelIsLive) problems.push("Vercel account is LIMITED (usage cap hit)");
       console.log(`vercel user.limited = ${!!user?.limited}`);
     } else {
       console.log(`vercel /v2/user → ${uRes.status}`);
@@ -83,11 +93,11 @@ if (!VERCEL_TOKEN) {
       vercelChecked = true;
       const team = await tRes.json();
       const sbk = team?.softBlock;
-      if (sbk) {
+      if (sbk && vercelIsLive) {
         const when = sbk.blockedAt ? new Date(sbk.blockedAt).toISOString().slice(0, 16).replace("T", " ") : "unknown";
         problems.push(`Vercel SOFT-BLOCK: ${sbk.reason} on ${sbk.blockedDueToOverageType ?? "unknown resource"} (since ${when} UTC)`);
       }
-      if (team?.blocked) problems.push("Vercel team is BLOCKED");
+      if (team?.blocked && vercelIsLive) problems.push("Vercel team is BLOCKED");
       console.log(`vercel team.softBlock = ${sbk ? sbk.reason : "none"}`);
     } else {
       console.log(`vercel /v2/teams → ${tRes.status}`);
