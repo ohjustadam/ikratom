@@ -122,7 +122,7 @@ log("\n=== 3. AUTH SURFACE ===");
   // Markers that indicate REAL protected DATA reached the caller — deliberately
   // NOT generic chrome words ("sign out", "your account") which appear in the
   // shell of every page and produced false criticals on the first run.
-  const SENSITIVE = /moderation queue|intel queue|promote to admin|service_role|@[a-z0-9_]{3,}.*(admin|owner)|[a-z0-9._%+-]+@[a-z0-9.-]+.(com|org|net)/i;|intel queue|promote to admin|demote|service[_ ]role|audit log|user list|sign out|your account|unread/i;
+  const SENSITIVE = /moderation queue|intel queue|promote to admin|service_role|[a-z0-9._%+-]+@[a-z0-9.-]+.(com|org|net)/i;
   for (const p of ["/admin", "/admin/users", "/admin/console", "/dashboard", "/account", "/messages"]) {
     const r = await get(`${SITE}${p}`);
     const loc = r.headers.get("location") || "";
