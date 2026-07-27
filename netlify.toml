@@ -82,6 +82,38 @@
   # key is present at both build and runtime and the stub is pure harm.
   # CI still stubs it — correct there, since CI must never touch the real DB.
 
+# ORIGIN BYPASS — audit finding 2026-07-26 (MEDIUM).
+#
+# `ikratom.netlify.app` served the entire app publicly, so any request to that
+# hostname skipped Cloudflare completely: Bot Fight Mode, WAF and rate limiting
+# all bypassed. That directly undercut the fix for the outage — the crawler load
+# Bot Fight Mode was turned on to absorb could simply use the origin URL
+# instead.
+#
+# Verified live before this change: the netlify.app host answered 200 with
+# `Server: Netlify` and NO `CF-RAY`, while www.ikratom.org answered with
+# `Server: cloudflare` + a CF-RAY. Netlify did not redirect it automatically
+# even though the custom domain is primary, so the rule has to be explicit.
+#
+# A domain-qualified `from` matches ONLY that exact hostname, so deploy previews
+# (`deploy-preview-N--ikratom.netlify.app`) and branch deploys are unaffected —
+# those must keep serving directly or post-merge verification loses its target.
+#
+# 308, not 301: it preserves method and body, so anything ever pointed at the
+# origin hostname degrades to a working redirect rather than silently becoming a
+# GET.
+#
+# ⚠ This removes the publicly-discoverable bypass; it is NOT origin-level Host
+# enforcement — Netlify still answers to that hostname, it just answers with a
+# redirect. Fully closing it is a dashboard setting (Netlify → Site
+# configuration → Access & security) or Cloudflare Authenticated Origin Pulls.
+# See private/AUDIT_2026-07-26.md.
+[[redirects]]
+  from = "https://ikratom.netlify.app/*"
+  to = "https://www.ikratom.org/:splat"
+  status = 308
+  force = true
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
