@@ -157,7 +157,15 @@ let siteErr = "";
 try {
   const res = await fetch(SITE_URL, {
     redirect: "follow",
-    headers: { "User-Agent": "ikratom-watchdog/1.0 (+https://www.ikratom.org)" },
+    // A browser-shaped UA is REQUIRED since Cloudflare Bot Fight Mode went on
+    // (2026-07-26). The honest "ikratom-watchdog/1.0" UA is bot-shaped by
+    // definition, so Cloudflare 403'd our own monitor and it paged "SITE DOWN"
+    // while the site was perfectly healthy. Our bot protection was blocking our
+    // bot detector. Cry-wolf alerts are how real alerts get ignored, so this
+    // matters more than the cosmetic honesty of the UA string.
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 ikratom-watchdog/1.0",
+    },
     signal: AbortSignal.timeout(25_000),
   });
   siteStatus = res.status;
@@ -165,7 +173,16 @@ try {
     // Vercel names its own failure in this header — surface it verbatim so the
     // push tells the owner WHY, not just that something is wrong.
     const vErr = res.headers.get("x-vercel-error");
-    problems.push(`SITE DOWN: ${SITE_URL} returned ${res.status}${vErr ? ` (${vErr})` : ""}`);
+    // Distinguish "our own edge blocked us" from "the app is broken". A 403
+    // carrying a CF-RAY is Cloudflare refusing the request, NOT an outage —
+    // paging the owner out of bed for that is exactly the failure this
+    // watchdog exists to prevent.
+    const cfBlocked = res.status === 403 && !!res.headers.get("cf-ray");
+    if (cfBlocked) {
+      console.log("site returned 403 from Cloudflare — edge challenge, not an outage; not paging");
+    } else {
+      problems.push(`SITE DOWN: ${SITE_URL} returned ${res.status}${vErr ? ` (${vErr})` : ""}`);
+    }
   }
 } catch (e) {
   siteErr = e.message;
