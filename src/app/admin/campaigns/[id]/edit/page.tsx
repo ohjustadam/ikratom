@@ -11,7 +11,7 @@ export default async function EditCampaignPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_campaigns" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { id } = await params;

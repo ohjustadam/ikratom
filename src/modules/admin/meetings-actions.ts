@@ -13,7 +13,7 @@ const VALID_STATUSES = ["pending_review", "approved", "rejected", "archived"] as
 type Status = (typeof VALID_STATUSES)[number];
 
 export async function listMeetingsForReview() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_meetings" });
   if (!ctx.ok) return [];
   const sb = await createClient();
   const { data } = await sb
@@ -60,7 +60,7 @@ export async function setMeetingAutoApprovePolicy(input: {
   minConfidence: number;
   requireSource: boolean;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_meetings" });
   if (!ctx.ok) return { error: "Admin only." };
 
   // Clamp confidence to a sane band so a fat-fingered value can't either
@@ -102,7 +102,7 @@ export async function setMeetingAutoApprovePolicy(input: {
  * Idempotent — if already broadcast, returns the previous counts.
  */
 export async function broadcastMeeting(input: { id: string; force?: boolean }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_meetings" });
   if (!ctx.ok) return { error: "Admin only." };
 
   const sb = await createClient();
@@ -307,7 +307,7 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
 }
 
 export async function setMeetingStatus(input: { id: string; status: string; note?: string }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_meetings" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!VALID_STATUSES.includes(input.status as Status)) return { error: "Invalid status." };
 

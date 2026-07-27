@@ -5,7 +5,7 @@ import { NewBillForm } from "./NewBillForm";
 export const metadata = { title: "Add a bill (manual)" };
 
 export default async function NewBillPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_bills" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (

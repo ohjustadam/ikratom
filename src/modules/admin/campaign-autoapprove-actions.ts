@@ -85,7 +85,7 @@ export async function setCampaignAutoApprovePolicy(input: {
   maxPerDay: number;
   minAgeHours: number;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "approve_campaigns" });
   if (!ctx.ok) return { error: "Admin only." };
 
   const mode = (["off", "shadow", "live"].includes(input.mode) ? input.mode : "shadow") as
@@ -137,7 +137,7 @@ export async function setCampaignAutoApprovePolicy(input: {
 /** Hard stop: drop the engine back to shadow (keeps logging, stops acting). Any
  *  admin can hit this — it's a safety control, not a dangerous one. */
 export async function emergencyStopCampaignAutoApprove() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "approve_campaigns" });
   if (!ctx.ok) return { error: "Admin only." };
   const sb = await createClient();
   const { error } = await sb
@@ -161,7 +161,7 @@ export async function emergencyStopCampaignAutoApprove() {
 
 /** The shadow/live decision ledger — the owner's evidence base for promotion. */
 export async function listRecentAutoDecisions(limit = 30): Promise<AutoDecisionRow[]> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "approve_campaigns" });
   if (!ctx.ok) return [];
   const sb = await createClient();
   const { data, error } = await sb
@@ -189,7 +189,7 @@ export async function listRecentAutoDecisions(limit = 30): Promise<AutoDecisionR
 /** Re-pend campaigns the engine (or an admin) rejected — the undo for a wrong
  *  auto-reject, reachable from the show_rejected view. */
 export async function reactivateRejectedCampaigns(ids: string[]) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "approve_campaigns" });
   if (!ctx.ok) return { error: "Admin or leader only." };
   const clean = (ids ?? []).filter((s) => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s)).slice(0, 500);
   if (clean.length === 0) return { error: "Nothing selected." };

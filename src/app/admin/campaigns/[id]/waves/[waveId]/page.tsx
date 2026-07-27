@@ -33,7 +33,7 @@ export default async function WaveDetailPage({
 }: {
   params: Promise<{ id: string; waveId: string }>;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_campaigns" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { id: campaignId, waveId } = await params;

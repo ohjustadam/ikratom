@@ -11,9 +11,11 @@ export default async function EditBillPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getCreatorContext();
+  // The old belt-and-braces `!isAdmin && !isOwner` check is now redundant AND
+  // wrong: edit_bills is admin-default, so the require above already excludes
+  // plain leaders — while still admitting a leader the owner granted it to.
+  const ctx = await getCreatorContext({ require: "edit_bills" });
   if (!ctx.ok) redirect("/dashboard");
-  if (!ctx.isAdmin && !ctx.isOwner) redirect("/dashboard");
 
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();

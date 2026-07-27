@@ -10,7 +10,7 @@ export const metadata = { title: "AI Editor-in-Chief" };
  * `adminAiChief` feature flag (flip in site.config.ts to enable) + admin auth.
  */
 export default async function AdminAiEditorPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) redirect("/dashboard");
   if (!siteConfig.features.adminAiChief) redirect("/admin");
 

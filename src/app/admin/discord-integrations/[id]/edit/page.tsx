@@ -10,7 +10,7 @@ export default async function EditDiscordIntegrationPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "manage_discord" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { id } = await params;

@@ -32,7 +32,7 @@ export async function escalateUserErrorToDevs(input: {
   kind: string;
   errorCode: string | null;
 }): Promise<EscalateResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_security_signals" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   const token = process.env.GITHUB_TOKEN;
@@ -150,7 +150,7 @@ export async function dismissUserErrorCluster(input: {
   errorCode: string | null;
   note?: string;
 }): Promise<{ ok: true; updated: number } | { ok: false; error: string }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_security_signals" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   const since24h = new Date(Date.now() - 24 * 3600_000).toISOString();
