@@ -6,6 +6,7 @@ import { HomeMemorialBand } from "@/components/HomeMemorialBand";
 import { HomeLivePulse } from "@/components/HomeLivePulse";
 import { StateLegalMap } from "@/components/StateLegalMap";
 import { HomeOnboarding } from "@/components/HomeOnboarding";
+import { HomeDonateBand } from "@/components/HomeDonateBand";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { getMessages } from "@/i18n/messages";
 
@@ -411,6 +412,12 @@ export default async function HomePage() {
           </div>
         </section>
       )}
+
+      {/* Band 4.5 — Donation ask. After value + proof, before the signup close:
+          a visitor who hasn't seen what the tool does has no reason to fund it,
+          and putting the ask below the final CTA would bury it. Owner can edit
+          or hide it at /admin/content/home.donate.headline. */}
+      <HomeDonateBand />
 
       {/* Band 5 — Soft close (B: warm pitch) */}
       <section className="mt-16 rounded-lg border border-emerald-700/40 bg-emerald-950/15 p-8 text-center">
