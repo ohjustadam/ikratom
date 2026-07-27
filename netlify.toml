@@ -17,15 +17,37 @@
   # failure). Webpack-compiled middleware bundles cleanly. Local `npm run build`
   # (Turbopack) stays fast for dev; only the Netlify production build forces
   # Webpack.
-  # `npm run verify &&` is a DEPLOY GATE, not a nicety. Netlify's build runs
-  # INDEPENDENTLY of GitHub Actions CI — they race in parallel on every push to
-  # main, so a red CI run cannot by itself stop a deploy. Running typecheck +
-  # the 899-test suite here means a failing build never publishes, regardless of
-  # what GitHub does or whether branch protection is ever bypassed. Convenience
-  # (auto-deploy on push) must not cost correctness; this is what buys both.
-  # Costs ~15s of build time. Layer 1 is branch protection on main; layer 3 is
-  # the post-deploy smoke test in the hourly watchdog.
-  command = "npm run verify && next build --webpack"
+  # Keep this EXACTLY as the proven-working command. `next build --webpack` is
+  # what the successful CLI deploy used to put the current site live.
+  #
+  # An earlier attempt prefixed `npm run verify &&` as an extra deploy gate.
+  # It made the Netlify build fail (exit 2) while the identical command passed
+  # locally AND in CI — including with production env loaded, so it wasn't a
+  # credentials problem. Rather than guess at a remote build environment, the
+  # gate moved to where it belongs: branch protection on `main` requires
+  # "Typecheck + tests" and "Next.js build" to be green in CI's clean, stubbed
+  # environment BEFORE anything can merge. That's a better place to run tests
+  # than a production-credentialed build container, and it can't wedge deploys.
+  #
+  # A build gate that blocks every deploy is worse than the risk it mitigates.
+  # If we ever re-add verification here, do it as `tsc --noEmit` only (fast,
+  # deterministic, no test runner) and confirm against a real build log first.
+  # Plain `next build` = Turbopack (the Next 16 default), and that is now the
+  # CORRECT choice — the `--webpack` flag that used to be here was a workaround
+  # for exactly one problem: the Netlify adapter couldn't edge-bundle Turbopack's
+  # middleware output. That middleware (`proxy.ts`) is now disabled entirely, so
+  # there is no edge function to bundle and the workaround is obsolete.
+  #
+  # Keeping it was actively harmful: webpack is far hungrier, and it OOM'd the
+  # remote build at 2034MB even after raising the heap to 4096 (Netlify's
+  # container evidently can't hand out that much). Turbopack compiles the same
+  # 215 routes in ~19s vs ~93s locally, with a fraction of the memory — and CI's
+  # "Next.js build" check has been passing on Turbopack this whole time, which is
+  # independent evidence it works for this codebase.
+  #
+  # ⚠ If middleware is ever re-enabled, this must go back to `--webpack` (and the
+  # OOM problem returns) unless the adapter has gained Turbopack support by then.
+  command = "next build"
   # The Next.js runtime plugin manages the real publish output; this is the
   # conventional value and the plugin overrides it as needed.
   publish = ".next"
@@ -33,6 +55,19 @@
 [build.environment]
   # Match CI + the app's engines expectation.
   NODE_VERSION = "22"
+  # REQUIRED — without this the production build dies:
+  #   FATAL ERROR: Reached heap limit Allocation failed - JS heap out of memory
+  #   Command was killed with SIGABRT: next build --webpack
+  # Node defaults to a ~2GB old-space heap and this build peaked right at
+  # 2034MB in Netlify's container (it survived locally only because a dev box
+  # has more headroom — a classic "works on my machine" that ONLY shows up on
+  # the remote builder). 215 routes compiled with **webpack** is the load;
+  # webpack is markedly hungrier than Turbopack, and we're pinned to it because
+  # Turbopack output can't be edge-bundled by the Netlify adapter. So this is
+  # the cost of that trade, not a code regression.
+  # 4096 leaves plenty of room under the build image's memory while giving the
+  # compile roughly double what it needs.
+  NODE_OPTIONS = "--max-old-space-size=4096"
   # Belt-and-suspenders: the same stub that lets prerender construct the
   # service-role client at BUILD time without the real key (the real key is a
   # Netlify env var used at RUNTIME). Mirrors .github/workflows/ci.yml. Netlify

@@ -10,7 +10,7 @@ const TERMINAL = new Set(["dead", "enacted", "vetoed", "failed", "withdrawn"]);
 const sevRank = (s: string) => ({ critical: 4, alert: 3, watch: 2, routine: 1 }[s] ?? 0);
 
 export default async function AdminCampaignsPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "author_campaigns" });
   if (!ctx.ok) redirect("/dashboard");
 
   const supabase = await createClient();

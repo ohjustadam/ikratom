@@ -46,7 +46,7 @@ type Row = {
  *   green 80%+ · amber 30-80% · red <30% · zinc (n/a, no candidates)
  */
 export default async function StanceCoveragePage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_stance" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sb = await createClient();

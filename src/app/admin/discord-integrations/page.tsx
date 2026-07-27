@@ -13,7 +13,7 @@ import { TestPostButton } from "./TestPostButton";
 export const metadata = { title: "Discord integrations" };
 
 export default async function DiscordIntegrationsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "manage_discord" });
   if (!ctx.ok) redirect("/dashboard");
 
   const r = await listDiscordIntegrations();

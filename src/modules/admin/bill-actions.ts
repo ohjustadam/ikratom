@@ -16,7 +16,7 @@ const VALID_STATUS = ["introduced", "committee", "passed_chamber", "enacted", "d
 const cap = (s: string, n: number) => s.slice(0, n).trim();
 
 export async function createLocalBill(formData: FormData) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_bills" });
   if (!ctx.ok) return { error: "Admin or leader only." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
@@ -129,7 +129,7 @@ export async function updateBill(input: {
   last_action_at?: string;
   source_url?: string;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_bills" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!ctx.isAdmin && !ctx.isOwner) return { error: "Admin only." };
   const mfaErr = requireMfaForMutation(ctx);

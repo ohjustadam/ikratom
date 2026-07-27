@@ -29,7 +29,7 @@ export const metadata = { title: "AI Command Center" };
 export const dynamic = "force-dynamic";
 
 export default async function AiControlPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) redirect("/dashboard");
 
   const [jobsResp, statsResp, providerResp, emailQuotaResp, groundingResp, envResp] = await Promise.all([

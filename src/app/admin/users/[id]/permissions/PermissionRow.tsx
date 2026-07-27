@@ -14,6 +14,8 @@ export function PermissionRow({
   roleDefault,
   effective,
   canEdit,
+  ownerOnly = false,
+  targetIsOwner = false,
 }: {
   userId: string;
   permission: Permission;
@@ -23,6 +25,10 @@ export function PermissionRow({
   roleDefault: boolean;
   effective: boolean;
   canEdit: boolean;
+  /** Owner-reserved — not delegable, so the row renders locked. */
+  ownerOnly?: boolean;
+  /** The user being edited is the owner (denies don't apply to them). */
+  targetIsOwner?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -56,7 +62,13 @@ export function PermissionRow({
   // Source label: what determined the current effective state?
   let sourceLabel: string;
   let sourceCls: string;
-  if (hasOverride && overrideGranted === true) {
+  if (ownerOnly) {
+    sourceLabel = "Owner-reserved";
+    sourceCls = "bg-amber-950/40 text-amber-300";
+  } else if (targetIsOwner) {
+    sourceLabel = "Owner → always granted";
+    sourceCls = "bg-amber-950/40 text-amber-300";
+  } else if (hasOverride && overrideGranted === true) {
     sourceLabel = "Override → granted";
     sourceCls = "bg-emerald-950/40 text-emerald-300";
   } else if (hasOverride && overrideGranted === false) {
@@ -73,7 +85,11 @@ export function PermissionRow({
   return (
     <li
       className={`rounded-md border p-3 ${
-        permission.dangerous ? "border-red-900/40 bg-red-950/5" : "border-zinc-800 bg-zinc-950/60"
+        ownerOnly
+          ? "border-amber-900/40 bg-amber-950/5"
+          : permission.dangerous
+            ? "border-red-900/40 bg-red-950/5"
+            : "border-zinc-800 bg-zinc-950/60"
       }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -85,7 +101,12 @@ export function PermissionRow({
               }`}
             />
             <p className="font-medium text-zinc-100">{permission.label}</p>
-            {permission.dangerous && (
+            {ownerOnly && (
+              <span className="rounded bg-amber-950/60 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-300">
+                🔒 Owner only
+              </span>
+            )}
+            {permission.dangerous && !ownerOnly && (
               <span className="rounded bg-red-950/60 px-1.5 py-0.5 text-[9px] font-bold uppercase text-red-300">
                 Sensitive
               </span>
@@ -95,10 +116,16 @@ export function PermissionRow({
             </span>
           </div>
           <p className="mt-1 text-xs text-zinc-500">{permission.description}</p>
-          {permission.defaultFor.length > 0 && (
-            <p className="mt-1 text-[10px] text-zinc-600">
-              Default for: {permission.defaultFor.join(", ")}
+          {ownerOnly ? (
+            <p className="mt-1 text-[10px] text-amber-400/70">
+              Not delegable — this stays with the owner account no matter what role the user holds.
             </p>
+          ) : (
+            permission.defaultFor.length > 0 && (
+              <p className="mt-1 text-[10px] text-zinc-600">
+                Default for: {permission.defaultFor.join(", ")}
+              </p>
+            )
           )}
           {hasOverride && overrideReason && (
             <p className="mt-1 text-[10px] italic text-zinc-500">
