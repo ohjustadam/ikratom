@@ -32,7 +32,7 @@ export const dynamic = "force-dynamic";
  * no Claude required.
  */
 export default async function ConsolePage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_ops_console" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (
@@ -68,7 +68,7 @@ export default async function ConsolePage() {
 
       <hr className="my-8 border-zinc-800" />
 
-      <CronTriggerPanel />
+      <CronTriggerPanel isOwner={ctx.isOwner} />
 
       <hr className="my-8 border-zinc-800" />
 

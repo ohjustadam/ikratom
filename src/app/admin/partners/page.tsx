@@ -11,7 +11,7 @@ import { listPartners } from "@/modules/partners/actions";
 export const metadata = { title: "Partner shops" };
 
 export default async function AdminPartnersPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_partners" });
   if (!ctx.ok) redirect("/dashboard");
 
   const r = await listPartners();
