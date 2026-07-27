@@ -13,7 +13,7 @@ export default async function AdminFeedbackPage({
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_feedback" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sp = await searchParams;
