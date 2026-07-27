@@ -20,6 +20,9 @@
  *   node --env-file=.env.local scripts/send-service-notice.mjs --dry-run \
  *     --title "..." --body "..." [--link /status]
  *   node --env-file=.env.local scripts/send-service-notice.mjs --apply --title ... --body ...
+ *
+ * ⚠ Running from Git Bash on Windows? Prefix with `MSYS_NO_PATHCONV=1`, or run
+ * it from PowerShell. See the link guard below for why.
  */
 import { createClient } from "@supabase/supabase-js";
 import { canPushUser } from "./lib/push-gate.mjs";
@@ -29,8 +32,42 @@ const APPLY = args.includes("--apply");
 const arg = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : null; };
 const TITLE = arg("--title");
 const BODY = arg("--body");
-const LINK = arg("--link") || "/";
 if (!TITLE || !BODY) { console.error("Required: --title and --body"); process.exit(1); }
+
+/**
+ * Validate the click-through target before it reaches 42 inboxes.
+ *
+ * Git Bash (MSYS) rewrites any argument that looks like a POSIX path into a
+ * Windows one, so `--link /donate` silently arrives as
+ * `C:/Program Files/Git/donate`. Nothing errors — the notice sends perfectly
+ * and every recipient gets a dead link. Caught on a real dry-run of the
+ * donation appeal, which is precisely the send where a broken CTA costs the
+ * most.
+ *
+ * This is a one-shot broadcast to every user: there is no edit, no recall, and
+ * the tag only replaces the notice on devices that received a push. So the
+ * failure mode is unrecoverable and the guard hard-fails rather than guessing
+ * at what was meant.
+ */
+function resolveLink(raw) {
+  if (!raw) return "/";
+  if (/^https?:\/\//i.test(raw)) return raw;          // absolute URL is fine
+  if (/^[A-Za-z]:[\\/]/.test(raw) || raw.includes("\\")) {
+    console.error(
+      `--link looks like a filesystem path, not a site path: ${raw}\n` +
+      `Git Bash rewrites a leading "/" argument into a Windows path. Re-run as:\n` +
+      `  MSYS_NO_PATHCONV=1 node --env-file=.env.local scripts/send-service-notice.mjs ...\n` +
+      `or run it from PowerShell.`
+    );
+    process.exit(1);
+  }
+  if (!raw.startsWith("/")) {
+    console.error(`--link must be a site-relative path starting with "/" (got: ${raw})`);
+    process.exit(1);
+  }
+  return raw;
+}
+const LINK = resolveLink(arg("--link"));
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
