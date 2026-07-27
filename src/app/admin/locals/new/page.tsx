@@ -5,7 +5,7 @@ import { LocalOfficialForm } from "@/modules/admin/components/LocalOfficialForm"
 export const metadata = { title: "Add local official" };
 
 export default async function NewLocalOfficialPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (

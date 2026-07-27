@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
  * fallback copy.
  */
 export default async function ContentListPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) redirect("/dashboard");
 
   const rows = await listAllContent();

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · Edit lesson" };
 
 export default async function AdminLessonEditPage({ params }: { params: Promise<{ id: string }> }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) redirect("/dashboard");
   const { id } = await params;
 
