@@ -10,7 +10,7 @@ export default async function NewCampaignPage({
 }: {
   searchParams: Promise<{ mode?: string; from_thread?: string }>;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "author_campaigns" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sp = await searchParams;

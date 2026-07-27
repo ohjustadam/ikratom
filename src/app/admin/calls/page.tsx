@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  * caller's identity, raw transcript, and verbatim quotes are never published.
  */
 export default async function AdminCallsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_calls" });
   if (!ctx.ok) redirect("/dashboard");
   const pending = await listPendingCalls();
 

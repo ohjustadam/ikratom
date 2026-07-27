@@ -58,7 +58,7 @@ function validate(d: ReturnType<typeof readForm>): string | null {
 }
 
 export async function createLocalOfficial(formData: FormData) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage local officials." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
@@ -86,7 +86,7 @@ export async function createLocalOfficial(formData: FormData) {
 }
 
 export async function updateLocalOfficial(id: string, formData: FormData) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage local officials." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
@@ -111,7 +111,7 @@ export async function updateLocalOfficial(id: string, formData: FormData) {
 }
 
 export async function deleteLocalOfficial(id: string) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage local officials." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };

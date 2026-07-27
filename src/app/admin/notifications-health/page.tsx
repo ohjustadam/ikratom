@@ -33,7 +33,7 @@ const OUTCOME_LABEL: Record<string, string> = {
 };
 
 export default async function NotificationsHealthPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) redirect("/dashboard");
 
   // Service role: notifications RLS is self-only — a user-context count

@@ -36,7 +36,7 @@ type EventRow = {
 };
 
 export default async function AbuseSignalsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_security_signals" });
   if (!ctx.ok) redirect("/dashboard");
 
   // Service-role for auth_events (admin-only RLS).
