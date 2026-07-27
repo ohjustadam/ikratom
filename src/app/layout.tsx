@@ -25,6 +25,7 @@ import { SignInProvider } from "@/components/auth/SignInContext";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
 import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
 import { ChromeProvider } from "@/components/chrome/ChromeProvider";
+import { AttributionCapture } from "@/components/chrome/AttributionCapture";
 import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGate } from "@/components/chrome/ChromeGates";
 import "./globals.css";
 
@@ -137,6 +138,11 @@ export default function RootLayout({
         />
         <PostHogProvider>
         <ChromeProvider>
+        {/* Captures ?via= / ?ref=embed&host= / ?state= into httpOnly cookies.
+            Was proxy.ts's job; that middleware is disabled on Netlify, which
+            silently broke invite + partner attribution. No-ops (and makes no
+            network call) unless the URL actually carries one of the params. */}
+        <AttributionCapture />
         <SignInProvider>
         {/* Leader-tour banner + multi-page controller. Visible on every page
             until a leader completes the walkthrough + signs the
