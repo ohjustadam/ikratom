@@ -75,9 +75,7 @@ export default async function DonatePage() {
           >
             <span>
               <span className="block font-semibold text-sky-300">PayPal</span>
-              <span className="block font-mono text-sm text-zinc-400">
-                paypal.me/{donateConfig.paypalHandle}
-              </span>
+              <span className="block text-sm text-zinc-400">{donateConfig.paypalLabel}</span>
             </span>
             <span aria-hidden className="text-sky-400">→</span>
           </a>
