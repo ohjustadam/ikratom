@@ -68,12 +68,19 @@
   # 4096 leaves plenty of room under the build image's memory while giving the
   # compile roughly double what it needs.
   NODE_OPTIONS = "--max-old-space-size=4096"
-  # Belt-and-suspenders: the same stub that lets prerender construct the
-  # service-role client at BUILD time without the real key (the real key is a
-  # Netlify env var used at RUNTIME). Mirrors .github/workflows/ci.yml. Netlify
-  # env vars set in the dashboard/API OVERRIDE this block, so production builds
-  # still use the genuine values.
-  SUPABASE_SERVICE_ROLE_KEY = "stub-service-role-key"
+  # NOTE: SUPABASE_SERVICE_ROLE_KEY is deliberately NOT stubbed here.
+  #
+  # It briefly was, copied from the CI build job — but on Netlify this block
+  # does NOT lose to the dashboard env vars the way I assumed. The stub won,
+  # so every server render got an invalid service-role client: /donate returned
+  # 500 and the donation strip silently vanished sitewide, while the same build
+  # served 200 locally (where .env.local supplies the real key). Classic
+  # works-on-my-machine, and only visible in production.
+  #
+  # The stub existed for a window when the site had no env vars at all. All 47
+  # real secrets are synced now (scripts/netlify-env-sync.mjs), so the genuine
+  # key is present at both build and runtime and the stub is pure harm.
+  # CI still stubs it — correct there, since CI must never touch the real DB.
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
