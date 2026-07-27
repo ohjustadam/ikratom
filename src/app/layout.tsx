@@ -10,6 +10,7 @@ import { InstallAppButton } from "@/components/InstallAppButton";
 import { CookieBanner } from "@/components/CookieBanner";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { GlobalAnnouncement } from "@/components/GlobalAnnouncement";
+import { DonateStrip } from "@/components/DonateStrip";
 import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
@@ -282,20 +283,12 @@ export default function RootLayout({
         <CookieBanner />
         <MobileTabBar />
 
-        {/* Donation strip — always visible along the bottom border
-            (above the tab bar on mobile). Deliberately simple: plain
-            text; the cashtag links straight to the Cash App profile. */}
-        <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-emerald-900/50 bg-zinc-950/95 px-3 py-1.5 text-center text-[11px] text-zinc-400 backdrop-blur md:bottom-0">
-          💚 iKratom is free &amp; community-funded — chip in on Cash App:{" "}
-          <a
-            href="https://cash.app/$ohjustadam"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono font-semibold text-emerald-300 underline decoration-emerald-700/60 underline-offset-2 hover:text-emerald-200"
-          >
-            $ohjustadam
-          </a>
-        </div>
+        {/* Donation strip — always visible along the bottom border (above the
+            tab bar on mobile). Was hard-coded here, which meant the owner could
+            not change or remove it without a code change. Now content-driven:
+            edit at /admin/content/donate.strip, or save it empty to hide the
+            strip entirely. See src/components/DonateStrip.tsx. */}
+        <DonateStrip />
         <RegisterSW />
         <PushBackStop />
         <PresenceHeartbeatGate />
