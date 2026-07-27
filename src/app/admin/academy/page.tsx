@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · Academy" };
 
 export default async function AdminAcademyPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sb = await createClient();

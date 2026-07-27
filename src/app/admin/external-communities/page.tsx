@@ -7,7 +7,7 @@ export const metadata = { title: "External communities" };
 export const dynamic = "force-dynamic";
 
 export default async function AdminExternalCommunitiesPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_communities" });
   if (!ctx.ok) redirect("/dashboard");
 
   const r = await listAllExternalCommunities();

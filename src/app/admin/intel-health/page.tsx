@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  * source breaks until 9 days later" gap that bit us with NH SB 557.
  */
 export default async function IntelHealthPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) redirect("/dashboard");
 
   const supabase = await createClient();

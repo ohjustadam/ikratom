@@ -16,7 +16,7 @@ import { recordAdminAction } from "@/lib/audit";
  */
 
 export async function resolveDiscrepancy(input: { alertId: string; note: string }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!input.alertId) return { error: "Missing alert id." };
 
@@ -47,7 +47,7 @@ export async function resolveDiscrepancy(input: { alertId: string; note: string 
 }
 
 export async function forceResyncBill(input: { billId: string }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!input.billId) return { error: "Missing bill id." };
 

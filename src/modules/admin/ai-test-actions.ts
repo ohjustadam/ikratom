@@ -20,7 +20,7 @@ export async function runTestPrompt(input: {
   userPrompt: string;
   forceProvider?: string;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Admins only." };
 
   const sys = (input.systemPrompt ?? "").slice(0, MAX_PROMPT_CHARS);

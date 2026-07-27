@@ -14,7 +14,7 @@ export const metadata = { title: "Add library item — manual" };
  *   - Admin prefers full control over every field from the start
  */
 export default async function NewLibraryItemManualPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_library" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (

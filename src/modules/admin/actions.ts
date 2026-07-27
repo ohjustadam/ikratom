@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { hasMfaBypass } from "@/modules/auth/mfa-bypass";
+import { resolvePermissions, type PermissionKey } from "./permissions";
 
 export type AdminCheck =
   | {
@@ -12,6 +13,12 @@ export type AdminCheck =
       isOwner: boolean;
       isAdmin: boolean;
       isLeader: boolean;
+      /**
+       * Effective permissions — role defaults merged with the owner's per-user
+       * overrides. A plain array so it stays serializable when a page hands
+       * the context to a client component.
+       */
+      permissions: PermissionKey[];
       /** Current session AAL ("aal1" or "aal2"). */
       aal: "aal1" | "aal2" | null;
       /** Highest AAL the user could reach. "aal2" iff they have a verified factor. */
@@ -19,7 +26,21 @@ export type AdminCheck =
       /** True if user redeemed a backup code in the last hour (cookie-based). */
       mfaBypass: boolean;
     }
-  | { ok: false; reason: "not_signed_in" | "not_admin" };
+  | { ok: false; reason: "not_signed_in" | "not_admin" | "missing_permission" };
+
+/**
+ * Options for the role/permission guards.
+ *
+ * `require` is the whole point of the granular system: pass a permission key
+ * and the guard admits ANYONE who effectively holds it — including an Advocate
+ * Leader the owner granted it to individually, who is not an admin at all.
+ *
+ * Omit it and each guard keeps its historical meaning exactly (admin/owner for
+ * getAdminContext, +leader for getCreatorContext). That default is deliberate:
+ * introducing permissions cannot silently widen access on a surface nobody has
+ * opted in yet. Surfaces become permission-gated one explicit edit at a time.
+ */
+export type GuardOptions = { require?: PermissionKey };
 
 export type CreatorCheck =
   | {
@@ -29,11 +50,12 @@ export type CreatorCheck =
       isOwner: boolean;
       isAdmin: boolean;
       isLeader: boolean;
+      permissions: PermissionKey[];
       aal: "aal1" | "aal2" | null;
       aalNext: "aal1" | "aal2" | null;
       mfaBypass: boolean;
     }
-  | { ok: false; reason: "not_signed_in" | "not_creator" };
+  | { ok: false; reason: "not_signed_in" | "not_creator" | "missing_permission" };
 
 /**
  * Counts of pending items across admin queues. Used on /admin to
@@ -128,24 +150,43 @@ export async function getAdminQueueCounts(): Promise<AdminQueueCounts> {
  * Strict admin guard — only owner OR admin. Use for moderating users, role
  * changes, sensitive operations.
  */
-export async function getAdminContext(): Promise<AdminCheck> {
+export async function getAdminContext(opts?: GuardOptions): Promise<AdminCheck> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, reason: "not_signed_in" };
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader")
-    .eq("id", user.id)
-    .single();
+  const [{ data: profile }, { data: overrideRows }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("is_admin, is_owner, is_advocate_leader")
+      .eq("id", user.id)
+      .single(),
+    // Own-row read is allowed by user_permissions_self_read, so this works
+    // for a plain Advocate Leader holding an individual grant.
+    supabase
+      .from("user_permissions")
+      .select("permission, granted")
+      .eq("user_id", user.id),
+  ]);
 
   const isAdmin = !!profile?.is_admin;
   const isOwner = !!profile?.is_owner;
   const isLeader = !!profile?.is_advocate_leader;
 
-  if (!isAdmin && !isOwner) return { ok: false, reason: "not_admin" };
+  const permissions = resolvePermissions(
+    { isOwner, isAdmin, isLeader },
+    (overrideRows ?? []) as { permission: string; granted: boolean }[],
+  );
+
+  if (opts?.require) {
+    // Permission mode: role is irrelevant, only the effective grant counts.
+    if (!permissions.has(opts.require)) return { ok: false, reason: "missing_permission" };
+  } else if (!isAdmin && !isOwner) {
+    // Legacy mode: unchanged admin-or-owner gate.
+    return { ok: false, reason: "not_admin" };
+  }
 
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   const mfaBypass = await hasMfaBypass();
@@ -157,6 +198,7 @@ export async function getAdminContext(): Promise<AdminCheck> {
     isOwner,
     isAdmin,
     isLeader,
+    permissions: [...permissions],
     aal: (aal?.currentLevel as "aal1" | "aal2" | null) ?? null,
     aalNext: (aal?.nextLevel as "aal1" | "aal2" | null) ?? null,
     mfaBypass,
@@ -167,24 +209,39 @@ export async function getAdminContext(): Promise<AdminCheck> {
  * Looser guard — allows owner, admin, OR advocate-leader. Use for actions
  * leaders should be able to do (create campaigns, add local officials).
  */
-export async function getCreatorContext(): Promise<CreatorCheck> {
+export async function getCreatorContext(opts?: GuardOptions): Promise<CreatorCheck> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, reason: "not_signed_in" };
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader")
-    .eq("id", user.id)
-    .single();
+  const [{ data: profile }, { data: overrideRows }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("is_admin, is_owner, is_advocate_leader")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("user_permissions")
+      .select("permission, granted")
+      .eq("user_id", user.id),
+  ]);
 
   const isAdmin = !!profile?.is_admin;
   const isOwner = !!profile?.is_owner;
   const isLeader = !!profile?.is_advocate_leader;
 
-  if (!isAdmin && !isOwner && !isLeader) return { ok: false, reason: "not_creator" };
+  const permissions = resolvePermissions(
+    { isOwner, isAdmin, isLeader },
+    (overrideRows ?? []) as { permission: string; granted: boolean }[],
+  );
+
+  if (opts?.require) {
+    if (!permissions.has(opts.require)) return { ok: false, reason: "missing_permission" };
+  } else if (!isAdmin && !isOwner && !isLeader) {
+    return { ok: false, reason: "not_creator" };
+  }
 
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   const mfaBypass = await hasMfaBypass();
@@ -196,6 +253,7 @@ export async function getCreatorContext(): Promise<CreatorCheck> {
     isOwner,
     isAdmin,
     isLeader,
+    permissions: [...permissions],
     aal: (aal?.currentLevel as "aal1" | "aal2" | null) ?? null,
     aalNext: (aal?.nextLevel as "aal1" | "aal2" | null) ?? null,
     mfaBypass,

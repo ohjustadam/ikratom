@@ -45,7 +45,7 @@ export default async function AdminUsersPage({
 }: {
   searchParams: Promise<{ q?: string; role?: string }>;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_users_list" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { q, role: roleParam } = await searchParams;
