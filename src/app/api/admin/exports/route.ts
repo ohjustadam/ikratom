@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { recordAdminAction } from "@/lib/audit";
 
 /**
  * Admin CSV export endpoint.
  *
  * GET /admin/exports?type=<campaigns|actions|advocates|bills>
  *
- * - Owner / admin / leader only (re-checked server-side).
+ * - campaigns / actions / bills: owner / admin / leader (re-checked server-side).
+ * - advocates: OWNER ONLY. It is a whole-membership PII dump — every user's
+ *   real full_name plus their resolved city/county/congressional/state
+ *   districts, i.e. enough to locate a named advocate. One URL with no
+ *   further friction, so it sits at the owner tier rather than being one
+ *   compromised admin session away. (No email column — the older comment
+ *   here claimed auth.users.email was included; it never was.)
+ * - Every export is audit-logged below, including who pulled what.
  * - Streams text/csv. No buffering, no DB-row caps for now (free-tier
  *   data sizes are small enough that this fits comfortably; revisit if
  *   we ever hit 100k+ rows).
- * - PII handling: 'advocates' export only includes self-supplied profile
- *   columns; auth.users.email is included since admins legitimately need
- *   it for partner outreach (audit-logged separately if you go that
- *   route in v2).
  */
 
 export const dynamic = "force-dynamic";
@@ -65,9 +69,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   // The advocates export dumps every user's real full_name + full district
-  // geography — admin/owner only (pen-test critic). Leaders can still export
-  // the non-PII campaigns/actions/bills views.
-  if (type === "advocates" && !p.is_admin && !p.is_owner) {
+  // geography — owner only. Admins and leaders can still export the non-PII
+  // campaigns/actions/bills views.
+  if (type === "advocates" && !p.is_owner) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
@@ -109,6 +113,16 @@ export async function GET(req: NextRequest) {
 
   const csv = toCsv(rows);
   const today = new Date().toISOString().slice(0, 10);
+
+  // Audit every pull. /admin/exports has always TOLD the operator these are
+  // logged; until now nothing wrote a row. Bulk data leaving the platform is
+  // exactly what an audit trail is for, so the claim is now true.
+  await recordAdminAction({
+    action: "data_export",
+    targetType: "user",
+    targetId: user.id,
+    details: { type, row_count: rows.length },
+  });
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

@@ -32,7 +32,7 @@ type AlertRow = { id: string; severity: string; created_at: string };
 type ScraperRun = { source: string; finished_at: string | null; status: string };
 
 export default async function OpsCockpitPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_ops_console" });
   if (!ctx.ok) redirect("/dashboard");
 
   // Service-role for admin-only tables (auth_events, etc).

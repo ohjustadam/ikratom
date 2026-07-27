@@ -26,7 +26,7 @@ export async function saveContent(input: {
   format?: ContentFormat;
   label?: string | null;
 }): Promise<SaveResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
 
   const key = input.key?.trim() ?? "";
@@ -73,7 +73,7 @@ export type DeleteResult =
   | { ok: false; error: string };
 
 export async function deleteContent(key: string): Promise<DeleteResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
 
   if (!KEY_RE.test(key)) {
@@ -110,7 +110,7 @@ export type ContentHistoryRow = {
  * sanity-check "did I just break this?" and manually roll back.
  */
 export async function getContentHistory(key: string, limit = 10): Promise<ContentHistoryRow[]> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) return [];
   if (!KEY_RE.test(key)) return [];
 

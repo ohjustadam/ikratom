@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
  * Otherwise the classifier silently resolves and admin never sees it.
  */
 export default async function UserErrorsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_security_signals" });
   if (!ctx.ok) redirect("/dashboard");
 
   const clusters = await recentUserErrorSummary({ sinceHours: 24 * 7, limit: 30 });

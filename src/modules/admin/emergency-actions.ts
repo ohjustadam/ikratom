@@ -72,7 +72,7 @@ export async function updateReadOnlyMode(input: {
   enabled: boolean;
   reason?: string;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "admin_emergency_mode" });
   if (!ctx.ok) return { error: "Admin only." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
@@ -108,7 +108,7 @@ export async function updateEmergencyConfig(input: {
   ctaHref?: string;
   severity?: "info" | "urgent" | "critical";
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "admin_emergency_mode" });
   if (!ctx.ok) return { error: "Admin only." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
