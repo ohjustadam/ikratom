@@ -183,7 +183,27 @@ if (SPECIFIC) {
   bills = data ?? [];
 }
 
-if (bills.length === 0) { console.log("Nothing to post."); process.exit(0); }
+// "Nothing to post" is a SUCCESSFUL run and has to be recorded as one. This
+// used to `process.exit(0)` straight out, skipping the scraper_runs write ~40
+// lines below — so in the steady state (every bill already posted) the job ran
+// green hourly while check-cron-staleness saw the source as 10+ days old and
+// paged about it. Same defect as reject-wrongstate-pending-alerts and
+// extract-local-vote-outcomes, just via an early exit instead of an enclosing
+// `if`. An alarm that fires on a healthy system teaches you to ignore alarms.
+if (bills.length === 0) {
+  console.log("Nothing to post.");
+  try {
+    await sb.from("scraper_runs").insert({
+      source: "auto_post_bills_to_forum",
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      status: "empty",
+      rows_added: 0,
+      notes: "no unposted bills — every eligible bill already has a forum thread",
+    });
+  } catch { /* best-effort */ }
+  process.exit(0);
+}
 console.log(`Auto-posting ${bills.length} bill(s) to state forums${DRY ? " (DRY RUN)" : ""}…`);
 
 let ok = 0, fail = 0;
