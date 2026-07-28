@@ -122,14 +122,23 @@ async function main() {
       if (e) { err++; console.log(`  ✗ batch ${i / 200}: ${e.message?.slice(0, 80)}`); } else ok += data?.length ?? 0;
     }
     console.log(`\n✓ ${ok} inserted, ${err} batch errors.`);
+  } else if (!APPLY) {
+    console.log(`\nDry-run only. Re-run with --apply to write.`);
+  }
+
+  // Telemetry on EVERY completed apply run, including the no-op — same fix as
+  // reject-wrongstate-pending-alerts.mjs. Nothing new to extract is the normal
+  // steady state here (already-derived alerts are skipped by the `done` set),
+  // so the old placement inside `rows.length` meant a healthy daily job looked
+  // 8+ days stale and paged the owner.
+  if (APPLY) {
     try {
       await sb.from("scraper_runs").insert({
         source: "extract_local_vote_outcomes", started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
-        status: err > 0 ? "error" : "success", rows_added: ok, notes: `${ok} outcomes (${JSON.stringify(byOutcome)})`,
+        status: err > 0 ? "error" : (ok > 0 ? "success" : "empty"), rows_added: ok,
+        notes: rows.length ? `${ok} outcomes (${JSON.stringify(byOutcome)})` : "no new vote outcomes to extract",
       });
     } catch { /* best-effort */ }
-  } else if (!APPLY) {
-    console.log(`\nDry-run only. Re-run with --apply to write.`);
   }
 }
 main().catch((e) => { console.error("fatal:", e); process.exit(1); });

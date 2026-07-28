@@ -65,7 +65,21 @@ jobs:
             echo "::error::Missing CRON_SECRET or APP_URL repo secret"
             exit 1
           fi
+          # The -A is LOAD-BEARING, not cosmetic. Cloudflare Bot Fight Mode
+          # (enabled 2026-07-26 during the crawler-load response) 403s curl's
+          # default UA from GitHub's datacenter IPs, so this step failed on
+          # EVERY run from 2026-07-26T15:00 onward — the push/email fan-out
+          # simply stopped, silently, for days.
+          #
+          # The same fix was applied to cron-daily.yml's curl at the time and
+          # this one was missed, which is why daily stayed green while hourly
+          # went permanently red — a natural experiment confirming the cause.
+          # Third instance of our own bot protection blocking our own
+          # automation, after the false SITE DOWN page (#849).
+          #
+          # Keep this string identical to cron-daily.yml's.
           curl -fsS --max-time 240 \
+            -A "iKratom-Cron/1.0 (+https://www.ikratom.org; Mozilla/5.0 compatible)" \
             -H "Authorization: Bearer $CRON_SECRET" \
             "$APP_URL/api/cron/fire-waves"
 

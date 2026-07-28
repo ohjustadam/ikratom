@@ -80,6 +80,7 @@ for (const a of specific) {
 console.log(`${reject.length} wrong-state pending alerts:`);
 for (const { a, derived } of reject) console.log(`  ${String(a.locality).padEnd(4)}→${derived.padEnd(6)} ${(a.title ?? "").slice(0, 64)}`);
 
+let rejected = 0;
 if (APPLY && reject.length) {
   const ids = reject.map((r) => r.a.id);
   const { error: upErr, count } = await sb
@@ -88,18 +89,31 @@ if (APPLY && reject.length) {
     .in("id", ids)
     .select("id", { count: "exact" });
   if (upErr) { console.error(`\nApply failed: ${upErr.message}`); process.exit(1); }
-  console.log(`\n✅ Rejected ${count ?? ids.length} wrong-state pending alert(s).`);
+  rejected = count ?? ids.length;
+  console.log(`\n✅ Rejected ${rejected} wrong-state pending alert(s).`);
+} else if (reject.length) {
+  console.log(`\n(dry-run — re-run with --apply to reject these.)`);
+}
+
+// Telemetry on EVERY completed apply run, including the no-op.
+//
+// This used to live inside the `reject.length` branch, so a clean sweep — the
+// healthy, normal outcome — wrote nothing at all. The job ran green in
+// cron-daily every single day while check-cron-staleness saw the source as 50+
+// days old and paged the owner about it. "Nothing to do" is a successful run
+// and has to be recorded as one, or silence gets read as failure.
+if (APPLY) {
   try {
     await sb.from("scraper_runs").insert({
       source: "reject_wrongstate_pending_alerts",
       started_at: new Date(t0).toISOString(),
       finished_at: new Date().toISOString(),
-      status: "success",
-      rows_updated: count ?? ids.length,
-      notes: `rejected ${count ?? ids.length} geo-mismatched pending alerts`,
+      status: rejected > 0 ? "success" : "empty",
+      rows_updated: rejected,
+      notes: rejected > 0
+        ? `rejected ${rejected} geo-mismatched pending alerts`
+        : `clean — 0 of ${specific.length} pending state-specific alerts were geo-mismatched`,
     });
   } catch { /* best-effort */ }
-} else if (reject.length) {
-  console.log(`\n(dry-run — re-run with --apply to reject these.)`);
 }
 process.exit(0);
