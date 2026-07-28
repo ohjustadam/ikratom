@@ -65,23 +65,51 @@ jobs:
             echo "::error::Missing CRON_SECRET or APP_URL repo secret"
             exit 1
           fi
-          # The -A is LOAD-BEARING, not cosmetic. Cloudflare Bot Fight Mode
-          # (enabled 2026-07-26 during the crawler-load response) 403s curl's
-          # default UA from GitHub's datacenter IPs, so this step failed on
-          # EVERY run from 2026-07-26T15:00 onward — the push/email fan-out
-          # simply stopped, silently, for days.
+          # This step has returned 403 on every run since 2026-07-26T15:00 —
+          # the push/email fan-out has simply not run, with nothing failing
+          # anywhere a user could see.
           #
-          # The same fix was applied to cron-daily.yml's curl at the time and
-          # this one was missed, which is why daily stayed green while hourly
-          # went permanently red — a natural experiment confirming the cause.
-          # Third instance of our own bot protection blocking our own
-          # automation, after the false SITE DOWN page (#849).
+          # What is RULED OUT so far:
+          #   - Not auth. This route only ever returns 401 (route.ts:26); it has
+          #     no 403 path at all, so the 403 is not coming from the app.
+          #   - Not the UA alone. Adding cron-daily's browser-ish UA (#857) did
+          #     NOT fix it — the very next run still returned 403.
+          #   - Not a blanket edge block on this host or path prefix.
+          #     cron-daily's curl to /api/cron/reverify-local-officials, with
+          #     the SAME UA, host and auth header, genuinely succeeds (step
+          #     conclusion "success", not masked by its continue-on-error), and
+          #     both paths return a normal 401 to a bogus token from a
+          #     residential IP. So it is specific to this path from GitHub's
+          #     datacenter IPs.
           #
-          # Keep this string identical to cron-daily.yml's.
-          curl -fsS --max-time 240 \
+          # The reason this took days to narrow is that `curl -fsS` prints the
+          # status and throws away everything that would explain it. That is the
+          # actual defect being fixed here: capture the response headers and
+          # body on failure, so the NEXT occurrence names its own cause
+          # (CF-RAY + cf-mitigated identify a Cloudflare block and which rule;
+          # an x-nf-request-id with no cf-mitigated means Netlify answered).
+          #
+          # Behaviour on success is unchanged: still exits non-zero on a bad
+          # status, so a genuine outage still fails the run.
+          set -o pipefail
+          HDR="$(mktemp)"; OUT="$(mktemp)"
+          code=$(curl -sS --max-time 240 \
             -A "iKratom-Cron/1.0 (+https://www.ikratom.org; Mozilla/5.0 compatible)" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "$APP_URL/api/cron/fire-waves"
+            -D "$HDR" -o "$OUT" -w "%{http_code}" \
+            "$APP_URL/api/cron/fire-waves") || code="000"
+
+          if [ "$code" = "200" ]; then
+            echo "fire-waves OK ($code)"
+            head -c 500 "$OUT"; echo
+          else
+            echo "::error::fire-waves returned HTTP $code"
+            echo "--- edge/origin headers (identifies WHO refused) ---"
+            grep -iE '^(HTTP/|cf-ray|cf-mitigated|cf-cache-status|server|x-nf-request-id|retry-after|location)' "$HDR" || true
+            echo "--- first 500 bytes of body ---"
+            head -c 500 "$OUT"; echo
+            exit 1
+          fi
 
   daily-brief-audio-selfheal:
     # Self-heal: render TODAY's brief audio if it's missing. --if-missing is a
