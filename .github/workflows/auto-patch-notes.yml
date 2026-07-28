@@ -72,6 +72,20 @@ jobs:
           git push -u origin "$BR"
           PR_URL=$(gh pr create \
             --title "docs: ${{ steps.gen.outputs.patch_title }} (auto-draft)" \
-            --body "Auto-generated patch-note draft covering the last 24 hours. Markdown-only (\`src/content/patch-notes/*.md\`). Auto-merge enabled — squash-merges once Vercel preview passes. 🤖 .github/workflows/auto-patch-notes.yml" \
+            --body "Auto-generated patch-note draft covering the last 24 hours. Markdown-only (\`src/content/patch-notes/*.md\`). Review and squash-merge when the copy reads right. 🤖 .github/workflows/auto-patch-notes.yml" \
             --label "patch-notes,auto-draft")
-          gh pr merge "$PR_URL" --auto --squash --delete-branch
+
+          # Auto-merge is DELIBERATELY disabled on this repo (see AGENTS.md:
+          # allow_auto_merge was skipped, and the documented flow is a manual
+          # `gh pr merge --squash --delete-branch` after CI passes). Requesting
+          # it therefore hard-fails with:
+          #   GraphQL: Auto merge is not allowed for this repository
+          # ...AFTER the branch and PR were already created successfully. So the
+          # job did its whole job and still reported failure every single day,
+          # which is how a red X stops meaning anything.
+          #
+          # Try it, but never fail the run over it: if auto-merge is ever turned
+          # on the draft lands by itself, and if it stays off the PR simply waits
+          # for a human — which is the current policy anyway.
+          gh pr merge "$PR_URL" --auto --squash --delete-branch \
+            || echo "note: auto-merge unavailable (disabled for this repo) — PR left open for manual review: $PR_URL"
