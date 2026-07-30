@@ -1,5 +1,7 @@
-import { getCachedClaims } from "@/lib/supabase/server";
-import { getPushVapidPublicKey, listMyPushSubscriptions } from "@/modules/auth/actions-push";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useChrome } from "./chrome/ChromeProvider";
 import { EnablePushNudgeClient } from "./EnablePushNudgeClient";
 
 type Context = "pulse" | "alert" | "state" | "meeting" | "bill" | "default";
@@ -48,7 +50,7 @@ const COPY: Record<Context, { headline: string; sub: string }> = {
  * VAPID flow from PushSubscribe — but with context-tuned copy from
  * this server component.
  */
-export async function EnablePushNudge({
+export function EnablePushNudge({
   context = "default",
   stateCode,
   className,
@@ -57,15 +59,50 @@ export async function EnablePushNudge({
   stateCode?: string | null;
   className?: string;
 }) {
-  // Presence-only → getCachedClaims (no auth round-trip; warm from chrome).
-  const claims = await getCachedClaims();
-  if (!claims) return null;
+  // Client-side gate as of 2026-07-30. This was an async SERVER component, and
+  // its three awaits made every page rendering it uncacheable — /states/:code,
+  // /meetings/:id, /pulse, /bills/:id, /alerts/:id. After the credit outage,
+  // paying for a full server render on every crawl of those pages is untenable.
+  //
+  // Each gate moved cleanly, and one got MORE accurate:
+  //   - signed-in     → /api/me, already fetched once by ChromeProvider.
+  //   - VAPID key     → NEXT_PUBLIC_VAPID_PUBLIC_KEY. getPushVapidPublicKey()
+  //                     only ever returned this same public env var, so the
+  //                     server round-trip bought nothing.
+  //   - has push yet? → asked THIS BROWSER instead of listing the account's
+  //                     subscriptions. Behaviour change, and a deliberate
+  //                     improvement: push permission is per-device, so a user
+  //                     subscribed on their phone previously never saw this
+  //                     nudge on their laptop, where they genuinely had no push.
+  const { me, loading } = useChrome();
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null;
+  // null = "not determined yet", so we never flash the nudge at someone who is
+  // already subscribed (the ChromeGates rule: render nothing until we know).
+  const [alreadySubscribed, setAlreadySubscribed] = useState<boolean | null>(null);
 
-  const vapidPublicKey = await getPushVapidPublicKey();
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+          if (!cancelled) setAlreadySubscribed(false);
+          return;
+        }
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (!cancelled) setAlreadySubscribed(Boolean(sub));
+      } catch {
+        // Can't tell → assume subscribed, i.e. stay silent. Nagging a user who
+        // already enabled push is the worse failure.
+        if (!cancelled) setAlreadySubscribed(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading || !me?.userId) return null;
   if (!vapidPublicKey) return null;
-
-  const subs = await listMyPushSubscriptions();
-  if (subs.length > 0) return null;
+  if (alreadySubscribed !== false) return null;
 
   const copy = COPY[context];
   const headline = stateCode && context === "state"

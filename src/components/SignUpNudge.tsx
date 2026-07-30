@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import { getCachedClaims } from "@/lib/supabase/server";
+import { useChrome } from "./chrome/ChromeProvider";
 
 type NudgeContext =
   | "pulse"          // /pulse — live policy feed
@@ -83,7 +85,7 @@ const COPY: Record<NudgeContext, { headline: string; sub: string; cta: string }>
  * Drop-in usage from any server component:
  *   <SignUpNudge context="state" stateCode="TX" />
  */
-export async function SignUpNudge({
+export function SignUpNudge({
   context = "default",
   stateCode,
   className,
@@ -92,11 +94,20 @@ export async function SignUpNudge({
   stateCode?: string | null;
   className?: string;
 }) {
-  // Server-side gate: only render for anonymous users. Presence-only →
-  // getCachedClaims (LOCAL JWT verify, no auth round-trip; already warm from
-  // the chrome's getCachedAuthProfile). Renders nothing once signed in.
-  const claims = await getCachedClaims();
-  if (claims) return null;
+  // Client-side gate as of 2026-07-30. This was an async SERVER component
+  // awaiting getCachedClaims(), and that one await made every page rendering it
+  // uncacheable — /states/:code, /meetings/:id, /research/:id, /pulse, /bills/:id,
+  // /alerts/:id, /calendar, /news. Those are among the most-crawled pages in the
+  // app, and each crawl was paying for a full server render. After the
+  // 2026-07-30 credit outage that cost is no longer acceptable.
+  //
+  // Nothing here is secret — the gate is presence-only and all copy is static —
+  // so the check belongs on the client, exactly like the root layout's chrome.
+  // Follows the ChromeGates convention: render nothing until we KNOW, because a
+  // signup banner that flashes at an already-signed-in user is worse than one
+  // that appears a beat late.
+  const { me, loading } = useChrome();
+  if (loading || me?.userId) return null;
 
   const copy = COPY[context];
   // Personalize the headline when we have a state code in scope

@@ -63,27 +63,38 @@ const AUTH_COOKIE = SUPABASE_REF ? `sb-${SUPABASE_REF}-auth-token` : null;
  *   - PageShareWithAttribution → bakes the VIEWER'S OWN invite code into the HTML
  *   - SignUpNudge / EnablePushNudge → async server components reading auth
  *
- * REMOVED after audit (they looked safe and are NOT — do not re-add):
- *   /banned        → imports PageShareWithAttribution; caching it would serve
- *                    one user's personal referral code to every visitor.
- *   /meetings/:id  → imports SignUpNudge + EnablePushNudge. (The page's own
- *                    comment claiming "no viewer-specific reads" is wrong.)
+ * /banned, /states/:code and /meetings/:id were BLOCKED and are now allowed,
+ * because the components that poisoned them were converted to client
+ * components on 2026-07-30 (PageShareWithAttribution, SignUpNudge,
+ * EnablePushNudge). Verified after the change: the anonymous server render of
+ * /states/OK is byte-identical across requests and contains no invite code, no
+ * name, no email, and no server-rendered signup nudge.
  *
- * ⚠ PREFIX vs EXACT MATTERS:
- *   /states   is safe, /states/:code is NOT  → exact match only
- *   /news     is NOT safe, /news/:id IS      → "/news/" prefix (with the slash)
- *   /briefings is safe, /briefings/:slug NOT → exact match only
+ * ⚠ PREFIX vs EXACT MATTERS — three real traps, all verified:
+ *   /news       is NOT safe, /news/:id IS   → "/news/" prefix (with the slash)
+ *   /briefings  is safe, /briefings/:slug NOT (it reads headers()) → exact only
+ *   /states/:code is safe, but /states/:code/briefing is NOT (awaits
+ *               createClient) → prefix MINUS an ends_with("/briefing") guard
+ *
+ * ⚠ .ics EXCLUSION: /meetings/:id/event.ics and /calendar/feed.ics use a
+ * cookie-bound Supabase client whose RLS resolves per viewer, yet already send
+ * `Cache-Control: public`. That is a pre-existing bug (they should use the
+ * service-role client with an explicit public projection). Edge-caching them
+ * would AMPLIFY it, so they are excluded until that is fixed.
  *
  * Never here: / · /bills · /campaigns · /calendar · /legislators · /forum/* ·
- * /account/* · /admin/* · /api/* · /search · /research*
+ * /account/* · /admin/* · /api/* · /search · /research* · /pulse · /deadlines
  */
 export const CACHEABLE_PATTERNS = [
   // Viewer-independent DB reads (service-role + unstable_cache), high crawl value
   'starts_with(http.request.uri.path, "/news/")',
   'starts_with(http.request.uri.path, "/topics")',
   'starts_with(http.request.uri.path, "/whats-new")',
+  '(starts_with(http.request.uri.path, "/states/") and not ends_with(http.request.uri.path, "/briefing"))',
+  '(starts_with(http.request.uri.path, "/meetings/") and not ends_with(http.request.uri.path, ".ics"))',
   'http.request.uri.path eq "/states"',
   'http.request.uri.path eq "/status"',
+  'http.request.uri.path eq "/banned"',
   'http.request.uri.path eq "/briefings"',
   'http.request.uri.path in {"/donate" "/ethics" "/support"}',
   // Fully static content pages (no data fetch at all)
