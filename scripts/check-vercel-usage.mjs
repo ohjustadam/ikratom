@@ -32,12 +32,21 @@
  * — keep public pages statically generated so crawlers cost no compute. See
  * memory `root-layout-forces-whole-app-dynamic`.
  *
- * Runs hourly via cron-hourly.yml. Telemetry source: vercel_watchdog.
+ * Runs every 2h via cron-hourly.yml (`0 */2 * * *`). Telemetry: vercel_watchdog.
+ *
+ * 2026-07-30 UPDATE — a SECOND outage taught the same lesson again. The site was
+ * disabled for Netlify CREDIT exhaustion while this script reported healthy,
+ * because it was checking Netlify BANDWIDTH against a 100GB ceiling (0.77GB =
+ * 0.8%) — a ceiling that no longer decides anything under credit-based pricing.
+ * The bandwidth check is gone; credits are metered instead. The generalised
+ * lesson, twice learned: monitor the meter that can DISABLE you, and re-check
+ * that it is still the right meter whenever the host changes its billing model.
  *
  * Usage: node --env-file=.env.local scripts/check-vercel-usage.mjs [--dry-run]
  */
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "node:module";
+import { estimateNetlifyCredits, creditSeverity, CREDIT_THRESHOLDS } from "./lib/netlify-credits.mjs";
 
 const DRY = process.argv.includes("--dry-run");
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -59,6 +68,12 @@ const sb = createClient(URL_SB, KEY, { auth: { persistSession: false } });
 
 const problems = [];
 let vercelChecked = false;
+// Credits are now THE meter that decides whether the site stays up, so an
+// unchecked credit meter must be visible in telemetry rather than silently
+// absent. A missing secret reporting `success` is exactly how the 2026-07-30
+// outage stayed invisible — see the bandwidth post-mortem below.
+let creditsChecked = false;
+let creditSummary = "";
 
 // Which platform actually SERVES production. Since 2026-07-26 that's Netlify;
 // Vercel is a paused cold spare. This matters because Vercel's account is still
@@ -114,6 +129,10 @@ if (!VERCEL_TOKEN) {
 // Watch them from day one instead of discovering them the hard way.
 const NETLIFY_TOKEN = process.env.NETLIFY_AUTH_TOKEN;
 const NETLIFY_ACCOUNT = process.env.NETLIFY_ACCOUNT_SLUG || "ohjustadam";
+// Needed to count production deploys (15 credits each — the biggest single
+// line item). Same override-with-default pattern as TEAM_ID above, so moving
+// the site to another Netlify account is an env change, not a code change.
+const NETLIFY_SITE_ID = process.env.NETLIFY_SITE_ID || "de541c33-9185-4be7-a961-0fe09c868557";
 if (!NETLIFY_TOKEN) {
   console.log("NETLIFY_AUTH_TOKEN not set — skipping Netlify meter checks");
 } else {
@@ -126,7 +145,11 @@ if (!NETLIFY_TOKEN) {
       // and/or serving are at risk right now.
       const exceeded = acct.usages_exceeded ?? [];
       if (Array.isArray(exceeded) && exceeded.length) {
-        problems.push(`Netlify USAGE EXCEEDED: ${exceeded.join(", ")} — builds may be blocked`);
+        // These are OBJECTS ({usage_type, limit_type, exceeded_at}), not strings.
+        // The old code did `exceeded.join(", ")`, which rendered the one alert
+        // that mattered as "[object Object]".
+        const names = exceeded.map((e) => (typeof e === "string" ? e : e?.usage_type ?? "unknown"));
+        problems.push(`Netlify USAGE EXCEEDED: ${names.join(", ")} — SITE IS DISABLED`);
       }
       console.log(`netlify usages_exceeded = ${JSON.stringify(exceeded)}`);
     } else {
@@ -134,21 +157,49 @@ if (!NETLIFY_TOKEN) {
     }
   } catch (e) { console.log(`netlify account check failed: ${e.message}`); }
 
+  // ── CREDITS — the meter that actually decides whether the site stays up ────
+  // Replaces the old "bandwidth vs 100GB" check, which was measuring a ceiling
+  // that no longer exists. On 2026-07-30 that check read 0.77GB/100GB = 0.8%
+  // and reported healthy while the account was being disabled for credits.
+  //
+  // Netlify free is now ONE pooled 300-credit budget. Bandwidth is just an input
+  // to it (20 credits/GB) and deploys are the dominant line (15 each — they were
+  // 75% of the burn that killed us). Alert on the pool, not on one input.
   try {
-    const bRes = await fetch(`https://api.netlify.com/api/v1/accounts/${NETLIFY_ACCOUNT}/bandwidth`, { headers: nh });
-    if (bRes.ok) {
-      const bw = await bRes.json();
-      const usedGb = (bw.used ?? 0) / 1e9;
-      // Free tier is 100 GB/mo. `included` comes back null on free, so budget
-      // from the documented figure rather than trusting a null.
-      const budgetGb = (bw.included ? bw.included / 1e9 : 100);
-      const pct = (usedGb / budgetGb) * 100;
-      // Warn EARLY. The Vercel lesson: by the time you're at 100% you're already
-      // down, and on a monthly meter there is no way to un-spend usage.
-      if (pct >= 75) problems.push(`Netlify bandwidth ${usedGb.toFixed(1)}GB / ${budgetGb}GB (${pct.toFixed(0)}%) this cycle`);
-      console.log(`netlify bandwidth = ${usedGb.toFixed(2)}GB / ${budgetGb}GB (${pct.toFixed(1)}%) · resets ${String(bw.period_end_date ?? "").slice(0, 10)}`);
+    const est = await estimateNetlifyCredits({
+      token: NETLIFY_TOKEN,
+      accountSlug: NETLIFY_ACCOUNT,
+      siteId: NETLIFY_SITE_ID,
+    });
+    if (est.ok) {
+      creditsChecked = true;
+      const sev = creditSeverity(est.pct);
+      const line = `${est.usedFloor.toFixed(0)}+/${est.planCredits} credits (>=${est.pct.toFixed(0)}%)`
+        + ` · ${est.deploys} deploys=${est.deployCredits} · ${est.bandwidthGb.toFixed(2)}GB=${est.bandwidthCredits.toFixed(0)}`
+        + ` · resets ${String(est.periodEnd ?? "").slice(0, 10)}`;
+      console.log(`netlify credits = ${line} · severity=${sev}`);
+      // Always recorded, at every severity. `notice` (50-64%) deliberately does
+      // NOT page — waking the owner at half-spent is how alerts get muted — but
+      // it must still be readable in /admin/ops, so it rides telemetry instead.
+      creditSummary = ` · credits>=${est.pct.toFixed(0)}% (${sev})`;
+
+      // ">=" everywhere on purpose: this figure OMITS requests and compute,
+      // which Netlify does not expose to a free-tier token. It is a floor, so
+      // the true burn is always higher and we must trip early, never late.
+      if (sev === "brake") {
+        problems.push(`Netlify credits ${line} — BRAKE: at/over ${CREDIT_THRESHOLDS.brake}%, deploys are gated`);
+      } else if (sev === "critical") {
+        problems.push(`Netlify credits ${line} — CRITICAL (>=${CREDIT_THRESHOLDS.critical}%), stop deploying`);
+      } else if (sev === "warn") {
+        problems.push(`Netlify credits ${line} — batch your remaining deploys`);
+      }
+      if (est.graceTopupAt) {
+        console.log(`netlify grace top-up granted ${est.graceTopupAt} — budget already ran out once this period`);
+      }
+    } else {
+      console.log(`netlify credit check skipped: ${est.reason}`);
     }
-  } catch (e) { console.log(`netlify bandwidth check failed: ${e.message}`); }
+  } catch (e) { console.log(`netlify credit check failed: ${e.message}`); }
 }
 
 // ── 3. Synthetic site check — the cause-agnostic one ─────────────────────────
@@ -261,7 +312,11 @@ if (!DRY) {
       finished_at: new Date().toISOString(),
       status: problems.length > 0 ? "error" : "success",
       rows_updated: siteStatus,
-      notes: `site ${siteStatus || "ERR"}${vercelChecked ? "" : " (vercel api unchecked)"}${problems.length ? ` · ${problems.length} problem(s)` : ""}${pagedNote}`.slice(0, 500),
+      // `credits unchecked` is deliberately loud. A missing NETLIFY_AUTH_TOKEN
+      // would otherwise skip the credit estimator entirely while this row still
+      // says "success" — a green watchdog with no eyes, which is the precise
+      // shape of the 2026-07-30 failure. Mirrors the vercelChecked marker.
+      notes: `site ${siteStatus || "ERR"}${vercelChecked ? "" : " (vercel api unchecked)"}${creditsChecked ? creditSummary : " (netlify credits UNCHECKED)"}${problems.length ? ` · ${problems.length} problem(s)` : ""}${pagedNote}`.slice(0, 500),
     });
   } catch { /* best-effort */ }
 }

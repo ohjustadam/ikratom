@@ -87,3 +87,32 @@ jobs:
         # Production-relevant only via --omit=dev — devDependency CVEs
         # don't ship to runtime.
         run: npm audit --audit-level=high --omit=dev
+
+  credits:
+    name: Netlify credit budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    # THE BRAKE. On 2026-07-30 the site was disabled for credit exhaustion:
+    # 15 production deploys x 15 credits = 225 of a 300-credit monthly budget.
+    # Merging to main triggers a production build, so the merge IS the spend —
+    # which makes pull_request the only moment a check can still prevent it.
+    #
+    # This is deliberately a required check rather than a notification. The
+    # whole lesson of both outages is that a warning nobody must act on is
+    # indistinguishable from no warning at all.
+    #
+    # No `npm ci`: the gate uses only built-in fetch, so this job is seconds.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Check remaining credits before allowing a deploy
+        env:
+          # Already configured at repo level (cron-hourly.yml uses it). On fork
+          # PRs secrets are absent, and the script then reports SKIPPED and
+          # exits 0 — it never reports a false "pass".
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_ACCOUNT_SLUG: ${{ secrets.NETLIFY_ACCOUNT_SLUG }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: node scripts/netlify-credit-gate.mjs
