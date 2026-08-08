@@ -66,7 +66,7 @@
     "libsodium-wrappers": "^0.8.4",
     "linkedom": "^0.18.12",
     "marked": "^18.0.3",
-    "mermaid": "^11.15.0",
+    "mermaid": "^11.16.1",
     "msedge-tts": "^2.0.5",
     "next": "^16.2.6",
     "pdf-parse": "^2.4.5",
