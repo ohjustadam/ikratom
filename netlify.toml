@@ -148,6 +148,36 @@
 # redirect. Fully closing it is a dashboard setting (Netlify → Site
 # configuration → Access & security) or Cloudflare Authenticated Origin Pulls.
 # See private/AUDIT_2026-07-26.md.
+# ── CRON PASSTHROUGH (owner decision, 2026-08-19) ─────────────────────────────
+# MUST stay ABOVE the catch-all below — Netlify evaluates redirects in order and
+# the first match wins.
+#
+# WHY: Cloudflare Bot Fight Mode challenges GitHub Actions' datacenter IPs, so
+# every scheduled cron curl to www.ikratom.org got HTTP 403 + cf-mitigated:
+# challenge and never reached the app. `fire_waves` is the SOLE push/email
+# delivery path, so ALL user notifications were dead 2026-07-26 → 2026-08-19.
+# PROVEN it is IP/ASN-based, not User-Agent: the identical request with the
+# identical browser UA returns a clean 401 from a residential IP and 403 from a
+# GitHub runner (run 32308265694, cf-ray a2dc8a236d4a7a9d-ORD). A WAF skip rule
+# cannot exempt BFM on the free plan — only Super Bot Fight Mode (Pro) can.
+#
+# SCOPE: /api/cron/* ONLY, and every one of those routes already rejects any
+# request without `Authorization: Bearer $CRON_SECRET` (401). So this reopens a
+# keyhole, not the door: the wide-open bypass that #852 closed was the whole app
+# being publicly served from this hostname, which stays closed. Crawler load —
+# the reason BFM was turned on — does not target authenticated cron paths.
+#
+# TRADE-OFF ACCEPTED: these paths lose Cloudflare's rate limiting and WAF. They
+# are unauthenticated-rejecting and not discoverable, so the residual risk is
+# request volume against a 401, which is cheap. Revisit if Netlify origin access
+# control (Site configuration → Access & security) is ever enabled, which would
+# close this properly.
+[[redirects]]
+  from = "https://ikratom.netlify.app/api/cron/*"
+  to = "/api/cron/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "https://ikratom.netlify.app/*"
   to = "https://www.ikratom.org/:splat"

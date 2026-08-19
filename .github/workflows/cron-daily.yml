@@ -48,6 +48,8 @@ jobs:
         continue-on-error: true
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # Netlify origin — bypasses Cloudflare BFM for authenticated cron paths only.
+          CRON_ORIGIN: https://ikratom.netlify.app
           APP_URL: ${{ secrets.APP_URL }}
         run: |
           if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
@@ -66,10 +68,18 @@ jobs:
           #   (b) exempt /api/cron/* from the netlify.app -> www 308 so this call can reach
           #       the origin directly (these routes already require Bearer CRON_SECRET).
           # Until one is chosen, this job fails every run and ALL push/email fan-out is dead.
+          # ORIGIN-DIRECT (owner decision, 2026-08-19). Cloudflare Bot Fight Mode
+          # challenges GitHub's datacenter IPs, so this call via www.ikratom.org got a
+          # 403 challenge and never reached the app -- see netlify.toml's cron
+          # passthrough rule for the full rationale and threat model. CRON_ORIGIN goes
+          # straight to the Netlify origin, where netlify.toml serves /api/cron/* with
+          # status 200 instead of the 308 that bounces everything else back to www.
+          # The route still requires Authorization: Bearer CRON_SECRET, so this is an
+          # authenticated keyhole, not an open bypass. Falls back to APP_URL if unset.
           curl -fsS --max-time 600 \
             -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 iKratom-Cron/1.0 (+https://www.ikratom.org)" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "$APP_URL/api/cron/reverify-local-officials"
+            "${CRON_ORIGIN:-$APP_URL}/api/cron/reverify-local-officials"
 
   egress-watchdog:
     # The "never restricted again" failsafe (2026-07-16 incident): reads the
