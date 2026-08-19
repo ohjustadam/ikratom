@@ -32,7 +32,15 @@
  * — keep public pages statically generated so crawlers cost no compute. See
  * memory `root-layout-forces-whole-app-dynamic`.
  *
- * Runs every 2h via cron-hourly.yml (`0 */2 * * *`). Telemetry: vercel_watchdog.
+ * Runs every 2h via cron-hourly.yml. Telemetry source: vercel_watchdog.
+ *
+ * NOTE: do not write the cron expression literally in this block comment.
+ * An every-N-hours expression contains the two characters that CLOSE a
+ * block comment, which silently turns the rest of this file into syntax
+ * errors. That happened on 2026-08-19 (#867) and killed this watchdog --
+ * the one job whose whole purpose is noticing the site is in trouble --
+ * while its cron step is continue-on-error, so it failed invisibly.
+ * tests/scripts-syntax.test.ts now guards every script against this.
  *
  * 2026-07-30 UPDATE — a SECOND outage taught the same lesson again. The site was
  * disabled for Netlify CREDIT exhaustion while this script reported healthy,
