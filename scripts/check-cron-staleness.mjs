@@ -62,8 +62,32 @@ const newlySilent = []; // not previously alerted, just went silent
 const recovered = [];   // was alerted, has now run again
 const stillSilent = []; // alerted + still silent (no new push, just status)
 
+// BOX-OFFLINE COALESCING (2026-08-19 audit). Nine registry entries are
+// system:"local-box" — they only ever run from run-nightly-steps.cmd on the
+// owner's PC. When that PC is simply off for a few days, all nine trip at once
+// and the owner gets nine separate pages about nine healthy scripts. Nine
+// false alarms is how a real alert gets ignored.
+//
+// So: if EVERY box source is silent, that is ONE fact — the box is offline —
+// and it pages once under a single synthetic source. If only SOME are silent
+// while siblings are fresh, the box clearly ran, so those are genuine
+// per-script failures and page individually as before.
+const boxEntries = REGISTRY.filter((e) => e.system === "local-box");
+const boxSilent = boxEntries.filter((e) => {
+  const last = latestBySource.get(e.source);
+  if (!last) return true;
+  return now - new Date(last).getTime() > e.interval_hours * 3 * 3_600_000;
+});
+const boxOffline = boxEntries.length > 0 && boxSilent.length === boxEntries.length;
+const boxSources = new Set(boxEntries.map((e) => e.source));
+if (boxOffline) {
+  console.log(`  local-box appears OFFLINE — all ${boxEntries.length} box sources silent; coalescing into one alert`);
+}
+
 const neverRun = []; // sources that have never written a row — skipped (grace period)
 for (const entry of REGISTRY) {
+  // Handled by the box-offline coalescer above.
+  if (boxOffline && boxSources.has(entry.source)) continue;
   const last = latestBySource.get(entry.source);
 
   // GRACE: a source that has NEVER written telemetry isn't "silent" —
@@ -100,6 +124,26 @@ if (neverRun.length > 0) {
         age_hours: -1, // sentinel: never observed
       });
     }
+  }
+}
+
+if (boxOffline) {
+  const SRC = "local_box_offline";
+  const oldest = Math.max(...boxSilent.map((e) => {
+    const last = latestBySource.get(e.source);
+    return last ? now - new Date(last).getTime() : Infinity;
+  }).filter(Number.isFinite));
+  if (!alertedSources.has(SRC)) {
+    newlySilent.push({
+      source: SRC,
+      interval_hours: 24,
+      system: "local-box",
+      cadence: "daily",
+      last_seen_at: null,
+      age_hours: Number.isFinite(oldest) ? Math.round(oldest / 3_600_000) : -1,
+    });
+  } else {
+    stillSilent.push({ source: SRC, system: "local-box", last_seen_at: null });
   }
 }
 

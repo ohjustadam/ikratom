@@ -304,3 +304,23 @@ for (let i = 0; i < allRows.length; i += BATCH) {
 }
 
 console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${written} new trade rows written.`);
+
+// Telemetry. senate_stock_watcher / house_stock_watcher were registered in
+// cron-pager-registry but existed ONLY as `source` labels on
+// federal_personal_trades rows -- nothing ever wrote them to scraper_runs, so
+// the pager treated two healthy feeds as permanently silent. Same phantom
+// class the 2026-07-16 audit fixed for the BoP layers. One row per chamber so
+// a single dead feed stays visible when the other is fine.
+for (const [src, chamber] of [["senate_stock_watcher", "senate"], ["house_stock_watcher", "house"]]) {
+  const attempted = allRows.filter((r) => r.chamber === chamber).length;
+  try {
+    await sb.from("scraper_runs").insert({
+      source: src,
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      status: attempted === 0 ? "empty" : "success",
+      rows_added: attempted,
+      notes: `${attempted} ${chamber} rows offered, ${written} new across both chambers`,
+    });
+  } catch { /* best-effort telemetry */ }
+}
