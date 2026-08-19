@@ -54,15 +54,18 @@ jobs:
             echo "::error::Missing CRON_SECRET or APP_URL repo secret"
             exit 1
           fi
-          # A browser-ish UA keeps Cloudflare's Bot Fight Mode (enabled
-          # 2026-07-26) from challenging our own origin call.
-          # UA ORDER IS LOAD-BEARING. Cloudflare Bot Fight Mode matches on the UA
-          # *prefix*, so "iKratom-Cron/1.0 (...Mozilla/5.0 compatible)" is still
-          # bot-shaped and draws a managed challenge. That is why the 62dee4c fix did
-          # NOT work and this call 403'd from 2026-07-26 to 2026-08-19, taking ALL
-          # push/email fan-out down with it. Browser token FIRST, honest identifier
-          # LAST -- same shape as scripts/check-vercel-usage.mjs:167, which has run
-          # green from these same GitHub datacenter IPs throughout.
+          # Cloudflare Bot Fight Mode blocks this call by IP/ASN, NOT by User-Agent.
+          # PROVEN 2026-08-19: with the browser-first UA below, GitHub's runner still got
+          # HTTP/2 403 + cf-mitigated: challenge + the 'Just a moment...' interstitial
+          # (cf-ray a2dc8a236d4a7a9d-ORD), while the IDENTICAL request with the IDENTICAL
+          # UA from a residential IP returned a clean 401 from the app. Reordering the UA
+          # is harmless hygiene and is kept, but it is NOT a fix and must not be reported
+          # as one -- an earlier review claimed BFM keys off the UA prefix; it does not.
+          # Two real options, both needing an owner decision (see private/RELAUNCH_2026-08-19.md 1.1):
+          #   (a) turn Bot Fight Mode off, or
+          #   (b) exempt /api/cron/* from the netlify.app -> www 308 so this call can reach
+          #       the origin directly (these routes already require Bearer CRON_SECRET).
+          # Until one is chosen, this job fails every run and ALL push/email fan-out is dead.
           curl -fsS --max-time 600 \
             -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 iKratom-Cron/1.0 (+https://www.ikratom.org)" \
             -H "Authorization: Bearer $CRON_SECRET" \
