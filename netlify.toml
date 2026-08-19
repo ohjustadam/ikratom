@@ -52,6 +52,34 @@
   # conventional value and the plugin overrides it as needed.
   publish = ".next"
 
+  # ── BUILD IGNORE — added 2026-07-30 after the credit outage ────────────────
+  # Every production deploy costs 15 credits out of 300/month. 15 deploys in
+  # nine days spent 225 of them — 75% of the entire budget — and the site was
+  # disabled. A large share of those builds shipped no application change at
+  # all: workflow YAML, docs, and migration files.
+  #
+  # Netlify runs this command per build: exit 0 SKIPS, non-zero BUILDS.
+  # So this asks "did anything OUTSIDE the excluded paths change?" — if not,
+  # git exits 0 and we skip a 15-credit no-op build.
+  #
+  # ⚠ TWO EXCLUSIONS THAT LOOK OBVIOUS ARE DELIBERATELY ABSENT — both were
+  # tested and both would have caused STALE production builds:
+  #
+  #   scripts/**  — NOT excluded. 13 modules under scripts/lib/ are imported
+  #                 by the app (e.g. src/modules/bop/engine.ts imports
+  #                 scripts/lib/bop-engine.mjs). Excluding scripts/ would ship
+  #                 stale engine logic. Saving a credit is not worth that.
+  #
+  #   '*.md'      — the `glob` magic is REQUIRED. Without it git's pathspec
+  #                 `*` also matches `/`, so a bare ':(exclude)*.md' silently
+  #                 excludes all 35 markdown files under src/content/
+  #                 (briefings + patch notes) — which the app renders. With
+  #                 ':(exclude,glob)' it matches root-level *.md only.
+  #
+  # The leading guard fails SAFE: if Netlify does not provide the refs (e.g. a
+  # shallow clone), we exit 1 and build rather than skip a real change.
+  ignore = "[ -z \"$CACHED_COMMIT_REF\" ] && exit 1; git diff --quiet \"$CACHED_COMMIT_REF\" \"$COMMIT_REF\" -- ':(exclude,glob)*.md' ':(exclude)docs/**' ':(exclude).github/**' ':(exclude)tests/**' ':(exclude)supabase/**'"
+
 [build.environment]
   # Match CI + the app's engines expectation.
   NODE_VERSION = "22"
