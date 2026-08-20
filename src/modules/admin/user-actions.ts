@@ -478,9 +478,27 @@ function generateReadableTempPassword(len: number): string {
 }
 
 /**
- * Owner-only: lock a user's account temporarily. Sets profile flag
- * that the proxy checks before letting any authenticated request
- * proceed. Owner can unlock by calling with locked=false.
+ * Owner-only: lock a user's account temporarily. Owner can unlock by calling
+ * with locked=false.
+ *
+ * ⚠ ENFORCEMENT MOVED TO THE AUTH LAYER (2026-08-20). This used to set only
+ * `profiles.account_locked_at`, "the flag the proxy checks". `src/proxy.ts` was
+ * disabled on 2026-07-26 for the Netlify migration (the adapter cannot bundle
+ * Next 16 middleware under Turbopack, and re-enabling it means reverting to
+ * webpack, which OOMs the remote builder). Nothing replaced it, so for 24+ days
+ * locking an account changed a column and NOTHING else: the user kept a valid
+ * session and every page still rendered for them. `/locked` existed with no
+ * route to it.
+ *
+ * The flag alone cannot be enforced without a request choke point, and the two
+ * available ones are both closed: middleware is unbundleable, and the root
+ * layout explicitly forbids reintroducing `getCachedAuthProfile()` because that
+ * is what forced all 200+ routes dynamic (see src/app/layout.tsx:104-111).
+ *
+ * So enforcement now happens where it cannot be bypassed at all: Supabase Auth.
+ * Locking bans the auth user, which invalidates their sessions and refuses
+ * subsequent sign-in; unlocking lifts the ban. The profile column is retained
+ * as the audit/display record and as the source of truth for the admin UI.
  */
 export async function setAccountLocked(input: { userId: string; locked: boolean; reason?: string }) {
   const ctx = await getAdminContext({ require: "lock_accounts" });
@@ -497,6 +515,19 @@ export async function setAccountLocked(input: { userId: string; locked: boolean;
     })
     .eq("id", input.userId);
   if (error) return { error: error.message };
+
+  // The part that actually stops them. `ban_duration` takes a Go duration
+  // string; "none" clears it. 876000h ≈ 100 years = indefinite until unlocked.
+  // Failing here must NOT report success — a lock that only wrote a column is
+  // exactly the bug this replaces — so surface it and leave the flag for the
+  // owner to retry against.
+  const admin = createServiceRoleClient();
+  const { error: banErr } = await admin.auth.admin.updateUserById(input.userId, {
+    ban_duration: input.locked ? "876000h" : "none",
+  });
+  if (banErr) {
+    return { error: `Profile flag saved, but the auth ${input.locked ? "ban" : "unban"} failed: ${banErr.message}. The account is NOT ${input.locked ? "locked" : "unlocked"} — retry.` };
+  }
 
   await recordAdminAction({
     action: input.locked ? "account_locked" : "account_unlocked",

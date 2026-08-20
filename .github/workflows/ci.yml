@@ -36,6 +36,15 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Verify (typecheck + tests)
         run: npm run verify
+      - name: Report safety-suite coverage
+        # `verify` is green even when the RLS and rate-limit suites never ran
+        # (rls.test.ts is excluded; rate-limit self-skips without DB env, and
+        # this job has no env: block). Green that proves nothing is worse than
+        # red. This surfaces the gap on every run as a warning annotation; it
+        # never blocks, because the real fix is a dedicated Supabase test
+        # project, not pointing prod credentials at a suite that creates users.
+        if: always()
+        run: node scripts/report-safety-coverage.mjs
 
   build:
     name: Next.js build
