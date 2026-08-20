@@ -1025,12 +1025,43 @@ function StateRepPicker({
   targetRoles: string[];
 }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Collapsed by default for any group big enough to bury the rest of the UI.
+  // MA has 158 State Reps; rendering that open pushes every other chamber and
+  // the send button out of the scroll viewport. Small groups (a delegation, a
+  // council) stay open since collapsing 3 rows helps nobody.
+  const COLLAPSE_OVER = 25;
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const counts = new Map<string, number>();
+    for (const r of reps) counts.set(r.role, (counts.get(r.role) ?? 0) + 1);
+    return new Set([...counts.entries()].filter(([, n]) => n > COLLAPSE_OVER).map(([role]) => role));
+  });
 
   function toggle(id: string) {
     setPicked((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleCollapsed(role: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+  }
+
+  /** Select or clear every rep in one role group, leaving other groups alone. */
+  function setGroup(group: Legislator[], on: boolean) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      for (const r of group) {
+        if (on) next.add(r.id);
+        else next.delete(r.id);
+      }
       return next;
     });
   }
@@ -1045,8 +1076,13 @@ function StateRepPicker({
     arr.sort((a, b) => (a.district ?? "").localeCompare(b.district ?? "") || a.full_name.localeCompare(b.full_name));
   }
 
+  const allPicked = reps.length > 0 && picked.size === reps.length;
+  // "all" sentinel instead of enumerating every id: 198 UUIDs is a ~7.4 KB
+  // query string, past what several servers and proxies accept, and the slug
+  // page caps explicit ids anyway. The page resolves "all" server-side to the
+  // same set the picker was built from, so the two can never drift.
   const sendHref = picked.size > 0
-    ? `/campaigns/${campaignSlug}?manual_targets=${[...picked].join(",")}`
+    ? `/campaigns/${campaignSlug}?manual_targets=${allPicked ? "all" : [...picked].join(",")}`
     : null;
 
   return (
@@ -1055,15 +1091,61 @@ function StateRepPicker({
         Pick your reps manually
       </p>
       <p className="mt-1 text-sm text-zinc-300">
-        {reps.length} {targetRoles.map((r) => ROLE_SHORT[r] ?? r).join(" / ")} in your state. Tick the ones you want to email — usually just the legislators for your district.
+        {reps.length} {targetRoles.map((r) => ROLE_SHORT[r] ?? r).join(" / ")} in your state. Tick the ones you want to email — usually just the legislators for your district, or select a whole chamber to contact everyone.
       </p>
+
+      {/* Bulk controls. Selecting a whole chamber is a legitimate advocacy
+          move for a statewide action, so it should take one click rather than
+          158 of them. */}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        <button
+          type="button"
+          onClick={() => setPicked(new Set(reps.map((r) => r.id)))}
+          className="rounded border border-emerald-700/50 px-2 py-1 font-medium text-emerald-300 hover:border-emerald-500 hover:text-emerald-200"
+        >
+          Select all {reps.length}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPicked(new Set())}
+          className="rounded border border-zinc-700 px-2 py-1 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+        >
+          Select none
+        </button>
+        <span className="text-zinc-500">
+          {picked.size} selected
+        </span>
+      </div>
+
       <div className="mt-3 max-h-72 overflow-y-auto rounded border border-zinc-800 bg-zinc-950 p-2">
-        {[...grouped.entries()].map(([role, group]) => (
+        {[...grouped.entries()].map(([role, group]) => {
+          const isCollapsed = collapsed.has(role);
+          const pickedInGroup = group.filter((r) => picked.has(r.id)).length;
+          const allInGroup = pickedInGroup === group.length;
+          return (
           <div key={role} className="mb-2">
-            <p className="px-2 py-1 text-[10px] uppercase tracking-wider text-emerald-300/80">
-              {ROLE_SHORT[role] ?? role} ({group.length})
-            </p>
-            <ul>
+            <div className="flex items-center justify-between gap-2 px-2 py-1">
+              <button
+                type="button"
+                onClick={() => toggleCollapsed(role)}
+                aria-expanded={!isCollapsed}
+                className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-300/80 hover:text-emerald-200"
+              >
+                <span aria-hidden className="inline-block w-2">{isCollapsed ? "▸" : "▾"}</span>
+                {ROLE_SHORT[role] ?? role} ({group.length})
+                {pickedInGroup > 0 && (
+                  <span className="text-emerald-400">· {pickedInGroup} picked</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setGroup(group, !allInGroup)}
+                className="shrink-0 text-[10px] text-zinc-400 underline decoration-dotted hover:text-emerald-300"
+              >
+                {allInGroup ? "clear" : `all ${group.length}`}
+              </button>
+            </div>
+            <ul hidden={isCollapsed}>
               {group.map((r) => (
                 <li key={r.id}>
                   <label className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-zinc-900">
@@ -1084,7 +1166,8 @@ function StateRepPicker({
               ))}
             </ul>
           </div>
-        ))}
+          );
+        })}
       </div>
       <div className="mt-3 flex items-center gap-2 text-xs">
         {sendHref ? (

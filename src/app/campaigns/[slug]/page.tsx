@@ -168,11 +168,34 @@ export default async function CampaignPage({
   // Manual override — when district auto-detection fails (Census gap) or an
   // out-of-state advocate picks who to contact, the targets are passed
   // explicitly. Encoded as ?manual_targets=id1,id2,id3 in the URL.
-  const manualTargetIds = sp.manual_targets
-    ? sp.manual_targets.split(",").map((s) => s.trim()).filter((s) => /^[0-9a-f-]{36}$/i.test(s)).slice(0, 20)
+  // "all" sentinel — the picker sends it instead of enumerating every id, since
+  // a full chamber is ~7.4 KB of UUIDs in a query string. Resolved below from
+  // the campaign's own state + roles, so it can never address a wider set than
+  // the picker offered.
+  const wantsAllTargets = sp.manual_targets === "all";
+  // Cap raised 20 -> 200 (2026-08-20). At 20 a "select all" in a 198-member
+  // legislature silently emailed 20 people and looked like it worked, which is
+  // worse than refusing. 200 matches the picker's own fetch limit; the state +
+  // role filters below are what actually constrain who can be addressed.
+  const MAX_MANUAL_TARGETS = 200;
+  const manualTargetIds = !wantsAllTargets && sp.manual_targets
+    ? sp.manual_targets.split(",").map((s) => s.trim()).filter((s) => /^[0-9a-f-]{36}$/i.test(s)).slice(0, MAX_MANUAL_TARGETS)
     : [];
 
-  if (manualTargetIds.length > 0) {
+  if (wantsAllTargets && (targetState || campaign.target_locality)) {
+    // Whole-chamber select-all. Built from the campaign's own scope rather than
+    // anything in the URL, so this path cannot be widened by hand-editing it.
+    let q = supabase
+      .from("legislators")
+      .select("id,state,role,district,full_name,party,email,phone,office_address,website,level,locality,body,title")
+      .eq("active", true)
+      .in("role", campaign.target_roles)
+      .limit(MAX_MANUAL_TARGETS);
+    if (targetState) q = q.eq("state", targetState);
+    if (campaign.target_locality) q = q.ilike("locality", campaign.target_locality);
+    const { data: allTargets } = await q;
+    targets = (allTargets ?? []) as Legislator[];
+  } else if (manualTargetIds.length > 0) {
     // User-picked targets. Verify they belong to the state this campaign acts
     // on (the campaign's state for state/local campaigns, else the user's own
     // state) + match the campaign's target_roles — prevents an accidental
@@ -285,6 +308,11 @@ export default async function CampaignPage({
   //   - Federal district campaign → the user's OWN state's district reps to pick
   //                       from when Census couldn't map their district.
   // Capped at 200 (no scope has more).
+  // PICKER_LIMIT was 200 against legislatures that reach 198 (MA) and 203 (PA,
+  // NH's House is 400) — two seats from silently truncating the list a
+  // non-resident picks from, with no error. Sized to clear the largest US state
+  // chamber outright.
+  const PICKER_LIMIT = 450;
   let pickableStateReps: Legislator[] = [];
   if (targets.length === 0 && !manualTargetIds.length) {
     const PICK_COLS =
@@ -296,7 +324,7 @@ export default async function CampaignPage({
         .ilike("locality", campaign.target_locality)
         .eq("active", true)
         .in("role", campaign.target_roles)
-        .limit(200);
+        .limit(PICKER_LIMIT);
       pickableStateReps = (data ?? []) as Legislator[];
     } else if (targetState) {
       const { data } = await supabase
@@ -305,7 +333,7 @@ export default async function CampaignPage({
         .eq("state", targetState)
         .eq("active", true)
         .in("role", campaign.target_roles)
-        .limit(200);
+        .limit(PICKER_LIMIT);
       pickableStateReps = (data ?? []) as Legislator[];
     } else if (
       profile?.state &&
@@ -317,7 +345,7 @@ export default async function CampaignPage({
         .eq("state", profile.state)
         .eq("active", true)
         .in("role", campaign.target_roles)
-        .limit(200);
+        .limit(PICKER_LIMIT);
       pickableStateReps = (data ?? []) as Legislator[];
     }
   }
