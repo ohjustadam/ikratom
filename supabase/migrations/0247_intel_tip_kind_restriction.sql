@@ -1,3 +1,9 @@
+-- RENUMBERED 0246 -> 0247 on 2026-08-20. `0246` was taken by
+-- 0246_permission_catalog_v2.sql, which merged in #847 and is ALREADY APPLIED
+-- to production. `npm run db:push` keys on filename, so two different 0246 files
+-- across two branches is a live drift hazard: whichever ran first would make the
+-- other look applied. Nothing about this migration's contents changed.
+
 -- ============================================================
 -- 0246 — Restrict trusted_reporter self-publish to kind='intel_tip'
 -- ============================================================
