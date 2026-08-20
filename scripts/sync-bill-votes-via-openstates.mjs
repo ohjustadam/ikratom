@@ -324,6 +324,21 @@ for (let i = 0; i < bills.length; i++) {
 }
 
 console.log(`\nDone. ok=${ok}, no-votes=${noVotes}, fail=${fail}, rate-limited=${quotaHit}`);
+
+// Telemetry for the shared "openstates" registry entry. The registry comment
+// says sibling scripts kept this label fresh; they stopped, and because this
+// script wrote nothing of its own the label went silent with no way to tell
+// which consumer had died. Writing it here gives the label a real owner.
+try {
+  await sb.from("scraper_runs").insert({
+    source: "openstates",
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: quotaHit ? "error" : (ok === 0 ? "empty" : "success"),
+    rows_added: ok,
+    notes: `ok=${ok} no-votes=${noVotes} fail=${fail}${quotaHit ? " RATE-LIMITED" : ""}`,
+  });
+} catch { /* best-effort telemetry */ }
 if (quotaHit) {
   console.log(`Stopped early due to OpenStates rate limit. Rerun tomorrow; idempotent on already-synced bills.`);
 }
