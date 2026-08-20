@@ -151,6 +151,19 @@ export function CampaignAction({
     });
   }
 
+  // Windows hands a mailto: URI to the mail client through ShellExecute, which
+  // truncates around 2048 characters, and Outlook desktop is stricter still.
+  // A whole-chamber selection blows straight past that: 198 MA legislators is a
+  // 5.2 KB BCC list and a ~7.9 KB URI, 386% of the limit. The failure is SILENT
+  // — the client opens with a truncated recipient list, or nothing happens —
+  // which is the same trap as the old 20-target cap: the UI looks like it
+  // worked while the action quietly did less. Warn instead, and point at the
+  // connected-account path, which posts the message through the provider API
+  // and has no URL length limit at all.
+  const MAILTO_SAFE_LIMIT = 1900;
+  const mailtoLength = buildMailto().length;
+  const mailtoTooLong = mailtoLength > MAILTO_SAFE_LIMIT;
+
   function buildMailto() {
     // encodeURIComponent (%20), NOT URLSearchParams ('+') — RFC 6068 mailto
     // bodies treat '+' as a literal plus sign in several mail clients.
@@ -750,6 +763,16 @@ export function CampaignAction({
               done={sentVia === "mailto"}
             />
           </div>
+
+          {mailtoTooLong && (
+            <p className="mt-3 rounded-md border border-amber-800/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+              <strong>{targetsWithEmail.length} recipients is too many for a desktop mail app.</strong>{" "}
+              This message is {mailtoLength.toLocaleString()} characters and Windows cuts mailto links off
+              around 2,000 — your mail client may open with recipients missing, or not open at all.
+              Use <em>Gmail</em> or <em>Outlook</em> above (they take the full list), send with a connected
+              account, or copy the message and paste it yourself.
+            </p>
+          )}
 
           <button
             onClick={copyAll}
