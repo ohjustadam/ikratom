@@ -9,6 +9,7 @@ import { CallActionPanel } from "./CallActionPanel";
 import { AttachmentRecorder } from "./AttachmentRecorder";
 import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { SendBatchPanel } from "./SendBatchPanel";
 
 type SendMethod = "mailto" | "gmail" | "outlook" | "copy" | "platform_gmail";
 
@@ -772,6 +773,20 @@ export function CampaignAction({
               Use <em>Gmail</em> or <em>Outlook</em> above (they take the full list), send with a connected
               account, or copy the message and paste it yourself.
             </p>
+          )}
+
+          {/* Background queue. Offered when the selection is big enough that a
+              one-shot compose is the wrong tool — either it exceeds what a
+              mailto URL can carry, or it is simply a lot of individual letters
+              to sit and watch. Requires a connected account: mailto and web
+              compose each open ONE window and cannot loop N separate messages,
+              so this is a real capability difference rather than an upsell. */}
+          {gmailConnected && (mailtoTooLong || targetsWithEmail.length >= 5) && (
+            <SendBatchPanel
+              campaignSlug={campaignSlug}
+              selectedIds={targetsWithEmail.map((t) => t.id)}
+              className="mt-3"
+            />
           )}
 
           <button
