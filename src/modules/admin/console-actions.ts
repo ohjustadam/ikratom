@@ -18,9 +18,15 @@ import { DISPATCHABLE_WORKFLOW_FILES } from "@/lib/dispatchable-workflows";
  *      audit-logged. Hard-blocked: DROP, TRUNCATE, ALTER on auth
  *      schema, anything touching auth.users.
  *   2. triggerCron() — invoke an /api/cron/* endpoint server-side with
- *      the CRON_SECRET. Admin-only. Audit-logged.
- *   3. invalidateCache() — flush a named cache tag or revalidate a
- *      specific path. Admin-only.
+ *      the CRON_SECRET. Audit-logged. Permission-gated since #847, and
+ *      SPLIT since 2026-08-22: the data endpoints need `sync_legislators`,
+ *      but `fire-waves` needs `fire_notifications` because it delivers push
+ *      + email to every user. (This block said "Admin-only" until 2026-08-22,
+ *      stale since #847 made it permission-gated.)
+ *   3. invalidateCache() — NEVER IMPLEMENTED. Documented here since the file
+ *      was written; grep finds no such function anywhere in src/. Cache
+ *      invalidation now lives at POST /api/revalidate (Bearer CRON_SECRET,
+ *      tag allowlist) with scripts/lib/revalidate.mjs as the caller.
  *
  * Safety posture:
  *   - All three call getAdminContext() and check role server-side
@@ -158,12 +164,31 @@ export type CronTriggerResult =
 const CRON_ENDPOINTS = ["daily-sync", "fire-waves", "reverify-local-officials"] as const;
 type CronEndpoint = typeof CRON_ENDPOINTS[number];
 
-export async function triggerCron(endpoint: CronEndpoint): Promise<CronTriggerResult> {
-  const ctx = await getAdminContext({ require: "sync_legislators" });
-  if (!ctx.ok) return { ok: false, error: "Admin required." };
+/**
+ * Endpoints whose blast radius is the whole user base, not just our own data.
+ * `fire-waves` is the SOLE push/email delivery path — one run pushed to 44
+ * users on 2026-08-20 — so it requires its own deliberate grant rather than
+ * riding along on "Trigger sync jobs".
+ */
+const NOTIFICATION_ENDPOINTS = new Set<CronEndpoint>(["fire-waves"]);
 
+export async function triggerCron(endpoint: CronEndpoint): Promise<CronTriggerResult> {
+  // Validate the endpoint BEFORE choosing which permission to demand —
+  // otherwise an unknown value would fall to the weaker `sync_legislators`
+  // branch and leak which endpoints exist to someone who lacks the stronger key.
   if (!CRON_ENDPOINTS.includes(endpoint)) {
     return { ok: false, error: `Unknown endpoint. Allowed: ${CRON_ENDPOINTS.join(", ")}` };
+  }
+
+  const required = NOTIFICATION_ENDPOINTS.has(endpoint) ? "fire_notifications" : "sync_legislators";
+  const ctx = await getAdminContext({ require: required });
+  if (!ctx.ok) {
+    return {
+      ok: false,
+      error: required === "fire_notifications"
+        ? "Firing the notification fan-out needs the 'Fire the notification fan-out' permission."
+        : "Admin required.",
+    };
   }
 
   const secret = process.env.CRON_SECRET;

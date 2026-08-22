@@ -173,11 +173,14 @@ export default async function CampaignPage({
   // the campaign's own state + roles, so it can never address a wider set than
   // the picker offered.
   const wantsAllTargets = sp.manual_targets === "all";
-  // Cap raised 20 -> 200 (2026-08-20). At 20 a "select all" in a 198-member
-  // legislature silently emailed 20 people and looked like it worked, which is
-  // worse than refusing. 200 matches the picker's own fetch limit; the state +
-  // role filters below are what actually constrain who can be addressed.
-  const MAX_MANUAL_TARGETS = 200;
+  // Cap raised 20 -> 200 -> 1000 (owner, 2026-08-22). At 20 a "select all" in a
+  // 198-member legislature silently emailed 20 people and looked like it worked,
+  // which is worse than refusing. 1000 clears every US chamber with room to
+  // spare (largest is NH's 400-seat House) so no state can ever be silently
+  // truncated. This is a sanity bound on URL length, NOT the security boundary:
+  // the state + role filters below are what actually constrain who can be
+  // addressed, and the "all" path never reads ids from the URL at all.
+  const MAX_MANUAL_TARGETS = 1000;
   const manualTargetIds = !wantsAllTargets && sp.manual_targets
     ? sp.manual_targets.split(",").map((s) => s.trim()).filter((s) => /^[0-9a-f-]{36}$/i.test(s)).slice(0, MAX_MANUAL_TARGETS)
     : [];
@@ -308,11 +311,11 @@ export default async function CampaignPage({
   //   - Federal district campaign → the user's OWN state's district reps to pick
   //                       from when Census couldn't map their district.
   // Capped at 200 (no scope has more).
-  // PICKER_LIMIT was 200 against legislatures that reach 198 (MA) and 203 (PA,
-  // NH's House is 400) — two seats from silently truncating the list a
-  // non-resident picks from, with no error. Sized to clear the largest US state
-  // chamber outright.
-  const PICKER_LIMIT = 450;
+  // PICKER_LIMIT was 200 against legislatures that reach 198 (MA) and 400 (NH
+  // House) — two seats from silently truncating the list a non-resident picks
+  // from, with no error. Matched to MAX_MANUAL_TARGETS so the list you can see
+  // and the list you can send to can never disagree.
+  const PICKER_LIMIT = 1000;
   let pickableStateReps: Legislator[] = [];
   if (targets.length === 0 && !manualTargetIds.length) {
     const PICK_COLS =
