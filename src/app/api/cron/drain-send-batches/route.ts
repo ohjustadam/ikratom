@@ -65,8 +65,13 @@ export async function GET(request: NextRequest) {
   try {
     const { data: batches } = await supabase
       .from("campaign_send_batches")
-      .select("id, user_id, campaign_id, provider, provider_tier, subject_template, body_template, status, sent_count, failed_count")
-      .in("status", ["queued", "sending"])
+      .select("id, user_id, campaign_id, provider, provider_tier, subject_template, body_template, status, total_count, sent_count, failed_count")
+      // 'paused' MUST be included. A batch paused for "daily limit reached"
+      // promises it "resumes automatically tomorrow" — if the worker never
+      // picked paused rows back up, that promise would be a lie and the batch
+      // would sit forever. Pause is a stall, not a terminal state; the checks
+      // below re-evaluate whether the reason still holds.
+      .in("status", ["queued", "sending", "paused"])
       .order("created_at", { ascending: true })
       .limit(10);
 
@@ -118,10 +123,32 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      if (batch.status === "queued") {
+      if (batch.status === "queued" || batch.status === "paused") {
+        // Reaching here means the blockers above cleared: the integration is
+        // valid again and there is quota left today. Resume.
+        const resuming = batch.status === "paused";
         await supabase.from("campaign_send_batches")
-          .update({ status: "sending", started_at: new Date().toISOString(), pause_reason: null })
+          .update({
+            status: "sending",
+            pause_reason: null,
+            ...(batch.status === "queued" ? { started_at: new Date().toISOString() } : {}),
+          })
           .eq("id", batch.id);
+
+        if (resuming) {
+          // Owner call 2026-08-22: tell the user when a stalled batch picks
+          // back up. A batch that silently resumes at 3am and finishes without
+          // them knowing is the same invisibility problem as a cron that dies
+          // quietly — they authorised this mail and deserve to know it moved.
+          const remainingNow = (batch.total_count ?? 0) - (batch.sent_count ?? 0) - (batch.failed_count ?? 0);
+          await supabase.from("notifications").insert({
+            user_id: batch.user_id,
+            kind: "campaign_send_batch",
+            title: "Your campaign emails resumed",
+            body: `Your daily send limit reset, so the remaining ${Math.max(0, remainingNow)} message(s) are going out now.`,
+            link: `/campaigns`,
+          }).then(() => {}, () => {}); // never let telemetry break the send
+        }
       }
 
       const minIntervalMs = Math.ceil(60_000 / Math.max(1, limits.maxPerMinute));
@@ -227,16 +254,30 @@ export async function GET(request: NextRequest) {
         supabase.from("campaign_send_batch_items").select("id", { count: "exact", head: true }).eq("batch_id", batch.id).eq("status", "pending"),
       ]);
 
+      const justFinished = (pendCount ?? 0) === 0;
       await supabase.from("campaign_send_batches").update({
         sent_count: doneCount ?? 0,
         failed_count: failCount ?? 0,
         last_progress_at: new Date().toISOString(),
-        ...((pendCount ?? 0) === 0
+        ...(justFinished
           ? { status: "complete", finished_at: new Date().toISOString(), pause_reason: null }
           : {}),
       }).eq("id", batch.id);
 
-      if ((pendCount ?? 0) > 0) more = true;
+      if (justFinished) {
+        // Bookend the resume notice. The user started something that outlived
+        // their browser tab; closing the loop is the whole point of the queue.
+        const failNote = (failCount ?? 0) > 0 ? ` ${failCount} could not be delivered.` : "";
+        await supabase.from("notifications").insert({
+          user_id: batch.user_id,
+          kind: "campaign_send_batch",
+          title: "Your campaign emails are sent",
+          body: `${doneCount ?? 0} message(s) delivered from your account.${failNote}`,
+          link: `/campaigns`,
+        }).then(() => {}, () => {});
+      } else {
+        more = true;
+      }
     }
   } catch (e) {
     await supabase.from("scraper_runs").insert({
