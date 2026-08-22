@@ -603,6 +603,38 @@ jobs:
       # which intel layers populated. `--check` fails the step if
       # briefings or legislators drop below floor coverage, surfacing
       # silent breakage (e.g. cron-step failure, missing secret).
+
+  daily-maintenance:
+    # SPLIT OUT OF generate-state-briefings, 2026-08-22.
+    #
+    # These eight cleanup steps used to live INSIDE that job, after the
+    # 50-state AI briefing regen. On 2026-08-15 that regen hit the job's
+    # 30-minute timeout and GitHub cancelled it -- which SKIPPED all eight
+    # steps behind it. They then sat silent for 128 hours and showed up in the
+    # pager as eight separate "stale source" alerts, obscuring the fact that
+    # there was exactly ONE fault.
+    #
+    # The job comment itself already admitted it "bundles the daily 50-state
+    # briefing regen, the intel-coverage check, AND ~7 production queue-cleanup
+    # steps", and it had been hardened against `needs` cascade-skips -- but not
+    # against its own timeout. Same per-job-timeout trap that silently gutted
+    # cron-hourly in June (#632 era).
+    #
+    # Identical `needs` + `if: !cancelled()`, so ordering after the collectors
+    # is preserved -- but as a SIBLING job, so a slow briefing run can never
+    # take the cleanup down with it again. These steps are cheap, idempotent,
+    # and have nothing to do with AI generation.
+    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
       - name: Intel coverage matrix check
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
