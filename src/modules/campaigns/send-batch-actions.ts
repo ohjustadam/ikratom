@@ -273,3 +273,35 @@ export async function cancelBatch(batchId: string): Promise<{ ok: boolean; error
 
   return { ok: true };
 }
+
+/**
+ * Persist (or clear) the user's provider-tier override.
+ *
+ * Validated against the tier list rather than written through: this column
+ * decides how much real email we will send from someone's mailbox, so an
+ * arbitrary string must never reach it. Clearing (null) returns them to
+ * detection, which is the safe default.
+ */
+export async function setProviderTier(
+  tier: ProviderTier | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Sign in." };
+
+  const VALID: ProviderTier[] = [
+    "gmail_free", "gmail_workspace", "outlook_consumer", "outlook_business",
+  ];
+  if (tier !== null && !VALID.includes(tier)) {
+    return { ok: false, error: "Unknown provider tier." };
+  }
+
+  // Through the USER's client so RLS proves ownership, rather than a
+  // service-role write trusting a user_id we assembled ourselves.
+  const { error } = await supabase
+    .from("profiles")
+    .update({ email_provider_tier: tier })
+    .eq("id", user.id);
+  if (error) return { ok: false, error: "Could not save." };
+  return { ok: true };
+}
