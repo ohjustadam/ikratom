@@ -10,6 +10,13 @@ import { AttachmentRecorder } from "./AttachmentRecorder";
 import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { SendBatchPanel } from "./SendBatchPanel";
+import {
+  groupByRole,
+  defaultCollapsed,
+  togglePicked,
+  setGroupPicked,
+  buildTargetsParam,
+} from "../picker-logic";
 
 type SendMethod = "mailto" | "gmail" | "outlook" | "copy" | "platform_gmail";
 
@@ -1067,20 +1074,10 @@ function StateRepPicker({
   // MA has 158 State Reps; rendering that open pushes every other chamber and
   // the send button out of the scroll viewport. Small groups (a delegation, a
   // council) stay open since collapsing 3 rows helps nobody.
-  const COLLAPSE_OVER = 25;
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    const counts = new Map<string, number>();
-    for (const r of reps) counts.set(r.role, (counts.get(r.role) ?? 0) + 1);
-    return new Set([...counts.entries()].filter(([, n]) => n > COLLAPSE_OVER).map(([role]) => role));
-  });
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => defaultCollapsed(reps));
 
   function toggle(id: string) {
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    setPicked((prev) => togglePicked(prev, id));
   }
 
   function toggleCollapsed(role: string) {
@@ -1094,33 +1091,19 @@ function StateRepPicker({
 
   /** Select or clear every rep in one role group, leaving other groups alone. */
   function setGroup(group: Legislator[], on: boolean) {
-    setPicked((prev) => {
-      const next = new Set(prev);
-      for (const r of group) {
-        if (on) next.add(r.id);
-        else next.delete(r.id);
-      }
-      return next;
-    });
+    setPicked((prev) => setGroupPicked(prev, group, on));
   }
 
   // Group by role for readable scanning
-  const grouped = new Map<string, Legislator[]>();
-  for (const r of reps) {
-    if (!grouped.has(r.role)) grouped.set(r.role, []);
-    grouped.get(r.role)!.push(r);
-  }
-  for (const arr of grouped.values()) {
-    arr.sort((a, b) => (a.district ?? "").localeCompare(b.district ?? "") || a.full_name.localeCompare(b.full_name));
-  }
+  const grouped = groupByRole(reps);
 
-  const allPicked = reps.length > 0 && picked.size === reps.length;
+  const targetsParam = buildTargetsParam(picked, reps.length);
   // "all" sentinel instead of enumerating every id: 198 UUIDs is a ~7.4 KB
   // query string, past what several servers and proxies accept, and the slug
   // page caps explicit ids anyway. The page resolves "all" server-side to the
   // same set the picker was built from, so the two can never drift.
-  const sendHref = picked.size > 0
-    ? `/campaigns/${campaignSlug}?manual_targets=${allPicked ? "all" : [...picked].join(",")}`
+  const sendHref = targetsParam
+    ? `/campaigns/${campaignSlug}?manual_targets=${targetsParam}`
     : null;
 
   return (
