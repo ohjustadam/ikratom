@@ -21,6 +21,16 @@ const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
 
 /** Curated voice list (subset of Kokoro's 28). af_heart is the highest-graded
  *  voice in the model; am_michael is the daily-brief's male "anchor". */
+import {
+  buildTimeline,
+  totalDuration,
+  clampSeek,
+  scheduleFrom,
+  positionAt,
+  semitonesToCents,
+  type TimelineChunk,
+} from "./audio-timeline";
+
 export const KOKORO_VOICES: { id: string; label: string }[] = [
   { id: "af_heart", label: "Heart · warm female (recommended)" },
   { id: "am_michael", label: "Michael · warm male (brief anchor)" },
@@ -84,68 +94,152 @@ type StreamingTTS = { stream: (text: string, opts: { voice: string; speed: numbe
 export class KokoroPlayer {
   private ctx: AudioContext | null = null;
   private sources: AudioBufferSourceNode[] = [];
-  private nextStart = 0;
+  /**
+   * Decoded audio is now RETAINED rather than discarded after scheduling.
+   * Seeking means re-scheduling chunks that already played, which is only
+   * possible if their buffers still exist. This is the whole reason a scrub
+   * bar was impossible before.
+   */
+  private buffers: AudioBuffer[] = [];
+  private timeline: TimelineChunk[] = [];
+  /** AudioContext time corresponding to logical position 0. */
+  private origin = 0;
   private aborted = false;
   private genDone = false;
-  private scheduled = 0;
-  private ended = 0;
+  private detuneCents = 0;
+  private endTimer: ReturnType<typeof setTimeout> | null = null;
+
   onstate?: (s: KokoroState) => void;
   onprogress?: (fraction: number) => void;
+  /** Fires as the transport moves so a UI can draw position without polling us. */
+  ontick?: (position: number, duration: number) => void;
+
+  /** Total generated audio so far, in seconds. Grows while streaming. */
+  get duration(): number {
+    return totalDuration(this.timeline);
+  }
+
+  /** Current position in seconds. Frozen while suspended, because
+   *  ctx.currentTime itself stops — no separate bookkeeping to drift. */
+  get position(): number {
+    if (!this.ctx) return 0;
+    return positionAt(this.ctx.currentTime, this.origin, this.duration);
+  }
 
   /** Load (if needed) then stream-generate + play. Resolves when generation
    *  finishes; playback continues until the last scheduled chunk ends. */
   async play(text: string, voice: string, speed: number): Promise<void> {
-    this.aborted = false; this.genDone = false; this.scheduled = 0; this.ended = 0;
+    this.aborted = false; this.genDone = false;
+    this.buffers = []; this.timeline = [];
     this.onstate?.("loading");
     const tts = (await getTTS((f) => this.onprogress?.(f))) as StreamingTTS;
     if (this.aborted) return;
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.ctx = new Ctx();
-    this.nextStart = this.ctx.currentTime;
+    this.origin = this.ctx.currentTime;
     this.onstate?.("playing");
     for await (const chunk of tts.stream(text, { voice, speed })) {
       if (this.aborted || !this.ctx) break;
       this.enqueue(chunk.audio.audio, chunk.audio.sampling_rate);
     }
     this.genDone = true;
-    this.checkEnded();
+    this.armEndTimer();
   }
 
   private enqueue(f32: Float32Array, sampleRate: number) {
     if (!this.ctx || this.aborted) return;
     const buf = this.ctx.createBuffer(1, f32.length, sampleRate);
     buf.getChannelData(0).set(f32);
+    this.buffers.push(buf);
+    this.timeline = buildTimeline(this.buffers.map((b) => b.duration));
+
+    // Schedule at its own place on the timeline, measured from the origin —
+    // NOT from a running "nextStart" cursor. After a seek the cursor would be
+    // meaningless, whereas the timeline position is always true.
+    const chunk = this.timeline[this.buffers.length - 1];
+    this.startSource(this.buffers.length - 1, this.origin + chunk.start, 0);
+    this.armEndTimer();
+  }
+
+  /** Create + start one source. `at` is absolute AudioContext time. */
+  private startSource(index: number, at: number, offset: number) {
+    if (!this.ctx) return;
     const src = this.ctx.createBufferSource();
-    src.buffer = buf;
+    src.buffer = this.buffers[index];
+    // detune shifts pitch by resampling, so tempo moves with it (tape-speed
+    // behaviour). Real-time and dependency-free; see semitonesToCents.
+    try { src.detune.value = this.detuneCents; } catch { /* Safari < 14.1 */ }
     src.connect(this.ctx.destination);
-    const startAt = Math.max(this.nextStart, this.ctx.currentTime);
-    src.start(startAt);
-    this.nextStart = startAt + buf.duration;
-    this.scheduled++;
-    src.onended = () => { this.ended++; this.checkEnded(); };
+    src.start(Math.max(at, this.ctx.currentTime), offset);
     this.sources.push(src);
   }
 
-  private checkEnded() {
-    if (this.genDone && !this.aborted && this.scheduled > 0 && this.ended >= this.scheduled) {
+  private stopSources() {
+    for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
+    this.sources = [];
+  }
+
+  /**
+   * "Ended" is decided by the CLOCK, not by counting onended callbacks.
+   * Counting broke as soon as seeking existed: a seek stops sources, firing
+   * onended for audio that was never heard, so the player would announce it
+   * had finished mid-sentence.
+   */
+  private armEndTimer() {
+    if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; }
+    if (!this.genDone || !this.ctx || this.aborted) return;
+    const remaining = Math.max(0, this.duration - this.position);
+    this.endTimer = setTimeout(() => {
+      if (this.aborted || !this.ctx) return;
       this.onstate?.("ended");
       this.cleanup();
+    }, remaining * 1000 + 120);
+  }
+
+  /** Jump to a position in seconds. Safe before generation finishes. */
+  seek(seconds: number) {
+    if (!this.ctx) return;
+    const target = clampSeek(seconds, this.duration);
+    this.stopSources();
+    // Re-anchor the origin so `position` reads the new place immediately,
+    // even while suspended.
+    this.origin = this.ctx.currentTime - target;
+    for (const ins of scheduleFrom(this.timeline, target)) {
+      this.startSource(ins.index, this.ctx.currentTime + ins.when, ins.offset);
+    }
+    this.ontick?.(this.position, this.duration);
+    this.armEndTimer();
+  }
+
+  /** Relative jump — the rewind / fast-forward buttons. */
+  nudge(deltaSeconds: number) {
+    this.seek(this.position + deltaSeconds);
+  }
+
+  /** Pitch in semitones (-12..+12). Applies live and to everything scheduled after. */
+  setPitch(semitones: number) {
+    this.detuneCents = semitonesToCents(semitones);
+    for (const s of this.sources) {
+      try { s.detune.value = this.detuneCents; } catch { /* unsupported */ }
     }
   }
 
-  pause() { this.ctx?.suspend?.(); this.onstate?.("paused"); }
-  resume() { this.ctx?.resume?.(); this.onstate?.("playing"); }
+  pause() { this.ctx?.suspend?.(); if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; } this.onstate?.("paused"); }
+  resume() { this.ctx?.resume?.(); this.armEndTimer(); this.onstate?.("playing"); }
 
   stop() {
     this.aborted = true;
-    for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
+    this.stopSources();
     this.cleanup();
     this.onstate?.("idle");
   }
 
   private cleanup() {
+    if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; }
     try { this.ctx?.close(); } catch { /* noop */ }
     this.ctx = null;
     this.sources = [];
+    this.buffers = [];
+    this.timeline = [];
   }
 }
