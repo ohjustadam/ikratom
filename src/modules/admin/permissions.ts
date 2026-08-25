@@ -301,9 +301,27 @@ export const PERMISSION_CATALOG = [
   {
     key: "sync_legislators",
     label: "Trigger sync jobs",
-    description: "Manually fire OpenStates / Congress / LegiScan sync + the lightweight cron endpoints.",
+    description: "Manually fire OpenStates / Congress / LegiScan sync + the lightweight cron endpoints (daily-sync, reverify-local-officials). Does NOT include the notification fan-out.",
     category: "data_sync",
     defaultFor: ["admin"],
+  },
+  {
+    // SPLIT OUT 2026-08-22. `fire-waves` sat in the same CRON_ENDPOINTS list as
+    // daily-sync behind `sync_legislators`, whose description promised "the
+    // lightweight cron endpoints". It is not lightweight: fire-waves is the
+    // SOLE push/email delivery path to the entire user base — one run pushed to
+    // 44 users on 2026-08-20. So a benign-sounding "Trigger sync jobs" grant
+    // also handed a delegate the ability to notify every user on the platform.
+    //
+    // defaultFor: [] rather than ownerOnly — the owner should be able to
+    // delegate this consciously (someone has to be able to un-stick a stalled
+    // fan-out), but nobody should ever receive it as a side effect of a data
+    // permission. Deliberate grant, not inheritance.
+    key: "fire_notifications",
+    label: "Fire the notification fan-out",
+    description: "Manually trigger fire-waves, which delivers queued push + email to EVERY user. Blast radius is the whole user base — granted deliberately, never by default.",
+    category: "data_sync",
+    defaultFor: [],
   },
   {
     key: "run_data_diagnostics",

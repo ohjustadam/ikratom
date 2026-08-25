@@ -19,6 +19,10 @@ export const REGISTRY = [
       // fire_waves = /api/cron/fire-waves — the SOLE push/email delivery path.
       "fire_waves",
       "fanout_bill_reminders",
+      // The durable send queue's worker. If this goes silent, users' queued
+      // campaign email stops leaving and NOTHING else notices — the batches
+      // just sit at "sending" forever. interval 4h against a 2h cadence.
+      "drain_send_batches",
       "dedupe_news_by_title",
       "extract_news_officials",
       "extract_news_events",

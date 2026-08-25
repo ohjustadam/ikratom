@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
 import Link from "next/link";
+import { frontmatterString } from "@/lib/frontmatter";
 
 export const metadata = {
   title: "What's new — platform changelog",
@@ -26,16 +27,11 @@ export default function WhatsNewIndex() {
   const notes = files
     .map((f) => {
       const { data } = matter(fs.readFileSync(path.join(dir, f), "utf8"));
-      const toStr = (v: unknown): string | null => {
-        if (v == null) return null;
-        if (v instanceof Date) return v.toISOString().slice(0, 10);
-        return String(v);
-      };
       return {
-        slug: toStr(data.slug) ?? f.replace(/\.md$/, ""),
-        title: toStr(data.title) ?? f,
-        summary: toStr(data.summary),
-        published: toStr(data.published),
+        slug: frontmatterString(data.slug) ?? f.replace(/\.md$/, ""),
+        title: frontmatterString(data.title) ?? f,
+        summary: frontmatterString(data.summary),
+        published: frontmatterString(data.published),
         totalCommits: typeof data.total_commits === "number" ? data.total_commits : null,
       };
     })

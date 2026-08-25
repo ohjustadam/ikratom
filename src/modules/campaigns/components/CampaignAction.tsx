@@ -9,6 +9,14 @@ import { CallActionPanel } from "./CallActionPanel";
 import { AttachmentRecorder } from "./AttachmentRecorder";
 import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { SendBatchPanel } from "./SendBatchPanel";
+import {
+  groupByRole,
+  defaultCollapsed,
+  togglePicked,
+  setGroupPicked,
+  buildTargetsParam,
+} from "../picker-logic";
 
 type SendMethod = "mailto" | "gmail" | "outlook" | "copy" | "platform_gmail";
 
@@ -150,6 +158,19 @@ export function CampaignAction({
       setSentVia(method);
     });
   }
+
+  // Windows hands a mailto: URI to the mail client through ShellExecute, which
+  // truncates around 2048 characters, and Outlook desktop is stricter still.
+  // A whole-chamber selection blows straight past that: 198 MA legislators is a
+  // 5.2 KB BCC list and a ~7.9 KB URI, 386% of the limit. The failure is SILENT
+  // — the client opens with a truncated recipient list, or nothing happens —
+  // which is the same trap as the old 20-target cap: the UI looks like it
+  // worked while the action quietly did less. Warn instead, and point at the
+  // connected-account path, which posts the message through the provider API
+  // and has no URL length limit at all.
+  const MAILTO_SAFE_LIMIT = 1900;
+  const mailtoLength = buildMailto().length;
+  const mailtoTooLong = mailtoLength > MAILTO_SAFE_LIMIT;
 
   function buildMailto() {
     // encodeURIComponent (%20), NOT URLSearchParams ('+') — RFC 6068 mailto
@@ -751,6 +772,30 @@ export function CampaignAction({
             />
           </div>
 
+          {mailtoTooLong && (
+            <p className="mt-3 rounded-md border border-amber-800/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+              <strong>{targetsWithEmail.length} recipients is too many for a desktop mail app.</strong>{" "}
+              This message is {mailtoLength.toLocaleString()} characters and Windows cuts mailto links off
+              around 2,000 — your mail client may open with recipients missing, or not open at all.
+              Use <em>Gmail</em> or <em>Outlook</em> above (they take the full list), send with a connected
+              account, or copy the message and paste it yourself.
+            </p>
+          )}
+
+          {/* Background queue. Offered when the selection is big enough that a
+              one-shot compose is the wrong tool — either it exceeds what a
+              mailto URL can carry, or it is simply a lot of individual letters
+              to sit and watch. Requires a connected account: mailto and web
+              compose each open ONE window and cannot loop N separate messages,
+              so this is a real capability difference rather than an upsell. */}
+          {gmailConnected && (mailtoTooLong || targetsWithEmail.length >= 5) && (
+            <SendBatchPanel
+              campaignSlug={campaignSlug}
+              selectedIds={targetsWithEmail.map((t) => t.id)}
+              className="mt-3"
+            />
+          )}
+
           <button
             onClick={copyAll}
             className="mt-3 w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-4 py-2.5 text-sm text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
@@ -1025,28 +1070,40 @@ function StateRepPicker({
   targetRoles: string[];
 }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Collapsed by default for any group big enough to bury the rest of the UI.
+  // MA has 158 State Reps; rendering that open pushes every other chamber and
+  // the send button out of the scroll viewport. Small groups (a delegation, a
+  // council) stay open since collapsing 3 rows helps nobody.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => defaultCollapsed(reps));
 
   function toggle(id: string) {
-    setPicked((prev) => {
+    setPicked((prev) => togglePicked(prev, id));
+  }
+
+  function toggleCollapsed(role: string) {
+    setCollapsed((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
       return next;
     });
   }
 
-  // Group by role for readable scanning
-  const grouped = new Map<string, Legislator[]>();
-  for (const r of reps) {
-    if (!grouped.has(r.role)) grouped.set(r.role, []);
-    grouped.get(r.role)!.push(r);
-  }
-  for (const arr of grouped.values()) {
-    arr.sort((a, b) => (a.district ?? "").localeCompare(b.district ?? "") || a.full_name.localeCompare(b.full_name));
+  /** Select or clear every rep in one role group, leaving other groups alone. */
+  function setGroup(group: Legislator[], on: boolean) {
+    setPicked((prev) => setGroupPicked(prev, group, on));
   }
 
-  const sendHref = picked.size > 0
-    ? `/campaigns/${campaignSlug}?manual_targets=${[...picked].join(",")}`
+  // Group by role for readable scanning
+  const grouped = groupByRole(reps);
+
+  const targetsParam = buildTargetsParam(picked, reps.length);
+  // "all" sentinel instead of enumerating every id: 198 UUIDs is a ~7.4 KB
+  // query string, past what several servers and proxies accept, and the slug
+  // page caps explicit ids anyway. The page resolves "all" server-side to the
+  // same set the picker was built from, so the two can never drift.
+  const sendHref = targetsParam
+    ? `/campaigns/${campaignSlug}?manual_targets=${targetsParam}`
     : null;
 
   return (
@@ -1055,15 +1112,61 @@ function StateRepPicker({
         Pick your reps manually
       </p>
       <p className="mt-1 text-sm text-zinc-300">
-        {reps.length} {targetRoles.map((r) => ROLE_SHORT[r] ?? r).join(" / ")} in your state. Tick the ones you want to email — usually just the legislators for your district.
+        {reps.length} {targetRoles.map((r) => ROLE_SHORT[r] ?? r).join(" / ")} in your state. Tick the ones you want to email — usually just the legislators for your district, or select a whole chamber to contact everyone.
       </p>
+
+      {/* Bulk controls. Selecting a whole chamber is a legitimate advocacy
+          move for a statewide action, so it should take one click rather than
+          158 of them. */}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        <button
+          type="button"
+          onClick={() => setPicked(new Set(reps.map((r) => r.id)))}
+          className="rounded border border-emerald-700/50 px-2 py-1 font-medium text-emerald-300 hover:border-emerald-500 hover:text-emerald-200"
+        >
+          Select all {reps.length}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPicked(new Set())}
+          className="rounded border border-zinc-700 px-2 py-1 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+        >
+          Select none
+        </button>
+        <span className="text-zinc-500">
+          {picked.size} selected
+        </span>
+      </div>
+
       <div className="mt-3 max-h-72 overflow-y-auto rounded border border-zinc-800 bg-zinc-950 p-2">
-        {[...grouped.entries()].map(([role, group]) => (
+        {[...grouped.entries()].map(([role, group]) => {
+          const isCollapsed = collapsed.has(role);
+          const pickedInGroup = group.filter((r) => picked.has(r.id)).length;
+          const allInGroup = pickedInGroup === group.length;
+          return (
           <div key={role} className="mb-2">
-            <p className="px-2 py-1 text-[10px] uppercase tracking-wider text-emerald-300/80">
-              {ROLE_SHORT[role] ?? role} ({group.length})
-            </p>
-            <ul>
+            <div className="flex items-center justify-between gap-2 px-2 py-1">
+              <button
+                type="button"
+                onClick={() => toggleCollapsed(role)}
+                aria-expanded={!isCollapsed}
+                className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-300/80 hover:text-emerald-200"
+              >
+                <span aria-hidden className="inline-block w-2">{isCollapsed ? "▸" : "▾"}</span>
+                {ROLE_SHORT[role] ?? role} ({group.length})
+                {pickedInGroup > 0 && (
+                  <span className="text-emerald-400">· {pickedInGroup} picked</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setGroup(group, !allInGroup)}
+                className="shrink-0 text-[10px] text-zinc-400 underline decoration-dotted hover:text-emerald-300"
+              >
+                {allInGroup ? "clear" : `all ${group.length}`}
+              </button>
+            </div>
+            <ul hidden={isCollapsed}>
               {group.map((r) => (
                 <li key={r.id}>
                   <label className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-zinc-900">
@@ -1084,7 +1187,8 @@ function StateRepPicker({
               ))}
             </ul>
           </div>
-        ))}
+          );
+        })}
       </div>
       <div className="mt-3 flex items-center gap-2 text-xs">
         {sendHref ? (

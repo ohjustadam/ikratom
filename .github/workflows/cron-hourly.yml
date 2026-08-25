@@ -397,3 +397,30 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
         run: node scripts/check-cron-staleness.mjs
+
+  drain-send-batches:
+    # Drains the durable campaign send queue (migration 0248).
+    #
+    # The endpoint deliberately drains only a ~20s SLICE and returns
+    # `more: true` when work remains, because Netlify's serverless budget is
+    # ~30s -- /api/cron/daily-sync was orphaned from the schedule for exactly
+    # that reason. So the LOOP lives here, where a job may run for minutes,
+    # instead of inside a function that would be killed mid-send.
+    #
+    # Hits the Netlify ORIGIN, not www: Cloudflare Bot Fight Mode challenges
+    # GitHub's datacenter IPs and would 403 every call (the 24-day fire-waves
+    # outage). netlify.toml serves /api/cron/* at the origin with status 200.
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Drain queued campaign sends
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CRON_ORIGIN: https://ikratom.netlify.app
+        run: |
+          set -o pipefail
+          for i in $(seq 1 25); do
+            OUT="$(curl -sS --max-time 90               -H "Authorization: Bearer $CRON_SECRET"               -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 iKratom-Cron/1.0 (+https://www.ikratom.org)"               "$CRON_ORIGIN/api/cron/drain-send-batches")" || { echo "::warning::drain call failed on pass $i"; break; }
+            echo "pass $i: $OUT"
+            echo "$OUT" | grep -q '"more":true' || { echo "queue drained"; break; }
+          done

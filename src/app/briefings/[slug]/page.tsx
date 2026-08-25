@@ -1,10 +1,13 @@
 import fs from "fs";
 import path from "path";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import matter from "gray-matter";
 import { marked } from "marked";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
+import { AudioReader } from "@/components/AudioReader";
+import { frontmatterString } from "@/lib/frontmatter";
+import { CopyShareLinkButton } from "./CopyShareLinkButton";
+import { briefingAudioScript } from "@/lib/briefing-audio";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -12,10 +15,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const file = path.join(process.cwd(), "src", "content", "briefings", `${slug}.md`);
   if (!fs.existsSync(file)) return { title: "Briefing" };
   const { data } = matter(fs.readFileSync(file, "utf8"));
-  const title = (data.title as string) ?? "Briefing";
+  const title = frontmatterString(data.title) ?? "Briefing";
+  // `||` not `??` on purpose: a blank subtitle is as useless as a missing
+  // one, and must fall through to the next candidate rather than shipping
+  // an empty meta description.
   const description =
-    (data.subtitle as string) ??
-    (typeof data.description === "string" ? data.description : "") ??
+    frontmatterString(data.subtitle)?.trim() ||
+    frontmatterString(data.description)?.trim() ||
     "Print-friendly kratom advocacy briefing — short read with talking points + sources.";
   const base = (process.env.APP_URL ?? "https://www.ikratom.org").replace(/\/+$/, "");
   const url = `${base}/briefings/${slug}`;
@@ -46,6 +52,19 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
   const { data, content } = matter(src);
   const html = await marked.parse(content, { gfm: true, breaks: false });
 
+  // Coerce frontmatter at the boundary — an unquoted YAML date arrives
+  // here as a Date and would render as "Fri May 08 2026 19:00:00 GMT-0500".
+  const title = frontmatterString(data.title) ?? "Briefing";
+  const subtitle = frontmatterString(data.subtitle);
+  const published = frontmatterString(data.published);
+  const audience = frontmatterString(data.audience);
+  const readTime = frontmatterString(data.read_time);
+
+  // Spoken script for "Listen". Built from the markdown rather than the
+  // rendered HTML so visual chrome (cover slab, status cards, citation
+  // tables, inline SVG) is dropped instead of narrated as fragments.
+  const audioScript = briefingAudioScript({ title, subtitle, published, content });
+
   // PDF availability check — built artifacts live in /public/briefings/.
   const pdfPath = path.join(process.cwd(), "public", "briefings", `${slug}.pdf`);
   const pdfExists = fs.existsSync(pdfPath);
@@ -58,31 +77,41 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
         </a>
         <PageShareWithAttribution
           path={`/briefings/${slug}`}
-          title={String(data.title ?? "iKratom Briefing")}
-          summary={(data.subtitle as string | undefined) ?? "Kratom advocacy briefing — talking points + sources."}
+          title={title}
+          summary={subtitle ?? "Kratom advocacy briefing — talking points + sources."}
         />
       </div>
 
       <header className="mt-3 mb-6 border-b border-zinc-800 pb-6">
         <div className="flex flex-wrap items-center gap-3 text-xs">
-          {data.published && (
+          {published && (
             <span className="rounded bg-emerald-950/40 px-2 py-1 font-mono text-emerald-300">
-              {String(data.published)}
+              {published}
             </span>
           )}
-          {data.audience && (
-            <span className="text-zinc-400">For: {String(data.audience)}</span>
+          {audience && (
+            <span className="text-zinc-400">For: {audience}</span>
           )}
-          {data.read_time && (
-            <span className="text-zinc-500">{String(data.read_time)} read</span>
+          {readTime && (
+            <span className="text-zinc-500">{readTime} read</span>
           )}
         </div>
         <h1 className="mt-3 text-3xl font-bold leading-tight sm:text-4xl">
-          {String(data.title ?? "Briefing")}
+          {title}
         </h1>
-        {data.subtitle && (
-          <p className="mt-2 text-base text-zinc-400">{String(data.subtitle)}</p>
+        {subtitle && (
+          <p className="mt-2 text-base text-zinc-400">{subtitle}</p>
         )}
+        {audioScript && (
+          <div className="mt-4">
+            <AudioReader
+              id={`briefing-${slug}`}
+              text={audioScript}
+              label="Listen to this briefing"
+            />
+          </div>
+        )}
+
         <div className="mt-4 flex flex-wrap gap-2">
           {pdfExists && (
             <a
@@ -93,13 +122,7 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
               ↓ Download PDF
             </a>
           )}
-          <button
-            type="button"
-            data-share-url={`https://www.ikratom.org/briefings/${slug}`}
-            className="briefing-share-btn inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:border-emerald-500"
-          >
-            🔗 Copy share link
-          </button>
+          <CopyShareLinkButton url={`https://www.ikratom.org/briefings/${slug}`} />
         </div>
       </header>
 
@@ -108,37 +131,6 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
         className="briefing-md text-zinc-200"
         dangerouslySetInnerHTML={{ __html: html }}
       />
-
-      {/* Tiny client script for the share button — avoids a separate
-          client component file for one trivial interaction. Carries
-          the per-request CSP nonce so the strict script-src in
-          proxy.ts doesn't block it. */}
-      <BriefingShareScript />
     </div>
-  );
-}
-
-async function BriefingShareScript() {
-  const nonce = (await headers()).get("x-nonce") ?? undefined;
-  return (
-    <script
-      nonce={nonce}
-      dangerouslySetInnerHTML={{
-        __html: `
-          document.querySelectorAll('.briefing-share-btn').forEach((btn) => {
-            btn.addEventListener('click', async () => {
-              const url = btn.getAttribute('data-share-url');
-              if (!url) return;
-              try {
-                await navigator.clipboard.writeText(url);
-                const orig = btn.innerText;
-                btn.innerText = '✓ Copied!';
-                setTimeout(() => { btn.innerText = orig; }, 1500);
-              } catch (e) { /* noop */ }
-            });
-          });
-        `,
-      }}
-    />
   );
 }
