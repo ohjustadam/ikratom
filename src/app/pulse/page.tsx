@@ -10,6 +10,7 @@ import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
+import { frontmatterString } from "@/lib/frontmatter";
 
 export const metadata = { title: "Pulse — live policy feed" };
 // Force dynamic so newly-inserted alerts and breaking events appear on
@@ -389,18 +390,11 @@ export default async function PulsePage({
         .filter((f) => f.endsWith(".md"))
         .map((f) => {
           const { data } = matter(fs.readFileSync(path.join(briefingsDir, f), "utf8"));
-          // gray-matter parses unquoted YAML dates as Date objects;
-          // coerce at the boundary so JSX never renders a raw Date.
-          const toStr = (v: unknown): string | null => {
-            if (v == null) return null;
-            if (v instanceof Date) return v.toISOString().slice(0, 10);
-            return String(v);
-          };
           return {
             slug: f.replace(/\.md$/, ""),
-            title: toStr(data.title) ?? f,
-            subtitle: toStr(data.subtitle),
-            published: toStr(data.published),
+            title: frontmatterString(data.title) ?? f,
+            subtitle: frontmatterString(data.subtitle),
+            published: frontmatterString(data.published),
           };
         })
         .sort((a, b) => (a.published && b.published ? (a.published < b.published ? 1 : -1) : 0))

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
+import { frontmatterString } from "@/lib/frontmatter";
 
 export const metadata = { title: "Policy briefings" };
 
@@ -27,21 +28,13 @@ export default function BriefingsIndexPage() {
       const src = fs.readFileSync(path.join(briefingsDir, f), "utf8");
       const { data } = matter(src);
       const slug = f.replace(/\.md$/, "");
-      // gray-matter parses unquoted YAML dates as Date objects.
-      // We coerce to string at the boundary so downstream JSX renders
-      // safely (rendering a raw Date triggers React error #31).
-      const toStr = (v: unknown): string | null => {
-        if (v == null) return null;
-        if (v instanceof Date) return v.toISOString().slice(0, 10);
-        return String(v);
-      };
       return {
         slug,
-        title: toStr(data.title) ?? slug,
-        subtitle: toStr(data.subtitle),
-        published: toStr(data.published),
-        readTime: toStr(data.read_time),
-        audience: toStr(data.audience),
+        title: frontmatterString(data.title) ?? slug,
+        subtitle: frontmatterString(data.subtitle),
+        published: frontmatterString(data.published),
+        readTime: frontmatterString(data.read_time),
+        audience: frontmatterString(data.audience),
       };
     })
     .sort((a, b) => (a.published && b.published ? (a.published < b.published ? 1 : -1) : 0));

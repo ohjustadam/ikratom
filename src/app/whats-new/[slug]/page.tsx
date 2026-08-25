@@ -4,6 +4,7 @@ import matter from "gray-matter";
 import { marked } from "marked";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { frontmatterString } from "@/lib/frontmatter";
 
 export const metadata = { title: "Patch note" };
 
@@ -19,14 +20,9 @@ export default async function PatchNotePage({ params }: { params: Promise<{ slug
   const raw = fs.readFileSync(filePath, "utf8");
   const { data, content } = matter(raw);
 
-  const toStr = (v: unknown): string | null => {
-    if (v == null) return null;
-    if (v instanceof Date) return v.toISOString().slice(0, 10);
-    return String(v);
-  };
-  const title = toStr(data.title) ?? slug;
-  const published = toStr(data.published);
-  const summary = toStr(data.summary);
+  const title = frontmatterString(data.title) ?? slug;
+  const published = frontmatterString(data.published);
+  const summary = frontmatterString(data.summary);
   const totalCommits = typeof data.total_commits === "number" ? data.total_commits : null;
 
   const html = await marked.parse(content, { gfm: true, breaks: false });

@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import matter from "gray-matter";
 import { marked } from "marked";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
+import { frontmatterString } from "@/lib/frontmatter";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -12,9 +13,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const file = path.join(process.cwd(), "src", "content", "briefings", `${slug}.md`);
   if (!fs.existsSync(file)) return { title: "Briefing" };
   const { data } = matter(fs.readFileSync(file, "utf8"));
-  const title = (data.title as string) ?? "Briefing";
+  const title = frontmatterString(data.title) ?? "Briefing";
   const description =
-    (data.subtitle as string) ??
+    frontmatterString(data.subtitle) ??
     (typeof data.description === "string" ? data.description : "") ??
     "Print-friendly kratom advocacy briefing — short read with talking points + sources.";
   const base = (process.env.APP_URL ?? "https://www.ikratom.org").replace(/\/+$/, "");
@@ -46,6 +47,14 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
   const { data, content } = matter(src);
   const html = await marked.parse(content, { gfm: true, breaks: false });
 
+  // Coerce frontmatter at the boundary — an unquoted YAML date arrives
+  // here as a Date and would render as "Fri May 08 2026 19:00:00 GMT-0500".
+  const title = frontmatterString(data.title) ?? "Briefing";
+  const subtitle = frontmatterString(data.subtitle);
+  const published = frontmatterString(data.published);
+  const audience = frontmatterString(data.audience);
+  const readTime = frontmatterString(data.read_time);
+
   // PDF availability check — built artifacts live in /public/briefings/.
   const pdfPath = path.join(process.cwd(), "public", "briefings", `${slug}.pdf`);
   const pdfExists = fs.existsSync(pdfPath);
@@ -58,30 +67,30 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
         </a>
         <PageShareWithAttribution
           path={`/briefings/${slug}`}
-          title={String(data.title ?? "iKratom Briefing")}
-          summary={(data.subtitle as string | undefined) ?? "Kratom advocacy briefing — talking points + sources."}
+          title={title}
+          summary={subtitle ?? "Kratom advocacy briefing — talking points + sources."}
         />
       </div>
 
       <header className="mt-3 mb-6 border-b border-zinc-800 pb-6">
         <div className="flex flex-wrap items-center gap-3 text-xs">
-          {data.published && (
+          {published && (
             <span className="rounded bg-emerald-950/40 px-2 py-1 font-mono text-emerald-300">
-              {String(data.published)}
+              {published}
             </span>
           )}
-          {data.audience && (
-            <span className="text-zinc-400">For: {String(data.audience)}</span>
+          {audience && (
+            <span className="text-zinc-400">For: {audience}</span>
           )}
-          {data.read_time && (
-            <span className="text-zinc-500">{String(data.read_time)} read</span>
+          {readTime && (
+            <span className="text-zinc-500">{readTime} read</span>
           )}
         </div>
         <h1 className="mt-3 text-3xl font-bold leading-tight sm:text-4xl">
-          {String(data.title ?? "Briefing")}
+          {title}
         </h1>
-        {data.subtitle && (
-          <p className="mt-2 text-base text-zinc-400">{String(data.subtitle)}</p>
+        {subtitle && (
+          <p className="mt-2 text-base text-zinc-400">{subtitle}</p>
         )}
         <div className="mt-4 flex flex-wrap gap-2">
           {pdfExists && (
