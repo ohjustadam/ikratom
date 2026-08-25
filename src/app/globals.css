@@ -160,10 +160,49 @@ html[data-theme="light"] .briefing-md table.decode tr:nth-child(odd) td { backgr
 }
 .briefing-md h3 {
   margin-top: 1.5em;
-  margin-bottom: 0.35em;
+  /* 0.65em (~10.9px) is the gap prose already produced via its own 0.7em top
+     margin. Moving that value onto the heading keeps the look identical while
+     making the heading the single owner of the space beneath it. */
+  margin-bottom: 0.65em;
   font-size: 1.05rem;
   font-weight: 700;
   color: #fafafa;
+}
+
+/* ── UNIFORM SPACING UNDER HEADINGS — do not remove ───────────────────────
+   The space under a heading belongs to the HEADING, never to whatever block
+   happens to follow it.
+
+   Why this exists: a briefing's own <style> block can introduce any custom
+   block it likes (.k7-fig, .k7-quote, table.decode …), each with its own
+   margin. Adjacent margins do not collapse to the heading's value — the
+   larger one wins — so section 2 of the 7-OH packet sat 23.4px below its
+   heading while every prose section sat at 11.2px, and a reader notices that
+   as "the spacing is off". Measured across that one page, h2 gaps were four
+   different values (0 / 11.2 / 14 / 23.4).
+
+   This rule is SELF-ENFORCING: any future briefing that invents a new block
+   with its own margin-top is normalised automatically, so the rhythm cannot
+   drift again as content is added. That is deliberate — briefings are written
+   as markdown + inline CSS by whoever drafts them, and no reviewer should have
+   to remember this.
+
+   The TRIPLED `.briefing-md.briefing-md.briefing-md` is a specificity bump,
+   not a typo. It scores (0,3,1) and has to, because two different things
+   compete with it:
+     - an in-file `.briefing-md .k7-fig` scores (0,2,0) — a double would beat it;
+     - but `.briefing-md table.decode` (line ~342 below) scores (0,2,1), the
+       SAME as a double, and being later in this file it would win on source
+       order. That is exactly what happened on the first attempt: the figure
+       snapped to 11.2px while the section-7 table stayed at 14px.
+   Three classes clear both without depending on where in this file the rule
+   sits, so appending styles later cannot silently break it.
+
+   Deliberately not `!important`: an author who genuinely needs a different
+   gap can still override it, and `!important` here would take that away. */
+.briefing-md.briefing-md.briefing-md h2 + *,
+.briefing-md.briefing-md.briefing-md h3 + * {
+  margin-top: 0;
 }
 .briefing-md p { margin: 0.7em 0; color: #d4d4d8; }
 .briefing-md strong { color: #fafafa; font-weight: 600; }
