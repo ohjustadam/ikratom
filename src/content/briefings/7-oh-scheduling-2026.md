@@ -1,15 +1,15 @@
 ---
 title: "7-OH, Pseudoindoxyl & the MGMs — Federal Scheduling Intel Packet"
-subtitle: "What is actually banned on August 26, what is not, and the two drafting gaps the community is aiming at wrong"
+subtitle: "What is actually banned on August 26, what is not, and why the reopened 7-OH comment window through September 10 is the community's live shot"
 # Quoted so gray-matter keeps this a string. The [slug] page renders it with
 # String(data.published); an unquoted YAML date parses to a Date and prints as
 # "Sun Aug 23 2026 19:00:00 GMT-0500 (...)" in the reader's local zone.
-published: "2026-08-24"
-source: "Federal Register docs 2026-17429, 2026-13580, 2026-13581, 2026-13608; CRS LSB11457; 21 CFR 1300.01 & 1308.11; CFSRE/NPS Discovery forensic reports"
+published: "2026-08-25"
+source: "Federal Register docs 2026-17429, 2026-17409, 2026-13580, 2026-13581, 2026-13608; CRS LSB11457; 21 CFR 1300.01 & 1308.11; CFSRE/NPS Discovery forensic reports"
 prepared_by: "iKratom Policy Desk"
-read_time: "14 min"
+read_time: "15 min"
 audience: "Advocates · Shop owners · Vendors · Medical professionals · Legislative staff"
-summary: "DEA's temporary Schedule I order on mitragynine pseudoindoxyl, MGM-15 and MGM-16 takes effect August 26, 2026 and runs to August 26, 2028. The separate 7-OH order has still not issued. Natural leaf and mitragynine are not scheduled — but two real drafting gaps deserve pressure."
+summary: "HHS just reopened the 7-OH comment period through September 10, 2026 — the community's live shot at fixing the threshold. Meanwhile mitragynine pseudoindoxyl, MGM-15 and MGM-16 become Schedule I on August 26 with no threshold at all. Natural leaf and mitragynine are not scheduled."
 ---
 
 <style>
@@ -45,6 +45,11 @@ summary: "DEA's temporary Schedule I order on mitragynine pseudoindoxyl, MGM-15 
 .briefing-md table.k7-t tr:nth-child(odd) td{background:rgba(24,24,27,.4)}
 .briefing-md .k7-yes{color:#34d399;font-weight:700}
 .briefing-md .k7-no{color:#f87171;font-weight:700}
+.briefing-md .k7-alert{border:1px solid #d97706;border-left:5px solid #d97706;background:rgba(251,191,36,.10);border-radius:6px;padding:1.1em 1.25em;margin:1.5em 0}
+.briefing-md .k7-alert .k7-alert-tag{display:inline-block;background:#d97706;color:#1c1917;font-size:.68em;font-weight:800;letter-spacing:.09em;text-transform:uppercase;padding:.22em .7em;border-radius:2px;margin-bottom:.6em}
+.briefing-md .k7-alert h3{margin-top:.2em}
+.briefing-md .k7-deadline{display:flex;flex-wrap:wrap;gap:.5em 1.5em;margin-top:.8em;padding-top:.7em;border-top:1px solid rgba(217,119,6,.35);font-size:.85em}
+.briefing-md .k7-deadline div strong{display:block;font-size:.78em;color:#a16207;text-transform:uppercase;letter-spacing:.06em}
 .briefing-md .k7-quote{border-left:3px solid #10b981;background:rgba(16,185,129,.06);padding:.9em 1.1em;margin:1.1em 0;font-size:.93em}
 .briefing-md .k7-quote .k7-src{display:block;margin-top:.5em;font-size:.8em;color:#71717a;font-style:normal}
 html[data-theme="light"] .briefing-md .k7-card{background:rgba(0,0,0,.03);border-color:#d4d4d8}
@@ -67,16 +72,33 @@ html[data-theme="light"] .briefing-md .k7-no{color:#b91c1c}
 <div class="meta">
 <div><strong>Primary sources</strong><br/>FR 2026-17429, 2026-13580,<br/>2026-13581, 2026-13608</div>
 <div><strong>Prepared by</strong><br/>iKratom Policy Desk</div>
-<div><strong>Status as of</strong><br/>August 24, 2026</div>
-<div><strong>Read time</strong><br/>14 minutes</div>
+<div><strong>Status as of</strong><br/>August 25, 2026</div>
+<div><strong>Read time</strong><br/>15 minutes</div>
 </div>
 </div>
 
 <div class="page-break"></div>
 
+<div class="k7-alert">
+<span class="k7-alert-tag">Breaking · filed 8:45am, August 25</span>
+
+### HHS has reopened the 7-OH comment period — it now closes September 10
+
+Rather than issue the 7-OH order, HHS filed an **extension of the comment period** on the very threshold that order depends on. Its stated reason: *"in response to a request for an extension to allow interested persons additional time to provide comments."*
+
+Same docket as before — **HHS-OASH-2026-0232** — so it is a continuation, not a restart. Everything submitted in July still counts. **This is the community's live shot, and it is the only federal comment window currently open on kratom.**
+
+<div class="k7-deadline">
+<div><strong>Deadline</strong>September 10, 2026</div>
+<div><strong>Docket</strong>HHS-OASH-2026-0232</div>
+<div><strong>Scope</strong>The threshold number only</div>
+<div><strong>Where</strong>regulations.gov</div>
+</div>
+</div>
+
 ## The one-paragraph version
 
-On **August 26, 2026**, three substances — **mitragynine pseudoindoxyl, MGM-15, and MGM-16** — become Schedule I controlled substances for two years, until **August 26, 2028**. The order was signed August 24 and carries **no threshold**: any detectable amount counts. The separate, much better-publicised action against **7-hydroxymitragynine (7-OH)** has **still not been issued** — it remains a notice of intent only, now 19 days past the earliest date DEA gave itself. **Natural kratom leaf and mitragynine are not scheduled, not proposed for scheduling, and are expressly excluded** by every federal document in this file. But two genuine drafting gaps exist, and the community is currently pointing at the wrong one.
+On **August 26, 2026**, three substances — **mitragynine pseudoindoxyl, MGM-15, and MGM-16** — become Schedule I controlled substances for two years, until **August 26, 2028**. The order was signed August 24 and carries **no threshold**: any detectable amount counts. The separate, much better-publicised action against **7-hydroxymitragynine (7-OH)** has **still not been issued** — it remains a notice of intent only, now 20 days past the earliest date DEA gave itself, and on August 25 HHS **reopened the comment period on its threshold through September 10**. **Natural kratom leaf and mitragynine are not scheduled, not proposed for scheduling, and are expressly excluded** by every federal document in this file. But two genuine drafting gaps exist, and the community is currently pointing at the wrong one.
 
 <div class="k7-board">
 <div class="k7-card k7-red">
@@ -97,7 +119,7 @@ On **August 26, 2026**, three substances — **mitragynine pseudoindoxyl, MGM-15
 <div class="k7-card k7-amber">
 <div class="k7-name">7-hydroxymitragynine</div>
 <div class="k7-sub">7-OH · above a threshold</div>
-<div class="k7-state">PENDING — not yet issued</div>
+<div class="k7-state">PENDING — comments reopened to Sep 10</div>
 </div>
 <div class="k7-card k7-green">
 <div class="k7-name">Mitragynine</div>
@@ -117,7 +139,7 @@ On **August 26, 2026**, three substances — **mitragynine pseudoindoxyl, MGM-15
 
 ## 1. The paper trail
 
-Four documents govern all of this. They are commonly confused with each other, which is where most of the misinformation starts.
+Five documents govern all of this. They are commonly confused with each other, which is where most of the misinformation starts.
 
 <table class="k7-t">
 <tr><th>Document</th><th>What it is</th><th>Citation</th><th>Status</th></tr>
@@ -125,6 +147,7 @@ Four documents govern all of this. They are commonly confused with each other, w
 <tr><td><strong>2026-17429</strong></td><td><strong>The temporary scheduling ORDER</strong> — MP, MGM-15, MGM-16</td><td>Signed Aug 24 · publishes Aug 26, 2026 · Docket DEA-1644</td><td><span class="k7-no">EFFECTIVE Aug 26</span></td></tr>
 <tr><td><strong>2026-13580</strong></td><td>Notice of intent — 7-OH above a specified threshold</td><td>91 FR 40917 · Jul 6, 2026 · Docket DEA-1570</td><td><span class="k7-yes">No order issued</span></td></tr>
 <tr><td><strong>2026-13608</strong></td><td>HHS request for information — the 7-OH threshold only</td><td>91 FR 41049 · Jul 6, 2026 · Docket HHS-OASH-2026-0232</td><td>Closed Jul 31 · 32,145 comments</td></tr>
+<tr><td><strong>2026-17409</strong></td><td><strong>Extension of that comment period</strong></td><td>Filed Aug 25 · publishes Aug 26, 2026 · Docket HHS-OASH-2026-0232</td><td><span class="k7-yes">OPEN until Sep 10</span></td></tr>
 </table>
 
 **The single most common error** is reading the August 26 order as a *deadline* or a *decision point*. It is neither. Its own DATES line reads:
@@ -176,14 +199,20 @@ August 26 is the **start**. Two years, extendable by one more if permanent sched
   <text x="620" y="146" fill="#fca5a5" font-size="10" text-anchor="middle">MP/MGM-15/16</text>
   <text x="620" y="158" fill="#fca5a5" font-size="10" text-anchor="middle">SCHEDULE I</text>
 
-  <g fill="#52525b"><circle cx="715" cy="120" r="5"/></g>
-  <text x="715" y="103" fill="#71717a" font-size="11" text-anchor="middle">Aug 26 '28</text>
-  <text x="715" y="146" fill="#71717a" font-size="10" text-anchor="middle">expires</text>
+  <g fill="#fbbf24"><circle cx="672" cy="120" r="6"/></g>
+  <text x="672" y="85" fill="#fcd34d" font-size="11" font-weight="bold" text-anchor="middle">Sep 10 '26</text>
+  <text x="672" y="146" fill="#fcd34d" font-size="10" text-anchor="middle">comments</text>
+  <text x="672" y="158" fill="#fcd34d" font-size="10" text-anchor="middle">close</text>
 
-  <rect x="470" y="182" width="250" height="34" rx="4" fill="rgba(251,191,36,.12)" stroke="#d97706" stroke-width="1"/>
-  <text x="595" y="197" fill="#fbbf24" font-size="10.5" text-anchor="middle">7-OH order: still not issued as of Aug 24</text>
-  <text x="595" y="210" fill="#a16207" font-size="10" text-anchor="middle">19 days past DEA's own earliest date</text>
-  <line x1="510" y1="128" x2="530" y2="182" stroke="#d97706" stroke-width="1" stroke-dasharray="3 3"/>
+  <g fill="#52525b"><circle cx="722" cy="120" r="5"/></g>
+  <text x="722" y="103" fill="#71717a" font-size="11" text-anchor="middle">Aug 26 '28</text>
+  <text x="722" y="146" fill="#71717a" font-size="10" text-anchor="middle">expires</text>
+
+  <rect x="400" y="182" width="330" height="46" rx="4" fill="rgba(251,191,36,.12)" stroke="#d97706" stroke-width="1"/>
+  <text x="565" y="198" fill="#fbbf24" font-size="10.5" font-weight="bold" text-anchor="middle">Aug 25: HHS REOPENED the comment period → Sep 10</text>
+  <text x="565" y="211" fill="#a16207" font-size="10" text-anchor="middle">The 7-OH order is still not issued — 20 days past</text>
+  <text x="565" y="223" fill="#a16207" font-size="10" text-anchor="middle">DEA's own earliest date. This window is the live shot.</text>
+  <line x1="510" y1="128" x2="520" y2="182" stroke="#d97706" stroke-width="1" stroke-dasharray="3 3"/>
 </svg>
 </div>
 <p class="k7-cap"><strong>Note the ordering.</strong> DEA notified HHS about pseudoindoxyl and the MGMs on <strong>December 15, 2025</strong> — more than two months before the 7-OH letter of February 24, 2026. The pseudoindoxyl file was always ahead. This is not a pivot away from 7-OH after public comment; it is the older case finishing first.</p>
@@ -259,6 +288,19 @@ There were **32,145 comments**. They did not go to DEA. Temporary scheduling und
 Two questions were asked, and only two: is 0.050% the right number, and are there better ways to express the measurement.
 
 So the widespread hope that comments might **stop** the 7-OH action was structurally impossible — that was never on the table. But the hope that they might **change the number** is entirely live, and 32,145 comments is the best available explanation for why the order has slipped past the date DEA set for itself. Precedent supports the optimism: in 2016 DEA issued a notice of intent to schedule mitragynine *and* 7-OH, and **withdrew it** after public comment.
+
+### And on August 25, that hope got concrete
+
+HHS did not issue the order. It filed an **extension of the comment period** instead:
+
+<div class="k7-quote">
+"OASH has received a request for an extension of the comment period on this RFI to allow any interested persons additional time to provide comments. OASH has considered the request and is granting the extension."
+<span class="k7-src">— FR Doc. 2026-17409, filed August 25, 2026</span>
+</div>
+
+Read what that actually signals. An agency about to sign an order does not reopen comment on the number that order turns on. The threshold is **still being worked**, and the same docket number (**HHS-OASH-2026-0232**) means this is a continuation — every July comment still counts, and new ones join the same record the Secretary forwards to the Attorney General.
+
+The scope limit is unchanged and worth repeating, because comments outside it get discarded: **the number, and how it is expressed. Nothing else.** A comment arguing that kratom is safe, or that DEA lacks authority, is off-scope and wasted. A comment supplying assay data on natural 7-OH ranges, or explaining why a per-article milligram cap captures ordinary leaf, is exactly what was asked for.
 
 ---
 
@@ -393,7 +435,7 @@ This is precisely what HHS's second question was about: *"whether data exist sup
 <tr><td>"The temp scheduling is in effect now and ends August 26."</td><td><strong>Reversed.</strong> It <em>begins</em> August 26, 2026 and runs to August 26, 2028.</td></tr>
 <tr><td>"The 7-OH ban already happened."</td><td><strong>No order was ever issued.</strong> Only the July 6 notice of intent exists on Docket DEA-1570.</td></tr>
 <tr><td>"7-OH scheduling expired, so they gave up on it."</td><td><strong>A notice of intent does not expire.</strong> DEA can issue the order any morning. Control number 9675 remains reserved for it.</td></tr>
-<tr><td>"Enough comments stopped the 7-OH ban, so they pivoted to pseudoindoxyl."</td><td><strong>The sequencing rules this out.</strong> DEA notified HHS about pseudoindoxyl on Dec 15, 2025 — two months <em>before</em> the 7-OH letter. That file was always first, and had no comment docket to stall it.</td></tr>
+<tr><td>"Enough comments stopped the 7-OH ban, so they pivoted to pseudoindoxyl."</td><td><strong>Half right, and the half that's wrong matters.</strong> The sequencing rules out a pivot: DEA notified HHS about pseudoindoxyl on Dec 15, 2025 — two months <em>before</em> the 7-OH letter — and that file had no comment docket to stall it. But comments plainly <em>are</em> affecting the 7-OH track: HHS reopened the window on Aug 25 rather than issue the order. Delayed and still being worked, not stopped.</td></tr>
 <tr><td>"Natural leaf is covered because it contains 7-OH."</td><td><strong>The threshold is designed to exclude it.</strong> DEA's own notice: 7-OH "makes up less than two percent of the total alkaloid content or occurs in trace amount." FDA Commissioner Makary: "we're not targeting the kratom leaf or ground up kratom."</td></tr>
 <tr><td>"We can sue to stop this."</td><td><strong>Not this action.</strong> 21 U.S.C. 811(h)(6) — temporary scheduling orders are not subject to judicial review. The order says so itself.</td></tr>
 <tr><td>"Pseudoindoxyl is purely synthetic, so plain leaf is safe."</td><td><strong>Contested by DEA's own cited lab.</strong> CFSRE: pseudoindoxyl and 7-OH "both can arise from Kratom itself." With no threshold on pseudoindoxyl, this is the gap that deserves the pressure.</td></tr>
@@ -438,6 +480,8 @@ DEA also documents the market pattern: the first confirmed pseudoindoxyl consume
 
 ## 9. What this means for you, practically
 
+<div class="action"><div class="check">✓</div><div><strong>Everyone — comment before September 10.</strong> This is the only open federal comment window on kratom, and it is the one lever that is demonstrably working: the extension exists <em>because people asked for it</em>. Go to regulations.gov, docket <strong>HHS-OASH-2026-0232</strong>. Keep it inside the scope — the threshold number and how it is measured — and lead with data, not sentiment. The single most useful thing an ordinary advocate can submit is a lab certificate showing measured 7-OH in a plain-leaf product they actually bought.</div></div>
+
 <div class="action"><div class="check">✓</div><div><strong>If you consume plain leaf.</strong> Nothing about your product becomes a controlled substance on August 26. Mitragynine is not scheduled. Leaf is not scheduled. The gap described in section 5 is a testing-and-drafting risk worth pressing on, not a reason to panic.</div></div>
 
 <div class="action"><div class="check">✓</div><div><strong>If you own a shop.</strong> Anything containing pseudoindoxyl, MGM-15, or MGM-16 must be off your shelves by August 26. Retail sale of Schedule I substances is prohibited outright, and the order requires surrender of stock by anyone not holding a Schedule I registration. Products marketed as "7-OH" frequently contain pseudoindoxyl as well — CFSRE found detectable pseudoindoxyl in <em>all</em> products it tested in that category. Concentrated 7-OH itself is not yet federally scheduled, but that can change with no advance warning beyond the notice already published.</div></div>
@@ -463,8 +507,8 @@ DEA also documents the market pattern: the first confirmed pseudoindoxyl consume
 <div class="takeaway">
 <span class="badge badge-amber">Watch</span>
 
-### The 7-OH order can issue any day
-DEA gave itself "on or after August 5, 2026" and has not acted. There is no statutory expiry on a notice of intent. When it lands it will be effective **on publication** — no grace period. Watch the Federal Register public inspection list, not press releases.
+### The 7-OH order can still issue any day
+DEA gave itself "on or after August 5, 2026" and has not acted. There is no statutory expiry on a notice of intent, and the comment extension does **not** legally bar DEA from issuing the order before September 10 — it only makes doing so politically awkward while its own department is still collecting input on the number. When it lands it will be effective **on publication**, with no grace period. Watch the Federal Register public inspection list, not press releases.
 </div>
 
 <div class="takeaway">
@@ -493,6 +537,8 @@ Everything above traces to a public document. We encourage you to verify rather 
 - [FR Doc. 2026-13580](https://www.federalregister.gov/documents/2026/07/06/2026-13580/schedules-of-controlled-substance-temporary-placement-of-7-hydroxymitragynine-above-a-specified) — 7-OH notice of intent, **91 FR 40917**. Docket DEA-1570. Contains the full threshold wording.
 - [FR Doc. 2026-13581](https://www.federalregister.gov/documents/2026/07/06/2026-13581/schedules-of-controlled-substances-temporary-placement-of-mitragynine-pseudoindoxyl-mgm-15-and) — MP/MGM notice of intent, **91 FR 40909**.
 - [FR Doc. 2026-13608](https://www.federalregister.gov/documents/2026/07/06/2026-13608/temporary-placement-of-7-hydroxymitragynine-above-a-specified-threshold-in-schedule-i-request-for) — HHS OASH request for information, **91 FR 41049**. 32,145 comments, closed Jul 31, 2026.
+- [FR Doc. 2026-17409](https://www.federalregister.gov/public-inspection/2026-17409/temporary-placement-of-7-hydroxymitragynine-above-a-specified-threshold-in-schedule-i-extension-of) — **Extension of comment period.** Filed Aug 25, publishes Aug 26, 2026. Reopens Docket HHS-OASH-2026-0232 **through September 10, 2026**.
+- [Comment here — Docket HHS-OASH-2026-0232](https://www.regulations.gov/docket/HHS-OASH-2026-0232) — the live docket on regulations.gov.
 - [FR Doc. 2016-24659](https://www.federalregister.gov/documents/2016/10/13/2016-24659/withdrawal-of-notice-of-intent-to-temporarily-place-mitragynine-and-7-hydroxymitragynine-into) — DEA's 2016 **withdrawal** of its earlier kratom notice after public comment.
 
 <div class="footer"><strong>Legal</strong></div>
@@ -515,6 +561,6 @@ Everything above traces to a public document. We encourage you to verify rather 
 
 <hr/>
 
-<p class="footer"><strong>About this packet.</strong> Prepared by the iKratom Policy Desk on August 24, 2026, from primary documents only. iKratom is independent of every kratom organization — AKA, GKC, BAE, MAC — and takes no position for or against any of them. We publish what the record says, including where it cuts against the community's preferred narrative. Corrections are welcome and will be logged.</p>
+<p class="footer"><strong>About this packet.</strong> Prepared by the iKratom Policy Desk on August 25, 2026, from primary documents only. iKratom is independent of every kratom organization — AKA, GKC, BAE, MAC — and takes no position for or against any of them. We publish what the record says, including where it cuts against the community's preferred narrative. Corrections are welcome and will be logged.</p>
 
 <p class="footer"><em>This is a plain-language summary of public documents. It is not legal advice. Legal status varies by state and locality, and the federal picture described here can change without notice.</em></p>

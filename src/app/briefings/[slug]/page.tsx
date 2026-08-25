@@ -4,8 +4,10 @@ import { notFound } from "next/navigation";
 import matter from "gray-matter";
 import { marked } from "marked";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
+import { AudioReader } from "@/components/AudioReader";
 import { frontmatterString } from "@/lib/frontmatter";
 import { CopyShareLinkButton } from "./CopyShareLinkButton";
+import { briefingAudioScript } from "@/lib/briefing-audio";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -58,6 +60,11 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
   const audience = frontmatterString(data.audience);
   const readTime = frontmatterString(data.read_time);
 
+  // Spoken script for "Listen". Built from the markdown rather than the
+  // rendered HTML so visual chrome (cover slab, status cards, citation
+  // tables, inline SVG) is dropped instead of narrated as fragments.
+  const audioScript = briefingAudioScript({ title, subtitle, published, content });
+
   // PDF availability check — built artifacts live in /public/briefings/.
   const pdfPath = path.join(process.cwd(), "public", "briefings", `${slug}.pdf`);
   const pdfExists = fs.existsSync(pdfPath);
@@ -95,6 +102,16 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
         {subtitle && (
           <p className="mt-2 text-base text-zinc-400">{subtitle}</p>
         )}
+        {audioScript && (
+          <div className="mt-4">
+            <AudioReader
+              id={`briefing-${slug}`}
+              text={audioScript}
+              label="Listen to this briefing"
+            />
+          </div>
+        )}
+
         <div className="mt-4 flex flex-wrap gap-2">
           {pdfExists && (
             <a
