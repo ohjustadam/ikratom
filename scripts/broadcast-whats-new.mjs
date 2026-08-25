@@ -25,6 +25,10 @@
  *     --slug 2026-05-17-update --all-users
  *   node --env-file=.env.local scripts/broadcast-whats-new.mjs \
  *     --slug 2026-05-17-update --dry-run
+ *
+ * Briefings (src/content/briefings -> /briefings/<slug>) instead of patch notes:
+ *   node --env-file=.env.local scripts/broadcast-whats-new.mjs \
+ *     --briefing --slug 7-oh-scheduling-2026 --all-users --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
@@ -37,9 +41,18 @@ const SLUG = arg("--slug");
 const DRY_RUN = args.includes("--dry-run");
 const ALL_USERS = args.includes("--all-users");
 const STATELESS = args.includes("--stateless");
+// --briefing switches the source to src/content/briefings and the link to
+// /briefings/<slug>. Default (no flag) is unchanged: patch notes -> /whats-new,
+// which is what cron-weekly.yml fires. Never make this the default.
+const BRIEFING = args.includes("--briefing");
 
 if (!SLUG) {
-  console.error("Usage: --slug 2026-05-17-update [--all-users] [--dry-run]");
+  console.error("Usage: --slug 2026-05-17-update [--briefing] [--all-users] [--dry-run]");
+  process.exit(1);
+}
+// SLUG is interpolated into a filesystem path — keep it to the slug charset.
+if (!/^[a-z0-9-]+$/.test(SLUG)) {
+  console.error(`Invalid --slug "${SLUG}" (expected lowercase letters, digits, hyphens).`);
   process.exit(1);
 }
 
@@ -50,7 +63,8 @@ const sb = createClient(
 
 // Read the patch note's front-matter so the notification body matches
 // the published summary exactly.
-const filePath = join(process.cwd(), "src", "content", "patch-notes", `${SLUG}.md`);
+const contentDir = BRIEFING ? "briefings" : "patch-notes";
+const filePath = join(process.cwd(), "src", "content", contentDir, `${SLUG}.md`);
 let title, summary;
 try {
   const raw = readFileSync(filePath, "utf8");
@@ -59,12 +73,14 @@ try {
   summary = fm.data.summary;
   if (!title || !summary) throw new Error("front-matter missing title or summary");
 } catch (e) {
-  console.error(`Failed to read patch note ${SLUG}: ${e.message}`);
+  console.error(`Failed to read ${BRIEFING ? "briefing" : "patch note"} ${SLUG}: ${e.message}`);
   process.exit(1);
 }
 
-const link = `/whats-new/${SLUG}`;
-const notifKind = "whats_new";
+const link = BRIEFING ? `/briefings/${SLUG}` : `/whats-new/${SLUG}`;
+// Dedupe is keyed on (kind, link), so a distinct kind keeps briefing pushes
+// from ever colliding with the weekly digest's idempotency check.
+const notifKind = BRIEFING ? "briefing" : "whats_new";
 
 console.log(`Broadcasting "${title}"`);
 console.log(`Link: ${link}`);
