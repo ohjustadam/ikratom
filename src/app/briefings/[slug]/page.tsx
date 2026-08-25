@@ -1,11 +1,11 @@
 import fs from "fs";
 import path from "path";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import matter from "gray-matter";
 import { marked } from "marked";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 import { frontmatterString } from "@/lib/frontmatter";
+import { CopyShareLinkButton } from "./CopyShareLinkButton";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -14,9 +14,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   if (!fs.existsSync(file)) return { title: "Briefing" };
   const { data } = matter(fs.readFileSync(file, "utf8"));
   const title = frontmatterString(data.title) ?? "Briefing";
+  // `||` not `??` on purpose: a blank subtitle is as useless as a missing
+  // one, and must fall through to the next candidate rather than shipping
+  // an empty meta description.
   const description =
-    frontmatterString(data.subtitle) ??
-    (typeof data.description === "string" ? data.description : "") ??
+    frontmatterString(data.subtitle)?.trim() ||
+    frontmatterString(data.description)?.trim() ||
     "Print-friendly kratom advocacy briefing — short read with talking points + sources.";
   const base = (process.env.APP_URL ?? "https://www.ikratom.org").replace(/\/+$/, "");
   const url = `${base}/briefings/${slug}`;
@@ -102,13 +105,7 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
               ↓ Download PDF
             </a>
           )}
-          <button
-            type="button"
-            data-share-url={`https://www.ikratom.org/briefings/${slug}`}
-            className="briefing-share-btn inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:border-emerald-500"
-          >
-            🔗 Copy share link
-          </button>
+          <CopyShareLinkButton url={`https://www.ikratom.org/briefings/${slug}`} />
         </div>
       </header>
 
@@ -117,37 +114,6 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
         className="briefing-md text-zinc-200"
         dangerouslySetInnerHTML={{ __html: html }}
       />
-
-      {/* Tiny client script for the share button — avoids a separate
-          client component file for one trivial interaction. Carries
-          the per-request CSP nonce so the strict script-src in
-          proxy.ts doesn't block it. */}
-      <BriefingShareScript />
     </div>
-  );
-}
-
-async function BriefingShareScript() {
-  const nonce = (await headers()).get("x-nonce") ?? undefined;
-  return (
-    <script
-      nonce={nonce}
-      dangerouslySetInnerHTML={{
-        __html: `
-          document.querySelectorAll('.briefing-share-btn').forEach((btn) => {
-            btn.addEventListener('click', async () => {
-              const url = btn.getAttribute('data-share-url');
-              if (!url) return;
-              try {
-                await navigator.clipboard.writeText(url);
-                const orig = btn.innerText;
-                btn.innerText = '✓ Copied!';
-                setTimeout(() => { btn.innerText = orig; }, 1500);
-              } catch (e) { /* noop */ }
-            });
-          });
-        `,
-      }}
-    />
   );
 }
