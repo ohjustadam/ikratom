@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { SubmitIntelForm } from "./SubmitIntelForm";
 
+import Link from "next/link";
 export const metadata = { title: "Submit intel" };
 
 /**
@@ -48,9 +49,9 @@ export default async function SubmitIntelPage({
         <a href="/pulse" className="text-xs text-zinc-500 hover:text-emerald-400">
           ← Pulse
         </a>
-        <a href="/alerts/my-tips" className="text-xs text-zinc-500 hover:text-emerald-400">
+        <Link href="/alerts/my-tips" className="text-xs text-zinc-500 hover:text-emerald-400">
           My submitted tips →
-        </a>
+        </Link>
       </div>
       <header className="mt-2 mb-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">

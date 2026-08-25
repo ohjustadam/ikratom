@@ -117,7 +117,7 @@ export default async function BillsPage({ searchParams }: { searchParams?: SP })
       // Wrapped in try/catch in case the column doesn't exist (pre-
       // migration deploy of /bills page on a pre-0123 DB).
       const billIdSet = new Set(allBills.map((b) => b.id));
-      let committeeByBill: Record<string, string | null> = {};
+      const committeeByBill: Record<string, string | null> = {};
       try {
         const { data: ccRows } = await supabase
           .from("bills")

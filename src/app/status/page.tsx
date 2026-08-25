@@ -369,7 +369,7 @@ export default async function StatusPage() {
             Bills currently sitting in a parseable committee. Each one is a
             window where a small group of legislators decides the bill, and
             their constituents&apos; calls move it. Signed-in users see a
-            personalized version on <a href="/bills?filter=in-my-committees" className="text-emerald-400 hover:underline">/bills?filter=in-my-committees</a>.
+            personalized version on <Link href="/bills?filter=in-my-committees" className="text-emerald-400 hover:underline">/bills?filter=in-my-committees</Link>.
           </p>
           <div className="mt-4 flex flex-wrap items-baseline gap-6">
             <div>

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 
+import Link from "next/link";
 export default function ErrorBoundary({
   error,
   reset,
@@ -38,12 +39,12 @@ export default function ErrorBoundary({
         >
           Try again
         </button>
-        <a
+        <Link
           href="/"
           className="rounded-md border border-zinc-700 px-5 py-2 font-semibold hover:border-emerald-500"
         >
           Home
-        </a>
+        </Link>
       </div>
     </div>
   );

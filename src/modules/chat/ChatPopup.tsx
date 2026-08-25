@@ -8,6 +8,7 @@ import { useSignIn } from "@/components/auth/SignInContext";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { postChatMessage, deleteChatMessage, loadInitialChat, type ChatMessage } from "./actions";
 
+import Link from "next/link";
 /**
  * ChatPopup — the Lounge live chat as a floating widget available on EVERY
  * page, so a user can banter from anywhere without leaving what they're doing.
@@ -213,7 +214,7 @@ export function ChatPopup() {
           <span className="rounded bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-300">Live</span>
         </h2>
         <div className="flex items-center gap-1">
-          <a href="/forum" className="rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:text-emerald-300" title="Open the full forum + Lounge">Forum ↗</a>
+          <Link href="/forum" className="rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:text-emerald-300" title="Open the full forum + Lounge">Forum ↗</Link>
           <button onClick={() => setOpen(false)} aria-label="Close chat" className="rounded px-2 py-0.5 text-zinc-500 hover:text-zinc-200">✕</button>
         </div>
       </div>

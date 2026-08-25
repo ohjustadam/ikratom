@@ -5,6 +5,7 @@ import { recordForumVisit } from "@/modules/forum/engagement-actions";
 import { communityKey, type SubMode } from "@/modules/forum/engagement-keys";
 import { ForumSubscribeButton } from "@/modules/forum/components/ForumSubscribeButton";
 
+import Link from "next/link";
 export async function generateMetadata({
   params,
 }: {
@@ -72,9 +73,9 @@ export default async function CommunityForumPage({
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/forum" className="text-xs text-zinc-500 hover:text-emerald-400">
+      <Link href="/forum" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Community
-      </a>
+      </Link>
       <header className="mt-2 mb-6 flex items-start gap-4">
         <span className="text-4xl">{community.icon || "💬"}</span>
         <div className="min-w-0 flex-1">

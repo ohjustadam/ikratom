@@ -413,7 +413,6 @@ export async function aiRouter({
       lastErr = e;
       if (verbose) {
         const msg = String(e.message ?? e).slice(0, 140);
-        // eslint-disable-next-line no-console
         console.log(`    ⚠ ${p} failed: ${msg}`);
       }
       // Brief gap before next provider

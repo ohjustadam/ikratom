@@ -270,7 +270,7 @@ export default async function MeetingDetailPage({ params }: Props) {
           What advocates can do RIGHT NOW
         </h2>
         <ul className="mt-2 space-y-1 text-sm text-zinc-300">
-          <li>👂 <strong>Watch</strong> the livestream so you know what's said in your name</li>
+          <li>👂 <strong>Watch</strong> the livestream so you know what&apos;s said in your name</li>
           <li>📞 <strong>Call</strong> a county legislator — <Link href={`/calls?state=${m.state}`} className="text-emerald-400 hover:underline">your in-state targets</Link></li>
           <li>🎤 <strong>Sign up to give public comment</strong> if a comment window exists (linked above)</li>
           <li>📨 <strong>Share this page</strong> on social so more advocates show up to the next one</li>

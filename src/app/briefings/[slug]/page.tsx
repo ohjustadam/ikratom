@@ -9,6 +9,7 @@ import { frontmatterString } from "@/lib/frontmatter";
 import { CopyShareLinkButton } from "./CopyShareLinkButton";
 import { briefingAudioScript } from "@/lib/briefing-audio";
 
+import Link from "next/link";
 const BRIEFINGS_DIR = path.join(process.cwd(), "src", "content", "briefings");
 
 /**
@@ -102,9 +103,9 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between">
-        <a href="/briefings" className="text-xs text-zinc-500 hover:text-emerald-400">
+        <Link href="/briefings" className="text-xs text-zinc-500 hover:text-emerald-400">
           ← All briefings
-        </a>
+        </Link>
         <PageShareWithAttribution
           path={`/briefings/${slug}`}
           title={title}

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
+import Link from "next/link";
 /**
  * Compact list of campaigns the user can act on right now.
  * Every campaign is actionable regardless of the user's state (owner policy
@@ -36,9 +37,9 @@ export async function ActiveCampaignsWidget({ userState }: { userState: string |
           <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">action queue</p>
           <h2 className="text-sm font-bold text-zinc-100">Active campaigns</h2>
         </div>
-        <a href="/campaigns" className="text-xs text-emerald-400 hover:underline">
+        <Link href="/campaigns" className="text-xs text-emerald-400 hover:underline">
           all →
-        </a>
+        </Link>
       </div>
       <ul className="divide-y divide-zinc-900">
         {top.map((c) => (

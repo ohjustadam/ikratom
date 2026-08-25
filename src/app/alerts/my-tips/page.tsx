@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listMyIntelTips } from "@/modules/alerts/actions";
 
+import Link from "next/link";
 export const metadata = { title: "My intel tips" };
 export const dynamic = "force-dynamic";
 
@@ -53,15 +54,15 @@ export default async function MyTipsPage() {
         <div>
           <h1 className="text-3xl font-bold">My intel tips</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Status of every tip you&apos;ve submitted via <a href="/alerts/submit" className="text-emerald-400 hover:underline">/alerts/submit</a>.
+            Status of every tip you&apos;ve submitted via <Link href="/alerts/submit" className="text-emerald-400 hover:underline">/alerts/submit</Link>.
           </p>
         </div>
-        <a
+        <Link
           href="/alerts/submit"
           className="rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
         >
           + Submit a new tip
-        </a>
+        </Link>
       </header>
 
       {/* Tier card */}
@@ -93,7 +94,7 @@ export default async function MyTipsPage() {
           <p className="text-3xl">📡</p>
           <p className="mt-2">You haven&apos;t submitted any tips yet.</p>
           <p className="mt-1 text-[11px] text-zinc-600">
-            Spotted a city council agenda or AG presser? <a href="/alerts/submit" className="text-emerald-400 hover:underline">Send it in</a>.
+            Spotted a city council agenda or AG presser? <Link href="/alerts/submit" className="text-emerald-400 hover:underline">Send it in</Link>.
           </p>
         </div>
       ) : (

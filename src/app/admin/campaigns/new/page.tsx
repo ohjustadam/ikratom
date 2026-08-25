@@ -3,6 +3,7 @@ import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { CampaignWizard } from "@/modules/admin/components/CampaignWizard";
 
+import Link from "next/link";
 export const metadata = { title: "New campaign" };
 
 export default async function NewCampaignPage({
@@ -66,9 +67,9 @@ export default async function NewCampaignPage({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/admin/campaigns" className="text-xs text-zinc-500 hover:text-emerald-400">
+      <Link href="/admin/campaigns" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Campaigns
-      </a>
+      </Link>
       <header className="mt-2 mb-8">
         <h1 className="text-3xl font-bold">New campaign</h1>
         <p className="mt-2 text-sm text-zinc-400">

@@ -10,6 +10,7 @@ import { stateKey, communityKey } from "@/modules/forum/engagement-keys";
 import { ForumSubscribeButton } from "@/modules/forum/components/ForumSubscribeButton";
 import { ForumStateNav } from "@/modules/forum/components/ForumStateNav";
 
+import Link from "next/link";
 export const metadata = { title: "Community" };
 
 export default async function ForumIndexPage() {
@@ -204,7 +205,7 @@ export default async function ForumIndexPage() {
         const s = stats[fedKey];
         return (
           <div className="mb-8 rounded-lg border border-emerald-700/40 bg-emerald-950/10 p-4 hover:border-emerald-500">
-            <a href="/forum/FED" className="flex items-start justify-between gap-3">
+            <Link href="/forum/FED" className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-xs text-emerald-400">FED</span>
@@ -231,7 +232,7 @@ export default async function ForumIndexPage() {
                 </div>
               </div>
               <span className="text-emerald-400">→</span>
-            </a>
+            </Link>
             <div className="mt-2">
               <ForumSubscribeButton
                 forumKey={fedKey}

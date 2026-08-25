@@ -59,7 +59,7 @@ export default async function PatchNotePage({ params }: { params: Promise<{ slug
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <Link href="/whats-new" className="text-xs text-zinc-500 hover:text-emerald-400">
-        ← What's new
+        ← What&apos;s new
       </Link>
       <header className="mt-2 mb-6 border-b border-zinc-800 pb-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">

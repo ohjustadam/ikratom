@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import {
   createCampaign,
   updateCampaign,
@@ -132,9 +133,9 @@ export function CampaignForm({ initial }: { initial?: Initial }) {
         >
           {pending ? "Saving…" : initial?.id ? "Save changes" : "Create campaign"}
         </button>
-        <a href="/admin/campaigns" className="text-sm text-zinc-400 hover:text-emerald-400">
+        <Link href="/admin/campaigns" className="text-sm text-zinc-400 hover:text-emerald-400">
           Cancel
-        </a>
+        </Link>
       </div>
     </form>
   );

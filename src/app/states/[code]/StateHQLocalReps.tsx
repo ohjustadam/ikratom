@@ -86,7 +86,7 @@ export async function StateHQLocalReps({ state, stateName }: { state: string; st
   return (
     <section id="your-reps" className="mb-6 rounded-lg border border-emerald-700/40 bg-emerald-950/10 p-5">
       <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">📍 Your local reps in {stateName}</h2>
-      <p className="mt-1 text-xs text-zinc-500">The legislators who answer to you. Contact them in one click — your voice is the one they're elected to weigh.</p>
+      <p className="mt-1 text-xs text-zinc-500">The legislators who answer to you. Contact them in one click — your voice is the one they&apos;re elected to weigh.</p>
       <ul className="mt-3 grid gap-2 sm:grid-cols-2">
         {reps.map((r) => (
           <li key={r.id} className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3">

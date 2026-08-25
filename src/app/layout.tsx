@@ -30,6 +30,7 @@ import { AttributionCapture } from "@/components/chrome/AttributionCapture";
 import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGate } from "@/components/chrome/ChromeGates";
 import "./globals.css";
 
+import Link from "next/link";
 const geist = Geist({
   variable: "--font-geist",
   subsets: ["latin"],
@@ -177,14 +178,14 @@ export default function RootLayout({
           style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
-            <a
+            <Link
               href="/"
               className="flex items-center gap-1 text-lg font-bold leading-none"
               aria-label="iKratom home"
             >
               <span className="text-emerald-400">i</span>
               <span>Kratom</span>
-            </a>
+            </Link>
 
             {/* Desktop nav (md+). The 10 flat sections from v1 are
                 grouped into 4 dropdown categories inside HeaderNav so
@@ -239,11 +240,11 @@ export default function RootLayout({
               <a href="/roles" className="hover:text-emerald-400">Roles</a>
               <a href="/spread" className="hover:text-emerald-400">Storefront kit</a>
               <a href="/ethics" className="hover:text-emerald-400">Ethics</a>
-              <a href="/research" className="hover:text-emerald-400">Research</a>
+              <Link href="/research" className="hover:text-emerald-400">Research</Link>
               <a href="/intel" className="hover:text-emerald-400">Intel hub</a>
               <a href="/calendar" className="hover:text-emerald-400">Calendar</a>
               <a href="/deadlines" className="hover:text-emerald-400">Deadlines</a>
-              <a href="/whats-new" className="hover:text-emerald-400">What&apos;s new</a>
+              <Link href="/whats-new" className="hover:text-emerald-400">What&apos;s new</Link>
               <a href="/support" className="font-semibold text-emerald-400 hover:text-emerald-300">♥ Support</a>
               <a href="/status" className="hover:text-emerald-400">Status</a>
               <a href="/glossary" className="hover:text-emerald-400">Glossary</a>

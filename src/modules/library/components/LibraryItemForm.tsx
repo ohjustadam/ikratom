@@ -5,6 +5,7 @@ import { createLibraryItem, updateLibraryItem } from "../actions";
 import type { LibraryItemType } from "../types";
 import { TYPE_LABELS } from "../types";
 
+import Link from "next/link";
 const TYPES: LibraryItemType[] = ["video", "audio", "book", "article", "document"];
 
 type Initial = {
@@ -147,9 +148,9 @@ export function LibraryItemForm({ initial }: { initial?: Initial }) {
         >
           {pending ? "Saving…" : initial?.id ? "Save changes" : "Add to library"}
         </button>
-        <a href="/library" className="text-sm text-zinc-400 hover:text-emerald-400">
+        <Link href="/library" className="text-sm text-zinc-400 hover:text-emerald-400">
           Cancel
-        </a>
+        </Link>
       </div>
     </form>
   );

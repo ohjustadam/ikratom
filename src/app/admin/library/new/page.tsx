@@ -19,9 +19,9 @@ export default async function NewLibraryItemLanding() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/library" className="text-xs text-zinc-500 hover:text-emerald-400">
+      <Link href="/library" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Library
-      </a>
+      </Link>
       <header className="mt-2 mb-8">
         <h1 className="text-3xl font-bold">Add to library</h1>
         <p className="mt-2 text-sm text-zinc-400">

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
+import Link from "next/link";
 /**
  * Activity radar — at-a-glance "what's happening on the platform right
  * now." Sources merged + sorted by recency:
@@ -97,13 +98,13 @@ export async function ActivityRadarWidget() {
           <h2 className="text-sm font-bold text-zinc-100">Activity radar</h2>
         </div>
         {uniqueChatPosters > 0 && (
-          <a
+          <Link
             href="/forum"
             className="inline-flex items-center gap-1.5 rounded-md bg-emerald-950/30 px-2 py-1 text-[10px] font-mono text-emerald-300 hover:bg-emerald-950/50"
           >
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
             {uniqueChatPosters} active in lounge
-          </a>
+          </Link>
         )}
       </div>
       <ul className="divide-y divide-zinc-900">

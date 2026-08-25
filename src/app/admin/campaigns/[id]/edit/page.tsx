@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { CampaignForm } from "@/modules/admin/components/CampaignForm";
 import { listWavesForCampaign } from "@/modules/waves/actions-admin";
 
+import Link from "next/link";
 export const metadata = { title: "Edit campaign" };
 
 export default async function EditCampaignPage({
@@ -34,9 +35,9 @@ export default async function EditCampaignPage({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/admin/campaigns" className="text-xs text-zinc-500 hover:text-emerald-400">
+      <Link href="/admin/campaigns" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Campaigns
-      </a>
+      </Link>
       <header className="mt-2 mb-8 flex items-end justify-between">
         <div>
           <h1 className="text-3xl font-bold">Edit campaign</h1>

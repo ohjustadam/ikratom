@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CATEGORIES } from "@/config/nav-categories";
 
+import Link from "next/link";
 /**
  * Mobile menu — full-screen overlay (NOT a side drawer).
  *
@@ -157,14 +158,14 @@ export function MobileNav({
           {/* Top bar — sticky inside the scroll container so it's always
               reachable even on long admin lists. */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur">
-            <a
+            <Link
               href="/"
               className="flex items-center gap-1 text-lg font-bold"
               onClick={close}
             >
               <span className="text-emerald-400">i</span>
               <span>Kratom</span>
-            </a>
+            </Link>
             <button
               type="button"
               aria-label="Close menu"

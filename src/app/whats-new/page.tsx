@@ -41,7 +41,7 @@ export default function WhatsNewIndex() {
     <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
       <header className="mb-10">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          📰 What's new
+          📰 What&apos;s new
         </p>
         <h1 className="mt-2 text-4xl font-bold">Platform changelog</h1>
         <p className="mt-3 max-w-2xl text-sm text-zinc-400">

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
+import Link from "next/link";
 export const metadata = {
   title: "Submit something",
   description:
@@ -172,7 +173,7 @@ export default async function SubmitHubPage() {
         <p className="font-semibold text-zinc-200">Don&apos;t see what you&apos;re looking for?</p>
         <p className="mt-1">
           Most things admins handle (legislators, news, bills) sync automatically. If you have
-          a tip about something we should know, the <a href="/alerts/submit" className="text-emerald-400 hover:underline">intel-tip flow</a> is the right path.
+          a tip about something we should know, the <Link href="/alerts/submit" className="text-emerald-400 hover:underline">intel-tip flow</Link> is the right path.
         </p>
       </footer>
     </div>

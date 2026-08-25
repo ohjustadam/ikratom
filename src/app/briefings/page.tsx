@@ -3,6 +3,7 @@ import path from "path";
 import matter from "gray-matter";
 import { frontmatterString } from "@/lib/frontmatter";
 
+import Link from "next/link";
 export const metadata = { title: "Policy briefings" };
 
 /**
@@ -65,12 +66,12 @@ export default function BriefingsIndexPage() {
           active bills, BoP status, key reps, capital access, tactical advice
           for your meetings. Print one before walking into your capital.
         </p>
-        <a
+        <Link
           href="/briefings/state"
           className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-emerald-400 hover:underline"
         >
           Browse all 50 + DC →
-        </a>
+        </Link>
       </section>
 
       {briefings.length === 0 ? (

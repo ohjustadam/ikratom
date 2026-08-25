@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 /**
  * Client component (2026-07-22). The unread count now arrives as a prop from
@@ -9,7 +10,7 @@
  */
 export function MessagesIcon({ count = 0 }: { count?: number }) {
   return (
-    <a
+    <Link
       href="/messages"
       className="relative inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-zinc-900"
       aria-label={count > 0 ? `${count} unread messages` : "Messages"}
@@ -20,7 +21,7 @@ export function MessagesIcon({ count = 0 }: { count?: number }) {
           {count > 99 ? "99+" : count}
         </span>
       )}
-    </a>
+    </Link>
   );
 }
 

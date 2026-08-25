@@ -14,6 +14,7 @@ import { sendMessage } from "@/modules/dm/actions";
 import { blockUser } from "@/modules/dm/block-actions";
 import { createClient } from "@/lib/supabase/client";
 
+import Link from "next/link";
 type MessageRow = {
   id: string;
   sender_id: string;
@@ -223,9 +224,9 @@ export function ConversationView({
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col px-4 py-6 sm:px-6 lg:px-8" style={{ minHeight: "calc(100vh - 80px)" }}>
-      <a href="/messages" className="text-xs text-zinc-500 hover:text-emerald-400">
+      <Link href="/messages" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Messages
-      </a>
+      </Link>
 
       <header className="mt-2 mb-4 flex items-center gap-3 border-b border-zinc-800 pb-4">
         {!isGroup && other ? (

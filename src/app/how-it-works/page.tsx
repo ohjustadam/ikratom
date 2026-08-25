@@ -4,6 +4,7 @@ import { getMyInviteSummary, buildInviteUrl } from "@/modules/invite/actions";
 import { AnnotatedScreenshot, type Pin } from "@/components/AnnotatedScreenshot";
 import { getContent } from "@/lib/editable-content";
 
+import Link from "next/link";
 export const metadata = { title: "How iKratom works" };
 export const dynamic = "force-dynamic";
 
@@ -351,7 +352,7 @@ function CTA() {
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         <a href="/signup" className="rounded-md bg-emerald-500 px-6 py-3 font-semibold text-zinc-950 hover:bg-emerald-400">Join the war room →</a>
-        <a href="/campaigns" className="rounded-md border border-zinc-700 px-6 py-3 font-semibold hover:border-emerald-500 hover:text-emerald-400">Browse campaigns first</a>
+        <Link href="/campaigns" className="rounded-md border border-zinc-700 px-6 py-3 font-semibold hover:border-emerald-500 hover:text-emerald-400">Browse campaigns first</Link>
       </div>
     </section>
   );

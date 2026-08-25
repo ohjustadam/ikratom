@@ -444,9 +444,9 @@ export default async function CampaignPage({
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/campaigns" className="text-xs text-zinc-500 hover:text-emerald-400">
+      <Link href="/campaigns" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← All campaigns
-      </a>
+      </Link>
 
       <header className="mt-3 mb-8">
         <div className="flex flex-wrap items-center gap-2">
