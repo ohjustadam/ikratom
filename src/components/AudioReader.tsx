@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AudioTransport } from "./AudioTransport";
 import {
   KokoroPlayer,
   KOKORO_VOICES,
@@ -307,6 +308,15 @@ export function AudioReader({ text, id, label = "Listen", compact = false, hideV
               </button>
             )}
           </span>
+        )}
+        {/* Transport only once audio exists to move through. Rendering it in
+            "idle" would show a dead 0:00 scrubber that does nothing. */}
+        {(kState === "playing" || kState === "paused") && (
+          <AudioTransport
+            player={playerRef.current}
+            playing={kState === "playing"}
+            className="w-full basis-full"
+          />
         )}
       </div>
     );
