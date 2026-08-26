@@ -4,8 +4,13 @@
  * commits. Saves a file at src/content/patch-notes/YYYY-MM-DD-slug.md.
  *
  * Admin reviews the draft, edits headlines + groups bullets by user
- * impact, then commits. Auto-generated drafts are safe to ship as-is
- * but light editing makes them shine.
+ * impact, then commits.
+ *
+ * These drafts are NOT safe to ship as-is — this comment used to say they
+ * were, and that is precisely how raw generator output reached /whats-new:
+ * ten published notes carried an editor instruction meant for the curator.
+ * See the classifier note below; two past leaks (PR #691) came from
+ * publishing verbatim. Treat every draft as a starting point.
  *
  * Run:
  *   node scripts/generate-patch-note.mjs --since "7 days ago"
@@ -79,10 +84,26 @@ for (const c of commits) {
   }
 }
 
+// Anchor the date to Eastern, and use ONE source for all three of slug,
+// published and title.
+//
+// This used to mix two clocks: the slug and `published` came from
+// toISOString() (UTC) while the title came from toLocaleDateString() (the
+// machine's local zone). Run in a US evening those disagree, and the note
+// contradicts itself — a real draft generated at 21:09 CDT was titled
+// "Platform update — August 25, 2026" with slug "2026-08-26-update" and
+// published "2026-08-26".
+//
+// Eastern (not UTC, not the machine's zone) because every user-facing date on
+// this platform is civic and anchors to America/New_York — Vercel and GitHub
+// Actions both run UTC, so a bare UTC date rolls a day ahead every US evening
+// no matter who generates the note.
+const ET = "America/New_York";
 const today = new Date();
-const slug = `${today.toISOString().slice(0, 10)}-update`;
+const ymd = today.toLocaleDateString("en-CA", { timeZone: ET }); // en-CA gives YYYY-MM-DD
+const slug = `${ymd}-update`;
 const path = join(dir, `${slug}.md`);
-const title = `Platform update — ${today.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}`;
+const title = `Platform update — ${today.toLocaleDateString("en-US", { timeZone: ET, month: "long", day: "numeric", year: "numeric" })}`;
 
 const link = (h) => `([${h.slice(0, 7)}](https://github.com/ohjustadam/ikratom/commit/${h}))`;
 const sections = [];
@@ -101,13 +122,24 @@ const summary = `${featureCount} new feature${featureCount === 1 ? "" : "s"}${fi
 const frontMatter = `---
 title: "${title}"
 slug: "${slug}"
-published: "${today.toISOString().slice(0, 10)}"
+published: "${ymd}"
 summary: "${summary}"
 ---
 
 `;
 
-const body = `${summary}\n\n_Auto-generated draft — curate the headlines by user impact before relying on it._\n\n${sections.join("\n\n")}\n`;
+// NO editor instructions in the body. This used to emit
+//   "_Auto-generated draft — curate the headlines by user impact before relying on it._"
+// which is a note to the CURATOR, not the reader — and because these drafts are
+// routinely merged as-is, that sentence shipped to /whats-new on ten separate
+// notes and sat there for months. Same reasoning retired the
+// "_All changes since N hours ago._" line, which described the generator's own
+// time window rather than the release.
+//
+// The "this is a draft, please curate it" message still exists — it goes to the
+// operator, on the console, below. Guidance belongs where the operator is, never
+// in the artifact the public reads.
+const body = `${summary}\n\n${sections.join("\n\n")}\n`;
 
 writeFileSync(path, frontMatter + body, "utf8");
 
