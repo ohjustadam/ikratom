@@ -22,7 +22,7 @@ export function MobileAuthPill() {
     return (
       <span
         aria-hidden
-        className="inline-block h-10 w-[86px] rounded-md bg-zinc-900/60 md:hidden"
+        className="inline-block h-10 w-[86px] rounded-md bg-zinc-900/60 lg:hidden"
       />
     );
   }
@@ -31,7 +31,7 @@ export function MobileAuthPill() {
     return (
       <a
         href="/login"
-        className="inline-flex h-10 items-center rounded-md bg-emerald-500 px-3 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 md:hidden"
+        className="inline-flex h-10 items-center rounded-md bg-emerald-500 px-3 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 lg:hidden"
       >
         Sign in
       </a>
@@ -41,7 +41,7 @@ export function MobileAuthPill() {
   return (
     <a
       href="/dashboard"
-      className="inline-flex h-10 items-center rounded-md border border-emerald-700/50 bg-emerald-950/30 px-3 text-sm font-semibold text-emerald-300 hover:border-emerald-500 md:hidden"
+      className="inline-flex h-10 items-center rounded-md border border-emerald-700/50 bg-emerald-950/30 px-3 text-sm font-semibold text-emerald-300 hover:border-emerald-500 lg:hidden"
     >
       Dashboard
     </a>
