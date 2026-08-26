@@ -31,6 +31,14 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Report changelog gaps
+        # The failure mode of this job is SILENCE: it opens a PR and waits for a
+        # human, and when nobody merges, nothing complains. Seven days of
+        # changelog went missing that way and stayed missing for three months.
+        # Reporting-only (never fails the job) — it writes any hole into the run
+        # summary so a dropped draft surfaces the next morning instead of never.
+        run: node scripts/check-changelog-gaps.mjs --days 120
+
       - name: Generate patch-note draft for the last 24 hours
         id: gen
         run: |
