@@ -65,7 +65,24 @@
   # the price of a server that boots. Turbopack is only safe here once the
   # Netlify adapter can resolve its external modules — verify on a DRAFT deploy
   # (`netlify deploy --build`, no --prod) before ever trying again.
-  command = "next build --webpack"
+  # 2026-08-28 REVERTED TO TURBOPACK. #856 restored `--webpack` after the #848
+  # outage. That change deployed for the first time in the 25-commit batch
+  # (9befdd8) and the build FAILED in Netlify's container — "Build script
+  # returned non-zero exit code: 2" — freezing the site at its previous build.
+  # The webpack build succeeds locally (215 routes, exit 0), and the ONLY build
+  # config difference from the last good deploy was this one line, so the
+  # failure is environmental: webpack peaks ~2034MB and the container cannot
+  # carry it even with --max-old-space-size=4096.
+  #
+  # The premise above has also expired. Production has run plain `next build`
+  # (Turbopack) since #874 and the SERVER BOOTS: dynamic, server-rendered
+  # routes (/news/[id], /alerts/[id]) serve real content. Whatever broke module
+  # resolution in #848 has since been fixed upstream.
+  #
+  # So: Turbopack builds AND boots; webpack does not build here. If you want
+  # webpack back, prove it on a DRAFT deploy first (`netlify deploy --build`,
+  # no --prod — draft deploys are free) instead of on production.
+  command = "next build"
   # The Next.js runtime plugin manages the real publish output; this is the
   # conventional value and the plugin overrides it as needed.
   publish = ".next"
