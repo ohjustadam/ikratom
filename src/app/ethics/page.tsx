@@ -135,7 +135,7 @@ export default async function EthicsPage() {
         </p>
         <ul className="mt-3 space-y-1.5 text-[13px] text-zinc-400">
           <li>
-            Public correction: <Link href="/intel/submit" className="text-emerald-400 hover:underline">submit an intel tip</Link> from the bill page in question
+            Public correction: <Link href="/alerts/submit" className="text-emerald-400 hover:underline">submit an intel tip</Link> from the bill page in question
           </li>
           <li>
             Private channel: <a href="mailto:support@ikratom.org" className="text-emerald-400 hover:underline">support@ikratom.org</a>

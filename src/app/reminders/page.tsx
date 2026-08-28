@@ -45,7 +45,7 @@ export default async function RemindersPage() {
           <p>No reminders yet.</p>
           <p className="mt-2">
             Open a <Link href="/bills" className="text-emerald-400 underline">bill</Link>
-            {" "}or <Link href="/meetings" className="text-emerald-400 underline">meeting</Link> and click 🔔 Remind me to set one.
+            {" "}or <Link href="/calendar" className="text-emerald-400 underline">meeting</Link> and click 🔔 Remind me to set one.
           </p>
         </div>
       )}
