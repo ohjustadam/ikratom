@@ -74,6 +74,10 @@ export const REGISTRY = [
       "locality_state_audit",
       "review_lapsed_items",
       "sync_legislative_sessions",
+      // Fact-integrity watchdog (added after the 2026-08-28 false-ban incident):
+      // cross-checks published federal scheduling claims against the Federal
+      // Register. Silent = nothing is checking our facts but our readers.
+      "audit_federal_claims",
       // Registered 2026-07-16 (audit): the OpenStates bill sweep is the ONLY
       // last_action refresher for non-LegiScan bills (all NY bills) but wrote
       // no telemetry of its own — the shared "openstates" label stayed fresh

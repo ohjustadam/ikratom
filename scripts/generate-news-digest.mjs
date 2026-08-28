@@ -22,6 +22,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
+import { getFederalSchedulingFacts, groundingBlock } from "./lib/federal-scheduling.mjs";
 
 const args = process.argv.slice(2);
 const arg = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : null; };
@@ -44,7 +45,7 @@ const sb = createClient(
 const guard = makeFailGuard();
 const t0 = Date.now();
 
-const SYS =
+const SYS_BASE =
   "You are a neutral news writer for a nonpartisan kratom-policy platform. Using ONLY the " +
   "source text provided, write an original plain-English digest of the article so a reader " +
   "fully understands it WITHOUT visiting the source. Rules: 4 to 7 short paragraphs; neutral " +
@@ -52,6 +53,18 @@ const SYS =
   "dates, or quotes that are not in the source text; do not copy sentences verbatim — rewrite " +
   "in your own words. If the source text is too thin to support a full digest, return fewer " +
   'paragraphs rather than padding. Return ONLY JSON: {"paragraphs": ["...", "..."]}.';
+
+// Ground the model in the real Federal Register record. The "use ONLY the source
+// text" rule above exists so we never fabricate a story; the verified list below
+// is the one authorized exception, and only for naming a contradiction — never
+// for inventing narrative. See lib/federal-scheduling.mjs for the 2026-08-28
+// incident this prevents. Degrades to the ungrounded prompt if the lookup fails.
+const federalFacts = await getFederalSchedulingFacts();
+if (!federalFacts.ok) console.log(`⚠ federal grounding unavailable: ${federalFacts.error}`);
+const grounding = groundingBlock(federalFacts);
+const SYS = grounding
+  ? `${SYS_BASE}\n\n${grounding}\n\nThe verified list above is the ONLY information you may use that is not in the source text, and only to name a contradiction. Never use it to add facts the article does not discuss.`
+  : SYS_BASE;
 
 const since = new Date(Date.now() - DAYS * 86400_000).toISOString();
 let q = sb.from("news_items")

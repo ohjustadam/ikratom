@@ -48,7 +48,7 @@ if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1)
 const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
 // ---------- prompt ----------
-const SYSTEM = `You are a kratom-policy news analyst. Classify ONE news article and return strict JSON.
+const SYSTEM_BASE = `You are a kratom-policy news analyst. Classify ONE news article and return strict JSON.
 
 CRITICAL — REFUSE TO SPECULATE:
 The article MUST be about kratom, mitragynine, 7-OH, "gas station drugs/heroin/opioids",
@@ -108,6 +108,24 @@ Return ONLY the JSON. No prose, no markdown fences.`;
 // (cooldown-aware + JSON repair).
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
+import { getFederalSchedulingFacts, groundingBlock } from "./lib/federal-scheduling.mjs";
+
+// Federal scheduling ground truth. This is the surface that PUSHES, so a wrong
+// scheduling claim here reaches phones — on 2026-07-24 this engine announced
+// that the DEA had placed mitragynine under emergency Schedule I and that it
+// "applies to all forms of natural leaf kratom", a sentence that appears in no
+// source, and pushed it to 42 people as CRITICAL. Ground it in the real
+// Federal Register record. Degrades to the ungrounded prompt if lookup fails.
+const federalFacts = await getFederalSchedulingFacts();
+if (!federalFacts.ok) console.log(`⚠ federal grounding unavailable: ${federalFacts.error}`);
+const federalGrounding = groundingBlock(federalFacts);
+const SYSTEM = federalGrounding
+  ? `${SYSTEM_BASE}
+
+${federalGrounding}
+
+NEVER state that a substance is federally scheduled unless the verified list above says it is. If the article claims otherwise, set severity no higher than "watch" and say in the summary that the article's scheduling claim does not match the Federal Register. Never widen a scheduling action to substances it does not name — in particular, never describe a federal action as covering natural leaf kratom.`
+  : SYSTEM_BASE;
 
 // Circuit breaker: stop early (and record why) when the free-tier AI
 // providers are exhausted, instead of failing every remaining item with

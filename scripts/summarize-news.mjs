@@ -15,6 +15,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
+import { getFederalSchedulingFacts, groundingBlock } from "./lib/federal-scheduling.mjs";
 
 const args = process.argv.slice(2);
 const arg = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : null; };
@@ -31,11 +32,19 @@ const sb = createClient(
 const guard = makeFailGuard();
 const t0 = Date.now();
 
-const SYS =
+const SYS_BASE =
   "You are a neutral news editor for a nonpartisan kratom-policy platform. In 2-3 plain, " +
   "factual sentences, summarize the article for a reader who hasn't seen it: what happened, " +
   "where, and why it matters for kratom or 7-OH policy. No opinion, no hype, no first person. " +
   'Return ONLY JSON: {"summary": "..."}.';
+
+// Ground the model in the real Federal Register record before it restates a
+// newsroom's scheduling claim as fact (see lib/federal-scheduling.mjs for the
+// 2026-08-28 incident this prevents). Degrades to the ungrounded prompt if the
+// lookup fails — never blocks the batch.
+const federalFacts = await getFederalSchedulingFacts();
+if (!federalFacts.ok) console.log(`⚠ federal grounding unavailable: ${federalFacts.error}`);
+const SYS = [SYS_BASE, groundingBlock(federalFacts)].filter(Boolean).join("\n\n");
 
 const since = new Date(Date.now() - DAYS * 86400_000).toISOString();
 let q = sb.from("news_items")

@@ -458,6 +458,19 @@ jobs:
           CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/generate-news-digest.mjs --limit 300 --days 90
+      - name: Audit federal scheduling claims
+        # Runs LAST in this job, after summaries + digests exist, so it audits
+        # what we just wrote. Checks every published claim that a substance is
+        # federally scheduled against the actual Federal Register record
+        # (keyless API, no key, no quota). Reports + flags for review; never
+        # rewrites copy. Added after the 2026-08-28 incident where a reader had
+        # to email us that a summarized article — and the federal alert it
+        # spawned — announced a 7-OH ban that had not happened.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/audit-federal-claims.mjs --days 45 --apply
 
   sync-usaspending-kratom:
     # Federal awards (grants + contracts) from USAspending.gov.
