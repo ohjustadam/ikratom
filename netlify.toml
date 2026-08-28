@@ -45,9 +45,27 @@
   # "Next.js build" check has been passing on Turbopack this whole time, which is
   # independent evidence it works for this codebase.
   #
-  # ⚠ If middleware is ever re-enabled, this must go back to `--webpack` (and the
-  # OOM problem returns) unless the adapter has gained Turbopack support by then.
-  command = "next build"
+  # ⚠⚠ --webpack IS LOAD-BEARING. DO NOT REMOVE IT. ⚠⚠
+  #
+  # I removed it once (#848) reasoning it was only ever a middleware workaround.
+  # That took the entire site down. Proof, from the Netlify function log:
+  #
+  #   ERROR Failed to prepare server: An error occurred while loading the
+  #   instrumentation hook
+  #   [cause]: Cannot find module 'require-in-the-middle-2ca7b9c2766f317e'
+  #       at .next/server/chunks/[turbopack]_runtime.js
+  #
+  # Turbopack hash-renames external modules; Netlify's bundler cannot resolve
+  # them, so Sentry's instrumentation hook fails and THE SERVER NEVER STARTS.
+  # Every dynamic route 500s while static pages keep serving from the CDN —
+  # which is why it first looked like "just /donate is broken" rather than a
+  # total outage.
+  #
+  # Webpack costs a slower, hungrier build (hence NODE_OPTIONS below). That is
+  # the price of a server that boots. Turbopack is only safe here once the
+  # Netlify adapter can resolve its external modules — verify on a DRAFT deploy
+  # (`netlify deploy --build`, no --prod) before ever trying again.
+  command = "next build --webpack"
   # The Next.js runtime plugin manages the real publish output; this is the
   # conventional value and the plugin overrides it as needed.
   publish = ".next"
