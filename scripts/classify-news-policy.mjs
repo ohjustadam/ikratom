@@ -48,7 +48,7 @@ if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1)
 const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
 // ---------- prompt ----------
-const SYSTEM = `You are a kratom-policy news analyst. Classify ONE news article and return strict JSON.
+const SYSTEM_BASE = `You are a kratom-policy news analyst. Classify ONE news article and return strict JSON.
 
 CRITICAL — REFUSE TO SPECULATE:
 The article MUST be about kratom, mitragynine, 7-OH, "gas station drugs/heroin/opioids",
@@ -108,6 +108,24 @@ Return ONLY the JSON. No prose, no markdown fences.`;
 // (cooldown-aware + JSON repair).
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
+import { getFederalSchedulingFacts, groundingBlock, findFalseClaims } from "./lib/federal-scheduling.mjs";
+
+// Federal scheduling ground truth. This is the surface that PUSHES, so a wrong
+// scheduling claim here reaches phones — on 2026-07-24 this engine announced
+// that the DEA had placed mitragynine under emergency Schedule I and that it
+// "applies to all forms of natural leaf kratom", a sentence that appears in no
+// source, and pushed it to 42 people as CRITICAL. Ground it in the real
+// Federal Register record. Degrades to the ungrounded prompt if lookup fails.
+const federalFacts = await getFederalSchedulingFacts();
+if (!federalFacts.ok) console.log(`⚠ federal grounding unavailable: ${federalFacts.error}`);
+const federalGrounding = groundingBlock(federalFacts);
+const SYSTEM = federalGrounding
+  ? `${SYSTEM_BASE}
+
+${federalGrounding}
+
+NEVER state that a substance is federally scheduled unless the verified list above says it is. If the article claims otherwise, set severity no higher than "watch" and say in the summary that the article's scheduling claim does not match the Federal Register. Never widen a scheduling action to substances it does not name — in particular, never describe a federal action as covering natural leaf kratom.`
+  : SYSTEM_BASE;
 
 // Circuit breaker: stop early (and record why) when the free-tier AI
 // providers are exhausted, instead of failing every remaining item with
@@ -220,9 +238,25 @@ for (const item of items) {
       };
       const kind = kindMap[result.kind] ?? "news_break";
 
+      // Publish gate — an alert is the only surface here that PUSHES, so a
+      // false scheduling claim reaches phones before anyone reviews it. If the
+      // classifier restated one (from a wrong source, or by embellishing —
+      // both have happened), hold it for a human and strip the call to action
+      // rather than auto-publishing and paging users about a ban that isn't
+      // real. Never silently drop it: a human still sees it in the queue.
+      const claimHits = findFalseClaims(`${item.title ?? ""}\n${result.summary ?? ""}`, federalFacts);
+      let severityOut = sev;
+      let actionRequired = !!(result.advocate_action && result.advocate_action.toLowerCase() !== "null");
+      if (claimHits.length) {
+        moderationStatus = "pending";
+        severityOut = "watch";
+        actionRequired = false;
+        console.log(`\n  ⛔ federal-claim guard: "${claimHits[0].sentence.slice(0, 90)}…" contradicts the Federal Register → holding for review, severity=watch, no action`);
+      }
+
       const { data: alert, error: aerr } = await sb.from("policy_alerts").insert({
         kind,
-        severity: sev,
+        severity: severityOut,
         title: (item.title ?? "").slice(0, 240),
         body: result.summary
           ? `${result.summary}\n\n**Source:** ${item.source_name ?? "(unknown)"}${result.advocate_action ? `\n\n**Advocate action:** ${result.advocate_action}` : ""}${result.specific_locality ? `\n**Locality:** ${result.specific_locality}` : ""}`
@@ -234,7 +268,7 @@ for (const item of items) {
         // alert page + campaign render both fall back to our own /alerts/<id>
         // when this is null, so a redirect can never reach a legislator letter.
         source_url: bestSourceUrl(item.resolved_url, item.url),
-        action_required: !!(result.advocate_action && result.advocate_action.toLowerCase() !== "null"),
+        action_required: actionRequired,
         occurs_at: result.occurs_at && /^\d{4}-\d{2}-\d{2}$/.test(result.occurs_at) ? `${result.occurs_at}T12:00:00Z` : null,
         moderation_status: moderationStatus,
       }).select("id").single();

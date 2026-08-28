@@ -22,6 +22,10 @@ export const EXPECTED_INTERVAL_HOURS: Record<string, number> = {
   fire_daily_brief_push: 36, sync_bills_legiscan_all: 36,
   sync_committees_openstates: 36, derive_state_status: 36,
   review_lapsed_items: 36, sync_legislative_sessions: 36,
+  // Fact-integrity watchdog: cross-checks published "X is federally scheduled"
+  // claims against the Federal Register. If this goes silent we lose the only
+  // automated check that a reader isn't the first to spot a false ban claim.
+  audit_federal_claims: 36,
   // weekly pipeline
   sync_nonprofit_990s: 216, broadcast_whats_new: 216, sync_elections: 216,
   official_portraits_sync: 216, bill_topics_classify: 216,
