@@ -35,20 +35,27 @@ const sb = createClient(
 );
 const t0 = Date.now();
 
-// A claim only counts as a FEDERAL scheduling assertion if it names a federal
-// actor or the federal schedule itself.
-const FEDERAL = /\b(DEA|Drug Enforcement|federal(ly)?|HHS|FDA|nationwide|Controlled Substances Act|CSA)\b|\bSchedule\s*(I|One|1)\b/i;
+// The claim must actually be about PLACEMENT IN A SCHEDULE. This is the guard
+// that keeps the auditor precise: "the FDA classified 7-OH as an opioid" and
+// "classified 7-OH products as dangerous" are ordinary reporting, not scheduling
+// claims, and an auditor that flags them is an auditor nobody reads. "Classified"
+// on its own is far too overloaded — require the schedule itself as the object.
+const PLACEMENT = /\bSchedule\s*(I\b|1\b|One\b)|\bemergency\s+scheduling\b|\btemporar(y|ily)\s+schedul\w+|\bplaced?\s+in(to)?\s+schedule\b/i;
+
+// …and a federal actor, so state scheduling actions — which are real, common,
+// and correctly reported — don't read as federal ones.
+const FEDERAL = /\b(DEA|Drug Enforcement|federal(ly)?|HHS|FDA|nationwide|Controlled Substances Act|CSA)\b/i;
 
 // Completed action — "it happened".
 const COMPLETED = /\b(banned|outlaw\w*|made\s+(it\s+)?illegal|is\s+now\s+illegal|became\s+illegal|placed|classified|scheduled|criminaliz\w+|took\s+effect|went\s+into\s+effect|prohibit\w*)\b/i;
 
 // Proposal / future language — if present, the sentence is describing a plan,
 // not an accomplished fact, so it is NOT a false claim.
-const PROPOSED = /\b(propos\w+|plan(s|ned|ning)?\b|mov(e[sd]?|ing)\s+(to|kratom|it)|intend\w*|would\b|could\b|may\b|will\b|expect\w*|urge[sd]?|recommend\w*|call(s|ed)?\s+for|seek\w*|considering|weigh\w+|pending|deadline|nearing|set\s+to|advanc\w+|oppos\w+|testimony|announce[sd]?\s+(plans|intent)|comment\s+period|if\s+(finalized|approved|enacted))\b/i;
+const PROPOSED = /\b(propos\w+|plan(s|ned|ning)?\b|mov(e[sd]?|ing)\s+(to|kratom|it)|intend\w*|would\b|could\b|may\b|will\b|expect\w*|urge[sd]?|recommend\w*|request\w*|ask\w*|call(s|ed)?\s+for|seek\w*|considering|weigh\w+|pending|deadline|nearing|set\s+to|advanc\w+|oppos\w+|testimony|announce[sd]?\s+(plans|intent)|comment\s+period|if\s+(finalized|approved|enacted))\b/i;
 
 // Negation / correct-reporting language. "traditional kratom is NOT banned under
 // federal law" is accurate reporting, not a false claim.
-const NEGATED = /\b(not\s+(banned|scheduled|illegal|classified|prohibited)|isn't|is\s+not|are\s+not|aren't|does\s+not|doesn't|has\s+not|hasn't|remains?\s+(legal|unscheduled|available)|still\s+legal|unscheduled|no\s+federal)\b/i;
+const NEGATED = /\b(not\s+(yet\s+)?(been\s+)?(being\s+)?(banned|scheduled|illegal|classified|prohibited)|isn't|is\s+not|are\s+not|aren't|does\s+not|doesn't|has\s+not|hasn't|remains?\s+(legal|unscheduled|available)|still\s+legal|unscheduled|no\s+federal)\b/i;
 
 // State-level bans are real and common (ND, MA, KS…). A sentence about a state
 // action is not a false federal claim, so require the absence of state framing.
@@ -65,6 +72,7 @@ function findFalseClaims(text, unscheduled) {
   if (!text || ALREADY_CORRECTED.test(text)) return [];
   const hits = [];
   for (const sentence of splitSentences(text)) {
+    if (!PLACEMENT.test(sentence)) continue;
     if (!FEDERAL.test(sentence)) continue;
     if (!COMPLETED.test(sentence)) continue;
     if (PROPOSED.test(sentence)) continue;
