@@ -6,6 +6,7 @@ import { recordForumVisit } from "@/modules/forum/engagement-actions";
 import { stateKey, type SubMode } from "@/modules/forum/engagement-keys";
 import { ForumSubscribeButton } from "@/modules/forum/components/ForumSubscribeButton";
 
+import Link from "next/link";
 export async function generateMetadata({
   params,
 }: {
@@ -111,9 +112,9 @@ export default async function StateForumPage({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/forum" className="text-xs text-zinc-500 hover:text-emerald-400">
+      <Link href="/forum" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← All states
-      </a>
+      </Link>
 
       <header className="mt-2 mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -178,9 +179,9 @@ export default async function StateForumPage({
                   </li>
                 ))}
               </ul>
-              <a href="/news" className="mt-3 inline-block text-xs text-emerald-400 hover:underline">
+              <Link href="/news" className="mt-3 inline-block text-xs text-emerald-400 hover:underline">
                 All kratom news →
-              </a>
+              </Link>
             </SideCard>
           )}
 

@@ -26,7 +26,7 @@ export async function DonateStrip() {
   if (!text || !text.trim()) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-emerald-900/50 bg-zinc-950/95 px-3 py-1.5 text-center text-[11px] text-zinc-400 backdrop-blur md:bottom-0">
+    <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-emerald-900/50 bg-zinc-950/95 px-3 py-1.5 text-center text-[11px] text-zinc-400 backdrop-blur lg:bottom-0">
       <span className="align-middle">{text}</span>{" "}
       <a
         href="/donate"

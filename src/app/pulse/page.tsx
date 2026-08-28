@@ -12,6 +12,7 @@ import { PageShareWithAttribution } from "@/components/PageShareWithAttribution"
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { frontmatterString } from "@/lib/frontmatter";
 
+import Link from "next/link";
 export const metadata = { title: "Pulse — live policy feed" };
 // Force dynamic so newly-inserted alerts and breaking events appear on
 // next refresh — the alerts table is the live war room and stale page
@@ -296,7 +297,7 @@ export default async function PulsePage({
   // myLeverageBillIds is populated AFTER user + viewerProfile resolve
   // (further down). Declared as let so the alert-card render can read
   // it; the value is filled in below.
-  let myLeverageBillIds: Set<string> = new Set();
+  const myLeverageBillIds: Set<string> = new Set();
 
   // Active campaigns linked to alerts (the ones we just auto-generated).
   // Deliberately UNCACHED on the request-bound client: campaign visibility
@@ -412,18 +413,18 @@ export default async function PulsePage({
             You&apos;ll see your tip here once it&apos;s approved.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <a
+            <Link
               href="/alerts/my-tips"
               className="rounded-md border border-emerald-700/50 px-3 py-1 text-xs text-emerald-300 hover:border-emerald-500"
             >
               See my submitted tips →
-            </a>
-            <a
+            </Link>
+            <Link
               href="/alerts/submit"
               className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:border-emerald-500"
             >
               Submit another
-            </a>
+            </Link>
           </div>
         </div>
       )}
@@ -460,12 +461,12 @@ export default async function PulsePage({
               title="iKratom Pulse — live kratom policy feed"
               summary="Every kratom-policy event the platform is tracking, sorted by urgency. Federal, state, BoP, news, advocate intel."
             />
-            <a
+            <Link
               href="/alerts/submit"
               className="rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition hover:border-emerald-500 hover:bg-emerald-950/40"
             >
               + Submit a tip
-            </a>
+            </Link>
           </div>
           <span className="text-[10px] font-mono text-zinc-600">
             synced {new Date().toISOString().slice(0, 16).replace("T", " ")} UTC
@@ -474,12 +475,12 @@ export default async function PulsePage({
       </header>
 
       <div className="mb-6 flex sm:hidden">
-        <a
+        <Link
           href="/alerts/submit"
           className="block w-full rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-2 text-center text-sm font-semibold text-emerald-300 transition hover:border-emerald-500 hover:bg-emerald-950/40"
         >
           + Submit a tip
-        </a>
+        </Link>
       </div>
 
       {alerts.length === 0 && (
@@ -532,9 +533,9 @@ export default async function PulsePage({
                 <h2 className="text-xs font-bold uppercase tracking-wider text-purple-300">
                   🇺🇸 National / Federal — most critical
                 </h2>
-                <a href="/news?scope=federal" className="text-[10px] text-purple-400 hover:underline">
+                <Link href="/news?scope=federal" className="text-[10px] text-purple-400 hover:underline">
                   See all →
-                </a>
+                </Link>
               </div>
               <NewsList items={nationalNews ?? []} accent="purple" />
 

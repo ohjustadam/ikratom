@@ -30,6 +30,7 @@ import { AttributionCapture } from "@/components/chrome/AttributionCapture";
 import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGate } from "@/components/chrome/ChromeGates";
 import "./globals.css";
 
+import Link from "next/link";
 const geist = Geist({
   variable: "--font-geist",
   subsets: ["latin"],
@@ -177,22 +178,29 @@ export default function RootLayout({
           style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
-            <a
+            <Link
               href="/"
               className="flex items-center gap-1 text-lg font-bold leading-none"
               aria-label="iKratom home"
             >
               <span className="text-emerald-400">i</span>
               <span>Kratom</span>
-            </a>
+            </Link>
 
-            {/* Desktop nav (md+). The 10 flat sections from v1 are
+            {/* Desktop nav (lg+). Was md+ (768px), but this toolbar renders ~766px
+                wide — 2px of headroom at its own breakpoint — so any viewport with a
+                classic scrollbar scrolled the whole PAGE sideways, and one more nav
+                item would have made that permanent on real tablets. Moved to lg so
+                tablets get the touch chrome instead. Everything keyed to that
+                switch moved with it: the mobile cluster below, the <main> bottom
+                padding, MobileNav, MobileTabBar, MobileAuthPill and DonateStrip.
+                The 10 flat sections from v1 are
                 grouped into 4 dropdown categories inside HeaderNav so
                 the toolbar reads cleanly. The Share button is server-
                 rendered (HeaderShare) so we can pre-pick the user's
                 personal /i/CODE link or a generic URL depending on
                 auth state without round-tripping to the client. */}
-            <nav className="hidden items-center gap-3 text-sm md:flex">
+            <nav className="hidden items-center gap-3 text-sm lg:flex">
               <HeaderNav />
               <a
                 href="/search"
@@ -209,11 +217,11 @@ export default function RootLayout({
               <HeaderAuth />
             </nav>
 
-            {/* Mobile right-side controls (<md): always-visible auth
+            {/* Mobile + tablet right-side controls (<lg): always-visible auth
                 pill + the hamburger. Pill gives one-tap access to
                 Sign in / Dashboard without opening the menu, since
                 that's the most-common destination. */}
-            <div className="flex items-center gap-2 md:hidden">
+            <div className="flex items-center gap-2 lg:hidden">
               <ThemeQuickControls placement="toolbar" />
               <InstallAppButton variant="mobile" />
               <MobileAuthPill />
@@ -229,7 +237,7 @@ export default function RootLayout({
             that need it. */}
         {/* Bottom padding clears: mobile tab bar (3.5rem) + donation strip
             (~1.75rem) + device safe-area; desktop just the strip. */}
-        <main className="flex-1 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-7"><ShareBanner />{children}</main>
+        <main className="flex-1 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-7"><ShareBanner />{children}</main>
 
         <footer className="border-t border-zinc-800 bg-zinc-950 py-8">
           <div className="mx-auto max-w-6xl px-4 text-center text-xs text-zinc-500 sm:px-6 lg:px-8">
@@ -239,11 +247,11 @@ export default function RootLayout({
               <a href="/roles" className="hover:text-emerald-400">Roles</a>
               <a href="/spread" className="hover:text-emerald-400">Storefront kit</a>
               <a href="/ethics" className="hover:text-emerald-400">Ethics</a>
-              <a href="/research" className="hover:text-emerald-400">Research</a>
+              <Link href="/research" className="hover:text-emerald-400">Research</Link>
               <a href="/intel" className="hover:text-emerald-400">Intel hub</a>
               <a href="/calendar" className="hover:text-emerald-400">Calendar</a>
               <a href="/deadlines" className="hover:text-emerald-400">Deadlines</a>
-              <a href="/whats-new" className="hover:text-emerald-400">What&apos;s new</a>
+              <Link href="/whats-new" className="hover:text-emerald-400">What&apos;s new</Link>
               <a href="/support" className="font-semibold text-emerald-400 hover:text-emerald-300">♥ Support</a>
               <a href="/status" className="hover:text-emerald-400">Status</a>
               <a href="/glossary" className="hover:text-emerald-400">Glossary</a>

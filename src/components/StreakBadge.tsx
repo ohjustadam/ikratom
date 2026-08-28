@@ -1,3 +1,4 @@
+import Link from "next/link";
 /**
  * Action streak widget for the dashboard. Renders nothing if user has
  * never taken an action; lights up once they have a streak going.
@@ -18,12 +19,12 @@ export function StreakBadge({
         <p className="text-sm text-zinc-300">
           🔥 Start your streak — send your first email to a legislator today.
         </p>
-        <a
+        <Link
           href="/campaigns"
           className="mt-3 inline-block rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
         >
           Browse campaigns →
-        </a>
+        </Link>
       </div>
     );
   }
@@ -54,12 +55,12 @@ export function StreakBadge({
           </p>
         </div>
         {stale && current > 0 && (
-          <a
+          <Link
             href="/campaigns"
             className="shrink-0 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
           >
             Don&apos;t break it →
-          </a>
+          </Link>
         )}
       </div>
     </div>

@@ -148,6 +148,13 @@ function intersect(sets) {
 
 /**
  * Resolve the true locality for a story.
+ *
+ * @param {{ title?: string, text?: string, candidateState?: string | null }} [input]
+ *   `candidateState` is a 2-letter code the caller already suspects, or null.
+ *   The @param matters: without it TypeScript infers `candidateState` as
+ *   `null` from its default alone, so every consumer passing a real state code
+ *   is a type error — which is why the tests here once carried a blanket
+ *   `@ts-nocheck`.
  * @returns {{ locality: string, corroborated: boolean, confidence: 'high'|'medium'|'low', reason: string }}
  *   locality is a 2-letter code, 'FED', or 'ALL'.
  */

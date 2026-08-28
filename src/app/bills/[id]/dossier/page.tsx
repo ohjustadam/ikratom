@@ -108,7 +108,7 @@ export default async function BillDossierPage({ params }: { params: Params }) {
     .filter((x): x is string => !!x);
 
   // Donor industries for federal sponsors (if any)
-  let donorByLeg = new Map<string, Array<{ industry: string; label?: string; advocate_flag?: boolean; amount: number }>>();
+  const donorByLeg = new Map<string, Array<{ industry: string; label?: string; advocate_flag?: boolean; amount: number }>>();
   if (sponsorLegIds.length > 0) {
     const { data: donors } = await sb
       .from("legislator_donors")
@@ -136,7 +136,7 @@ export default async function BillDossierPage({ params }: { params: Params }) {
     district: string | null; party: string | null; phone: string | null;
     committee_role: string;
   };
-  let committeeMembers: CommitteeMember[] = [];
+  const committeeMembers: CommitteeMember[] = [];
   if (bill.current_committee_name) {
     try {
       const { committeesMatch } = await import("@/lib/bill-committee");

@@ -36,7 +36,7 @@ export default async function RemindersPage() {
       <header className="mb-6">
         <h1 className="text-3xl font-bold">Your reminders</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Custom push reminders you've set on bills, meetings, campaigns, and legislators. Pending reminders fire to your phone via push notification at the time you set.
+          Custom push reminders you&apos;ve set on bills, meetings, campaigns, and legislators. Pending reminders fire to your phone via push notification at the time you set.
         </p>
       </header>
 
@@ -45,7 +45,7 @@ export default async function RemindersPage() {
           <p>No reminders yet.</p>
           <p className="mt-2">
             Open a <Link href="/bills" className="text-emerald-400 underline">bill</Link>
-            {" "}or <Link href="/meetings" className="text-emerald-400 underline">meeting</Link> and click 🔔 Remind me to set one.
+            {" "}or <Link href="/calendar" className="text-emerald-400 underline">meeting</Link> and click 🔔 Remind me to set one.
           </p>
         </div>
       )}

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NewConversation } from "./NewConversation";
 
+import Link from "next/link";
 export const metadata = { title: "New message" };
 
 export default async function NewMessagePage({
@@ -39,9 +40,9 @@ export default async function NewMessagePage({
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/messages" className="text-xs text-zinc-500 hover:text-emerald-400">
+      <Link href="/messages" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Messages
-      </a>
+      </Link>
       <header className="mt-2 mb-6">
         <h1 className="text-3xl font-bold">New conversation</h1>
         <p className="mt-2 text-sm text-zinc-400">

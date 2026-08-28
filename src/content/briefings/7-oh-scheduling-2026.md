@@ -141,6 +141,8 @@ On **August 26, 2026**, three substances — **mitragynine pseudoindoxyl, MGM-15
 
 Five documents govern all of this. They are commonly confused with each other, which is where most of the misinformation starts.
 
+<span class="k7-scrollhint">← scroll for the full table →</span>
+<div class="k7-scroll">
 <table class="k7-t">
 <tr><th>Document</th><th>What it is</th><th>Citation</th><th>Status</th></tr>
 <tr><td><strong>2026-13581</strong></td><td>Notice of intent — MP, MGM-15, MGM-16</td><td>91 FR 40909 · Jul 6, 2026 · Docket DEA-1644</td><td>Superseded by the order below</td></tr>
@@ -149,6 +151,7 @@ Five documents govern all of this. They are commonly confused with each other, w
 <tr><td><strong>2026-13608</strong></td><td>HHS request for information — the 7-OH threshold only</td><td>91 FR 41049 · Jul 6, 2026 · Docket HHS-OASH-2026-0232</td><td>Closed Jul 31 · 32,145 comments</td></tr>
 <tr><td><strong>2026-17409</strong></td><td><strong>Extension of that comment period</strong></td><td>Filed Aug 25 · publishes Aug 26, 2026 · Docket HHS-OASH-2026-0232</td><td><span class="k7-yes">OPEN until Sep 10</span></td></tr>
 </table>
+</div>
 
 **The single most common error** is reading the August 26 order as a *deadline* or a *decision point*. It is neither. Its own DATES line reads:
 
@@ -369,12 +372,15 @@ A laboratory running standard GC-MS on ordinary kratom leaf could report <em>"mi
 
 The 7-OH threshold has two prongs. Prong (A), for raw botanical material, is a pure **concentration** test. Prong (B) adds something else entirely.
 
+<span class="k7-scrollhint">← scroll for the full table →</span>
+<div class="k7-scroll">
 <table class="k7-t">
 <tr><th>Prong</th><th>Applies to</th><th>Test</th></tr>
 <tr><td><strong>(A)</strong></td><td>Any botanical material of <em>Mitragyna speciosa</em></td><td>More than <strong>0.050%</strong> 7-OH on a dry weight basis</td></tr>
 <tr><td><strong>(B)(i)</strong></td><td>Articles resulting from synthetic methods</td><td>&gt;0.050% w/w, w/v, v/v <strong>OR &gt; 1.00 mg</strong> in the article</td></tr>
 <tr><td><strong>(B)(ii)</strong></td><td>Material "further processed to manufacture alternative dosage forms such as extracts, concentrates, processed edibles, or pressed pills"</td><td>&gt;0.050% w/w, w/v, v/v <strong>OR &gt; 1.00 mg</strong> in the article</td></tr>
 </table>
+</div>
 
 Ordinary dried leaf runs roughly **0.011–0.039% w/w** (0.114–0.393 mg/g) — comfortably under the concentration limit, though the top of the natural range already sits at about **78% of the ceiling**, and 7-OH climbs with oxidation and age.
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { enrichLibraryUrl, type LibraryUrlSuggestion } from "@/modules/library/enrich-url-action";
 import { createLibraryItem } from "@/modules/library/actions";
 
+import Link from "next/link";
 const TYPE_OPTIONS = [
   { value: "video", label: "📺 Video" },
   { value: "audio", label: "🎙️ Audio / Podcast" },
@@ -306,9 +307,9 @@ export function QuickAddForm({ preselectedType }: { preselectedType: string | nu
             >
               {saving ? "Saving…" : "Add to library"}
             </button>
-            <a href="/library" className="text-sm text-zinc-400 hover:text-emerald-400">
+            <Link href="/library" className="text-sm text-zinc-400 hover:text-emerald-400">
               Cancel
-            </a>
+            </Link>
             <span className="ml-auto text-[11px] text-zinc-600">
               Need more fields?{" "}
               <a href="/admin/library/new/manual" className="text-emerald-400 hover:underline">

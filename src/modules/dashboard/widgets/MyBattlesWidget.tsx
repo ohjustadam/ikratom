@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
+import Link from "next/link";
 /**
  * Bills the user has personally taken action on, with each bill's
  * current status. Answers "did my email matter?" — they see the bill's
@@ -56,9 +57,9 @@ export async function MyBattlesWidget({ userId }: { userId: string }) {
           </p>
           <h2 className="text-sm font-bold text-zinc-100">My battles</h2>
         </div>
-        <a href="/campaigns" className="text-xs text-emerald-400 hover:underline">
+        <Link href="/campaigns" className="text-xs text-emerald-400 hover:underline">
           take more →
-        </a>
+        </Link>
       </div>
       <ul className="divide-y divide-zinc-900">
         {battles.map((b) => {

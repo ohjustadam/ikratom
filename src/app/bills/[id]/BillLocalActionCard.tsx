@@ -4,6 +4,7 @@ import { useState } from "react";
 import { NotifyMeButton } from "./NotifyMeButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
+import Link from "next/link";
 /**
  * "Local action playbook" — uniform actionable UI rendered above the
  * journey block on /bills/[id] when scope=municipal/county and
@@ -500,7 +501,7 @@ export function BillLocalActionCard({
             <p className="mt-3 text-[10px] text-zinc-600">
               Run <code className="rounded bg-zinc-900 px-1 py-0.5 font-mono text-zinc-400">npm run seed:bill-officials -- --bill &lt;id&gt;</code> (admin)
               to AI-pull the full council slate for this locality. Officials saved here also appear in
-              {" "}<a href="/legislators" className="text-emerald-400 hover:underline">/legislators</a> for the locality.
+              {" "}<Link href="/legislators" className="text-emerald-400 hover:underline">/legislators</Link> for the locality.
             </p>
           </div>
         );

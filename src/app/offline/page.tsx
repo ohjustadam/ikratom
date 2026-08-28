@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 export default function OfflinePage() {
   return (
@@ -20,12 +21,12 @@ export default function OfflinePage() {
         >
           Try again
         </button>
-        <a
+        <Link
           href="/"
           className="rounded-md border border-zinc-700 px-5 py-2 font-semibold hover:border-emerald-500"
         >
           Home
-        </a>
+        </Link>
       </div>
     </div>
   );

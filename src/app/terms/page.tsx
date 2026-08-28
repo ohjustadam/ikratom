@@ -69,7 +69,7 @@ export default function TermsPage() {
         <section>
           <h2 className="mb-2 text-lg font-semibold text-zinc-100">5. No warranty, no liability</h2>
           <p>
-            {siteConfig.name} is provided <strong>"as is"</strong> with no warranties of any kind.
+            {siteConfig.name} is provided <strong>&quot;as is&quot;</strong> with no warranties of any kind.
             Legislator contact information is synced from public sources (OpenStates, congress-legislators,
             Census, Gemini); we do our best to keep it current but cannot guarantee accuracy. Bill
             tracking, news scraping, and AI summaries are provided for informational purposes only and

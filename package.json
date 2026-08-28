@@ -13,6 +13,8 @@
     "verify:full": "npm run typecheck && npm run test && npm run lint",
     "credits": "node --env-file=.env.local scripts/netlify-credit-gate.mjs",
     "preflight": "node scripts/parallel-guard.mjs check",
+    "check:responsive": "node scripts/check-responsive.mjs",
+    "check:changelog": "node scripts/check-changelog-gaps.mjs",
     "preflight:status": "node scripts/parallel-guard.mjs status",
     "cf:cache": "node --env-file=.env.local scripts/cloudflare-cache-setup.mjs",
     "operator": "node --env-file=.env.local desktop/operator/server.mjs",

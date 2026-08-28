@@ -335,7 +335,7 @@ export function CallTracker({
             onChange={(e) => setSubmitForReview(e.target.checked)}
             className="accent-emerald-500"
           />
-          Submit this transcript for admin review to add to the public "what is government saying" intel.
+          Submit this transcript for admin review to add to the public &quot;what is government saying&quot; intel.
         </label>
         <p className="mt-3 text-xs text-zinc-500">How did the call end?</p>
         <div className="mt-2 flex flex-wrap gap-2">
@@ -421,7 +421,7 @@ export function CallTracker({
 
       {trackingEnabled && !supportsSpeechRecognition && (
         <p className="mt-2 rounded border border-amber-700/40 bg-amber-950/15 p-2 text-[11px] text-amber-200">
-          Your browser doesn't support live speech recognition. You can still track the call + add notes manually.
+          Your browser doesn&apos;t support live speech recognition. You can still track the call + add notes manually.
         </p>
       )}
 

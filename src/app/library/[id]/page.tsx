@@ -5,6 +5,7 @@ import { TYPE_ICONS, TYPE_LABELS, type LibraryItemType } from "@/modules/library
 import { getCreatorContext } from "@/modules/admin/actions";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
+import Link from "next/link";
 export async function generateMetadata({
   params,
 }: {
@@ -57,9 +58,9 @@ export default async function LibraryItemPage({
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between">
-        <a href="/library" className="text-xs text-zinc-500 hover:text-emerald-400">
+        <Link href="/library" className="text-xs text-zinc-500 hover:text-emerald-400">
           ← Library
-        </a>
+        </Link>
         <PageShareWithAttribution
           path={`/library/${item.id}`}
           title={item.title}

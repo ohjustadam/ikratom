@@ -5,6 +5,7 @@ import { getOrCreateKeypair } from "@/lib/crypto/e2e";
 import { setPublicKey } from "@/modules/dm/actions";
 import { publicHandle } from "@/lib/public-handle";
 
+import Link from "next/link";
 type Conv = {
   id: string;
   last_message_at: string;
@@ -140,12 +141,12 @@ function EmptyState() {
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-12 text-center">
       <p className="text-sm text-zinc-400">No conversations yet.</p>
-      <a
+      <Link
         href="/messages/new"
         className="mt-3 inline-block rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
       >
         Start a conversation →
-      </a>
+      </Link>
     </div>
   );
 }

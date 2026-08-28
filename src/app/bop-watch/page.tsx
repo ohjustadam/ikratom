@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
+import Link from "next/link";
 export const metadata = {
   title: "BoP Watch · State Pharmacy Board Monitoring",
   description:
@@ -77,7 +78,7 @@ export default async function BopWatchPage({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/" className="text-xs text-zinc-500 hover:text-emerald-400">← Home</a>
+      <Link href="/" className="text-xs text-zinc-500 hover:text-emerald-400">← Home</Link>
 
       <header className="mt-2 mb-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
@@ -226,7 +227,7 @@ export default async function BopWatchPage({
         </p>
         <p className="mt-3 text-xs text-zinc-500">
           See something we should be watching that we&apos;re not? Submit a tip at{" "}
-          <a href="/alerts/submit" className="text-emerald-400 hover:underline">/alerts/submit</a>.
+          <Link href="/alerts/submit" className="text-emerald-400 hover:underline">/alerts/submit</Link>.
         </p>
       </footer>
     </div>

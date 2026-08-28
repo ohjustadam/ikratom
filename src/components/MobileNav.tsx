@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CATEGORIES } from "@/config/nav-categories";
 
+import Link from "next/link";
 /**
  * Mobile menu — full-screen overlay (NOT a side drawer).
  *
@@ -130,7 +131,7 @@ export function MobileNav({
         aria-label="Open menu"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className="md:hidden inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-800 hover:border-emerald-500"
+        className="lg:hidden inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-800 hover:border-emerald-500"
       >
         <HamburgerIcon />
       </button>
@@ -139,13 +140,13 @@ export function MobileNav({
           any parent flex / transform / sticky context that might be
           interfering with content rendering. The previous version
           rendered as a Fragment sibling of the hamburger button, which
-          made it a child of the header's `flex md:hidden` wrapper —
+          made it a child of the header's `flex lg:hidden` wrapper —
           fixed positioning normally escapes flow but iOS Safari has
           known edge cases where ancestor flex contexts clip fixed
           descendants. Portal sidesteps the whole class of bugs. */}
       {open && mounted && createPortal(
         <div
-          className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-zinc-950 md:hidden"
+          className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-zinc-950 lg:hidden"
           style={{
             paddingTop: "env(safe-area-inset-top)",
             paddingBottom: "env(safe-area-inset-bottom)",
@@ -157,14 +158,14 @@ export function MobileNav({
           {/* Top bar — sticky inside the scroll container so it's always
               reachable even on long admin lists. */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur">
-            <a
+            <Link
               href="/"
               className="flex items-center gap-1 text-lg font-bold"
               onClick={close}
             >
               <span className="text-emerald-400">i</span>
               <span>Kratom</span>
-            </a>
+            </Link>
             <button
               type="button"
               aria-label="Close menu"

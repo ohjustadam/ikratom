@@ -176,7 +176,6 @@ export function InviteFriends({
     } catch (e) {
       // User canceled — that's fine. Don't surface as an error.
       if ((e as Error)?.name !== "AbortError") {
-        // eslint-disable-next-line no-console
         console.warn("[invite] share failed:", e);
       }
     }

@@ -10,6 +10,7 @@ import { AttachmentRecorder } from "./AttachmentRecorder";
 import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { SendBatchPanel } from "./SendBatchPanel";
+import Link from "next/link";
 import {
   groupByRole,
   defaultCollapsed,
@@ -584,12 +585,12 @@ export function CampaignAction({
             To prevent spam, we don&apos;t allow re-sending the same campaign to the same officials within 7 days.
             {lastSentAt && <> Last sent {timeAgo(lastSentAt)}.</>}
           </p>
-          <a
+          <Link
             href="/campaigns"
             className="mt-4 inline-block rounded-md border border-zinc-700 px-4 py-2 text-sm hover:border-emerald-500"
           >
             Find another campaign →
-          </a>
+          </Link>
         </div>
       )}
 

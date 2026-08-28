@@ -255,6 +255,5 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   const link = `http://127.0.0.1:${PORT}/?t=${TOKEN}`;
-  // eslint-disable-next-line no-console
   console.log(`\n  iKratom Operator Shell\n  ──────────────────────\n  Open:  ${link}\n  (localhost-only · token-gated · reads free, writes confirmed)\n`);
 });

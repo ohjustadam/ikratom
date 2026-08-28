@@ -1,4 +1,3 @@
-// @ts-nocheck - imports a plain .mjs script module (no type declarations needed)
 import { describe, it, expect } from "vitest";
 import { classifyFromTypes, parseCensusPlaceName } from "../scripts/lib/place-classify.mjs";
 

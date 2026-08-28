@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { computePriority } from "@/lib/campaign-priority";
 import { AdminCampaignTable, type AdminCampaignRow } from "./AdminCampaignTable";
 
+import Link from "next/link";
 export const metadata = { title: "Admin · Campaigns" };
 
 const TERMINAL = new Set(["dead", "enacted", "vetoed", "failed", "withdrawn"]);
@@ -88,9 +89,9 @@ export default async function AdminCampaignsPage() {
             {list.length} total · {list.filter((c) => c.active).length} active · ranked by priority (recent action + urgency + live fight)
           </p>
         </div>
-        <a href="/admin/campaigns/new" className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400">
+        <Link href="/admin/campaigns/new" className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400">
           + New campaign
-        </a>
+        </Link>
       </header>
       <AdminCampaignTable rows={rows} />
     </div>

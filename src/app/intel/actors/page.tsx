@@ -150,10 +150,10 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
           ◉ Industry actor registry
         </p>
         <h1 className="mt-2 text-3xl font-bold sm:text-4xl">
-          Who's pulling the kratom-policy strings
+          Who&apos;s pulling the kratom-policy strings
         </h1>
         <p className="mt-3 max-w-3xl text-sm text-zinc-400">
-          Hardcoded editorial research — every named actor cites public-record evidence. Updated when a new lobbying filing or investigation surfaces a name we don't have. Pair this with{" "}
+          Hardcoded editorial research — every named actor cites public-record evidence. Updated when a new lobbying filing or investigation surfaces a name we don&apos;t have. Pair this with{" "}
           <Link href="/intel/lobbying" className="text-emerald-400 hover:underline">/intel/lobbying</Link>{" "}
           (the dollar-flow data) and{" "}
           <Link href="/legislators" className="text-emerald-400 hover:underline">/legislators</Link>{" "}
@@ -380,7 +380,7 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
           <li>· Every actor cites at least one public-record evidence URL.</li>
           <li>· No alleged-but-unverified connections — only published investigations, federal filings, official records.</li>
           <li>· Allegations are clearly flagged as alleged when included (e.g. Botanic Tonics funding GKC).</li>
-          <li>· Update mechanism: add a new entry in <code className="font-mono">src/lib/kratom-industry-actors.ts</code> when a new lobbying filing or investigation surfaces a name we don't have. Each entry is a git-tracked code change with full history.</li>
+          <li>· Update mechanism: add a new entry in <code className="font-mono">src/lib/kratom-industry-actors.ts</code> when a new lobbying filing or investigation surfaces a name we don&apos;t have. Each entry is a git-tracked code change with full history.</li>
         </ul>
       </footer>
     </div>

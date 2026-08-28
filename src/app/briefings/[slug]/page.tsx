@@ -9,6 +9,37 @@ import { frontmatterString } from "@/lib/frontmatter";
 import { CopyShareLinkButton } from "./CopyShareLinkButton";
 import { briefingAudioScript } from "@/lib/briefing-audio";
 
+import Link from "next/link";
+const BRIEFINGS_DIR = path.join(process.cwd(), "src", "content", "briefings");
+
+/**
+ * Enumerate the briefings at build time, and refuse anything else.
+ *
+ * This is a SOFT-404 FIX, not a perf tweak. `notFound()` inside the page could
+ * not set a 404 status: the root `src/app/loading.tsx` wraps every route in a
+ * Suspense boundary, so Next streams the shell — committing HTTP 200 — before
+ * the page body ever runs. Google treats a 200 that says "not found" as a real
+ * page and indexes the junk URL. Verified by experiment: temporarily removing
+ * loading.tsx made this route answer 404 again.
+ *
+ * Removing loading.tsx is not an option (it is what stops ~200 dynamic pages
+ * painting a blank screen in the mobile WebView). So the miss has to be caught
+ * EARLIER than rendering. With `dynamicParams = false` an unlisted slug is
+ * rejected by the router itself, which is the same path an unmatched URL takes
+ * — and that path still returns a true 404 with the Suspense boundary in place.
+ *
+ * Bonus: the known slugs prerender instead of rendering per request.
+ */
+export function generateStaticParams() {
+  if (!fs.existsSync(BRIEFINGS_DIR)) return [];
+  return fs
+    .readdirSync(BRIEFINGS_DIR)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => ({ slug: f.replace(/\.md$/, "") }));
+}
+
+export const dynamicParams = false;
+
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   if (!/^[a-z0-9-]+$/.test(slug)) return { title: "Briefing" };
@@ -72,9 +103,9 @@ export default async function BriefingPage({ params }: { params: Promise<{ slug:
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between">
-        <a href="/briefings" className="text-xs text-zinc-500 hover:text-emerald-400">
+        <Link href="/briefings" className="text-xs text-zinc-500 hover:text-emerald-400">
           ← All briefings
-        </a>
+        </Link>
         <PageShareWithAttribution
           path={`/briefings/${slug}`}
           title={title}

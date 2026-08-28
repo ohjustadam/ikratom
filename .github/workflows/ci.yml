@@ -79,6 +79,49 @@ jobs:
           APP_URL: https://www.ikratom.org
         run: npm run build
 
+  responsive:
+    name: Responsive guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        # playwright-chromium is already a dependency; this fetches the browser
+        # binary plus the system libs the runner image does not ship.
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        # Same stubs as the "Next.js build" job -- see that job for why
+        # SUPABASE_SERVICE_ROLE_KEY must be present but must NOT be real.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: stub-service-role-key
+          APP_URL: https://www.ikratom.org
+        run: npm run build
+      - name: Serve + check
+        # MUST be a production server. `next dev` does not enforce
+        # dynamicParams and lays some things out differently, so a dev check
+        # would pass while production is broken.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: stub-service-role-key
+          APP_URL: https://www.ikratom.org
+          BASE_URL: http://localhost:3003
+        run: |
+          npx next start -p 3003 &
+          for i in $(seq 1 45); do
+            curl -sf -o /dev/null http://localhost:3003/ && break
+            sleep 2
+          done
+          npm run check:responsive
+
   audit:
     name: npm audit (high+)
     runs-on: ubuntu-latest

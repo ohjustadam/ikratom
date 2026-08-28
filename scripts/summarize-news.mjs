@@ -15,6 +15,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
+import { getFederalSchedulingFacts, groundingBlock, findFalseClaims, enforceFederalTruth } from "./lib/federal-scheduling.mjs";
 
 const args = process.argv.slice(2);
 const arg = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : null; };
@@ -31,11 +32,19 @@ const sb = createClient(
 const guard = makeFailGuard();
 const t0 = Date.now();
 
-const SYS =
+const SYS_BASE =
   "You are a neutral news editor for a nonpartisan kratom-policy platform. In 2-3 plain, " +
   "factual sentences, summarize the article for a reader who hasn't seen it: what happened, " +
   "where, and why it matters for kratom or 7-OH policy. No opinion, no hype, no first person. " +
   'Return ONLY JSON: {"summary": "..."}.';
+
+// Ground the model in the real Federal Register record before it restates a
+// newsroom's scheduling claim as fact (see lib/federal-scheduling.mjs for the
+// 2026-08-28 incident this prevents). Degrades to the ungrounded prompt if the
+// lookup fails — never blocks the batch.
+const federalFacts = await getFederalSchedulingFacts();
+if (!federalFacts.ok) console.log(`⚠ federal grounding unavailable: ${federalFacts.error}`);
+const SYS = [SYS_BASE, groundingBlock(federalFacts)].filter(Boolean).join("\n\n");
 
 const since = new Date(Date.now() - DAYS * 86400_000).toISOString();
 let q = sb.from("news_items")
@@ -74,7 +83,25 @@ for (const it of items) {
     continue;
   }
   if (!summary) { console.log(`  ∅ ${it.id.slice(0, 8)} empty`); failed++; continue; }
-  summary = summary.slice(0, 800);
+
+  // Publish gate. Grounding makes a false scheduling claim unlikely, not
+  // impossible — the model still sees a source asserting it. Give it one
+  // corrective retry, then fall back to leading with the verified record.
+  if (findFalseClaims(summary, federalFacts).length) {
+    console.log(`  ↻ ${it.id.slice(0, 8)} false federal claim — regenerating`);
+    try {
+      const retry = await aiRouter({
+        systemPrompt: SYS,
+        userPrompt: `${user}\n\nYour previous draft asserted a federal scheduling that the verified list contradicts. Rewrite it: describe what the article claims WITHOUT stating it as established fact, and name the discrepancy.`,
+        maxTokens: 300,
+      });
+      const retried = (retry.parsed?.summary ?? retry.parsed?.Summary)?.toString().trim();
+      if (retried) summary = retried;
+    } catch { /* keep the first draft; the gate below still protects us */ }
+  }
+  const gated = enforceFederalTruth(summary, federalFacts);
+  if (gated.corrected) console.log(`  ⚠ ${it.id.slice(0, 8)} prefixed correction (model kept the false claim)`);
+  summary = gated.text.slice(0, 1200);
   console.log(`  ${it.id.slice(0, 8)} ${summary.slice(0, 66)}…`);
   if (DRY) { done++; continue; }
   const { error: upErr } = await sb.from("news_items").update({ summary }).eq("id", it.id);

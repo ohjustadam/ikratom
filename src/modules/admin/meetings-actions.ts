@@ -175,7 +175,7 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
   let pushSent = 0;
   let pushHeld = 0;
   let pushSuppressed = 0;
-  let pushGone: string[] = [];
+  const pushGone: string[] = [];
   const pushedUserIds = new Set<string>();
   if (isPushConfigured() && userIds.length > 0) {
     type BroadcastPrefs = PushGatePrefs & {
