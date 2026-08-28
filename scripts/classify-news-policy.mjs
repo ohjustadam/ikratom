@@ -108,7 +108,7 @@ Return ONLY the JSON. No prose, no markdown fences.`;
 // (cooldown-aware + JSON repair).
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
-import { getFederalSchedulingFacts, groundingBlock } from "./lib/federal-scheduling.mjs";
+import { getFederalSchedulingFacts, groundingBlock, findFalseClaims } from "./lib/federal-scheduling.mjs";
 
 // Federal scheduling ground truth. This is the surface that PUSHES, so a wrong
 // scheduling claim here reaches phones — on 2026-07-24 this engine announced
@@ -238,9 +238,25 @@ for (const item of items) {
       };
       const kind = kindMap[result.kind] ?? "news_break";
 
+      // Publish gate — an alert is the only surface here that PUSHES, so a
+      // false scheduling claim reaches phones before anyone reviews it. If the
+      // classifier restated one (from a wrong source, or by embellishing —
+      // both have happened), hold it for a human and strip the call to action
+      // rather than auto-publishing and paging users about a ban that isn't
+      // real. Never silently drop it: a human still sees it in the queue.
+      const claimHits = findFalseClaims(`${item.title ?? ""}\n${result.summary ?? ""}`, federalFacts);
+      let severityOut = sev;
+      let actionRequired = !!(result.advocate_action && result.advocate_action.toLowerCase() !== "null");
+      if (claimHits.length) {
+        moderationStatus = "pending";
+        severityOut = "watch";
+        actionRequired = false;
+        console.log(`\n  ⛔ federal-claim guard: "${claimHits[0].sentence.slice(0, 90)}…" contradicts the Federal Register → holding for review, severity=watch, no action`);
+      }
+
       const { data: alert, error: aerr } = await sb.from("policy_alerts").insert({
         kind,
-        severity: sev,
+        severity: severityOut,
         title: (item.title ?? "").slice(0, 240),
         body: result.summary
           ? `${result.summary}\n\n**Source:** ${item.source_name ?? "(unknown)"}${result.advocate_action ? `\n\n**Advocate action:** ${result.advocate_action}` : ""}${result.specific_locality ? `\n**Locality:** ${result.specific_locality}` : ""}`
@@ -252,7 +268,7 @@ for (const item of items) {
         // alert page + campaign render both fall back to our own /alerts/<id>
         // when this is null, so a redirect can never reach a legislator letter.
         source_url: bestSourceUrl(item.resolved_url, item.url),
-        action_required: !!(result.advocate_action && result.advocate_action.toLowerCase() !== "null"),
+        action_required: actionRequired,
         occurs_at: result.occurs_at && /^\d{4}-\d{2}-\d{2}$/.test(result.occurs_at) ? `${result.occurs_at}T12:00:00Z` : null,
         moderation_status: moderationStatus,
       }).select("id").single();

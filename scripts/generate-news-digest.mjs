@@ -22,7 +22,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
-import { getFederalSchedulingFacts, groundingBlock } from "./lib/federal-scheduling.mjs";
+import { getFederalSchedulingFacts, groundingBlock, findFalseClaims, correctionSentence } from "./lib/federal-scheduling.mjs";
 
 const args = process.argv.slice(2);
 const arg = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : null; };
@@ -128,6 +128,18 @@ async function processItem(it) {
     total += p.length;
   }
   paragraphs = capped.slice(0, 8);
+
+  // Publish gate — the digest is what the in-app "Listen" reads aloud, so a
+  // false scheduling claim here is narrated to the user as fact. Never persist
+  // one: lead with the verified record instead.
+  if (findFalseClaims(paragraphs.join("\n"), federalFacts).length) {
+    const today = new Date().toISOString().slice(0, 10);
+    paragraphs = [
+      `Correction, ${today}. ${correctionSentence(federalFacts)} The account below reflects the source article's reporting, which conflicts with the federal record on this point.`,
+      ...paragraphs,
+    ];
+    console.log(`  ⚠ ${it.id.slice(0, 8)} false federal claim — prefixed correction`);
+  }
 
   if (paragraphs.length === 0) { console.log(`  ∅ ${it.id.slice(0, 8)} empty`); failed++; return; }
   console.log(`  ${it.id.slice(0, 8)} → ${paragraphs.length}¶ via ${provider}`);

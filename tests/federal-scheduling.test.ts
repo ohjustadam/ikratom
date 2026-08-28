@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { getFederalSchedulingFacts, groundingBlock } from "../scripts/lib/federal-scheduling.mjs";
+import { describe, it, expect, beforeAll } from "vitest";
+import {
+  getFederalSchedulingFacts,
+  groundingBlock,
+  findFalseClaims,
+  enforceFederalTruth,
+} from "../scripts/lib/federal-scheduling.mjs";
 
 /**
  * Guards the fact-integrity layer added after the 2026-08-28 incident, where a
@@ -93,6 +98,79 @@ describe("getFederalSchedulingFacts", () => {
     // An unreachable API must never be read as "nothing is scheduled".
     expect(facts.substances).toEqual([]);
     expect(groundingBlock(facts)).toBe("");
+  });
+});
+
+describe("findFalseClaims", () => {
+  let facts: any;
+  beforeAll(async () => {
+    facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as any, now: NOW });
+  });
+
+  const claims = (t: string) => findFalseClaims(t, facts);
+
+  it("catches the claims that actually shipped", () => {
+    // The KATU summary that a reader had to email us about.
+    expect(claims("On August 25, 2026, the DEA banned the sale and possession of 7-hydroxymitragynine (7-OH), a Schedule I controlled substance derived from kratom, for a two-year period.")).not.toHaveLength(0);
+    // The alert the classifier embellished into existence.
+    expect(claims("The DEA has placed the kratom alkaloid mitragynine under emergency Schedule I control, classifying it alongside 7-hydroxymitragynine (7-OH).")).not.toHaveLength(0);
+    expect(claims("The FDA has classified 7-OH as a Schedule I controlled substance, a category that includes drugs like heroin and LSD.")).not.toHaveLength(0);
+  });
+
+  // Every case below is a real sentence from the corpus that an earlier, looser
+  // version of this guard flagged. 15 of the first 32 hits were noise, and a
+  // fact-checker that cries wolf is one nobody reads.
+  it("does not flag an agency ARGUING for a schedule", () => {
+    expect(claims("The FDA argues that 7-OH poses serious health risks and should be classified as a Schedule I controlled substance.")).toHaveLength(0);
+    expect(claims("The Drug Enforcement Administration is reviewing whether 7-OH should be classified as a Schedule I controlled substance.")).toHaveLength(0);
+  });
+
+  it("does not flag accurate reporting about the 7-OH-RELATED compounds that were scheduled", () => {
+    expect(claims("The DEA has also temporarily scheduled three 7-OH-related substances, MP, MGM-15, and MGM-16, often found in products marketed as kratom extracts.")).toHaveLength(0);
+  });
+
+  it("does not flag state-level bans, which are real", () => {
+    expect(claims("Officials are targeting 7-hydroxymitragynine, or 7-OH, which has been banned or restricted in at least five states.")).toHaveLength(0);
+    expect(claims("North Dakota placed 7-OH in Schedule I under an emergency executive order by the governor.")).toHaveLength(0);
+  });
+
+  it("does not flag a comparison to a DIFFERENT substance's scheduling", () => {
+    expect(claims("The DEA recently classified the synthetic opioid O-DSMT as a Schedule I controlled substance in 49 days, raising concerns about a similar rapid scheduling of 7-OH.")).toHaveLength(0);
+  });
+
+  it("does not flag non-scheduling uses of 'classified'", () => {
+    expect(claims("The FDA has classified 7-OH as an opioid due to its chemical properties.")).toHaveLength(0);
+    expect(claims("The FDA has previously classified 7-OH products as dangerous and potentially addictive.")).toHaveLength(0);
+  });
+
+  it("does not flag accurate negative reporting", () => {
+    expect(claims("Although traditional kratom is not banned under federal law, the FDA has warned consumers about health risks.")).toHaveLength(0);
+    expect(claims("7-OH remains unscheduled federally while the comment period stays open.")).toHaveLength(0);
+  });
+
+  it("never re-flags our own correction copy", () => {
+    const corrected = enforceFederalTruth("The DEA banned 7-OH and placed it in Schedule I.", facts);
+    expect(corrected.corrected).toBe(true);
+    expect(findFalseClaims(corrected.text, facts)).toHaveLength(0);
+  });
+});
+
+describe("enforceFederalTruth", () => {
+  it("leads with the verified record and keeps the original text", async () => {
+    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as any, now: NOW });
+    const original = "The DEA banned 7-OH and placed it in Schedule I for two years.";
+    const out = enforceFederalTruth(original, facts, { dateStr: "2026-08-28" });
+    expect(out.text.startsWith("CORRECTION (2026-08-28)")).toBe(true);
+    expect(out.text).toContain("remains a proposal only");
+    expect(out.text).toContain(original);
+  });
+
+  it("leaves clean text untouched", async () => {
+    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as any, now: NOW });
+    const clean = "Massachusetts issued an emergency order restricting kratom sales.";
+    const out = enforceFederalTruth(clean, facts);
+    expect(out.corrected).toBe(false);
+    expect(out.text).toBe(clean);
   });
 });
 
