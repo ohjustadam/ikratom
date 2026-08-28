@@ -46,12 +46,14 @@ function fakeFetch(docs = DOCS) {
 }
 
 const NOW = new Date("2026-08-28T00:00:00Z");
-const bySubstance = (facts: any, key: string) =>
-  facts.substances.find((s: any) => s.key === key);
+type Substance = { key: string; status: string; effectiveOn: string | null };
+type Facts = { ok: boolean; substances: Substance[] };
+const bySubstance = (facts: Facts, key: string) =>
+  facts.substances.find((s) => s.key === key) as Substance;
 
 describe("getFederalSchedulingFacts", () => {
   it("treats an effective Rule as scheduled and a Proposed Rule as merely proposed", async () => {
-    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as any, now: NOW });
+    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as unknown as typeof fetch, now: NOW });
     expect(facts.ok).toBe(true);
 
     // The heart of the incident: 7-OH had only ever been PROPOSED.
@@ -64,7 +66,7 @@ describe("getFederalSchedulingFacts", () => {
   });
 
   it("does not let 7-hydroxymitragynine or pseudoindoxyl leak into bare mitragynine", async () => {
-    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as any, now: NOW });
+    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as unknown as typeof fetch, now: NOW });
     // Both document titles contain the substring "mitragynine", but neither
     // schedules the bare alkaloid. Getting this wrong is what produced the
     // "DEA placed mitragynine under emergency Schedule I" alert.
@@ -74,7 +76,7 @@ describe("getFederalSchedulingFacts", () => {
 
   it("does not count a Rule whose effective date has not arrived yet", async () => {
     const future = [{ ...DOCS[0], effective_on: "2026-12-01" }];
-    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch(future) as any, now: NOW });
+    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch(future) as unknown as typeof fetch, now: NOW });
     expect(bySubstance(facts, "mgm-15").status).toBe("proposed");
   });
 
@@ -87,13 +89,13 @@ describe("getFederalSchedulingFacts", () => {
       effective_on: "2026-05-01",
       html_url: "https://example.test/noise",
     }];
-    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch(noise) as any, now: NOW });
+    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch(noise) as unknown as typeof fetch, now: NOW });
     expect(bySubstance(facts, "kratom").status).toBe("none");
   });
 
   it("degrades to ok:false instead of throwing when the API is unreachable", async () => {
     const boom = async () => { throw new Error("ECONNRESET"); };
-    const facts = await getFederalSchedulingFacts({ fetchImpl: boom as any, now: NOW });
+    const facts = await getFederalSchedulingFacts({ fetchImpl: boom as unknown as typeof fetch, now: NOW });
     expect(facts.ok).toBe(false);
     // An unreachable API must never be read as "nothing is scheduled".
     expect(facts.substances).toEqual([]);
@@ -102,9 +104,9 @@ describe("getFederalSchedulingFacts", () => {
 });
 
 describe("findFalseClaims", () => {
-  let facts: any;
+  let facts: Facts;
   beforeAll(async () => {
-    facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as any, now: NOW });
+    facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as unknown as typeof fetch, now: NOW });
   });
 
   const claims = (t: string) => findFalseClaims(t, facts);
@@ -157,7 +159,7 @@ describe("findFalseClaims", () => {
 
 describe("enforceFederalTruth", () => {
   it("leads with the verified record and keeps the original text", async () => {
-    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as any, now: NOW });
+    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as unknown as typeof fetch, now: NOW });
     const original = "The DEA banned 7-OH and placed it in Schedule I for two years.";
     const out = enforceFederalTruth(original, facts, { dateStr: "2026-08-28" });
     expect(out.text.startsWith("CORRECTION (2026-08-28)")).toBe(true);
@@ -166,7 +168,7 @@ describe("enforceFederalTruth", () => {
   });
 
   it("leaves clean text untouched", async () => {
-    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as any, now: NOW });
+    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as unknown as typeof fetch, now: NOW });
     const clean = "Massachusetts issued an emergency order restricting kratom sales.";
     const out = enforceFederalTruth(clean, facts);
     expect(out.corrected).toBe(false);
@@ -176,7 +178,7 @@ describe("enforceFederalTruth", () => {
 
 describe("groundingBlock", () => {
   it("states scheduled vs not-scheduled unambiguously and cites the documents", async () => {
-    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as any, now: NOW });
+    const facts = await getFederalSchedulingFacts({ fetchImpl: fakeFetch() as unknown as typeof fetch, now: NOW });
     const block = groundingBlock(facts);
     expect(block).toMatch(/7-hydroxymitragynine \(7-OH\): NOT federally scheduled/);
     expect(block).toMatch(/mitragynine pseudoindoxyl: IS in Schedule I federally/);
