@@ -125,7 +125,12 @@
   # costs at most 15 credits; erring toward cancelling costs the whole site.
   # The echo lines put the refs in the build log so the next surprise is
   # diagnosable without another deploy.
-  ignore = "echo \"ignore: cached=$CACHED_COMMIT_REF head=$COMMIT_REF\"; if [ -z \"$CACHED_COMMIT_REF\" ]; then echo 'no cache ref -> BUILD'; exit 1; fi; if [ \"$CACHED_COMMIT_REF\" = \"$COMMIT_REF\" ]; then echo 'cache==head -> BUILD'; exit 1; fi; if ! git cat-file -e \"$CACHED_COMMIT_REF^{commit}\" 2>/dev/null; then echo 'cache ref unresolvable -> BUILD'; exit 1; fi; git diff --quiet \"$CACHED_COMMIT_REF\" \"$COMMIT_REF\" -- . ':(exclude,glob)*.md' ':(exclude)docs/**' ':(exclude).github/**' ':(exclude)tests/**' ':(exclude)supabase/**'"
+  #
+  # scripts/** is excluded (2026-08-30): those run in GitHub Actions cron, never
+  # in the Next build. Verified no src/ module imports from scripts/ — the only
+  # references are comments and deliberate .ts/.mjs mirror pairs. A script-only
+  # commit used to cost a full 15-credit production build for zero site change.
+  ignore = "echo \"ignore: cached=$CACHED_COMMIT_REF head=$COMMIT_REF\"; if [ -z \"$CACHED_COMMIT_REF\" ]; then echo 'no cache ref -> BUILD'; exit 1; fi; if [ \"$CACHED_COMMIT_REF\" = \"$COMMIT_REF\" ]; then echo 'cache==head -> BUILD'; exit 1; fi; if ! git cat-file -e \"$CACHED_COMMIT_REF^{commit}\" 2>/dev/null; then echo 'cache ref unresolvable -> BUILD'; exit 1; fi; git diff --quiet \"$CACHED_COMMIT_REF\" \"$COMMIT_REF\" -- . ':(exclude,glob)*.md' ':(exclude)docs/**' ':(exclude).github/**' ':(exclude)tests/**' ':(exclude)supabase/**' ':(exclude)scripts/**' ':(exclude)private/**'"
 
 [build.environment]
   # Match CI + the app's engines expectation.

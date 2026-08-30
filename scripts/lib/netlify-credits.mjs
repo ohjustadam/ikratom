@@ -95,6 +95,7 @@ async function countProductionDeploys(siteId, token, since) {
  *   deploys: number, deployCredits: number,
  *   bandwidthGb: number, bandwidthCredits: number,
  *   periodStart: string, periodEnd: string,
+ *   projectedUsed: number, blindCredits: number, floorPct: number,
  *   exceeded: boolean, exceededAt: string|null,
  *   graceTopupAt: string|null, isFloor: true,
  * }>}
@@ -132,13 +133,22 @@ export async function estimateNetlifyCredits({ token, accountSlug, siteId }) {
   const deployCredits = deploys * RATES.perProductionDeploy;
   const bandwidthCredits = bandwidthGb * RATES.perGbBandwidth;
   const usedFloor = deployCredits + bandwidthCredits;
-  const pct = planCredits > 0 ? (usedFloor / planCredits) * 100 : 0;
+  const floorPct = planCredits > 0 ? (usedFloor / planCredits) * 100 : 0;
+
+  // Project the two blind meters (requests + compute) from the calibration
+  // below, and report THAT as the number to act on. See MEASURED_FLOOR_SHARE.
+  const projectedUsed = usedFloor / MEASURED_FLOOR_SHARE;
+  const pct = planCredits > 0 ? (projectedUsed / planCredits) * 100 : 0;
 
   return {
     ok: true,
     planCredits,
     usedFloor,
+    floorPct,
+    projectedUsed,
     pct,
+    blindCredits: projectedUsed - usedFloor,
+    floorShare: MEASURED_FLOOR_SHARE,
     deploys,
     deployCredits,
     bandwidthGb,
@@ -153,11 +163,34 @@ export async function estimateNetlifyCredits({ token, accountSlug, siteId }) {
 }
 
 /**
- * Threshold ladder. Deliberately low because `usedFloor` omits requests and
- * compute — on the 2026-07 period those two blind meters were roughly a fifth
- * of the burn, and they are the ones that keep running when nobody is shipping.
+ * ── CALIBRATION ──────────────────────────────────────────────────────────────
+ * What fraction of the REAL burn the measurable floor represents.
+ *
+ * Measured 2026-08-30, and this is why the old model was dangerous. Netlify's
+ * own alert (account `credit_alert_percentage: 75`) fired, i.e. real usage had
+ * crossed 225 of 300 credits. At that same moment this estimator measured:
+ *
+ *     5 deploys x 15 = 75  +  1.12 GB x 20 = 22   ->  97 credits, "32%"
+ *
+ * So the floor was 97/225 = 0.43 of reality, and requests + compute were 57% of
+ * the burn — NOT "roughly a fifth" as the previous note assumed. Under that
+ * assumption the brake sat at 90% OF THE FLOOR, which would have needed ~17 more
+ * production deploys to trip. It could not have fired before the account was
+ * disabled, which is the exact failure shape of the 2026-07-30 outage: a
+ * watchdog pointed at meters that no longer decide anything.
+ *
+ * RE-CALIBRATE whenever Netlify's alert fires again: set this to
+ * (floor at that moment) / (alert percentage x planCredits / 100).
+ * Lower = more conservative. Never raise it without a fresh measurement.
  */
-export const CREDIT_THRESHOLDS = { notice: 50, warn: 65, critical: 80, brake: 90 };
+export const MEASURED_FLOOR_SHARE = 0.43;
+
+/**
+ * Threshold ladder, applied to the PROJECTED total (not the floor). With the
+ * calibration above, a floor of 97 projects to 225 = 75% = "critical", which is
+ * what the account actually was on 2026-08-30.
+ */
+export const CREDIT_THRESHOLDS = { notice: 50, warn: 65, critical: 75, brake: 85 };
 
 export function creditSeverity(pct) {
   if (pct >= CREDIT_THRESHOLDS.brake) return "brake";

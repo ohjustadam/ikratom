@@ -48,6 +48,8 @@ const ALLOWED_TAGS = new Set([
   "intel-operation",
   "meeting-detail",
   "news-detail",
+  // /legislators/[id] public snapshot (added 2026-08-30 with the credit-burn fix)
+  "legislator-detail",
   "research-library",
   "research-paper",
   "state-hub",

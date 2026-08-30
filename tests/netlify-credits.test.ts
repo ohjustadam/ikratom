@@ -41,11 +41,16 @@ describe("creditSeverity ladder", () => {
     [50, "notice"],
     [64.9, "notice"],
     [65, "warn"],
-    [75, "warn"],     // 15 deploys, before bandwidth is added
-    [79.9, "warn"],
+    // Ladder re-cut 2026-08-30 and now applied to the PROJECTED total, not the
+    // measurable floor. Netlify's own alert fires at 75%, so 75 must already be
+    // "critical" — under the old ladder it read "warn" while the account was
+    // three-quarters spent.
+    [75, "critical"],
+    [79.9, "critical"],
     [80, "critical"],
-    [80.1, "critical"], // the real measured floor on the day of the outage
-    [89.9, "critical"],
+    [84.9, "critical"],
+    [85, "brake"],
+    [89.9, "brake"],
     [90, "brake"],
     [140, "brake"],
   ];
@@ -60,7 +65,7 @@ describe("creditSeverity ladder", () => {
     expect(notice).toBeLessThan(warn);
     expect(warn).toBeLessThan(critical);
     expect(critical).toBeLessThan(brake);
-    // The estimate omits requests + compute, so a brake at or above 100 would
+    // The projection can still under-read, so a brake at or above 100 would
     // only ever fire after the site was already dark. It must trip early.
     expect(brake).toBeLessThan(100);
   });
@@ -114,8 +119,17 @@ describe("estimateNetlifyCredits", () => {
     expect(est.deployCredits).toBe(225);
     expect(est.bandwidthCredits).toBeCloseTo(15.41, 1);
     expect(est.usedFloor).toBeCloseTo(240.41, 1);
-    expect(est.pct).toBeCloseTo(80.1, 1);
-    expect(creditSeverity(est.pct)).toBe("critical");
+    // `pct` is now the PROJECTED burn (floor / MEASURED_FLOOR_SHARE), which is
+    // what the brake acts on. The floor's own percentage is kept as floorPct.
+    expect(est.floorPct).toBeCloseTo(80.1, 1);
+    expect(est.projectedUsed).toBeCloseTo(240.41 / 0.43, 0);
+    expect(est.pct).toBeGreaterThan(est.floorPct);
+    expect(est.blindCredits).toBeGreaterThan(0);
+    // On the day of the 2026-07-30 outage the projection reads BRAKE, not
+    // merely "critical". That is the whole point of the re-cut: the old
+    // floor-based ladder called an account that was about to be disabled
+    // "critical" and kept letting deploys through.
+    expect(creditSeverity(est.pct)).toBe("brake");
     expect(est.exceeded, "Netlify's own flag must be surfaced").toBe(true);
     expect(est.graceTopupAt).toBeTruthy();
     // Requests + compute are unreadable on free, so this must never be
