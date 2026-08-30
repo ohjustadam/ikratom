@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { ROLE_LABEL } from "@/lib/legislators";
 import { ShareButtons } from "@/components/ShareButtons";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
@@ -58,6 +60,55 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   };
 }
 
+/**
+ * Public read-set for one legislator, cached per id.
+ *
+ * WHY (2026-08-30 credit burn): this page ran ~11 live DB queries on EVERY
+ * request across 1,001 sitemap URLs. On Netlify's credit-free tier each of
+ * those crawler hits is billed twice — web requests AND compute — and both are
+ * meters the API does not expose, so they silently consumed ~57% of the month's
+ * credits while our own estimator reported 32%.
+ *
+ * SCOPE IS DELIBERATELY NARROW. service-role bypasses RLS, so only tables
+ * verified to have anon/service PARITY are in here:
+ *   legislators        9332 = 9332
+ *   bill_vote_members 13222 = 13222
+ *   campaigns          228 = 228 — ONLY with .eq("active", true), which is
+ *                      exactly what RLS exposes (service-role sees 2810 rows
+ *                      total: drafts, pending_review, superseded). Dropping
+ *                      that filter would publish 2,582 unpublished campaigns.
+ *
+ * NOT in here, on purpose: getLegislatorIntel(). It reads `legislator_stance`,
+ * where anon sees 0 rows and service-role sees 4,329 — those stances are held
+ * from the public deliberately, and auto-publishing AI-written stances about
+ * named legislators is a standing prohibition. It keeps the RLS-enforced,
+ * cookie-bound client. Do NOT "optimise" it in here.
+ */
+const getLegislatorPublicSnapshot = unstable_cache(
+  async (id: string) => {
+    const sb = createServiceRoleClient();
+    const { data: legRaw } = await sb
+      .from("legislators")
+      .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active, portrait_url")
+      .eq("id", id)
+      .single();
+    if (!legRaw) return null;
+    const leg = legRaw as unknown as Legislator;
+
+    const [{ data: explicitCampaigns }, { data: roleCampaigns }, { data: voteRowsRaw }] = await Promise.all([
+      sb.from("campaigns").select("id, slug, title, state, blurb").eq("active", true).contains("target_legislator_ids", [id]),
+      sb.from("campaigns").select("id, slug, title, state, blurb").eq("active", true).eq("state", leg.state).contains("target_roles", [leg.role]),
+      sb.from("bill_vote_members")
+        .select("vote_text, vote_value, bill_votes!inner(id, vote_date, chamber, motion, passed, bills!inner(id, state, bill_number, title, kratom_relevance))")
+        .eq("legislator_id", id)
+        .limit(500),
+    ]);
+    return { leg, explicitCampaigns, roleCampaigns, voteRowsRaw };
+  },
+  ["legislator-public"],
+  { revalidate: 900, tags: ["legislator-detail"] },
+);
+
 export default async function LegislatorDetailPage({
   params,
 }: {
@@ -66,13 +117,10 @@ export default async function LegislatorDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: legRaw } = await supabase
-    .from("legislators")
-    .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active, portrait_url")
-    .eq("id", id)
-    .single();
-  if (!legRaw) notFound();
-  const leg = legRaw as unknown as Legislator;
+  // Public, viewer-identical data — served from the per-id cache above.
+  const snap = await getLegislatorPublicSnapshot(id);
+  if (!snap) notFound();
+  const { leg, explicitCampaigns, roleCampaigns, voteRowsRaw } = snap;
 
   // One consolidated intel pull — stance, sponsorships, committees, donor,
   // kratom-adjacent trades + the computed verdict (threat tier · pressure
@@ -83,19 +131,7 @@ export default async function LegislatorDetailPage({
   const { verdict, donor: donorProfile, summary, currentlyDeciding, sponsorships: sponsored } = intel;
   const { threat, pressureIndex, moneyConflict } = verdict;
 
-  // Active campaigns targeting this legislator (explicit IDs OR role match)
-  const { data: explicitCampaigns } = await supabase
-    .from("campaigns")
-    .select("id, slug, title, state, blurb")
-    .eq("active", true)
-    .contains("target_legislator_ids", [id]);
-
-  const { data: roleCampaigns } = await supabase
-    .from("campaigns")
-    .select("id, slug, title, state, blurb")
-    .eq("active", true)
-    .eq("state", leg.state)
-    .contains("target_roles", [leg.role]);
+  // Campaigns targeting this legislator come from the cached snapshot above.
 
   const targetingCampaigns = new Map<string, { id: string; slug: string; title: string; state: string | null; blurb: string | null }>();
   for (const c of [...(explicitCampaigns ?? []), ...(roleCampaigns ?? [])] as Array<{ id: string; slug: string; title: string; state: string | null; blurb: string | null }>) {
@@ -108,11 +144,7 @@ export default async function LegislatorDetailPage({
   type VBill = { id: string; state: string; bill_number: string; title: string | null; kratom_relevance: string | null };
   type RawBV = { id: string; vote_date: string | null; chamber: string | null; motion: string | null; passed: boolean | null; bills: VBill[] | VBill | null };
   type RawVoteRow = { vote_text: string | null; vote_value: number | null; bill_votes: RawBV[] | RawBV | null };
-  const { data: voteRowsRaw } = await supabase
-    .from("bill_vote_members")
-    .select("vote_text, vote_value, bill_votes!inner(id, vote_date, chamber, motion, passed, bills!inner(id, state, bill_number, title, kratom_relevance))")
-    .eq("legislator_id", id)
-    .limit(500);
+  // Roll-call votes also come from the cached snapshot above.
   type VoteRow = { voteId: string; chamber: string | null; motion: string | null; passed: boolean | null; vote_date: string | null; vote_value: number | null; vote_text: string | null; bill: VBill };
   const votes: VoteRow[] = [];
   for (const r of ((voteRowsRaw ?? []) as unknown as RawVoteRow[])) {

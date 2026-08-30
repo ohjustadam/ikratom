@@ -182,18 +182,20 @@ if (!NETLIFY_TOKEN) {
     if (est.ok) {
       creditsChecked = true;
       const sev = creditSeverity(est.pct);
-      const line = `${est.usedFloor.toFixed(0)}+/${est.planCredits} credits (>=${est.pct.toFixed(0)}%)`
+      const line = `~${est.projectedUsed.toFixed(0)}/${est.planCredits} credits (${est.pct.toFixed(0)}% projected; ${est.usedFloor.toFixed(0)} measured)`
         + ` · ${est.deploys} deploys=${est.deployCredits} · ${est.bandwidthGb.toFixed(2)}GB=${est.bandwidthCredits.toFixed(0)}`
         + ` · resets ${String(est.periodEnd ?? "").slice(0, 10)}`;
       console.log(`netlify credits = ${line} · severity=${sev}`);
       // Always recorded, at every severity. `notice` (50-64%) deliberately does
       // NOT page — waking the owner at half-spent is how alerts get muted — but
       // it must still be readable in /admin/ops, so it rides telemetry instead.
-      creditSummary = ` · credits>=${est.pct.toFixed(0)}% (${sev})`;
+      creditSummary = ` · credits~${est.pct.toFixed(0)}% (${sev})`;
 
-      // ">=" everywhere on purpose: this figure OMITS requests and compute,
-      // which Netlify does not expose to a free-tier token. It is a floor, so
-      // the true burn is always higher and we must trip early, never late.
+      // Severity is computed on the PROJECTED burn, not the measurable floor.
+      // Netlify exposes neither requests nor compute to a free-tier token, and
+      // on 2026-08-30 those two were 57% of the spend — the floor read 32%
+      // while the account was actually at 75%. Alerting on the floor meant this
+      // watchdog would have stayed silent right up to the disable.
       if (sev === "brake") {
         problems.push(`Netlify credits ${line} — BRAKE: at/over ${CREDIT_THRESHOLDS.brake}%, deploys are gated`);
       } else if (sev === "critical") {

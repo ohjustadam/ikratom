@@ -64,10 +64,13 @@ console.log("── Netlify credit budget ────────────�
 console.log(`  period       ${String(est.periodStart).slice(0, 10)} → ${String(est.periodEnd).slice(0, 10)}`);
 console.log(`  deploys      ${est.deploys} × ${15} = ${est.deployCredits} credits`);
 console.log(`  bandwidth    ${est.bandwidthGb.toFixed(2)} GB × 20 = ${est.bandwidthCredits.toFixed(0)} credits`);
-console.log(`  measured     ≥ ${est.usedFloor.toFixed(0)} / ${est.planCredits}  (≥ ${est.pct.toFixed(1)}%)`);
+console.log(`  measured     ${est.usedFloor.toFixed(0)} credits (deploys + bandwidth only)`);
+console.log(`  requests+compute (not exposed by Netlify) ≈ ${est.blindCredits.toFixed(0)} projected`);
+console.log(`  PROJECTED    ${est.projectedUsed.toFixed(0)} / ${est.planCredits}  (${est.pct.toFixed(1)}%)`);
 console.log(`  severity     ${sev}   (brake at ${THRESHOLD}%)`);
-console.log("  NOTE: excludes requests + compute — Netlify does not expose them");
-console.log("        on free, so the real number is HIGHER than this.");
+console.log(`  Projection assumes the measurable floor is ${(est.floorShare * 100).toFixed(0)}% of real burn,`);
+console.log("  calibrated 2026-08-30 against Netlify's own 75% alert. The floor alone");
+console.log(`  reads only ${est.floorPct.toFixed(1)}% — do NOT quote that as the state of play.`);
 console.log("─────────────────────────────────────────────────────────");
 
 if (est.exceeded) {

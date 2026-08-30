@@ -92,14 +92,28 @@ export default function robots(): MetadataRoute.Robots {
 
   return {
     rules: [
-      // Default: ordinary search engines allowed everywhere except private paths
-      { userAgent: "*", allow: "/", disallow: PRIVATE_PATHS },
+      // Default: ordinary search engines allowed everywhere except private paths.
+      //
+      // crawlDelay added 2026-08-30. The sitemap advertises ~1,430 URLs and 94%
+      // of them are /legislators/[id] (1,001) and /bills/[id] (341). Every sweep
+      // of that surface is billed TWICE on Netlify's credit-free tier — once as
+      // web requests, once as compute — and those are the two meters the API
+      // does not expose, so they burned ~57% of the month's credits invisibly.
+      // Caching those routes is the real fix (same commit); this just stops a
+      // single crawler from sweeping the whole surface in one burst.
+      // Google ignores crawlDelay (use Search Console), but Bing, Yandex and
+      // most of the long tail honour it.
+      { userAgent: "*", allow: "/", disallow: PRIVATE_PATHS, crawlDelay: 10 },
 
-      // Explicit allow for citation crawlers — same scope as default
+      // Explicit allow for citation crawlers — same scope as default.
+      // These stay ALLOWED on purpose: when someone asks an assistant "what is
+      // TN HB 1649?", we want our page cited with attribution. That is the
+      // mission. They get the same crawlDelay, not a block.
       ...ALLOW_AI_CITATION_BOTS.map((bot) => ({
         userAgent: bot,
         allow: "/",
         disallow: PRIVATE_PATHS,
+        crawlDelay: 10,
       })),
 
       // Explicit block for training crawlers
