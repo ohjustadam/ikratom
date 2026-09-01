@@ -84,30 +84,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // by a huge margin.
   const supabase = await createClient();
   const dynamic: MetadataRoute.Sitemap = [];
-
-  // Bills — active + tracked. Most-recently-updated first.
-  try {
-    const { data: bills } = await supabase
-      .from("bills")
-      .select("id, last_action_at, last_synced_at")
-      .eq("active", true)
-      .order("last_action_at", { ascending: false, nullsFirst: false })
-      .limit(2000);
-    for (const b of bills ?? []) {
-      dynamic.push({
-        url: `${base}/bills/${b.id}`,
-        lastModified: b.last_action_at
-          ? new Date(b.last_action_at)
-          : b.last_synced_at
-          ? new Date(b.last_synced_at)
-          : undefined,
-        changeFrequency: "weekly",
-        priority: 0.6,
-      });
-    }
-  } catch (e) {
-    console.error("[sitemap] bills query failed:", e);
-  }
+  // Bill detail pages are also withheld from the sitemap while the crawl-cost
+  // freeze is in place (see src/app/robots.ts). TEMPORARY — restore together
+  // with the robots entry after the 2026-09-19 reset.
 
   // Library items — active.
   try {
@@ -129,24 +108,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error("[sitemap] library query failed:", e);
   }
 
-  // Legislators — public-facing detail pages.
-  try {
-    const { data: legs } = await supabase
-      .from("legislators")
-      .select("id")
-      .eq("active", true)
-      .limit(2000);
-    for (const l of legs ?? []) {
-      dynamic.push({
-        url: `${base}/legislators/${l.id}`,
-        lastModified: now,
-        changeFrequency: "monthly",
-        priority: 0.4,
-      });
-    }
-  } catch (e) {
-    console.error("[sitemap] legislators query failed:", e);
-  }
+  // Legislator DETAIL pages are deliberately NOT advertised (2026-09-01).
+  //
+  // They were 1,001 of the 1,432 URLs here — 70% of the entire crawl surface —
+  // and every crawl of one is a server render: an uncached DB read-set, a
+  // billed Netlify request, billed compute, and billed bandwidth. With ~44
+  // real users, measured traffic to them was 99.97% bots (Supabase edge logs:
+  // 19,833 server-side reads/day from Netlify vs 11 from consumer ISPs).
+  //
+  // That was burning 3.9 credits/day with ZERO deploys and would have hit the
+  // 300-credit cap on ~2026-09-09, ten days before the 09-19 reset — the same
+  // disable that took the site down on 2026-07-30.
+  //
+  // The pages still work, are still linked in-app, and /legislators (the index)
+  // is still indexed. We just stop inviting crawlers to sweep 1,001 of them.
+  // REVISIT after the reset once these routes are CDN-cacheable (that needs the
+  // signedIn signup-wall moved client-side, /api/me style) — then the crawl is
+  // nearly free and this should come back.
 
   // Active campaigns by slug.
   try {

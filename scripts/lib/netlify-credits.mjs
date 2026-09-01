@@ -96,6 +96,9 @@ async function countProductionDeploys(siteId, token, since) {
  *   bandwidthGb: number, bandwidthCredits: number,
  *   periodStart: string, periodEnd: string,
  *   projectedUsed: number, blindCredits: number, floorPct: number,
+ *   passiveUsed: number, burnPerDay: number, daysElapsed: number,
+ *   daysRemaining: number|null, daysToCap: number,
+ *   projectedAtReset: number|null, willExceedBeforeReset: boolean,
  *   exceeded: boolean, exceededAt: string|null,
  *   graceTopupAt: string|null, isFloor: true,
  * }>}
@@ -137,8 +140,34 @@ export async function estimateNetlifyCredits({ token, accountSlug, siteId }) {
 
   // Project the two blind meters (requests + compute) from the calibration
   // below, and report THAT as the number to act on. See MEASURED_FLOOR_SHARE.
-  const projectedUsed = usedFloor / MEASURED_FLOOR_SHARE;
+  // Deploys are exact; only the traffic-driven meters get estimated.
+  const blindCredits = bandwidthCredits * BLIND_PER_BANDWIDTH_CREDIT;
+  const projectedUsed = deployCredits + bandwidthCredits + blindCredits;
   const pct = planCredits > 0 ? (projectedUsed / planCredits) * 100 : 0;
+
+  // ── RUNWAY ────────────────────────────────────────────────────────────────
+  // A percentage tells you where you ARE; it does not tell you whether you will
+  // MAKE IT. On 2026-09-01 the account sat at 90% with zero deploys since
+  // 08-30 — bandwidth alone was adding ~3.9 projected credits/day, which put
+  // the cap at ~09-09, ten days before the 09-19 reset. The level looked
+  // survivable; the trajectory was not. Netlify disables the entire site at
+  // 100% (2026-07-30), so the trajectory is the number that matters.
+  //
+  // Rate is the whole-period average, so it INCLUDES deploy spikes and there-
+  // fore overstates the idle rate. That is the safe direction: it warns early.
+  const nowMs = Date.now();
+  const daysElapsed = Math.max((nowMs - periodStart.getTime()) / 86_400_000, 0.5);
+  const daysRemaining = periodEnd
+    ? Math.max((new Date(periodEnd).getTime() - nowMs) / 86_400_000, 0)
+    : null;
+  // Passive burn EXCLUDES deploys: a deploy is a decision, not a leak, and
+  // averaging six of them into the rate is what produced the 5x-hot alarm.
+  const passiveUsed = bandwidthCredits + blindCredits;
+  const burnPerDay = passiveUsed / daysElapsed;
+  const daysToCap = burnPerDay > 0 ? (planCredits - projectedUsed) / burnPerDay : Infinity;
+  const projectedAtReset = daysRemaining === null ? null : projectedUsed + burnPerDay * daysRemaining;
+  // The one boolean worth alerting on: will we run out BEFORE the reset?
+  const willExceedBeforeReset = daysRemaining !== null && daysToCap < daysRemaining;
 
   return {
     ok: true,
@@ -146,8 +175,15 @@ export async function estimateNetlifyCredits({ token, accountSlug, siteId }) {
     usedFloor,
     floorPct,
     projectedUsed,
+    burnPerDay,
+    passiveUsed,
+    daysElapsed,
+    daysRemaining,
+    daysToCap,
+    projectedAtReset,
+    willExceedBeforeReset,
     pct,
-    blindCredits: projectedUsed - usedFloor,
+    blindCredits,
     floorShare: MEASURED_FLOOR_SHARE,
     deploys,
     deployCredits,
@@ -184,6 +220,24 @@ export async function estimateNetlifyCredits({ token, accountSlug, siteId }) {
  * Lower = more conservative. Never raise it without a fresh measurement.
  */
 export const MEASURED_FLOOR_SHARE = 0.43;
+
+/**
+ * Blind credits (requests + compute) per credit of BANDWIDTH.
+ *
+ * Supersedes the flat floor-share above, which was wrong in an important way:
+ * it scaled DEPLOY credits by the blind multiplier too. Deploys are exact —
+ * 15 each, counted from the API — and they are not traffic. Inflating them
+ * produced a burn RATE of 19.8 credits/day when the real idle rate was ~11.5,
+ * and a "cap in 1.5 days" alarm that was 5x too aggressive.
+ *
+ * Requests and compute both scale with TRAFFIC, and so does bandwidth, so
+ * bandwidth is the right thing to scale them from. Calibrated on the same
+ * 2026-08-30 point, and it reproduces it exactly:
+ *     deploys 75 + bandwidth 22 + blind (22 x 5.82) 128 = 225 = Netlify's 75%.
+ * Re-derive as (realTotal - deployCredits - bandwidthCredits) / bandwidthCredits
+ * the next time Netlify reports a real percentage.
+ */
+export const BLIND_PER_BANDWIDTH_CREDIT = 5.82;
 
 /**
  * Threshold ladder, applied to the PROJECTED total (not the floor). With the

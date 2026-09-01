@@ -18,21 +18,42 @@
  * table is a singleton with one row; the read is microseconds.
  */
 
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "@/modules/admin/actions";
 
 export type ReadOnlyState =
   | { read_only: false }
   | { read_only: true; reason: string | null };
 
-export async function getReadOnlyState(): Promise<ReadOnlyState> {
-  try {
-    const sb = await createClient();
+/**
+ * site_config is ONE row, identical for every visitor, and this was reading it
+ * live on every call — 954 billable DB reads/day (5% of all Netlify-side reads,
+ * 2026-09-01 measurement). Cached for 30s with the service-role client, which
+ * is safe here because the row is global config, not user data, and we select
+ * only the two read-only columns.
+ *
+ * 30s, not longer: flipping read-only mode is an emergency lever, and a stale
+ * "writes allowed" window is the failure this must not create. Half a minute
+ * removes ~98% of the reads while keeping the lever effectively immediate.
+ */
+const readReadOnlyRow = unstable_cache(
+  async () => {
+    const sb = createServiceRoleClient();
     const { data } = await sb
       .from("site_config")
       .select("read_only_mode, read_only_reason")
       .eq("id", true)
       .maybeSingle();
+    return data ?? null;
+  },
+  ["site-config-read-only"],
+  { revalidate: 30, tags: ["site-config"] },
+);
+
+export async function getReadOnlyState(): Promise<ReadOnlyState> {
+  try {
+    const data = await readReadOnlyRow();
     if (!data) return { read_only: false };
     const row = data as { read_only_mode: boolean; read_only_reason: string | null };
     if (row.read_only_mode) {

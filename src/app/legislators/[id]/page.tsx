@@ -38,14 +38,12 @@ const RELEVANCE_TAG: Record<string, { label: string; cls: string }> = {
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("legislators")
-    .select("full_name, state, role, district, party, title, portrait_url")
-    .eq("id", id)
-    .single();
-  if (!data) return { title: "Legislator" };
-  const d = data as { full_name: string; state: string; role: string; district: string | null; party: string | null; title: string | null; portrait_url: string | null };
+  // Reuse the page's cached snapshot instead of a second live query. This ran
+  // uncached on EVERY request — missed in the 2026-08-30 caching pass, and part
+  // of why that change only moved DB load 7%.
+  const snap = await getLegislatorPublicSnapshot(id);
+  if (!snap) return { title: "Legislator" };
+  const d = snap.leg as { full_name: string; state: string; role: string; district: string | null; party: string | null; title: string | null; portrait_url: string | null };
   const roleStr = ROLE_LABEL[d.role] ?? d.role;
   const title = `${d.full_name} — ${d.state} ${roleStr}${d.district ? ` D${d.district}` : ""}`;
   const description = `Contact + kratom voting record for ${d.full_name}, ${d.state} ${roleStr}${d.party ? ` (${d.party})` : ""}. Tracked live on iKratom.`;

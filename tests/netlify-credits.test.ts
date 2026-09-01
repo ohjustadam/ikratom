@@ -122,7 +122,12 @@ describe("estimateNetlifyCredits", () => {
     // `pct` is now the PROJECTED burn (floor / MEASURED_FLOOR_SHARE), which is
     // what the brake acts on. The floor's own percentage is kept as floorPct.
     expect(est.floorPct).toBeCloseTo(80.1, 1);
-    expect(est.projectedUsed).toBeCloseTo(240.41 / 0.43, 0);
+    // deploys are EXACT (225), bandwidth exact (15.41), only the blind meters
+    // are estimated — at 5.82x bandwidth.
+    expect(est.projectedUsed).toBeCloseTo(225 + 15.41 + 15.41 * 5.82, 0);
+    // Passive rate must exclude deploys, or six of them average into the rate
+    // and produce an alarm 5x hotter than the real leak.
+    expect(est.passiveUsed).toBeCloseTo(15.41 + 15.41 * 5.82, 0);
     expect(est.pct).toBeGreaterThan(est.floorPct);
     expect(est.blindCredits).toBeGreaterThan(0);
     // On the day of the 2026-07-30 outage the projection reads BRAKE, not
