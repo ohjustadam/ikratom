@@ -68,14 +68,32 @@ console.log(`  measured     ${est.usedFloor.toFixed(0)} credits (deploys + bandw
 console.log(`  requests+compute (not exposed by Netlify) ≈ ${est.blindCredits.toFixed(0)} projected`);
 console.log(`  PROJECTED    ${est.projectedUsed.toFixed(0)} / ${est.planCredits}  (${est.pct.toFixed(1)}%)`);
 console.log(`  severity     ${sev}   (brake at ${THRESHOLD}%)`);
-console.log(`  Projection assumes the measurable floor is ${(est.floorShare * 100).toFixed(0)}% of real burn,`);
-console.log("  calibrated 2026-08-30 against Netlify's own 75% alert. The floor alone");
-console.log(`  reads only ${est.floorPct.toFixed(1)}% — do NOT quote that as the state of play.`);
+console.log(`  burn rate    ${est.burnPerDay.toFixed(1)} credits/day over ${est.daysElapsed.toFixed(1)}d elapsed`);
+if (est.daysRemaining !== null) {
+  console.log(`  RUNWAY       cap in ${est.daysToCap.toFixed(1)}d · reset in ${est.daysRemaining.toFixed(1)}d`
+    + ` · on track for ${est.projectedAtReset.toFixed(0)}/${est.planCredits} by reset`);
+}
+console.log("  Deploys+bandwidth are exact; requests+compute are estimated at");
+console.log("  5.82x bandwidth (calibrated 2026-08-30 against Netlify's own 75% alert).");
+console.log(`  The measurable part alone reads ${est.floorPct.toFixed(1)}% — do NOT quote that as the state of play.`);
+console.log("  Ground truth lives at app.netlify.com -> account -> Usage.");
 console.log("─────────────────────────────────────────────────────────");
 
 if (est.exceeded) {
   console.error(`\n✗ BRAKED — Netlify already reports credits exceeded at ${est.exceededAt}.`);
   console.error("  The site is disabled. Deploying now spends credits you do not have.");
+  if (!WARN_ONLY) process.exit(1);
+}
+
+// Trajectory, not level. An account can sit under the brake and still be
+// certain to hit the cap before the period resets — that is exactly the state
+// on 2026-09-01 (90%, zero deploys, cap ~8 days out, reset 17 days out).
+if (est.willExceedBeforeReset) {
+  console.error(`
+✗ ON TRACK TO EXCEED — at ${est.burnPerDay.toFixed(1)} credits/day the cap arrives in`);
+  console.error(`  ${est.daysToCap.toFixed(1)} days but the period does not reset for ${est.daysRemaining.toFixed(1)} days.`);
+  console.error(`  Projected ${est.projectedAtReset.toFixed(0)}/${est.planCredits} by reset. Netlify DISABLES the site at the cap.`);
+  console.error("  Cut passive burn (crawl surface / caching) — deploying more will not help.");
   if (!WARN_ONLY) process.exit(1);
 }
 
