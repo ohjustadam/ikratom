@@ -185,6 +185,7 @@ export async function estimateNetlifyCredits({ token, accountSlug, siteId }) {
     pct,
     blindCredits,
     floorShare: MEASURED_FLOOR_SHARE,
+    calibration: latestCalibration(),
     deploys,
     deployCredits,
     bandwidthGb,
@@ -222,22 +223,65 @@ export async function estimateNetlifyCredits({ token, accountSlug, siteId }) {
 export const MEASURED_FLOOR_SHARE = 0.43;
 
 /**
- * Blind credits (requests + compute) per credit of BANDWIDTH.
+ * ── CALIBRATION LOG ─────────────────────────────────────────────────────────
+ * Requests and compute are the two meters Netlify does NOT expose to the API,
+ * on any plan — verified again on the Personal plan 2026-09-04, where
+ * /sites/:id/usage still returns credit_usage 0 and there is no per-meter
+ * endpoint. They are only readable by eye at:
  *
- * Supersedes the flat floor-share above, which was wrong in an important way:
- * it scaled DEPLOY credits by the blind multiplier too. Deploys are exact —
- * 15 each, counted from the API — and they are not traffic. Inflating them
- * produced a burn RATE of 19.8 credits/day when the real idle rate was ~11.5,
- * and a "cap in 1.5 days" alarm that was 5x too aggressive.
+ *     app.netlify.com -> Usage & billing -> Account usage insights
  *
- * Requests and compute both scale with TRAFFIC, and so does bandwidth, so
- * bandwidth is the right thing to scale them from. Calibrated on the same
- * 2026-08-30 point, and it reproduces it exactly:
- *     deploys 75 + bandwidth 22 + blind (22 x 5.82) 128 = 225 = Netlify's 75%.
- * Re-derive as (realTotal - deployCredits - bandwidthCredits) / bandwidthCredits
- * the next time Netlify reports a real percentage.
+ * So this stays a MODEL. What changed on 2026-09-04 is that it is now anchored
+ * to real readings instead of one inferred point. Each entry is a full billing
+ * period transcribed from that page. Deploys and bandwidth are exact; `blind`
+ * is (compute + requests) in credits, and the ratio scales it from bandwidth
+ * because all three track traffic.
+ *
+ * ADD A ROW after any month where you read the dashboard. The newest row wins,
+ * and `calibrationAgeDays` in the estimate warns when the anchor is stale —
+ * which matters most right now, because the 2026-09-04 static-rendering fix is
+ * expected to cut compute hard while bandwidth holds. Until a post-fix month is
+ * recorded here, this model OVER-estimates (it trips early, never late).
  */
-export const BLIND_PER_BANDWIDTH_CREDIT = 5.82;
+export const CALIBRATION = [
+  {
+    period: "2026-07-05..2026-08-04",
+    total: 331, deployCredits: 225, bandwidthCredits: 14.7,
+    // 7.3 GB-Hrs compute = 73 · 50K requests = 10
+    blind: 83,
+    note: "pre-fix; 15 deploys dominated",
+  },
+  {
+    period: "2026-08-05..2026-09-04",
+    total: 332, deployCredits: 105, bandwidthCredits: 28,
+    // 18 GB-Hrs compute = 180 · 100K requests = 20. Compute alone was 54% of
+    // the month and DOUBLED from July. This is the period that capped the free
+    // plan on 2026-09-02 and took the site down.
+    blind: 200,
+    note: "pre-fix; compute-dominated, cap hit",
+  },
+];
+
+/** Most recent real reading, and how stale it is. */
+export function latestCalibration(now = new Date()) {
+  const c = CALIBRATION[CALIBRATION.length - 1];
+  const end = new Date(`${c.period.split("..")[1]}T00:00:00Z`);
+  return { ...c, ageDays: Math.max(0, Math.round((now - end) / 86400000)) };
+}
+
+/**
+ * Blind credits (requests + compute) per credit of BANDWIDTH, derived from the
+ * newest calibration row rather than hardcoded.
+ *
+ * Deploys are deliberately NOT scaled by this: they are exact (15 each, counted
+ * from the API) and they are not traffic. An earlier version inflated them too,
+ * which produced a burn rate of 19.8 credits/day against a real ~11.5 and a
+ * "cap in 1.5 days" alarm that was 5x too aggressive.
+ *
+ * Observed history: 83/14.7 = 5.6 (Jul) -> 200/28 = 7.1 (Aug).
+ */
+export const BLIND_PER_BANDWIDTH_CREDIT =
+  CALIBRATION[CALIBRATION.length - 1].blind / CALIBRATION[CALIBRATION.length - 1].bandwidthCredits;
 
 /**
  * Threshold ladder, applied to the PROJECTED total (not the floor). With the
