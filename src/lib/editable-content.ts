@@ -93,7 +93,11 @@ export const getContent = unstable_cache(
     }
   },
   ["editable-content-get"],
-  { revalidate: 60, tags: ["editable-content"] },
+  // 60s -> 1h (2026-09-04). saveContent()/deleteContent() both call
+  // updateTag("editable-content"), so an owner edit still appears immediately;
+  // the short TTL only ever re-read unchanged rows. It was ~2,000 database
+  // reads/day — 11% of all render-driven reads — for copy that changes weekly.
+  { revalidate: 3600, tags: ["editable-content"] },
 );
 
 /**

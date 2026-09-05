@@ -73,10 +73,15 @@ if (est.daysRemaining !== null) {
   console.log(`  RUNWAY       cap in ${est.daysToCap.toFixed(1)}d · reset in ${est.daysRemaining.toFixed(1)}d`
     + ` · on track for ${est.projectedAtReset.toFixed(0)}/${est.planCredits} by reset`);
 }
-console.log("  Deploys+bandwidth are exact; requests+compute are estimated at");
-console.log("  5.82x bandwidth (calibrated 2026-08-30 against Netlify's own 75% alert).");
+console.log("  Deploys + bandwidth are EXACT (counted from the API).");
+console.log(`  Compute + requests are NOT exposed by Netlify on any plan, so they are`);
+console.log(`  modelled at ${(est.blindCredits / Math.max(est.bandwidthCredits, 0.001)).toFixed(1)}x bandwidth from the ${est.calibration.period}`);
+console.log(`  dashboard reading (${est.calibration.ageDays}d old, ${est.calibration.note}).`);
 console.log(`  The measurable part alone reads ${est.floorPct.toFixed(1)}% — do NOT quote that as the state of play.`);
-console.log("  Ground truth lives at app.netlify.com -> account -> Usage.");
+console.log("  Ground truth: app.netlify.com -> Usage & billing -> Account usage insights.");
+if (est.calibration.ageDays > 45) {
+  console.log("  ⚠ CALIBRATION STALE (>45d) — re-read the dashboard and add a CALIBRATION row.");
+}
 console.log("─────────────────────────────────────────────────────────");
 
 if (est.exceeded) {

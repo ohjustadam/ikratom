@@ -17,6 +17,7 @@ import {
   CREDIT_THRESHOLDS,
   creditSeverity,
   estimateNetlifyCredits,
+  BLIND_PER_BANDWIDTH_CREDIT,
 } from "../scripts/lib/netlify-credits.mjs";
 
 describe("published credit rates", () => {
@@ -123,11 +124,15 @@ describe("estimateNetlifyCredits", () => {
     // what the brake acts on. The floor's own percentage is kept as floorPct.
     expect(est.floorPct).toBeCloseTo(80.1, 1);
     // deploys are EXACT (225), bandwidth exact (15.41), only the blind meters
-    // are estimated — at 5.82x bandwidth.
-    expect(est.projectedUsed).toBeCloseTo(225 + 15.41 + 15.41 * 5.82, 0);
+    // are estimated — at the ratio derived from the newest CALIBRATION row.
+    // Derived from the newest CALIBRATION row, not a hardcoded ratio, so adding
+    // a post-fix dashboard reading updates the model without breaking this.
+    expect(est.projectedUsed).toBeCloseTo(225 + 15.41 + 15.41 * BLIND_PER_BANDWIDTH_CREDIT, 0);
+    // Deploys must never be scaled by the blind multiplier — they are exact.
+    expect(est.projectedUsed - est.blindCredits).toBeCloseTo(225 + 15.41, 1);
     // Passive rate must exclude deploys, or six of them average into the rate
     // and produce an alarm 5x hotter than the real leak.
-    expect(est.passiveUsed).toBeCloseTo(15.41 + 15.41 * 5.82, 0);
+    expect(est.passiveUsed).toBeCloseTo(15.41 + 15.41 * BLIND_PER_BANDWIDTH_CREDIT, 0);
     expect(est.pct).toBeGreaterThan(est.floorPct);
     expect(est.blindCredits).toBeGreaterThan(0);
     // On the day of the 2026-07-30 outage the projection reads BRAKE, not

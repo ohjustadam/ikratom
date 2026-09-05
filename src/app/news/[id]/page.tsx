@@ -21,7 +21,33 @@ import { AudioReader } from "@/components/AudioReader";
 
 type Params = { id: string };
 
-export const dynamic = "force-dynamic";
+/**
+ * ISR (2026-09-04). Nothing on this page is per-viewer: the whole read-set is
+ * one cached service-role snapshot that already re-applies the public RLS
+ * filter (moderation_status = 'approved'), and no cookie is read anywhere in
+ * the route. `force-dynamic` was therefore paying to re-render an identical
+ * page for every crawler hit. Serving it from the CDN is the same output at
+ * zero function time.
+ */
+export const revalidate = 900;
+
+/**
+ * Enables the ISR path for this dynamic segment.
+ *
+ * `export const revalidate` alone is NOT enough: a dynamic segment with no
+ * generateStaticParams is server-rendered on demand and returns
+ * `Cache-Control: private, no-store` — verified 2026-09-04 against a local
+ * production server, where /privacy and /whats-new/[slug] returned
+ * `x-nextjs-cache` + `s-maxage` and this route did not.
+ *
+ * Returning an empty list prerenders nothing at build time (builds stay fast
+ * and cost no extra minutes) while `dynamicParams` — true by default — lets
+ * any id render on first request and then be CACHED and served from the CDN.
+ */
+export function generateStaticParams() {
+  return [];
+}
+
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -104,9 +130,18 @@ const getNewsArticle = unstable_cache(
 
 export async function generateMetadata({ params }: { params: Promise<Params> }) {
   const { id } = await params;
-  if (!UUID_RE.test(id)) return { title: "Article not found" };
+  if (!UUID_RE.test(id)) return {
+    title: "Article not found",
+    // Soft-404 mitigation. The root src/app/loading.tsx commits the HTTP status
+    // before this route renders, so notFound() cannot return a real 404 here
+    // (see 979a1c3). The proven fix — dynamicParams = false — is not usable on
+    // this route: it would 404 every new article until the next deploy. Marking the
+    // miss noindex stops junk URLs entering the index, which is the actual harm
+    // and also stops crawlers re-fetching addresses that hold nothing.
+    robots: { index: false, follow: false },
+  };
   const snap = await getNewsArticle(id);
-  if (!snap) return { title: "Article not found" };
+  if (!snap) return { title: "Article not found", robots: { index: false, follow: false } };
   return {
     title: `${snap.article.title} — iKratom news`,
     description: snap.article.summary ?? `Kratom news from ${snap.article.source_name ?? "verified sources"}.`,

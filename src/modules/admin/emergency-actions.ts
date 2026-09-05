@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
 import { requireMfaForMutation } from "./mfa";
@@ -96,6 +96,10 @@ export async function updateReadOnlyMode(input: {
     details: { reason: input.reason ?? null },
   });
 
+  // The read-only flag is cached by lib/read-only-mode.ts under this tag.
+  // revalidatePath alone does NOT clear an unstable_cache entry, so without
+  // this the toggle would wait out the TTL.
+  updateTag("site-config");
   revalidatePath("/", "layout");
   return { ok: true };
 }

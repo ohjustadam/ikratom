@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
-import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { createAnonClient } from "@/lib/supabase/anon";
+import { PressureIndexPill, MemberVotingRecord } from "./MemberGates";
 import { ROLE_LABEL } from "@/lib/legislators";
 import { ShareButtons } from "@/components/ShareButtons";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
@@ -10,6 +10,31 @@ import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { httpUrlOrNull } from "@/modules/compose/send-links";
 
 const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
+
+/**
+ * ISR. No cookie is read anywhere in this route, so Next can generate it once
+ * and serve it from the CDN — a crawler costs zero function time. Rendered
+ * on demand the first time an id is requested, then revalidated hourly.
+ */
+export const revalidate = 3600;
+
+/**
+ * Enables the ISR path for this dynamic segment.
+ *
+ * `export const revalidate` alone is NOT enough: a dynamic segment with no
+ * generateStaticParams is server-rendered on demand and returns
+ * `Cache-Control: private, no-store` — verified 2026-09-04 against a local
+ * production server, where /privacy and /whats-new/[slug] returned
+ * `x-nextjs-cache` + `s-maxage` and this route did not.
+ *
+ * Returning an empty list prerenders nothing at build time (builds stay fast
+ * and cost no extra minutes) while `dynamicParams` — true by default — lets
+ * any id render on first request and then be CACHED and served from the CDN.
+ */
+export function generateStaticParams() {
+  return [];
+}
+
 
 type Legislator = {
   id: string;
@@ -42,7 +67,16 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   // uncached on EVERY request — missed in the 2026-08-30 caching pass, and part
   // of why that change only moved DB load 7%.
   const snap = await getLegislatorPublicSnapshot(id);
-  if (!snap) return { title: "Legislator" };
+  if (!snap) return {
+    title: "Legislator not found",
+    // Soft-404 mitigation. The root src/app/loading.tsx commits the HTTP status
+    // before this route renders, so notFound() cannot return a real 404 here
+    // (see 979a1c3). The proven fix — dynamicParams = false — is not usable on
+    // this route: it would 404 every new legislator until the next deploy. Marking the
+    // miss noindex stops junk URLs entering the index, which is the actual harm
+    // and also stops crawlers re-fetching addresses that hold nothing.
+    robots: { index: false, follow: false },
+  };
   const d = snap.leg as { full_name: string; state: string; role: string; district: string | null; party: string | null; title: string | null; portrait_url: string | null };
   const roleStr = ROLE_LABEL[d.role] ?? d.role;
   const title = `${d.full_name} — ${d.state} ${roleStr}${d.district ? ` D${d.district}` : ""}`;
@@ -61,30 +95,25 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 /**
  * Public read-set for one legislator, cached per id.
  *
- * WHY (2026-08-30 credit burn): this page ran ~11 live DB queries on EVERY
- * request across 1,001 sitemap URLs. On Netlify's credit-free tier each of
- * those crawler hits is billed twice — web requests AND compute — and both are
- * meters the API does not expose, so they silently consumed ~57% of the month's
- * credits while our own estimator reported 32%.
+ * WHY (2026-09-04 compute fix): this page is 1,001 of the 1,432 sitemap URLs
+ * and used to render per-request, running ~11 database queries on every hit
+ * including every crawler's. Compute was 54% of the credit spend that took the
+ * site down on 2026-09-02.
  *
- * SCOPE IS DELIBERATELY NARROW. service-role bypasses RLS, so only tables
- * verified to have anon/service PARITY are in here:
- *   legislators        9332 = 9332
- *   bill_vote_members 13222 = 13222
- *   campaigns          228 = 228 — ONLY with .eq("active", true), which is
- *                      exactly what RLS exposes (service-role sees 2810 rows
- *                      total: drafts, pending_review, superseded). Dropping
- *                      that filter would publish 2,582 unpublished campaigns.
+ * Built with the ANONYMOUS client, which is what makes this safe to share.
+ * RLS then defines the snapshot's contents: it is by construction exactly what
+ * a logged-out visitor may see, so no hand-written filter has to be kept in
+ * sync with a policy. That matters most for `legislator_stance` — anon sees 0
+ * of its 4,329 rows, and auto-publishing AI-written stances on named
+ * legislators is a standing prohibition. Do NOT swap this for the service-role
+ * client; it sees all of them.
  *
- * NOT in here, on purpose: getLegislatorIntel(). It reads `legislator_stance`,
- * where anon sees 0 rows and service-role sees 4,329 — those stances are held
- * from the public deliberately, and auto-publishing AI-written stances about
- * named legislators is a standing prohibition. It keeps the RLS-enforced,
- * cookie-bound client. Do NOT "optimise" it in here.
+ * Member-only extras (pressure index, per-bill votes) are fetched after
+ * hydration from /api/legislators/[id]/member — see ./MemberGates.
  */
 const getLegislatorPublicSnapshot = unstable_cache(
   async (id: string) => {
-    const sb = createServiceRoleClient();
+    const sb = createAnonClient();
     const { data: legRaw } = await sb
       .from("legislators")
       .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active, portrait_url")
@@ -101,7 +130,11 @@ const getLegislatorPublicSnapshot = unstable_cache(
         .eq("legislator_id", id)
         .limit(500),
     ]);
-    return { leg, explicitCampaigns, roleCampaigns, voteRowsRaw };
+    // Intel is computed with the SAME anonymous client, so the snapshot holds
+    // exactly the public view. `legislator_stance` is invisible to anon under
+    // RLS (migration 0221), so no withheld stance can reach this cache.
+    const intel = await getLegislatorIntel(sb, leg as never);
+    return { leg, explicitCampaigns, roleCampaigns, voteRowsRaw, intel };
   },
   ["legislator-public"],
   { revalidate: 900, tags: ["legislator-detail"] },
@@ -113,21 +146,19 @@ export default async function LegislatorDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
 
-  // Public, viewer-identical data — served from the per-id cache above.
+  // Everything on this page is the PUBLIC view, served from the per-id cache
+  // above. No cookie is read here — that is what keeps the route static.
   const snap = await getLegislatorPublicSnapshot(id);
   if (!snap) notFound();
-  const { leg, explicitCampaigns, roleCampaigns, voteRowsRaw } = snap;
+  const { leg, explicitCampaigns, roleCampaigns, voteRowsRaw, intel } = snap;
 
-  // One consolidated intel pull — stance, sponsorships, committees, donor,
-  // kratom-adjacent trades + the computed verdict (threat tier · pressure
-  // index · follow-the-money). Single source of truth shared with the intel
-  // briefing memo (src/lib/legislator-intel.ts), so the two surfaces can
-  // never drift.
-  const intel = await getLegislatorIntel(supabase, leg);
+  // Intel came from the cached snapshot, computed as an anonymous viewer.
+  // `pressureIndex` is deliberately NOT destructured here: it derives from
+  // stance data the public cannot see, so it is rendered client-side by
+  // <PressureIndexPill> for members only.
   const { verdict, donor: donorProfile, summary, currentlyDeciding, sponsorships: sponsored } = intel;
-  const { threat, pressureIndex, moneyConflict } = verdict;
+  const { threat, moneyConflict } = verdict;
 
   // Campaigns targeting this legislator come from the cached snapshot above.
 
@@ -136,9 +167,9 @@ export default async function LegislatorDetailPage({
     targetingCampaigns.set(c.id, c);
   }
 
-  // Voting record — roll-call votes now attributable via the P1 legiscan_people_id backfill
-  const { data: { user } } = await supabase.auth.getUser();
-  const signedIn = !!user;
+  // Voting record — roll-call votes now attributable via the P1 legiscan_people_id backfill.
+  // The counts below are public; the per-bill breakdown is member-only and is
+  // fetched client-side by <MemberVotingRecord>.
   type VBill = { id: string; state: string; bill_number: string; title: string | null; kratom_relevance: string | null };
   type RawBV = { id: string; vote_date: string | null; chamber: string | null; motion: string | null; passed: boolean | null; bills: VBill[] | VBill | null };
   type RawVoteRow = { vote_text: string | null; vote_value: number | null; bill_votes: RawBV[] | RawBV | null };
@@ -220,15 +251,7 @@ export default async function LegislatorDetailPage({
             {threat.tier_emoji} {threat.tier_label}
             <span className="ml-1 font-mono text-[9px] opacity-75">T{threat.threat_score}·V{threat.vulnerability_score}</span>
           </span>
-          {signedIn ? (
-            <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300">
-              🎯 Pressure {pressureIndex}
-            </span>
-          ) : (
-            <a href={`/login?redirect=/legislators/${leg.id}`} className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:border-emerald-500">
-              🎯 Pressure index — sign in (free)
-            </a>
-          )}
+          <PressureIndexPill legislatorId={leg.id} />
         </div>
         <p className="mt-2 text-xs text-zinc-400">{threat.rationale}</p>
         {moneyConflict && (
@@ -422,47 +445,10 @@ export default async function LegislatorDetailPage({
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Voting record ({votes.length})</h2>
             <span className="text-[10px] uppercase tracking-wider text-zinc-600">a vote is a fact</span>
           </div>
-          {!signedIn ? (
-            <p className="text-xs text-zinc-400">
-              {leg.full_name} voted in {participated} of {rollcalls} recorded kratom roll-call{rollcalls === 1 ? "" : "s"}
-              {missedVotes > 0 ? <> · missed {missedVotes}</> : null}
-              {restrictCount > 0 ? <> · voted to restrict kratom {restrictCount}×</> : null}.{" "}
-              <a href="/signup" className="text-emerald-400 hover:underline">Create a free account</a> to see how they voted on each bill.
-            </p>
-          ) : (
-            <>
-            {rollcalls > 0 && (
-              <p className="mb-3 text-xs text-zinc-300">
-                Voted in <strong className="text-zinc-100">{participated}</strong> of {rollcalls} recorded kratom roll-call{rollcalls === 1 ? "" : "s"}
-                {missedVotes > 0 ? <span className="text-amber-300"> · missed {missedVotes} (absent / did not vote)</span> : null}.
-              </p>
-            )}
-            <ul className="space-y-1.5">
-              {votes.map((v) => {
-                const absent = v.vote_value === 3 || v.vote_value === 4;
-                const restrictive = (v.vote_value === 1 && v.bill.kratom_relevance === "anti") || (v.vote_value === 2 && v.bill.kratom_relevance === "pro");
-                const supportive = (v.vote_value === 2 && v.bill.kratom_relevance === "anti") || (v.vote_value === 1 && v.bill.kratom_relevance === "pro");
-                const tone = absent ? "bg-amber-950/50 text-amber-300" : restrictive ? "bg-red-900/60 text-red-100" : supportive ? "bg-emerald-900/60 text-emerald-100" : "bg-zinc-800 text-zinc-300";
-                const label = v.vote_value === 1 ? "Yea" : v.vote_value === 2 ? "Nay" : v.vote_value === 4 ? "Absent" : v.vote_value === 3 ? "Did not vote" : (v.vote_text ?? "—");
-                return (
-                  <li key={v.voteId} className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-[11px]">
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                      <a href={`/bills/${v.bill.id}`} className="font-mono font-semibold text-zinc-100 hover:text-emerald-400">{v.bill.state} {v.bill.bill_number}</a>
-                      {v.bill.kratom_relevance === "anti" && <span className="rounded bg-red-950/40 px-1.5 py-0.5 text-red-300">Anti</span>}
-                      {v.bill.kratom_relevance === "pro" && <span className="rounded bg-emerald-950/40 px-1.5 py-0.5 text-emerald-300">Pro</span>}
-                      {v.chamber && <span className="font-mono uppercase text-zinc-500">{v.chamber}</span>}
-                      {v.motion && <span className="text-zinc-400">{v.motion}</span>}
-                      <span className={`ml-auto rounded px-1.5 py-0.5 font-mono font-bold ${tone}`}>{label}</span>
-                      {v.passed === true && <span className="font-bold text-emerald-300">PASSED</span>}
-                      {v.passed === false && <span className="text-zinc-500">failed</span>}
-                      {v.vote_date && <span className="font-mono text-zinc-500">{v.vote_date}</span>}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-            </>
-          )}
+          <MemberVotingRecord
+            legislatorId={leg.id}
+            summary={{ fullName: leg.full_name, participated, rollcalls, missedVotes, restrictCount }}
+          />
         </section>
       )}
 

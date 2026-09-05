@@ -48,7 +48,12 @@ const readReadOnlyRow = unstable_cache(
     return data ?? null;
   },
   ["site-config-read-only"],
-  { revalidate: 30, tags: ["site-config"] },
+  // 30s -> 10min (2026-09-04). Read-only mode is an emergency lever, so the
+  // short TTL was buying responsiveness — but updateReadOnlyMode() now calls
+  // updateTag("site-config"), which makes the toggle take effect AT ONCE
+  // instead of within 30s. The TTL is just the backstop, and polling
+  // site_config every 30 seconds cost ~950 reads/day to learn nothing.
+  { revalidate: 600, tags: ["site-config"] },
 );
 
 export async function getReadOnlyState(): Promise<ReadOnlyState> {
