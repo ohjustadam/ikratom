@@ -168,14 +168,39 @@ if (SPECIFIC) {
   const { data } = await sb.from("policy_alerts").select("*").eq("id", SPECIFIC).single();
   alerts = data ? [data] : [];
 } else {
+  // ── WINDOWED + NARROW (2026-09-05 egress fix) ─────────────────────────────
+  // This query was `select("*")` with no window and no limit. Because an alert
+  // that CANNOT be promoted keeps `bill_id = null`, it stayed in the working set
+  // forever and was re-examined on every run — the skip-without-marking pattern.
+  //
+  // Measured before the fix: 1,794 alerts re-scanned per run, 1,544 of them
+  // permanently stuck. At 1.9 KB/row that is 3.4 MB per run, 41 MB/day across
+  // the 12 hourly runs, PLUS 21,528 `bills` lookups/day (one per alert per run)
+  // — which was the single largest consumer of Supabase egress on the whole
+  // project, against a free-tier budget of ~59 MB/day.
+  //
+  // Three changes, none of which lose a promotion we would otherwise make:
+  //   1. Explicit columns — processAlert() reads only these. `select("*")`
+  //      dragged full bodies across the wire on every pass.
+  //   2. A recency window. A "bill event" older than the window has already
+  //      failed to promote on ~700 consecutive runs; promoting it now would
+  //      mint a stale bill anyway. --since overrides it for a deliberate
+  //      backfill, so no capability is lost.
+  //   3. A hard limit as a backstop, so a future data bug cannot make this
+  //      unbounded again.
+  const sinceDays = parseInt(arg("--since-days") ?? "60", 10);
+  const since = new Date(Date.now() - sinceDays * 86400_000).toISOString();
   const { data } = await sb
     .from("policy_alerts")
-    .select("*")
+    .select("id, title, body, locality, specific_locality, source_url, created_at, occurs_at, bill_id")
     .eq("kind", "bill_event")
     .is("bill_id", null)
     .eq("moderation_status", "approved")
-    .order("created_at", { ascending: false });
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(500);
   alerts = data ?? [];
+  console.log(`Window: alerts created since ${since.slice(0, 10)} (--since-days ${sinceDays})`);
 }
 
 if (alerts.length === 0) { console.log("Nothing to process."); process.exit(0); }
