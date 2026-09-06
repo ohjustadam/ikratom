@@ -39,6 +39,26 @@ if (!REF || !KEY || !URL) { console.error("Missing Supabase env"); process.exit(
 const sb = createClient(URL, KEY, { auth: { persistSession: false } });
 
 const BUDGET_GB = 5;
+
+/**
+ * Correction factor: raw NIC counter -> billable egress.
+ *
+ * CALIBRATED 2026-09-05 against the Supabase dashboard, which is the only place
+ * the billable figure exists (the Management API exposes no usage endpoint —
+ * verified). At the same moment this watchdog computed 8.05 GB, the dashboard
+ * read **4.352 / 5 GB (87%)**. Ratio 4.352/8.05 = 0.54.
+ *
+ * The gap is what the header comment always said it would be: replication and
+ * infra chatter ride on node_network_transmit_bytes_total but are not billed.
+ * Uncorrected, the watchdog reported 161% while the account was at 87% — a
+ * false alarm big enough to be ignored, which is the same failure that made the
+ * Netlify credit floor untrustworthy. Over-reporting is not "safe" if it
+ * trains you to discount the alarm.
+ *
+ * RE-CALIBRATE by reading Usage in the Supabase dashboard (org ikratom-2) and
+ * setting this to dashboardGB / thisWatchdogsGB on the same day.
+ */
+const BILLABLE_RATIO = 0.54;
 const THRESHOLDS = [0.5, 0.75, 0.9]; // page at 50%, 75%, 90%
 const EGRESS_CYCLE_ANCHOR_DAY = 16;  // org created 2026-07-16
 
@@ -93,8 +113,9 @@ for (const v of [...readings, currentBytes]) {
 // conservative (over-counting) estimate — better a false early warning than none.
 if (readings.length === 0) mtdBytes = currentBytes;
 
-const pct = mtdBytes / (BUDGET_GB * 1e9);
-console.log(`month-to-date estimate: ${(mtdBytes / 1e9).toFixed(3)} GB of ${BUDGET_GB} GB (${(pct * 100).toFixed(1)}%) · cycle since ${cycleStart().toISOString().slice(0, 10)}`);
+const billableBytes = mtdBytes * BILLABLE_RATIO;
+const pct = billableBytes / (BUDGET_GB * 1e9);
+console.log(`month-to-date billable estimate: ${(billableBytes / 1e9).toFixed(3)} GB of ${BUDGET_GB} GB (${(pct * 100).toFixed(1)}%) · cycle since ${cycleStart().toISOString().slice(0, 10)}`);
 
 // 3. Threshold paging — once per threshold per cycle (dedupe via notes history).
 const crossed = THRESHOLDS.filter((t) => pct >= t);
@@ -135,7 +156,7 @@ if (!DRY) {
       started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
       status: pct >= 0.9 ? "error" : "success",
       rows_updated: Math.round(currentBytes / 1e6),
-      notes: `MTD ~${(mtdBytes / 1e9).toFixed(2)}GB/${BUDGET_GB}GB (${(pct * 100).toFixed(1)}%)${pagedNote}`,
+      notes: `MTD ~${(billableBytes / 1e9).toFixed(2)}GB/${BUDGET_GB}GB (${(pct * 100).toFixed(1)}%)${pagedNote}`,
     });
   } catch { /* best-effort */ }
 }

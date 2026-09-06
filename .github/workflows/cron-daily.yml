@@ -365,6 +365,18 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/resolve-news-urls.mjs --limit 400
+      - name: Backfill alert source URLs from the just-resolved news URLs
+        # Closes the hourly/daily gap: classify-news-policy mints alerts HOURLY,
+        # before resolve-news-urls (above, DAILY) has a publisher URL, so alerts
+        # were written with source_url null and nothing ever went back for them.
+        # That null blocked auto-approve-campaigns' require_source gate, which is
+        # why the same 17-18 campaigns escalated every run and never resolved.
+        # Must run AFTER the resolver, in this job.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backfill-alert-source-urls.mjs
 
   verify-news-body:
     # False-positive defense — two-phase pipeline:
@@ -623,6 +635,36 @@ jobs:
       # which intel layers populated. `--check` fails the step if
       # briefings or legislators drop below floor coverage, surfacing
       # silent breakage (e.g. cron-step failure, missing secret).
+
+  translate-content:
+    # MOVED OFF THE OWNER'S PC, 2026-09-05. This was pinned to a local Ollama at
+    # localhost:11434, so it only ran when his machine did — and it had produced
+    # nothing since 2026-07-14, leaving id/th/ms/vi/tl (the kratom-producing
+    # countries) 53 days stale. It now goes through the free router first and
+    # keeps Ollama only as a local fallback, so it runs unattended here.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Translate new content into the six locales
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: node scripts/translate-content.mjs --limit 120
 
   daily-maintenance:
     # SPLIT OUT OF generate-state-briefings, 2026-08-22.

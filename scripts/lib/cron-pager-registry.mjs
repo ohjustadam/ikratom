@@ -78,6 +78,12 @@ export const REGISTRY = [
       // cross-checks published federal scheduling claims against the Federal
       // Register. Silent = nothing is checking our facts but our readers.
       "audit_federal_claims",
+      // Moved off the owner's PC to GitHub Actions 2026-09-05 — it is a cloud
+      // daily now, not a local-box source. Was silent 53 days.
+      "translate_content",
+      // Repairs alert source_url from resolved news URLs; the auto-approver's
+      // require_source gate depends on it (2026-09-05).
+      "backfill_alert_source_urls",
       // Registered 2026-07-16 (audit): the OpenStates bill sweep is the ONLY
       // last_action refresher for non-LegiScan bills (all NY bills) but wrote
       // no telemetry of its own — the shared "openstates" label stayed fresh
@@ -128,7 +134,6 @@ export const REGISTRY = [
   { source: "topic_bill_discovery", interval_hours: 216, system: "local-box", cadence: "weekly" },
   { source: "auto_brief_campaigns", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "session_prep", interval_hours: 72, system: "local-box", cadence: "daily" },
-  { source: "translate_content", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "bill_embeddings", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "dossier_research", interval_hours: 72, system: "local-box", cadence: "daily" },
   // Nightly cloud chassis (cron-nightly-cloud.yml @ 08:30 UTC).

@@ -25,7 +25,7 @@ export const EXPECTED_INTERVAL_HOURS: Record<string, number> = {
   // Fact-integrity watchdog: cross-checks published "X is federally scheduled"
   // claims against the Federal Register. If this goes silent we lose the only
   // automated check that a reader isn't the first to spot a false ban claim.
-  audit_federal_claims: 36,
+  audit_federal_claims: 36, translate_content: 36, backfill_alert_source_urls: 36,
   // weekly pipeline
   sync_nonprofit_990s: 216, broadcast_whats_new: 216, sync_elections: 216,
   official_portraits_sync: 216, bill_topics_classify: 216,
