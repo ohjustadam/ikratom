@@ -365,6 +365,18 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/resolve-news-urls.mjs --limit 400
+      - name: Backfill alert source URLs from the just-resolved news URLs
+        # Closes the hourly/daily gap: classify-news-policy mints alerts HOURLY,
+        # before resolve-news-urls (above, DAILY) has a publisher URL, so alerts
+        # were written with source_url null and nothing ever went back for them.
+        # That null blocked auto-approve-campaigns' require_source gate, which is
+        # why the same 17-18 campaigns escalated every run and never resolved.
+        # Must run AFTER the resolver, in this job.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backfill-alert-source-urls.mjs
 
   verify-news-body:
     # False-positive defense — two-phase pipeline:
