@@ -152,7 +152,11 @@ async function callGroq(sys, user, maxTokens, modelOverride) {
       // modelOverride lets callers route specific tasks (e.g. self-critique)
       // to a reasoning-capable model like openai/gpt-oss-120b while keeping
       // the default for everything else on Llama-3.3-70B. Groq hosts both at $0.
-      model: modelOverride || "llama-3.3-70b-versatile",
+      // 2026-09-05: Groq RETIRED llama-3.3-70b-versatile — the key now 404s with
+      // "does not exist or you do not have access to it". Its catalogue is
+      // openai/gpt-oss-{120b,20b} and qwen/qwen3.{6,8}-27b. Overridable so the
+      // next retirement is an env change, not a deploy.
+      model: modelOverride || process.env.GROQ_MODEL || "openai/gpt-oss-120b",
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       temperature: 0.1,
       max_tokens: maxTokens,
@@ -209,6 +213,9 @@ async function callCerebras(sys, user, maxTokens) {
       // rotation. Default to gpt-oss-120b — OpenAI open-weights (MIT), US-hosted
       // on Cerebras silicon at thousands of tok/sec, the same model we already
       // trust for reasoning via Groq. Override with CEREBRAS_MODEL.
+      // 2026-09-05: Cerebras now answers 402 "Payment required to access this
+      // resource" — it has left the free tier. Retained for anyone who adds
+      // billing, but it can no longer be counted as a free provider.
       model: process.env.CEREBRAS_MODEL || "gpt-oss-120b",
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       temperature: 0.1,
@@ -320,6 +327,9 @@ async function callOpenAICompat(name, { url, key, model, extraHeaders = {} }, sy
 const callGithub = (sys, user, maxTokens, modelOverride) => callOpenAICompat("github", {
   url: "https://models.github.ai/inference/chat/completions",
   key: GITHUB_MODELS_TOKEN,
+  // 2026-09-05: GitHub Models returns 410 "github_models_retirement_brownout"
+  // — the service is being retired. Kept configured so it resumes if the
+  // brownout lifts, but it must not be relied on. See availableProviders().
   model: process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o-mini",
 }, sys, user, maxTokens, modelOverride);
 
@@ -332,7 +342,10 @@ const callSambanova = (sys, user, maxTokens, modelOverride) => callOpenAICompat(
 const callOpenrouter = (sys, user, maxTokens, modelOverride) => callOpenAICompat("openrouter", {
   url: "https://openrouter.ai/api/v1/chat/completions",
   key: OPENROUTER_API_KEY,
-  model: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free",
+  // 2026-09-05: the old :free llama slug now 404s ("paid version available").
+  // z-ai/glm-5.2:free is in OpenRouter's current free tier. Free slugs churn —
+  // re-check with GET /api/v1/models and filter pricing.prompt == "0".
+  model: process.env.OPENROUTER_MODEL || "z-ai/glm-5.2:free",
   extraHeaders: { "HTTP-Referer": "https://www.ikratom.org", "X-Title": "iKratom" },
 }, sys, user, maxTokens, modelOverride);
 
