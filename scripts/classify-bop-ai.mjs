@@ -24,6 +24,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -113,6 +114,28 @@ async function classifyFinding(finding) {
 
   if (!res.ok) {
     const errText = (await res.text()).slice(0, 200);
+    // DEGRADE, DON'T DIE (2026-09-05). Gemini is used here for its Google
+    // Search grounding, which the shared router cannot provide — so this
+    // script called it directly and had no fallback. When the key started
+    // answering 429 "prepayment credits are depleted", the whole classifier
+    // went to "0 classified, 20 failed" every run and stayed there.
+    //
+    // An UNGROUNDED classification from the router is far better than none:
+    // the finding text and any extracted PDF content are already in the
+    // prompt, and grounding only adds outside corroboration. Anything the
+    // fallback is unsure of still lands at low confidence and gets reviewed.
+    if (listAvailableProviders().length > 0) {
+      console.log(`  ↻ Gemini ${res.status} — falling back to the router (ungrounded)`);
+      const r = await aiRouter({
+        systemPrompt: `${SYS}
+
+You do NOT have web search. Judge only from the text provided, and lower your confidence accordingly.`,
+        userPrompt,
+        maxTokens: 1024,
+        verbose: false,
+      });
+      if (r.parsed && typeof r.parsed === "object") return r.parsed;
+    }
     throw new Error(`Gemini ${res.status}: ${errText}`);
   }
   const data = await res.json();
