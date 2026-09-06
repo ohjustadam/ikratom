@@ -29,6 +29,7 @@ export const EXPECTED_INTERVAL_HOURS: Record<string, number> = {
   // weekly pipeline
   sync_nonprofit_990s: 216, broadcast_whats_new: 216, sync_elections: 216,
   official_portraits_sync: 216, bill_topics_classify: 216,
+  backfill_term_dates: 216,
   // ── infrastructure watchdogs ───────────────────────────────────────────────
   // These were MISSING, and that is why /admin/ops and /admin/checklist stayed
   // green through the 2026-07-30 credit outage: summarizeCronHealth() skips any

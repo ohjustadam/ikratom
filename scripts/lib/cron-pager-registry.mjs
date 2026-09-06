@@ -108,6 +108,9 @@ export const REGISTRY = [
   // were removed 2026-07-16 — no script ever wrote them.
   ...["sync_nonprofit_990s","broadcast_whats_new","official_portraits_sync",
       "state_portraits_bulk","bill_topics_classify",
+      // Federal term start/end from unitedstates/congress-legislators (keyless).
+      // Added 2026-09-06 — coverage was 0% before it.
+      "backfill_term_dates",
       // Wayback portrait recovery (portrait-sync.yml) — was unregistered.
       "portraits_wayback",
      ].map((source) => ({ source, interval_hours: 216, system: "gh-weekly", cadence: "weekly" })),

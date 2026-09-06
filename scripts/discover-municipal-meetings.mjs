@@ -27,6 +27,7 @@
  *     (NY, FL, TX, CA, OH, MI — the states with the most kratom activity)
  */
 import { createClient } from "@supabase/supabase-js";
+import { groundedGenerate } from "./lib/grounded-ai.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 
 const args = process.argv.slice(2);
@@ -94,35 +95,32 @@ Only include meetings you have concrete evidence for from grounded search.
 Return {"meetings":[]} if nothing found. Skip past meetings.
 ALWAYS include source_url for every meeting.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-  let response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } catch (e) {
-    return { state, status: "error", reason: `fetch: ${e.message}` };
-  }
-  if (!response.ok) {
-    return { state, status: "error", reason: `Gemini ${response.status}` };
-  }
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  // Gemini sometimes wraps JSON in code fences; tolerate both shapes
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    return { state, status: "empty", reason: "no JSON in response" };
-  }
+  // Grounding is REQUIRED here, never optional. The prompt above says "only
+  // include meetings you have concrete evidence for from grounded search" — a
+  // model without search would simply invent plausible city-council meetings,
+  // which is the same failure class as the false 7-OH scheduling alert. So this
+  // passes allowUngrounded:false and reports honestly when it cannot look.
+  //
+  // Before this change the script swallowed a depleted-Gemini 429 into
+  // `status: "error", reason: "Gemini 429"` per state and the run summarised as
+  // "51 states · 0 found · 0 new" — which reads as "there are no meetings",
+  // not "we were unable to search". It had been failing that way for 4 days.
   let parsed;
-  try { parsed = JSON.parse(jsonMatch[0]); } catch (e) {
-    return { state, status: "error", reason: `bad JSON: ${e.message?.slice(0, 80)}` };
+  try {
+    const r = await groundedGenerate({
+      system: "You find real, upcoming municipal meetings from grounded web search. Never guess.",
+      user: prompt,
+      maxTokens: 2048,
+      allowUngrounded: false,
+    });
+    parsed = r.parsed;
+    if (!parsed) return { state, status: "empty", reason: "no JSON in response" };
+  } catch (e) {
+    const msg = String(e.message ?? e);
+    if (msg.startsWith("GROUNDING_UNAVAILABLE")) {
+      return { state, status: "blocked", reason: "grounding unavailable (Gemini not answering)" };
+    }
+    return { state, status: "error", reason: msg.slice(0, 90) };
   }
   const meetings = parsed.meetings ?? [];
   if (meetings.length === 0) {
@@ -196,6 +194,7 @@ console.log(`Discovering municipal meetings across ${targets.length} state(s)${D
 const t0 = Date.now();
 let totalInserted = 0;
 let totalFound = 0;
+let blocked = 0;
 for (const s of targets) {
   process.stdout.write(`  ${s}: `);
   const r = await discoverState(s);
@@ -205,6 +204,9 @@ for (const s of targets) {
     totalInserted += r.inserted ?? 0;
   } else if (r.status === "empty") {
     console.log("· nothing on agendas");
+  } else if (r.status === "blocked") {
+    blocked++;
+    console.log(`⛔ ${r.reason}`);
   } else {
     console.log(`✗ ${r.status}${r.reason ? ` — ${r.reason}` : ""}`);
   }
@@ -212,15 +214,27 @@ for (const s of targets) {
 }
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
 console.log(`\nDone in ${elapsed} min — ${totalFound} meetings found across ${targets.length} states, ${totalInserted} new.`);
+if (blocked > 0) {
+  console.log(`⛔ ${blocked}/${targets.length} states could NOT be searched (grounding unavailable).`);
+  console.log('   This is NOT "no meetings exist" - it is "we were unable to look".');
+}
 
 try {
   await sb.from("scraper_runs").insert({
     source: "discover_municipal_meetings",
     started_at: new Date(t0).toISOString(),
     finished_at: new Date().toISOString(),
-    status: totalInserted > 0 ? "success" : "empty",
+    // A run that could not SEARCH is an error, never "empty". Reporting it as
+    // empty is what let this look healthy while finding nothing for 4 days.
+    status: blocked >= targets.length ? "error"
+      : blocked > 0 ? "partial"
+      : totalInserted > 0 ? "success" : "empty",
     rows_added: totalInserted,
-    notes: `${targets.length} states · ${totalFound} found · ${totalInserted} new`,
+    error_message: blocked > 0
+      ? `grounding unavailable for ${blocked}/${targets.length} states — Gemini not answering`
+      : null,
+    notes: `${targets.length} states · ${totalFound} found · ${totalInserted} new`
+      + (blocked > 0 ? ` · ${blocked} BLOCKED (could not search)` : ""),
   });
 } catch { /* best-effort */ }
 process.exit(0);

@@ -26,6 +26,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  backfill-term-dates:
+    # Terms change only at elections and appointments, so weekly is plenty.
+    # Keyless source (unitedstates/congress-legislators) — no key, no quota.
+    # Federal only on purpose: it joins exactly on bioguide_id, where state and
+    # local terms would need fuzzy matching and a wrong term date is worse than
+    # a missing one, because the UI states it as fact.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Backfill federal term start/end dates
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backfill-term-dates.mjs
+
   sync-committees-all-states:
     # Pull legislator committee data for every state + DC via the
     # OpenStates v3 API. Idempotent — upsert on
