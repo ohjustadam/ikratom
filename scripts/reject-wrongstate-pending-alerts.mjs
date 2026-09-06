@@ -82,14 +82,27 @@ for (const { a, derived } of reject) console.log(`  ${String(a.locality).padEnd(
 
 let rejected = 0;
 if (APPLY && reject.length) {
-  const ids = reject.map((r) => r.a.id);
-  const { error: upErr, count } = await sb
-    .from("policy_alerts")
-    .update({ moderation_status: "rejected" })
-    .in("id", ids)
-    .select("id", { count: "exact" });
-  if (upErr) { console.error(`\nApply failed: ${upErr.message}`); process.exit(1); }
-  rejected = count ?? ids.length;
+  // Per-row, NOT a batch .in(), so each rejection carries the state that was
+  // actually named in the headline. A rejection with no recorded reason is
+  // indistinguishable from a blanket denial when someone reviews the queue
+  // later — 330 alerts sat rejected with a null moderation_note, which is
+  // exactly why the auto-resolver read as "denies everything with no legit
+  // reason". The reason was known right here and thrown away.
+  const nowIso = new Date().toISOString();
+  for (const { a, derived } of reject) {
+    const note = `Locality "${a.locality}" is not named in the headline, which names ${derived} instead — `
+      + `auto-rejected as a wrong-state alert (reject-wrongstate-pending-alerts).`;
+    const { error: upErr } = await sb
+      .from("policy_alerts")
+      .update({
+        moderation_status: "rejected",
+        moderation_note: note.slice(0, 500),
+        moderated_at: nowIso,
+      })
+      .eq("id", a.id);
+    if (upErr) { console.error(`  ⚠ ${a.id.slice(0, 8)}: ${upErr.message.slice(0, 70)}`); continue; }
+    rejected++;
+  }
   console.log(`\n✅ Rejected ${rejected} wrong-state pending alert(s).`);
 } else if (reject.length) {
   console.log(`\n(dry-run — re-run with --apply to reject these.)`);

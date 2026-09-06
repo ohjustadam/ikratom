@@ -68,7 +68,15 @@ async function retractAlerts(billId, apply) {
   for (const a of list) {
     console.log(`    ↳ alert ${a.id.slice(0, 8)} "${a.title.slice(0, 60)}" → retract`);
     if (apply) {
-      await sb.from("policy_alerts").update({ moderation_status: "rejected" }).eq("id", a.id);
+      // Record WHY. An unexplained retraction is unauditable later, and this
+      // reason is specific and useful: the linked bill turned out to carry
+      // another session's data (the bill_number-reuse "Frankenstein record"
+      // problem), so the alert misstates the session it claims.
+      await sb.from("policy_alerts").update({
+        moderation_status: "rejected",
+        moderation_note: `Retracted by the bill-session-drift audit: the linked bill was found to carry a different session's data (bill_number reuse), so this alert misstates its session.`,
+        moderated_at: new Date().toISOString(),
+      }).eq("id", a.id);
     }
   }
   return list.length;
