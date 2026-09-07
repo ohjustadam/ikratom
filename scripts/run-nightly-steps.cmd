@@ -29,11 +29,13 @@ REM 2. Drain pending local-rep requests (SearXNG + Ollama/free-tier). Bounded
 REM    so a deep queue can't starve the rest of the run.
 node --env-file=.env.local scripts/auto-fulfill-pending-local-reps.mjs --limit 40 --max-minutes 30
 
-REM 3. Re-confirm HELD local kratom bans (two-source gate, keyless — PR-A).
-node --env-file=.env.local scripts/verify-local-bans.mjs --limit 60 --max-minutes 60
-
-REM 4. Unified locality-intelligence sweep (law + pending measures + links).
-node --env-file=.env.local scripts/sweep-locality-intel.mjs --limit 20 --max-minutes 30
+REM MOVED TO GITHUB ACTIONS (2026-09-07): steps 3, 4 and the review-queue
+REM sweep now run in .github/workflows/cron-grounded-queues.yml twice a day
+REM with an in-job SearXNG container:
+REM   verify-local-bans, sweep-locality-intel, clear-review-queues.
+REM They only ever lived here because SearXNG did, and this box had not run
+REM them in 55-66 days. Do NOT re-add them: two schedulers racing the same
+REM rows is worse than one that runs.
 
 REM 5. State executives (PR-K): governors/lt-gov/AG/SoS from openstates/people
 REM    (keyless public YAML) — fills the 5Calls gap. Self-gates to weekly.
@@ -47,16 +49,6 @@ REM    timeouts); the GHA "Topic classify" workflow handles the keyless tagging
 REM    half. Self-gates to weekly + tiny (~36 calls, ~1 min) so it respects the
 REM    box-CPU budget.
 node --env-file=.env.local scripts/discover-topic-bills.mjs
-
-REM 5b. Review-queue FULL AUTONOMY (owner 2026-07-03): grounds each pending intel
-REM     alert + pending campaign with a keyless SearXNG search + a free-tier AI
-REM     verdict, then auto-rejects the stale/dead/enacted/hallucinated/wrong-geo/
-REM     partisan junk AND auto-approves the confidently-real+live items (--approve).
-REM     Approvals are HIGH-confidence only, capped per run, honor read_only/emergency
-REM     mode, and fire the same user notifications as a manual approve; uncertain
-REM     items are left for the next pass. Rejects are reversible + audit-logged.
-REM     Goal: nothing ever waits in the queue. See docs/RUNBOOK_review_queues.md.
-node --env-file=.env.local scripts/clear-review-queues.mjs --ai --apply --approve
 
 REM 6. THE DOSSIER (flagship Phase 1): Hermes deep-dives ONE target per night
 REM    through the verified corpora into the admin-only dossiers table (0195).

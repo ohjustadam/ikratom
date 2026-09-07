@@ -130,11 +130,20 @@ export const REGISTRY = [
 
   // Long-tail officials drain (GHA q6h + owner-box nightly fallback).
   { source: "auto_fulfill_local_reps", interval_hours: 12, system: "github-actions", cadence: "daily" },
-  // Owner-box nightly (SearXNG/Ollama-dependent).
-  { source: "verify_local_bans", interval_hours: 72, system: "local-box", cadence: "daily" },
-  { source: "sweep_locality_intel", interval_hours: 72, system: "local-box", cadence: "daily" },
-  { source: "clear_review_queues", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // Grounded queue work — MOVED OFF THE BOX 2026-09-07 to
+  // .github/workflows/cron-grounded-queues.yml (in-job SearXNG container,
+  // twice daily). They only ever needed the PC because SearXNG lived there,
+  // and the box had not run them in 55-66 days. 24h threshold now that they
+  // fire 2x/day: a cloud job that misses a full day is a real failure, not a
+  // sleeping laptop.
+  { source: "verify_local_bans", interval_hours: 24, system: "github-actions", cadence: "daily" },
+  { source: "sweep_locality_intel", interval_hours: 24, system: "github-actions", cadence: "daily" },
+  { source: "clear_review_queues", interval_hours: 24, system: "github-actions", cadence: "daily" },
+  // Genuinely box-only. LegiScan's query API refuses GitHub Actions datacenter
+  // IPs (6/6 connect timeouts), so this one cannot be moved by wanting it.
   { source: "topic_bill_discovery", interval_hours: 216, system: "local-box", cadence: "weekly" },
+  // Box-only for now: Ollama models (hermes3:8b / nomic-embed-text) and a
+  // local-filesystem write. Router-first ports are the next step.
   { source: "auto_brief_campaigns", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "session_prep", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "bill_embeddings", interval_hours: 72, system: "local-box", cadence: "daily" },
