@@ -342,10 +342,13 @@ const callSambanova = (sys, user, maxTokens, modelOverride) => callOpenAICompat(
 const callOpenrouter = (sys, user, maxTokens, modelOverride) => callOpenAICompat("openrouter", {
   url: "https://openrouter.ai/api/v1/chat/completions",
   key: OPENROUTER_API_KEY,
-  // 2026-09-05: the old :free llama slug now 404s ("paid version available").
-  // z-ai/glm-5.2:free is in OpenRouter's current free tier. Free slugs churn —
-  // re-check with GET /api/v1/models and filter pricing.prompt == "0".
-  model: process.env.OPENROUTER_MODEL || "z-ai/glm-5.2:free",
+  // Individual ":free" slugs churn faster than we can chase them: the llama
+  // slug died before 2026-09-05, z-ai/glm-5.2:free was set that day and was
+  // itself 404 "unavailable for free" by 09-07. "openrouter/free" is
+  // OpenRouter's STABLE meta-slug that routes to whatever is free right now,
+  // so it does not rot on a schedule. (To audit the underlying pool:
+  // GET /api/v1/models, keep pricing.prompt == "0" — 16 of 428 on 09-07.)
+  model: process.env.OPENROUTER_MODEL || "openrouter/free",
   extraHeaders: { "HTTP-Referer": "https://www.ikratom.org", "X-Title": "iKratom" },
 }, sys, user, maxTokens, modelOverride);
 

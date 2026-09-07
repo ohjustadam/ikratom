@@ -142,12 +142,16 @@ export const REGISTRY = [
   // Genuinely box-only. LegiScan's query API refuses GitHub Actions datacenter
   // IPs (6/6 connect timeouts), so this one cannot be moved by wanting it.
   { source: "topic_bill_discovery", interval_hours: 216, system: "local-box", cadence: "weekly" },
-  // Box-only for now: Ollama models (hermes3:8b / nomic-embed-text) and a
-  // local-filesystem write. Router-first ports are the next step.
-  { source: "auto_brief_campaigns", interval_hours: 72, system: "local-box", cadence: "daily" },
+  // Free-AI research agents — MOVED OFF THE BOX 2026-09-07 into
+  // cron-nightly-cloud.yml as their own jobs. They drive lib/tool-chat.mjs,
+  // which runs the same tool-calling loop on local Ollama OR any free
+  // OpenAI-compatible provider, so they no longer need the PC.
+  { source: "auto_brief_campaigns", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  { source: "dossier_research", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  // Still genuinely box-only: nomic-embed-text runs in local Ollama, and
+  // session_prep writes into the owner's working checkout by design.
   { source: "session_prep", interval_hours: 72, system: "local-box", cadence: "daily" },
   { source: "bill_embeddings", interval_hours: 72, system: "local-box", cadence: "daily" },
-  { source: "dossier_research", interval_hours: 72, system: "local-box", cadence: "daily" },
   // Nightly cloud chassis (cron-nightly-cloud.yml @ 08:30 UTC).
   { source: "state_executives_sync", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "fetch_bill_texts", interval_hours: 72, system: "github-actions", cadence: "daily" },

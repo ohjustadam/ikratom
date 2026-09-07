@@ -50,15 +50,13 @@ REM    half. Self-gates to weekly + tiny (~36 calls, ~1 min) so it respects the
 REM    box-CPU budget.
 node --env-file=.env.local scripts/discover-topic-bills.mjs
 
-REM 6. THE DOSSIER (flagship Phase 1): Hermes deep-dives ONE target per night
-REM    through the verified corpora into the admin-only dossiers table (0195).
-REM    Bounded by MAX_TURNS; aborts fast if 0195 isn't applied. Human review
-REM    gates any publish.
-node --env-file=.env.local scripts/dossier-research.mjs --auto
-
-REM 7. Hermes auto-brief: research briefings for newly auto-approved campaigns
-REM    (PR-E; hermes3:8b). 10-min per-campaign hang guard, 3 per night.
-node --env-file=.env.local scripts/auto-brief-campaigns.mjs --limit 3
+REM MOVED TO GITHUB ACTIONS (2026-09-07): steps 6 and 7 — the dossier
+REM deep-dive and the campaign auto-brief — now run as their own jobs in
+REM .github/workflows/cron-nightly-cloud.yml. They used to require a local
+REM hermes3:8b; scripts/lib/tool-chat.mjs now runs the same tool-calling loop
+REM on local Ollama OR any free OpenAI-compatible provider, so they no longer
+REM depend on this machine being awake. Ollama is still tried FIRST when it is
+REM up, so running them here by hand costs nothing and uses no cloud quota.
 
 REM 8. Session prep (PR-F): regenerate the codebase map + state snapshot into
 REM    the WORKING checkout's private/session-prep/ so the owner's next Claude
