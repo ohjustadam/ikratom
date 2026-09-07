@@ -28,12 +28,19 @@ concurrency:
 jobs:
   backfill-term-dates:
     # Terms change only at elections and appointments, so weekly is plenty.
-    # Keyless source (unitedstates/congress-legislators) — no key, no quota.
-    # Federal only on purpose: it joins exactly on bioguide_id, where state and
-    # local terms would need fuzzy matching and a wrong term date is worse than
-    # a missing one, because the UI states it as fact.
+    # Both steps use keyless sources — no key, no quota — and both join on a
+    # stable id rather than a name, because a wrong term date is worse than a
+    # missing one: the UI states it as fact.
+    #   federal -> unitedstates/congress-legislators, joined on bioguide_id
+    #   state   -> openstates/people, joined on openstates_id (ocd-person uuid)
+    # Local terms are still uncovered; they are mostly not published in any
+    # machine-readable feed and will come through the locality pipeline.
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 25, not 10: the state step touches 7.5k rows. Steady-state it writes
+    # almost nothing (everything is already correct), but a cold or largely
+    # re-seeded roster is a real batch of work and a cancelled job would skip
+    # the rest of its steps in silence.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -47,6 +54,19 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/backfill-term-dates.mjs
+
+      # State tier (7.5k rows, 98% joinable). This one fills term_START_date
+      # almost everywhere and leaves term_end_date alone: openstates/people
+      # publishes an end date for six of 7,346 current state roles. Deriving it
+      # from start + term length would be confidently WRONG for every appointee
+      # and special-election winner, who serve the remainder of a seat's term
+      # rather than a full one. That belongs to the elections table.
+      - name: Backfill state term start dates
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backfill-state-term-dates.mjs
 
   sync-committees-all-states:
     # Pull legislator committee data for every state + DC via the

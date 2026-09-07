@@ -117,6 +117,50 @@ const billableBytes = mtdBytes * BILLABLE_RATIO;
 const pct = billableBytes / (BUDGET_GB * 1e9);
 console.log(`month-to-date billable estimate: ${(billableBytes / 1e9).toFixed(3)} GB of ${BUDGET_GB} GB (${(pct * 100).toFixed(1)}%) · cycle since ${cycleStart().toISOString().slice(0, 10)}`);
 
+// PROJECTION. A percentage answers "how bad is it"; only a DATE answers "how
+// long have I got". On 2026-09-07 this read 94.3% with 8 days still to run —
+// alarming, but the number that actually matters is that the cap lands in
+// about two days. Rate is taken from the last ~3 days of readings, not the
+// cycle average, so a fix that lands mid-cycle is reflected instead of being
+// buried under the pre-fix days.
+function projectBreach() {
+  const pts = (prior ?? [])
+    .map((r) => ({ t: new Date(r.finished_at).getTime(), mb: Number(r.rows_updated ?? 0) }))
+    .filter((p) => p.mb > 0);
+  pts.push({ t: Date.now(), mb: currentBytes / 1e6 });
+  if (pts.length < 2) return null;
+  const last = pts[pts.length - 1];
+  const cutoff = last.t - 3 * 864e5;
+  const first = pts.find((p) => p.t >= cutoff) ?? pts[0];
+  const elapsedDays = (last.t - first.t) / 864e5;
+  if (elapsedDays <= 0.5) return null; // too little history to extrapolate
+  const billableMbPerDay = ((last.mb - first.mb) / elapsedDays) * BILLABLE_RATIO;
+  if (billableMbPerDay <= 0) return null;
+  const capMb = BUDGET_GB * 1000;
+  const usedMb = billableBytes / 1e6;
+  const next = new Date(cycleStart());
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  const daysToReset = (next.getTime() - last.t) / 864e5;
+  return {
+    rate: billableMbPerDay,
+    daysToReset,
+    projectedMb: usedMb + billableMbPerDay * daysToReset,
+    daysToBreach: (capMb - usedMb) / billableMbPerDay,
+    safeRate: Math.max(0, (capMb - usedMb) / Math.max(daysToReset, 0.1)),
+    resetOn: next.toISOString().slice(0, 10),
+  };
+}
+const proj = projectBreach();
+if (proj) {
+  console.log(`  rate (last ~3d): ${proj.rate.toFixed(0)} MB/day billable · sustainable is ${(BUDGET_GB * 1000 / 30).toFixed(0)}`);
+  console.log(`  projected at reset (${proj.resetOn}): ${proj.projectedMb.toFixed(0)} MB (${((proj.projectedMb / (BUDGET_GB * 1000)) * 100).toFixed(0)}% of cap)`);
+  if (proj.daysToBreach < proj.daysToReset) {
+    const on = new Date(Date.now() + proj.daysToBreach * 864e5).toISOString().slice(0, 10);
+    console.log(`  ⚠ BREACHES the cap on ~${on} (${proj.daysToBreach.toFixed(1)} days) — before the reset.`);
+    console.log(`     staying under needs ≤ ${proj.safeRate.toFixed(0)} MB/day billable from here.`);
+  }
+}
+
 // 3. Threshold paging — once per threshold per cycle (dedupe via notes history).
 const crossed = THRESHOLDS.filter((t) => pct >= t);
 const already = new Set((prior ?? []).flatMap((r) => (r.notes?.match(/paged@(\d+)%/g) ?? []).map((m) => m.replace("paged@", "").replace("%", ""))));
@@ -137,7 +181,11 @@ if (toPage.length > 0) {
         webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:support@ikratom.org", pub, priv);
         const payload = JSON.stringify({
           title: `📊 Supabase egress at ${(pct * 100).toFixed(0)}% of free tier`,
-          body: `${(mtdBytes / 1e9).toFixed(2)} GB of ${BUDGET_GB} GB this cycle. At 100% the project gets RESTRICTED (the 2026-07-16 incident). Check caching + cron volume.`,
+          body: `${(billableBytes / 1e9).toFixed(2)} GB of ${BUDGET_GB} GB this cycle`
+            + (proj && proj.daysToBreach < proj.daysToReset
+              ? ` — on track to hit the cap in ~${proj.daysToBreach.toFixed(0)} day(s), before the ${proj.resetOn} reset. Needs ≤${proj.safeRate.toFixed(0)} MB/day to stay under.`
+              : `.`)
+            + ` At 100% the project gets RESTRICTED (the 2026-07-16 incident).`,
           link: "/admin/automation", tag: "egress-watchdog",
         });
         for (const s of subs) {
