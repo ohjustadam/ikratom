@@ -19,12 +19,12 @@
  *   node --env-file=.env.local scripts/dossier-research.mjs --auto --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
-import { TOOLS_SCHEMA, dispatchTool } from "./research-tools.mjs";
-import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
+import { dispatchTool } from "./research-tools.mjs";
+import { toolChat, ollamaToolModel, availableToolProviders } from "./lib/tool-chat.mjs";
 
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const MODEL = "hermes3:8b";
-const MAX_TURNS = 12;
+// The model is no longer named here: lib/tool-chat owns provider + model
+// selection (local Ollama first, free cloud providers after) and reports back
+// what it actually used, which is what gets written to dossiers.model.
 const args = process.argv.slice(2);
 const arg = (f) => { const i = args.indexOf(f); const v = args[i + 1]; return i >= 0 && v && !v.startsWith("--") ? v : null; };
 const ORG = arg("--org");
@@ -53,18 +53,17 @@ async function failTelemetry(note) {
   } catch { /* best-effort */ }
 }
 
-async function hermesUp() {
-  try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return false;
-    const models = ((await res.json()).models ?? []).map((m) => m.name);
-    return models.some((m) => m === MODEL || m.startsWith(MODEL.split(":")[0]));
-  } catch { return false; }
+// Local Ollama is preferred (free, unmetered). Anywhere it is absent the free
+// cloud providers carry the same synthesis — this used to print "nothing to do
+// here" and exit 0 with NO telemetry, so a box that was simply off looked
+// identical to a job that had never been scheduled. It was off for 55 days.
+const localModel = await ollamaToolModel();
+const cloudProviders = availableToolProviders();
+if (!localModel && cloudProviders.length === 0) {
+  await failTelemetry("no tool-capable provider (no Ollama, no free-tier key) — dossier synthesis could not run");
+  process.exit(1);
 }
-if (!(await hermesUp())) {
-  console.log(`dossier: Ollama/${MODEL} not reachable at ${OLLAMA_URL} — nothing to do here (the box drains the queue).`);
-  process.exit(0);
-}
+console.log(`dossier: local:${localModel ?? "none"} cloud:[${cloudProviders.join(", ") || "none"}]`);
 
 // ---------- pick the target ----------
 let target = null; // { kind, key, name, state }
@@ -190,17 +189,25 @@ const messages = [
 // Synthesis only — NO tools (data is already gathered), so the model can't
 // loop or stall. One call + one expand-retry if the first draft is thin.
 let finalText = null;
+let usedModel = localModel ?? "cloud";
 for (let attempt = 0; attempt < 2; attempt++) {
   process.stdout.write(`Synthesis attempt ${attempt + 1}/2: `);
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: MODEL, messages, stream: false, options: { temperature: 0.2, num_thread: OLLAMA_NUM_THREAD } }),
-    signal: AbortSignal.timeout(600_000),
-  });
-  if (!res.ok) { await failTelemetry(`Ollama ${res.status}: ${(await res.text()).slice(0, 150)}`); process.exit(1); }
-  const text = ((await res.json()).message?.content ?? "").trim();
-  console.log(`${text.length} chars`);
+  let run;
+  try {
+    // No tools here on purpose — the data was already gathered
+    // deterministically above, so this is pure synthesis and the model cannot
+    // loop or stall. toolChat is reused only for its provider rotation.
+    run = await toolChat({
+      messages, tools: undefined, dispatch: () => "", maxTurns: 1,
+      maxTokens: 4096, timeoutMs: 600_000,
+    });
+  } catch (e) {
+    await failTelemetry(`synthesis failed: ${String(e.message ?? e).slice(0, 150)}`);
+    process.exit(1);
+  }
+  usedModel = `${run.provider}/${run.model}`;
+  const text = (run.text ?? "").trim();
+  console.log(`${text.length} chars via ${usedModel}`);
   if (text.length >= 1200) { finalText = text; break; }
   messages.push({ role: "assistant", content: text });
   messages.push({ role: "user", content: "Too brief. Expand EVERY section with the specifics from the research data — names, dates, dollar amounts, bill numbers, quotes. The dossier must be thorough and complete." });
@@ -238,7 +245,7 @@ const { error: saveErr } = await sb.from("dossiers").upsert({
   summary,
   body_md: finalText,
   sources_md: sources,
-  model: MODEL,
+  model: usedModel,
   tool_calls: toolCalls,
   refreshed_at: NOW(),
   review_status: "unreviewed",
@@ -251,7 +258,7 @@ console.log(`✓ Dossier saved: [${target.kind}] ${target.name} (unreviewed — 
 try {
   await sb.from("scraper_runs").insert({
     source: "dossier_research", started_at: new Date(t0).toISOString(), finished_at: NOW(),
-    status: "success", rows_updated: 1, notes: `target=${target.kind}:${target.key} toolCalls=${toolCalls} chars=${finalText.length}`,
+    status: "success", rows_updated: 1, notes: `target=${target.kind}:${target.key} toolCalls=${toolCalls} chars=${finalText.length} via=${usedModel}`,
   });
 } catch { /* best-effort */ }
 process.exit(0);

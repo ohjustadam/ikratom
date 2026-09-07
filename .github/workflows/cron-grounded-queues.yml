@@ -1,0 +1,168 @@
+# Grounded queue work — CLOUD. The three nightly steps that needed the owner's
+# PC only because SearXNG lived there, now running on GitHub Actions with an
+# ephemeral in-job SearXNG container.
+#
+# WHY THIS EXISTS. These jobs were registered as system "local-box" and ran from
+# scripts/run-nightly-steps.cmd. Measured 2026-09-07, the box had not run them
+# in a very long time:
+#
+#     clear_review_queues     66 days silent
+#     verify_local_bans       55 days silent
+#     sweep_locality_intel    55 days silent
+#
+# The staleness watchdog was RIGHT and did its job — it coalesced all the box
+# sources into a single "local-box appears OFFLINE" page instead of nine
+# separate false alarms. But a correct page nobody can action is still a dead
+# automation: a PC that is asleep, busy, or on a different network is not a
+# platform the site can depend on. Anything that does not genuinely need local
+# hardware belongs in the cloud.
+#
+# WHAT STILL NEEDS THE BOX (deliberately NOT moved):
+#   - topic_bill_discovery — LegiScan's query API refuses GitHub Actions
+#     datacenter IPs (verified: 6/6 connect timeouts). Genuinely box-only.
+#   - dossier_research / auto_brief_campaigns / bill_embeddings — Ollama models.
+#   - session_prep — writes into the owner's working checkout by design.
+#
+# ONE JOB PER STEP, ON PURPOSE. A monolithic job that overruns its
+# timeout-minutes is CANCELLED, and every remaining step in it is silently
+# skipped — that is how the daily briefing sat dead for 19 days. Separate jobs
+# means one slow sweep cannot take the review queue down with it.
+name: Grounded queues — cloud (SearXNG)
+
+on:
+  schedule:
+    # Twice daily. The box managed one pass a night at best; this is strictly
+    # better for the review queue, whose whole promise is "nothing waits".
+    - cron: "10 3,15 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max items per step this run"
+        required: false
+        default: ""
+
+concurrency:
+  group: grounded-queues
+  cancel-in-progress: false
+
+jobs:
+  # The queue the owner actually looks at: news-derived campaigns and intel
+  # alerts that the hourly engine escalated rather than decided. Grounds each
+  # survivor with a keyless search + a free-tier verdict, then approves the
+  # confidently-real ones and rejects the dead/moot/hallucinated ones WITH a
+  # recorded reason. See docs/RUNBOOK_review_queues.md.
+  review-queues:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+      SEARXNG_URL: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - uses: ./.github/actions/searxng
+      - name: Clear the review queues (ground, approve, reject-with-reason)
+        run: node scripts/clear-review-queues.mjs --ai --apply --approve
+      - name: SearXNG logs (always)
+        if: always()
+        run: docker logs searxng 2>&1 | tail -40 || true
+
+  # The /banned accuracy gate (migration 0190). Re-confirms HELD single-source
+  # local bans against >=2 distinct-host sources and catches repeals — the
+  # Monroe County, MS pattern, where a resident found us showing a ban that had
+  # been rescinded in 2020.
+  local-bans:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+      SEARXNG_URL: http://localhost:8080
+      # No Ollama here. Without this the extractor pins providerOverride
+      # "ollama" and burns one connection-refused round trip per page before
+      # the router falls through. Same knob shape as OFFICIALS_EXTRACT_PROVIDER.
+      BAN_EXTRACT_PROVIDER: groq
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - uses: ./.github/actions/searxng
+      - name: Re-verify held local kratom bans (two-source gate)
+        env:
+          DISPATCH_LIMIT: ${{ github.event.inputs.limit || '40' }}
+        run: |
+          lim=$(printf '%d' "${DISPATCH_LIMIT:-40}" 2>/dev/null || echo 40)
+          node scripts/verify-local-bans.mjs --limit "$lim" --max-minutes 32
+      - name: SearXNG logs (always)
+        if: always()
+        run: docker logs searxng 2>&1 | tail -40 || true
+
+  # Locality intelligence: legal status, framework, ordinance citation, pending
+  # measures and next meeting for each queued place. Runs AFTER local-bans
+  # because both write locality_intel through the same verifier — serialising
+  # them keeps one run from re-deriving what the other just wrote.
+  locality-intel:
+    needs: local-bans
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+      SEARXNG_URL: http://localhost:8080
+      BAN_EXTRACT_PROVIDER: groq
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - uses: ./.github/actions/searxng
+      - name: Sweep queued localities
+        env:
+          DISPATCH_LIMIT: ${{ github.event.inputs.limit || '20' }}
+        run: |
+          lim=$(printf '%d' "${DISPATCH_LIMIT:-20}" 2>/dev/null || echo 20)
+          node scripts/sweep-locality-intel.mjs --limit "$lim" --max-minutes 28
+      - name: SearXNG logs (always)
+        if: always()
+        run: docker logs searxng 2>&1 | tail -40 || true

@@ -1,0 +1,65 @@
+name: In-job SearXNG
+description: >
+  Start an ephemeral SearXNG container and wait for its JSON API — the cloud
+  equivalent of the owner box's localhost:8080 instance, so keyless
+  search-grounded scripts can run in GitHub Actions instead of only on the PC.
+
+# WHY A COMPOSITE ACTION. This bootstrap was copy-pasted inline in
+# cron-localreps-cloud.yml. Every additional grounded job that moves off the box
+# wanted the same twelve lines, and a second copy is how the two drift. One
+# definition, used by every workflow that needs search.
+#
+# IT FAILS LOUDLY. The original inline loop simply fell out after 45 tries and
+# let the job continue: the script then found no search backend, queued every
+# item, and the run went green having done nothing. That is the same failure
+# shape as the pipelines that reported "0 found" for four days while their AI
+# provider was dead. If search never comes up there is no grounding, and a job
+# with no grounding must go red rather than quietly accomplish nothing.
+
+inputs:
+  port:
+    description: Host port to bind the container to (scripts read SEARXNG_URL).
+    required: false
+    default: "8080"
+  settings:
+    description: Repo-relative path to the settings.yml to mount read-only.
+    required: false
+    default: scripts/searxng/settings.yml
+  timeout-seconds:
+    description: How long to wait for the JSON API before failing the job.
+    required: false
+    default: "90"
+
+runs:
+  using: composite
+  steps:
+    - name: Start SearXNG container
+      shell: bash
+      env:
+        SEARXNG_PORT: ${{ inputs.port }}
+        SEARXNG_SETTINGS: ${{ inputs.settings }}
+        SEARXNG_TIMEOUT: ${{ inputs.timeout-seconds }}
+      run: |
+        set -euo pipefail
+        settings="${GITHUB_WORKSPACE}/${SEARXNG_SETTINGS}"
+        if [ ! -f "$settings" ]; then
+          echo "::error::SearXNG settings not found at ${SEARXNG_SETTINGS}"
+          exit 1
+        fi
+        docker run -d --name searxng -p "${SEARXNG_PORT}:8080" \
+          -e SEARXNG_SECRET="$(openssl rand -hex 32)" \
+          -v "${settings}:/etc/searxng/settings.yml:ro" \
+          searxng/searxng:latest
+
+        echo "waiting up to ${SEARXNG_TIMEOUT}s for the SearXNG JSON API..."
+        deadline=$(( $(date +%s) + SEARXNG_TIMEOUT ))
+        until [ "$(curl -s -o /dev/null -w '%{http_code}' \
+                   "http://localhost:${SEARXNG_PORT}/search?q=kratom&format=json" || true)" = "200" ]; do
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "::error::SearXNG never answered on :${SEARXNG_PORT} within ${SEARXNG_TIMEOUT}s — failing rather than running ungrounded."
+            docker logs searxng 2>&1 | tail -60 || true
+            exit 1
+          fi
+          sleep 2
+        done
+        echo "SearXNG ready on :${SEARXNG_PORT}"

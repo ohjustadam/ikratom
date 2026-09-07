@@ -305,10 +305,15 @@ export async function verifyLocalBan({ sb, state, locality, caller = "ban-verify
     let result;
     try {
       extractsTried++;
+      // BAN_EXTRACT_PROVIDER picks which provider the router STARTS with; it
+      // still falls through to every other one. Default "ollama" keeps the
+      // owner box on its free local model. GitHub Actions sets it to a cloud
+      // provider, because there is no Ollama there and the default would burn
+      // one connection-refused round trip per page before falling through.
       result = await aiRouter({
         systemPrompt: EXTRACT_SYSTEM,
         userPrompt: `Page URL: ${url}\nLocality being verified: ${place}, ${stateName} (${state})\n\nPAGE TEXT:\n${text}`,
-        maxTokens: 1024, providerOverride: "ollama", verbose: false,
+        maxTokens: 1024, providerOverride: process.env.BAN_EXTRACT_PROVIDER || "ollama", verbose: false,
       });
     } catch { continue; }
     lastProvider = result.provider;
