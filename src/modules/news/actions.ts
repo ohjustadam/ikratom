@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createAnonClient } from "@/lib/supabase/anon";
 import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
 
@@ -68,8 +69,15 @@ export async function listNewsForState(state: string | null, limit = 20): Promis
   return (data ?? []) as unknown as NewsListItem[];
 }
 
+/**
+ * The public /news list. Cookie-LESS on purpose (2026-09-08): every row it
+ * returns is already public (active, non-duplicate, body-verified), so RLS as
+ * anonymous returns exactly the right set — and not reading cookies is what
+ * lets /news be cached instead of re-querying Supabase on every crawler hit.
+ * Verified: anon sees 10,712 active news_items, which is the full public set.
+ */
 export async function listAllRecentNews(limit = 50): Promise<NewsListItem[]> {
-  const supabase = await createClient();
+  const supabase = createAnonClient();
   const { data } = await supabase
     .from("news_items")
     .select(NEWS_FIELDS)

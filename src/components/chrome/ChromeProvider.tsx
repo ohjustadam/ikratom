@@ -24,6 +24,7 @@ const ANON: ChromeMe = {
   username: null,
   avatarUrl: null,
   fullName: null,
+  state: null,
   isAdmin: false,
   isLeader: false,
   leaderTourPending: false,
