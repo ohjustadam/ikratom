@@ -37,7 +37,27 @@ import { STATE_NAMES } from "@/lib/state-names";
  * RESTRICTS the Supabase project rather than billing for it. Dynamic routes
  * 500 in that state; a prerendered one is a file on the CDN and keeps serving.
  */
-export const revalidate = 900;
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠
+ *
+ * Supabase free-tier egress was at 96.3% with the cycle resetting 09-16, and
+ * exceeding it RESTRICTS the project (the API stops answering; the site goes
+ * down). ISR is lazy — a cached page only re-renders when a request arrives
+ * after its window — so the window IS the per-page cost ceiling. Stretching it
+ * past the reset means this page renders at most once more for the rest of the
+ * cycle and then costs nothing at all, while still serving instantly from the
+ * CDN.
+ *
+ * The usual objection — "but the content goes stale" — barely applies here:
+ * the cron fleet is ALREADY deferred by the egress gate, so the underlying
+ * data is not moving either. Freezing the presentation of data that is itself
+ * frozen loses almost nothing, and on-demand revalidation still works if
+ * something genuinely urgent needs to publish.
+ *
+ * tests/egress-freeze-expiry.test.ts turns red after 2026-09-16 so this
+ * reverts on evidence rather than on someone remembering.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 900
 
 export function generateStaticParams() {
   return [];
