@@ -17,6 +17,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── SUPABASE EGRESS GATE (bulk tier) ────────────────────────────────────
+  #
+  # Same gate as cron-hourly.yml, at the stricter "bulk" ceiling: the daily
+  # fleet is wide audits, backfills and re-scans, all of which can wait a day
+  # and lose nothing permanent. Supabase RESTRICTS the project at 100% of the
+  # free egress cap rather than billing for it, so an unchecked backfill can
+  # take the public site down.
+  #
+  # Only ROOT jobs carry the gate. Everything downstream inherits it for free:
+  # a job whose `needs` was skipped is itself skipped, so gating the roots
+  # gates the whole 38-job graph without touching every definition.
+  #
+  # NOT gated: egress-watchdog (it is what MEASURES the budget — a monitor that
+  # silences itself under load is worse than no monitor) and the two reminder
+  # sends that real users are waiting on.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier bulk
+
   vercel-migrated-crons:
     # MIGRATED OFF VERCEL 2026-07-26. These were declared in vercel.json's
     # "crons" block, which ONLY Vercel executes — after the move to Netlify
@@ -105,6 +138,8 @@ jobs:
         run: node scripts/check-egress-usage.mjs
 
   verify-bill-status:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Layer 3 of the real-time pipeline (Layer 1 = bill_actions trigger;
     # Layer 2 = LegiScan primary sync). This is the safety net for
     # cases where BOTH OpenStates and LegiScan miss something — Gemini
@@ -145,6 +180,8 @@ jobs:
         run: node scripts/auto-resolve-sync-discrepancies.mjs --limit 100
 
   openfec-donor-sync:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Refresh OpenFEC donor data for federal legislators (us_senate +
     # us_house). Once a day is plenty — campaign finance updates
     # quarterly. 50 legs/run = ~2 days to cover full ~700 federal
@@ -181,6 +218,8 @@ jobs:
         run: node scripts/classify-donor-industries.mjs --refresh
 
   sync-bill-sponsors-all:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Back-fill bill_sponsors via OpenStates for every active anti/pro
     # bill across all 50 states. Critical for the /intel/threat-matrix
     # to surface hostile / champion legislators nationwide — without
@@ -214,6 +253,8 @@ jobs:
         run: node scripts/sync-bill-sponsors.mjs --all --max-minutes 24
 
   sync-stock-act-trades:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # STOCK Act personal-trade disclosures for federal legislators
     # (Periodic Transaction Reports). Pulls Senate + House data from
     # community-maintained mirrors (Senate Stock Watcher GitHub +
@@ -244,6 +285,8 @@ jobs:
         run: node scripts/sync-stock-act-trades.mjs
 
   lda-kratom-sync:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Pulls every Senate LDA filing mentioning kratom, refreshes our
     # lobbying_filings table. New filings drop quarterly so daily
     # is overkill but cheap (~25s wall time, no auth required) and
@@ -265,6 +308,8 @@ jobs:
         run: node scripts/sync-lda-kratom.mjs
 
   bop-browser-scrape:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # BoP sources whose state .gov WAFs do TLS fingerprinting
     # (KS, NH, MA, AR currently) can't be scraped via Node fetch —
     # the JA3 signature gives us away regardless of headers. This
@@ -344,6 +389,8 @@ jobs:
         run: node scripts/classify-bop-ai.mjs --limit 50
 
   resolve-news-urls:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Phase 2 of FP defense — resolve Google News redirect URLs to publisher
     # URLs so verify-news-body / extract-news-content can fetch the article.
     # KEYLESS HTTP decode (lib/google-news-decode.mjs) — no Chromium needed;
@@ -485,6 +532,8 @@ jobs:
         run: node scripts/audit-federal-claims.mjs --days 45 --fix
 
   sync-usaspending-kratom:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Federal awards (grants + contracts) from USAspending.gov.
     # Surfaces who's getting paid by the feds for kratom-related work
     # — FDA contracts for human abuse potential studies, NIH grants
@@ -506,6 +555,8 @@ jobs:
         run: node scripts/sync-usaspending-kratom.mjs
 
   sync-regulations-gov:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Federal rulemaking tracker via Regulations.gov. Pulls every
     # kratom-mentioning federal document (FDA/DEA/HHS/EPA/FTC notices,
     # NDI submissions, proposed/final rules, public comments). Works
@@ -531,6 +582,8 @@ jobs:
         run: node scripts/sync-regulations-gov-kratom.mjs --max-pages 5
 
   sync-courtlistener-kratom:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Court litigation tracking via CourtListener (Free Law Project).
     # Pulls federal + state court opinions AND active RECAP dockets
     # mentioning kratom. Free unlimited API, no key required.
@@ -556,6 +609,8 @@ jobs:
         run: node scripts/sync-courtlistener-kratom.mjs --max-pages 5
 
   scrape-utah-lobbying:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Phase 3 D2 pilot — scrape Utah's lobbyist registry. Single HTML
     # page, ~8MB, parses to ~6,800 registrations. Kratom-industry rows
     # (~16 today) upsert idempotently. Quick — runs in under 10s.
@@ -584,7 +639,7 @@ jobs:
     # Runs AFTER all the data-collection jobs so the briefing reflects
     # today's bill/news/BoP/state-lobbying state. ~5s per state × 51
     # states ≈ 5 min.
-    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom]
+    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom, budget]
     # Never cascade-skip on an upstream failure. These 5 needs are external-API
     # collectors (the BoP Playwright chain notes House/state 403s); GitHub's
     # default `needs` requires SUCCESS, so one flaky API would SKIP this job —
@@ -592,7 +647,7 @@ jobs:
     # AND ~7 production queue-cleanup steps. Briefings degrade fine on yesterday's
     # intel and the cleanup steps are idempotent, so run regardless (matches the
     # legiscan-wide-pass dependents' `if: !cancelled()` hardening).
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -637,12 +692,13 @@ jobs:
       # silent breakage (e.g. cron-step failure, missing secret).
 
   translate-content:
+    needs: budget
     # MOVED OFF THE OWNER'S PC, 2026-09-05. This was pinned to a local Ollama at
     # localhost:11434, so it only ran when his machine did — and it had produced
     # nothing since 2026-07-14, leaving id/th/ms/vi/tl (the kratom-producing
     # countries) 53 days stale. It now goes through the free router first and
     # keeps Ollama only as a local fallback, so it runs unattended here.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -686,8 +742,8 @@ jobs:
     # is preserved -- but as a SIBLING job, so a slow briefing run can never
     # take the cleanup down with it again. These steps are cheap, idempotent,
     # and have nothing to do with AI generation.
-    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom]
-    if: ${{ !cancelled() }}
+    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom, budget]
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -799,10 +855,10 @@ jobs:
     # 2026-05-14: widened from --priority-only (10 states) to --all-states
     # (51 states). OpenStates free tier handles this — ~150 API calls
     # per run, well under the 100k/day limit.
-    needs: legiscan-wide-pass
+    needs: [legiscan-wide-pass, budget]
     # Sequencing only (protects the shared OpenStates quota) — committees
     # don't consume legiscan output, so run even if the sweep failed/timed out.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -834,10 +890,10 @@ jobs:
     # is available when AI is asked to draft. Falls through to local
     # Ollama when cloud providers are saturated — graceful catchup
     # over multiple daily runs is fine.
-    needs: sync-committees-openstates
+    needs: [sync-committees-openstates, budget]
     # Run even if the committee sync failed — stance drafting degrades
     # gracefully with yesterday's committee data.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -858,6 +914,8 @@ jobs:
         run: node scripts/draft-legislator-stance.mjs --all-states --max-minutes 80
 
   discover-municipal-meetings:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Discover city/county council + town-hall meetings with kratom
     # (or related: gas-station-heroin, 7-OH, tianeptine) on the agenda.
     # Uses Gemini grounded search per state. Found meetings land in
@@ -951,6 +1009,8 @@ jobs:
         run: node scripts/fire-voting-reminders.mjs
 
   scan-legistar-tenants:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Proactive scan of ~22 major US Legistar tenants (NYC, SF, LA
     # County, Chicago, Philadelphia, San Antonio, Atlanta, Miami,
     # Seattle, etc.) for kratom-relevant agenda items.
@@ -977,6 +1037,8 @@ jobs:
         run: node scripts/scan-legistar-tenants.mjs
 
   scan-granicus-tenants:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Proactive scan of ~45 major US Granicus tenants (LA, SF, Chicago,
     # Boston, etc.) for kratom-relevant agenda items. Complements the
     # Gemini-grounded discovery — Gemini covers anywhere on the web but
@@ -1002,6 +1064,8 @@ jobs:
         run: node scripts/scan-granicus-tenants.mjs
 
   sync-research-pubmed:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Ingest newest kratom + 7-OH research from PubMed (NCBI E-utils,
     # free + no key). Then run AI evaluation on anything new.
     runs-on: ubuntu-latest
@@ -1030,6 +1094,8 @@ jobs:
         run: node scripts/evaluate-research-papers.mjs --limit 50
 
   legiscan-wide-pass:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Daily sweep of every active anti/pro bill via LegiScan. The hourly
     # cron only hits the 30 most-stale; this catches everything else
     # at least once a day even if hourly never gets to it.
@@ -1105,9 +1171,9 @@ jobs:
     #     hit through the normal write path
     # Runs after legiscan-wide-pass so the most-recent LegiScan data
     # is in place first; only fills in residual gaps.
-    needs: legiscan-wide-pass
+    needs: [legiscan-wide-pass, budget]
     # Best on fresh data, still correct on yesterday's — never skip.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1124,6 +1190,8 @@ jobs:
         run: node scripts/backfill-bill-committees.mjs
 
   index-legislator-news-mentions:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Phase 3 D4: scan news_items for per-legislator name mentions.
     # Builds two regex patterns per legislator:
     #   1. Exact full-name
@@ -1151,6 +1219,8 @@ jobs:
         run: node scripts/index-legislator-news-mentions.mjs
 
   correlate-news-bills-ai:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # AI semantic news↔bill correlation. The hourly regex pass catches
     # explicit bill-number mentions; this fills in articles that cover
     # a specific bill thematically without naming the bill number.
@@ -1188,11 +1258,11 @@ jobs:
     # place when we cluster. Pattern-based v1 (regex on title +
     # summary + bill_text_versions) — cheap, no AI. Idempotent:
     # cluster + member rows are upserted on each run.
-    needs: legiscan-wide-pass
+    needs: [legiscan-wide-pass, budget]
     # CRITICAL to never skip: this job carries the DAILY BRIEF PUSH.
     # When legiscan-wide-pass timed out on 2026-07-05, this was skipped
     # and users got no brief. Clustering on day-old data beats no brief.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1252,9 +1322,9 @@ jobs:
     # than 7 days OR null (e.g. the 39 cleared in PR #325). The
     # script caps at LIMIT (default 20) per run to spread AI quota
     # across many days — full backfill takes ~2 daily runs.
-    needs: legiscan-wide-pass
+    needs: [legiscan-wide-pass, budget]
     # Journeys enrich yesterday's text fine — never cascade-skip.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -1288,10 +1358,10 @@ jobs:
     # are available to classify. Idempotent: only touches bills it doesn't
     # already own (substance_targeting_source != 'ai-substance-pass-v1'),
     # capped at --limit per run to spread AI quota across days.
-    needs: enrich-bill-journey
+    needs: [enrich-bill-journey, budget]
     # Run even if the journey pass failed or timed out — independent enough
     # that the substance classify + downstream derive should still recompute.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -1318,9 +1388,9 @@ jobs:
     # substance_targeting. Runs AFTER classify-bill-substance so the latest
     # substance map is available. No AI calls (reads stored classification).
     # Idempotent; preserves admin overrides. Flags edge cases needs_review.
-    needs: classify-bill-substance
+    needs: [classify-bill-substance, budget]
     # Always recompute even if upstream enrich/classify failed or timed out.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1346,8 +1416,8 @@ jobs:
     # confirm queue on their effective date, and notify the owner. Runs AFTER
     # derive-state-status so its needs_review flag wins for the day (derive
     # rewrites needs_review nightly). Does NOT auto-publish — the owner confirms.
-    needs: derive-state-status
-    if: ${{ !cancelled() }}
+    needs: [derive-state-status, budget]
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1364,6 +1434,8 @@ jobs:
         run: node scripts/queue-due-state-flips.mjs --apply
 
   sync-legistar-officials:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # FREE, non-grounded local-officials source: the Legistar (Granicus)
     # webapi exposes authoritative current council/board rosters (the
     # clerk's own system) with NO key and NO per-day cap. Seeds major-metro

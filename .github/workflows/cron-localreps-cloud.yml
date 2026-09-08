@@ -35,7 +35,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── SUPABASE EGRESS GATE ────────────────────────────────────────────────
+  # Background resolution defers when the free-tier egress cap is close, so
+  # page traffic keeps the headroom. See scripts/lib/egress-budget.mjs.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier normal
+
   resolve:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

@@ -52,6 +52,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── SUPABASE EGRESS GATE ────────────────────────────────────────────────
+  #
+  # Supabase's free plan does not BILL for egress overage, it RESTRICTS the
+  # project: "Your projects will not be able to serve requests when you use up
+  # your quota." Hitting the cap takes the SITE down. It happened on
+  # 2026-07-16, and on 2026-09-08 we reached 94.3% with 8 days left in the cycle.
+  #
+  # Monitoring alone cannot prevent it — check-egress-usage has been paging
+  # correctly for weeks and the number still climbed, because an alert only
+  # works if someone is awake to act on it. This gate sheds load automatically.
+  #
+  # The rule: when the budget runs low the ROBOTS stop so the HUMANS can still
+  # use the site. News sync and enrichment can wait a day and lose nothing
+  # permanent; a visitor hitting a dead site is the failure we are preventing.
+  #
+  # DELIBERATELY NOT GATED: fire-waves and drain-send-batches (real user sends
+  # people are waiting on) and watchdog (a monitor that silences itself under
+  # load is worse than no monitor). See scripts/lib/egress-budget.mjs.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      pct: ${{ steps.gate.outputs.pct }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier normal
+
   fire-waves:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -134,6 +171,8 @@ jobs:
           fi
 
   daily-brief-audio-selfheal:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Self-heal: render TODAY's brief audio if it's missing. --if-missing is a
     # cheap no-op once today's file exists, so it's safe every hour and
     # guarantees same-day audio regardless of the daily cron.
@@ -153,6 +192,8 @@ jobs:
         run: node scripts/render-daily-brief-audio.mjs --if-missing
 
   news-intake:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # The essential, always-must-run leg: scrape Google News RSS across all
     # states, then classify newly-ingested items into policy_alerts. These are
     # the heaviest steps (sync ~16 min, classify ~8 min) so they get their own
@@ -192,7 +233,8 @@ jobs:
     # Each step self-gates to unprocessed rows and is --limit-bounded; the
     # daily/nightly crons remain the deep-backlog drain. Steps are
     # continue-on-error so a transient provider/robots wall can't fail the leg.
-    needs: news-intake
+    needs: [news-intake, budget]
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 28
     env:
@@ -238,7 +280,8 @@ jobs:
     # (the enrich-dependent steps self-gate, so they pick up the prior tick's
     # enriched rows — a 1-tick lag, not a stall). Most steps are idempotent
     # no-ops in a quiet hour.
-    needs: news-intake
+    needs: [news-intake, budget]
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 28
     env:
@@ -382,6 +425,25 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
         run: node scripts/check-vercel-usage.mjs
+
+      # Egress reading, HOURLY (moved from the daily cron 2026-09-08).
+      #
+      # The load-shedding gate can only be as fresh as this measurement. On a
+      # once-a-day reading the gate could be acting on a number up to 24h old,
+      # and 24h is enough to cross the cap from a comfortable-looking number —
+      # we went 89.6% -> 94.3% in a single day. Two metrics calls and a small
+      # query is a trivial cost for making the gate actually responsive.
+      # It also runs in the UNGATED watchdog job on purpose: the thing that
+      # measures the budget must never be switched off by the budget.
+      - name: Egress reading (feeds the load-shedding gate)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node scripts/check-egress-usage.mjs
 
       - name: Check cron staleness (self-monitoring)
         # Compares cron-registry expected cadences against scraper_runs.finished_at;
