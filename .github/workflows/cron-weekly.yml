@@ -26,7 +26,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── SUPABASE EGRESS GATE (bulk tier) ────────────────────────────────────
+  # Supabase RESTRICTS the project at 100% of the free egress cap rather than
+  # billing for it — hitting it takes the SITE down. The weekly fleet is the
+  # widest work we run (term backfills touch 7.5k rows, committees 33k), so it
+  # defers first. See scripts/lib/egress-budget.mjs.
+  #
+  # NOT gated: weekly-patch-digest-broadcast — it sends a real notification to
+  # real users, and a skipped week is a silently missing digest.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier bulk
+
   backfill-term-dates:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Terms change only at elections and appointments, so weekly is plenty.
     # Both steps use keyless sources — no key, no quota — and both join on a
     # stable id rather than a name, because a wrong term date is worse than a
@@ -69,6 +97,8 @@ jobs:
         run: node scripts/backfill-state-term-dates.mjs
 
   sync-committees-all-states:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Pull legislator committee data for every state + DC via the
     # OpenStates v3 API. Idempotent — upsert on
     # (legislator_id, committee_name, session_id) so non-priority
@@ -90,6 +120,8 @@ jobs:
         run: node scripts/sync-committees-openstates.mjs --max-minutes 80
 
   sync-nonprofit-990s:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Weekly refresh of ProPublica Form 990 data for kratom-policy-
     # aligned orgs (AKA, GKC, etc.). 990 filings update annually
     # by definition; weekly is plenty.
@@ -155,11 +187,11 @@ jobs:
     # legislators so cost stays low after the first full pass. Provides
     # weekly catch-up for states whose kratom activity is low enough
     # to skip the daily priority cron.
-    needs: sync-committees-all-states
+    needs: [sync-committees-all-states, budget]
     # Never cascade-skip if the committee sync timed out — the stance pass is
     # this workflow's only weekly catch-up for the 41 non-priority states and
     # degrades fine on last week's committee data. Matches the daily-cron pattern.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:

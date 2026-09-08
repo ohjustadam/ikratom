@@ -31,7 +31,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── SUPABASE EGRESS GATE (bulk tier) ────────────────────────────────────
+  # Supabase RESTRICTS the project at 100% of the free egress cap rather than
+  # billing for it — hitting it takes the SITE down. Background work defers so
+  # page traffic keeps the remaining headroom. See scripts/lib/egress-budget.mjs.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier bulk
+
   nightly-cloud:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 110
     env:
@@ -141,6 +165,8 @@ jobs:
   # must not be able to take the rest of the nightly chassis down with them.
 
   dossier-research:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -164,6 +190,8 @@ jobs:
         run: node scripts/dossier-research.mjs --auto
 
   auto-brief-campaigns:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:

@@ -46,12 +46,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── SUPABASE EGRESS GATE (bulk tier) ────────────────────────────────────
+  # Supabase RESTRICTS the project at 100% of the free egress cap rather than
+  # billing for it — hitting it takes the SITE down. Background work defers so
+  # page traffic keeps the remaining headroom. See scripts/lib/egress-budget.mjs.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier bulk
+
   # The queue the owner actually looks at: news-derived campaigns and intel
   # alerts that the hourly engine escalated rather than decided. Grounds each
   # survivor with a keyless search + a free-tier verdict, then approves the
   # confidently-real ones and rejects the dead/moot/hallucinated ones WITH a
   # recorded reason. See docs/RUNBOOK_review_queues.md.
   review-queues:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -87,6 +111,8 @@ jobs:
   # Monroe County, MS pattern, where a resident found us showing a ban that had
   # been rescinded in 2020.
   local-bans:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -130,8 +156,8 @@ jobs:
   # because both write locality_intel through the same verifier — serialising
   # them keeps one run from re-deriving what the other just wrote.
   locality-intel:
-    needs: local-bans
-    if: ${{ !cancelled() }}
+    needs: [local-bans, budget]
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
