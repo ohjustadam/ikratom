@@ -13,7 +13,35 @@ import { AudioReader } from "@/components/AudioReader";
 import { renderMarkdown, mdToPlainText } from "@/lib/markdown";
 import { STATE_NAMES } from "@/lib/state-names";
 
-export const dynamic = "force-dynamic";
+/**
+ * Static + ISR, 15 minutes — matching the snapshot's own revalidate window.
+ *
+ * WHY (2026-09-08 egress emergency). The page's whole public read set was
+ * already a cookieless service-role snapshot inside unstable_cache, so the
+ * force-dynamic here was the only thing left forcing 51 crawlable state pages
+ * to re-render (and re-query) on every hit. Two child server components were
+ * also reading cookies and would have kept it dynamic regardless:
+ *   - StateOfficials  -> now uses the anon client; it only ever read public
+ *     record (officials + votes), and anon RLS returns identical rows.
+ *   - StateHQLocalReps -> now a CLIENT component fetching
+ *     /api/states/[code]/my-reps. It shows one visitor's own district
+ *     representatives, so it could never be baked into a shared cached page;
+ *     it is fetched, never rendered-then-hidden.
+ *
+ * generateStaticParams is MANDATORY here, not optional: on a dynamic segment
+ * `export const revalidate` alone leaves the route server-rendered on demand.
+ * Returning an empty array means "render on first request, then cache", which
+ * avoids fanning out 51 renders at build time.
+ *
+ * And the reason this matters beyond egress: exceeding the free-tier cap
+ * RESTRICTS the Supabase project rather than billing for it. Dynamic routes
+ * 500 in that state; a prerendered one is a file on the CDN and keeps serving.
+ */
+export const revalidate = 900;
+
+export function generateStaticParams() {
+  return [];
+}
 
 type Props = { params: Promise<{ code: string }> };
 
