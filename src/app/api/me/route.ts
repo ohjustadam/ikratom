@@ -32,6 +32,7 @@ export type ChromeMe = {
   avatarUrl: string | null;
   fullName: string | null;
   state: string | null;
+  emailConnected: boolean;
   isAdmin: boolean;
   isLeader: boolean;
   leaderTourPending: boolean;
@@ -53,6 +54,7 @@ const ANON: ChromeMe = {
   avatarUrl: null,
   fullName: null,
   state: null,
+  emailConnected: false,
   isAdmin: false,
   isLeader: false,
   leaderTourPending: false,
@@ -79,10 +81,17 @@ export async function GET() {
     // Counts + invite code are best-effort: the chrome must render even if one
     // of these fails. A failed badge is a cosmetic loss; a thrown route would
     // blank the header on every page.
-    const [notifications, dms, invite] = await Promise.all([
+    // email_integrations is a light self-read (RLS allows own row) that drives
+    // the "sync your email" nudge. It lives here rather than on /campaigns so
+    // that page can be a cached static file — see src/app/campaigns/page.tsx.
+    const sb = await (await import("@/lib/supabase/server")).createClient();
+    const [notifications, dms, invite, integ] = await Promise.all([
       getUnreadNotificationCount().catch(() => 0),
       getUnreadDmCount().catch(() => 0),
       getMyInviteSummary().catch(() => null),
+      Promise.resolve(
+        sb.from("email_integrations").select("account_email").eq("user_id", userId).maybeSingle(),
+      ).then((r) => r.data).catch(() => null),
     ]);
 
     const me: ChromeMe = {
@@ -91,6 +100,7 @@ export async function GET() {
       avatarUrl: profile.avatar_url ?? null,
       fullName: profile.full_name ?? null,
       state: profile.state ?? null,
+      emailConnected: !!integ?.account_email,
       isAdmin,
       isLeader,
       leaderTourPending: isLeader && !!profile.leader_tour_pending,

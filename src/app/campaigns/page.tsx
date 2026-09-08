@@ -1,10 +1,27 @@
 import { unstable_cache } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { CampaignBrowser } from "./CampaignBrowser";
 
 export const metadata = { title: "Campaigns" };
-export const dynamic = "force-dynamic";
+/**
+ * Static + ISR, 15 minutes.
+ *
+ * WHY (2026-09-08 egress emergency). This was force-dynamic and opened a
+ * cookie-bound Supabase client on every request for three per-user values —
+ * home state, signed-in, and whether email is connected. The campaign DATA was
+ * already behind unstable_cache; the cookie read was what kept the ROUTE
+ * dynamic, so every crawler hit still cost a render.
+ *
+ * All three now come from the /api/me chrome read that real browsers already
+ * make and crawlers never do.
+ *
+ * The second reason matters more than egress: a STATIC page keeps serving even
+ * if Supabase stops answering. On the free plan, exceeding the egress cap
+ * RESTRICTS the project rather than billing for it — every dynamic route 500s,
+ * while a prerendered one is just a file on the CDN. Making the public pages
+ * static is outage insurance, not only a saving.
+ */
+export const revalidate = 900;
 
 type EnrichedCampaign = {
   id: string;
@@ -126,36 +143,8 @@ const getCampaignData = unstable_cache(
 );
 
 export default async function CampaignsPage() {
-  const supabase = await createClient();
-
-  const [{ campaigns: enriched, counts }, { data: { user } }] = await Promise.all([
-    getCampaignData(),
-    supabase.auth.getUser(),
-  ]);
-
-  let userState: string | null = null;
-  let emailConnected = false;
-  if (user) {
-    const [{ data: prof }, { data: integ }] = await Promise.all([
-      supabase.from("profiles").select("state").eq("id", user.id).single(),
-      // Light self-read (RLS allows own row) to drive the "sync your email"
-      // nudge banner. The per-campaign action card does the authoritative
-      // valid-token check (and a reconnect prompt if the token was revoked).
-      supabase.from("email_integrations").select("account_email").eq("user_id", user.id).maybeSingle(),
-    ]);
-    userState = prof?.state ?? null;
-    emailConnected = !!integ?.account_email;
-  }
-
-  return (
-    <CampaignBrowser
-      campaigns={enriched}
-      userState={userState}
-      actionCounts={counts}
-      signedIn={!!user}
-      emailConnected={emailConnected}
-    />
-  );
+  const { campaigns: enriched, counts } = await getCampaignData();
+  return <CampaignBrowser campaigns={enriched} actionCounts={counts} />;
 }
 
 function sevRank(s: string): number {
