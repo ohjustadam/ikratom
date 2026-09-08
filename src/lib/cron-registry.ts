@@ -393,6 +393,41 @@ export const CRON_REGISTRY: CronEntry[] = [
     purpose: "Drain pending local-rep requests via SearXNG + free-tier extract. Primary: GitHub Actions (cron-localreps-cloud.yml) every 6h + on-demand — in-job SearXNG container + headless Chromium, no box dependency. Owner box nightly is the fallback.",
     system: "gh-daily", cadence: "daily", runs_per_day: 4, category: "legislators",
   },
+  // ─── Free-AI research agents (cron-nightly-cloud.yml jobs) ─────
+  {
+    source: "dossier_research",
+    label: "Dossier deep-dive",
+    purpose: "One target per night researched through the verified corpora into an admin-only dossier (migration 0195)",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
+  },
+  {
+    source: "auto_brief_campaigns",
+    label: "Campaign research briefings",
+    purpose: "Write a research briefing for each newly approved campaign so an admin can act on it in 60 seconds",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
+  },
+  // ─── Grounded queue work (cron-grounded-queues.yml, 2x daily) ─────────
+  // Moved off the owner's PC 2026-09-07. These were absent from this registry
+  // entirely, so /admin/automation showed nothing about three automations that
+  // had been silent for 55-66 days.
+  {
+    source: "clear_review_queues",
+    label: "Clear the review queues",
+    purpose: "Ground each escalated campaign/intel item with a keyless search + free-tier verdict, then auto-approve the confidently-real and reject the dead/moot/hallucinated ones with a recorded reason",
+    system: "gh-daily", cadence: "daily", runs_per_day: 2, category: "moderation",
+  },
+  {
+    source: "verify_local_bans",
+    label: "Verify local kratom bans",
+    purpose: "Two-source gate behind /banned: re-confirm held single-source local bans and catch repeals (migration 0190)",
+    system: "gh-daily", cadence: "daily", runs_per_day: 2, category: "data-quality",
+  },
+  {
+    source: "sweep_locality_intel",
+    label: "Locality intelligence sweep",
+    purpose: "Fill legal status, framework, ordinance citation, pending measures and next meeting for queued localities",
+    system: "gh-daily", cadence: "daily", runs_per_day: 2, category: "intel",
+  },
   {
     source: "sync_research_pubmed",
     label: "PubMed research sync",

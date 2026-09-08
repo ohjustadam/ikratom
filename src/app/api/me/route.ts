@@ -31,6 +31,7 @@ export type ChromeMe = {
   username: string | null;
   avatarUrl: string | null;
   fullName: string | null;
+  state: string | null;
   isAdmin: boolean;
   isLeader: boolean;
   leaderTourPending: boolean;
@@ -51,6 +52,7 @@ const ANON: ChromeMe = {
   username: null,
   avatarUrl: null,
   fullName: null,
+  state: null,
   isAdmin: false,
   isLeader: false,
   leaderTourPending: false,
@@ -88,6 +90,7 @@ export async function GET() {
       username: profile.username ?? null,
       avatarUrl: profile.avatar_url ?? null,
       fullName: profile.full_name ?? null,
+      state: profile.state ?? null,
       isAdmin,
       isLeader,
       leaderTourPending: isLeader && !!profile.leader_tour_pending,
