@@ -76,6 +76,31 @@ const nextConfig: NextConfig = {
       // pitch layout + MermaidLoader). Support the shorter URL /efficiency that
       // gets shared around so it doesn't 404.
       { source: "/efficiency", destination: "/pitch/efficiency", permanent: false },
+      // /briefings/state/:code — FOLDED into the State HQ (2026-06-22, see
+      // private/STATE_HUB_SPEC.md). Preserves the launch-broadcast link and any
+      // printed/shared links.
+      //
+      // This lives HERE, not as a page route, because of what happened when it
+      // was one. As a force-dynamic page it paid for a server invocation on
+      // every hit to compute a constant. Converting it to a static page was
+      // WORSE: Next turns a server redirect() in a prerendered route into a
+      // meta-refresh, so it answered HTTP 200 with a client-side hop instead of
+      // a real redirect — an extra round trip for readers and a much weaker
+      // signal for search engines than a 308. Verified live before reverting.
+      //
+      // A config redirect is a true 308 handled at the edge with no server cost
+      // at all, which is strictly better than either page version.
+      // permanent:false (307) deliberately, matching /efficiency above. A 308 is
+      // cached by browsers indefinitely and the State-HQ IA is still actively
+      // being rebuilt (private/STATE_HUB_SPEC.md); a redirect you cannot take
+      // back is a bad trade for a marginal SEO gain.
+      //
+      // Case is safe to pass through unchanged: /states/[code] uppercases the
+      // segment itself — verified live that /states/OK, /states/ok and
+      // /states/Ok all return 200 — so dropping the old page's toUpperCase()
+      // changes nothing. The destination is a same-origin relative path and
+      // :code matches a single segment, so this cannot become an open redirect.
+      { source: "/briefings/state/:code", destination: "/states/:code#briefing", permanent: false },
     ];
   },
 };
