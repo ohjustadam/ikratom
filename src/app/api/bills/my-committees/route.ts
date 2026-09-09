@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { getUserLegislators } from "@/lib/legislators";
 import { committeesMatch } from "@/lib/bill-committee";
 
@@ -32,6 +33,16 @@ const json = (body: MyCommitteesResult) =>
 
 export async function GET() {
   try {
+    // Unauthenticated callers get a cheap rejection below, but the session
+    // check itself is not free. Cap per IP; fails open by design.
+    const ip = await getClientIp();
+    if (!(await checkRateLimit(`bill-committees:${ip}`, 60, 60))) {
+      return NextResponse.json({ ok: false, reason: "rate limited" }, {
+        status: 429,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ ok: false, reason: "sign-in required" });

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { TranslatedText } from "@/components/TranslatedText";
+import { ActionsTakenLine, FederalEmailOfficials, CommitteeLeverage } from "./BillViewerSections";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { EmailGroupButton } from "@/modules/compose/EmailGroupButton";
@@ -29,11 +30,35 @@ import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { StanceChips, roleMeta, orderedDisplayRoles, displayRole, type StanceValue } from "@/lib/stakeholder-stance";
 import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
 
-// Force dynamic so per-viewer reads (auth, subscription state, the viewer's
-// civic profile) always run request-bound; the large PUBLIC read-set is served
-// from a per-id unstable_cache snapshot (getBillPublicSnapshot) so a bill that
-// just synced still refreshes within the snapshot's 15-min revalidate window.
-export const dynamic = "force-dynamic";
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (tests/egress-freeze-expiry)
+ *
+ * The large PUBLIC read set has always come from a per-id unstable_cache
+ * snapshot. What kept the route dynamic was five per-viewer reads: locale for
+ * translations, signed-in + subscription state, the reader's federal
+ * delegation, an RLS-scoped action count, and the committee-leverage table.
+ * ~680 bill pages therefore re-queried Supabase on every crawler hit, for data
+ * about a visitor who was never signed in.
+ *
+ * All five moved client-side. Translations go through TranslatedText; the
+ * other four share ONE fetch of /api/bills/[id]/viewer (see useBillViewer) so
+ * a cached page did not become four round trips.
+ *
+ * THE COMMITTEE TABLE IS THE REASON THAT ROUTE USES THE COOKIE CLIENT. Its
+ * tiers derive from legislator_stance, which is RLS-gated; running it under the
+ * reader's own session keeps anon and unverified readers on stance-blind tiers
+ * exactly as before. Computing it once with service-role and caching it would
+ * publish "active opponent" labels about named legislators to everyone.
+ *
+ * generateStaticParams is MANDATORY on a dynamic segment — revalidate alone
+ * leaves the route server-rendered on demand. Empty array: render on first
+ * request, then cache.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 900
+
+export function generateStaticParams() {
+  return [];
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -630,57 +655,11 @@ export default async function BillDetailPage({
     officialGroups: officialGroupsPublic,
   } = snap;
 
-  // ── Per-viewer reads (request-bound cookie client, never cached) ──
-  const supabase = await createClient();
-
-  // Signed-in state + whether the viewer already subscribes to this bill,
-  // so the "🔔 Notify me" button renders in the right state.
-  const { data: { user: viewer } } = await supabase.auth.getUser();
-  const viewerSignedIn = !!viewer;
-  let initiallySubscribed = false;
-  if (viewer) {
-    const { data: sub } = await supabase
-      .from("bill_subscriptions")
-      .select("user_id")
-      .eq("user_id", viewer.id)
-      .eq("bill_id", bill.id)
-      .maybeSingle();
-    initiallySubscribed = !!sub;
-  }
-
-  // Federal "email your officials" targeting needs the viewer's own districts,
-  // so the civic profile (PII) + the delegation resolution stay per-viewer.
-  // State/exec bills use the viewer-independent groups from the snapshot.
-  const isFederalBill = bill.scope === "federal" || bill.state === "US";
-  let viewerCivic: {
-    state: string | null; congressional_district: string | null;
-    state_senate_district: string | null; state_house_district: string | null;
-    city: string | null; county: string | null;
-  } | null = null;
-  if (viewer && isFederalBill) {
-    const { data: cp } = await supabase
-      .from("profiles")
-      .select("state, congressional_district, state_senate_district, state_house_district, city, county")
-      .eq("id", viewer.id)
-      .single();
-    viewerCivic = cp ?? null;
-  }
-  const officialGroups = isFederalBill
-    ? await getBillOfficialGroups(supabase, { state: bill.state, scope: bill.scope }, viewerCivic)
-    : officialGroupsPublic;
+  // Per-viewer reads now live in /api/bills/[id]/viewer, fetched client-side
+  // (see BillViewerSections). Keeping them here is what forced this page to
+  // re-render against Supabase on every crawler hit.
   const billStance: "oppose" | "support" | "neutral" =
     bill.kratom_relevance === "anti" ? "oppose" : bill.kratom_relevance === "pro" ? "support" : "neutral";
-
-  // Action count across all campaigns for this bill. RLS on campaign_actions
-  // is self-scoped (auth.uid() = user_id), so this stays on the cookie client
-  // (a cached service-role count would change the number a viewer sees).
-  // head:true → count only, no row payload.
-  const { count: totalActions } = campaigns.length > 0
-    ? await supabase
-        .from("campaign_actions")
-        .select("id", { count: "exact", head: true })
-        .in("campaign_id", campaigns.map((c) => c.id))
-    : { count: 0 };
 
   // Live fetch from OpenStates — cached 1 hour in its own lib (external API,
   // not Supabase egress). Skip for non-state scopes (no county/municipal cover).
@@ -689,180 +668,6 @@ export default async function BillDetailPage({
     ? null
     : await fetchOpenStatesBillDetail(bill.state, bill.bill_number);
 
-  // ── Committee leverage — every member of the committee where this bill
-  // sits, ranked by threat-matrix tier. Kept REQUEST-BOUND (cookie client),
-  // NOT in the shared snapshot, because legislator_stance is RLS-gated to
-  // verified/creator viewers — a service-role read would leak stance-derived
-  // per-person tiers ("active opponent"/"flippable target") to anon/unverified.
-  // Anon/unverified get an empty stance read → stance-blind tiers, exactly as
-  // before caching and matching /intel/threat-matrix.
-  type CommitteeMember = {
-    legislator_id: string;
-    full_name: string;
-    state: string;
-    role: string;
-    district: string | null;
-    party: string | null;
-    phone: string | null;
-    email: string | null;
-    website: string | null;
-    title: string | null;
-    committee_role: string; // chair / vice_chair / member
-    tier: string;
-    tier_label: string;
-    tier_emoji: string;
-    tier_color: string;
-    threat_score: number;
-    vulnerability_score: number;
-    has_anti_sponsorship: boolean;
-    has_pro_sponsorship: boolean;
-    rationale: string;
-  };
-  const committeeMembers: CommitteeMember[] = [];
-  if (currentCommitteeName && bill.state) {
-    try {
-      const { assessThreat } = await import("@/lib/legislator-threat-score");
-      const { committeesMatch } = await import("@/lib/bill-committee");
-      const { data: stateCommittees } = await supabase
-        .from("legislator_committees")
-        .select("legislator_id, committee_name, role, is_kratom_relevant, legislators!inner(id, full_name, state, role, district, party, phone, email, website, title, active)")
-        .eq("legislators.state", bill.state)
-        .eq("legislators.active", true)
-        .limit(2000);
-      type CmtRow = {
-        legislator_id: string;
-        committee_name: string;
-        role: string;
-        is_kratom_relevant: boolean | null;
-        legislators: {
-          id: string; full_name: string; state: string; role: string;
-          district: string | null; party: string | null;
-          phone: string | null; email: string | null;
-          website: string | null; title: string | null; active: boolean;
-        } | Array<{ id: string; full_name: string; state: string; role: string; district: string | null; party: string | null; phone: string | null; email: string | null; website: string | null; title: string | null; active: boolean }> | null;
-      };
-      const matched = ((stateCommittees ?? []) as CmtRow[]).filter((c) =>
-        committeesMatch(currentCommitteeName!, c.committee_name),
-      );
-      if (matched.length > 0) {
-        const memberIds = matched.map((c) => c.legislator_id);
-        const [stancesRes, sponsorsRes, donorsRes, tradesRes] = await Promise.all([
-          supabase.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom").in("legislator_id", memberIds),
-          supabase.from("bill_sponsors")
-            .select("legislator_id, classification, bills!inner(kratom_relevance, active)")
-            .in("legislator_id", memberIds)
-            .eq("bills.active", true),
-          supabase.from("legislator_donors")
-            .select("legislator_id, top_industries")
-            .in("legislator_id", memberIds)
-            .eq("resolved_status", "matched"),
-          supabase.from("federal_personal_trades")
-            .select("legislator_id")
-            .in("legislator_id", memberIds)
-            .eq("is_kratom_adjacent", true),
-        ]);
-        const stanceByLeg = new Map<string, string>();
-        for (const r of (stancesRes.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
-          stanceByLeg.set(r.legislator_id, r.stance);
-        }
-        type SpAgg = {
-          primary_count: number; cosponsor_count: number;
-          has_anti: boolean; has_pro: boolean; anti_primary: number; pro_primary: number;
-        };
-        const spByLeg = new Map<string, SpAgg>();
-        for (const s of (sponsorsRes.data ?? []) as Array<{ legislator_id: string; classification: string; bills: { kratom_relevance: string | null } | Array<{ kratom_relevance: string | null }> | null }>) {
-          const b = Array.isArray(s.bills) ? s.bills[0] : s.bills;
-          if (!b) continue;
-          const agg = spByLeg.get(s.legislator_id) ?? { primary_count: 0, cosponsor_count: 0, has_anti: false, has_pro: false, anti_primary: 0, pro_primary: 0 };
-          if (s.classification === "primary") {
-            agg.primary_count++;
-            if (b.kratom_relevance === "anti") agg.anti_primary++;
-            if (b.kratom_relevance === "pro") agg.pro_primary++;
-          } else { agg.cosponsor_count++; }
-          if (b.kratom_relevance === "anti") agg.has_anti = true;
-          if (b.kratom_relevance === "pro") agg.has_pro = true;
-          spByLeg.set(s.legislator_id, agg);
-        }
-        const donorsByLeg = new Map<string, Array<{ industry: string; amount: number; advocate_flag?: boolean }>>();
-        for (const d of (donorsRes.data ?? []) as Array<{ legislator_id: string; top_industries: Array<{ industry: string; amount: number; advocate_flag?: boolean }> | null }>) {
-          if (d.top_industries) donorsByLeg.set(d.legislator_id, d.top_industries);
-        }
-        const tradesByLeg = new Map<string, number>();
-        for (const t of (tradesRes.data ?? []) as Array<{ legislator_id: string }>) {
-          tradesByLeg.set(t.legislator_id, (tradesByLeg.get(t.legislator_id) ?? 0) + 1);
-        }
-
-        for (const c of matched) {
-          const l = Array.isArray(c.legislators) ? c.legislators[0] : c.legislators;
-          if (!l) continue;
-          const isFederalLeg = l.role === "us_senate" || l.role === "us_house";
-          const stance = (stanceByLeg.get(c.legislator_id) ?? "unknown") as
-            "champion" | "sympathetic" | "neutral" | "hostile" | "unknown";
-          const sp = spByLeg.get(c.legislator_id);
-          const inds = donorsByLeg.get(c.legislator_id) ?? [];
-          function indAmt(name: string) {
-            if (!isFederalLeg) return null;
-            const row = inds.find((i) => i.industry === name);
-            return row?.amount ?? 0;
-          }
-          const assess = assessThreat({
-            stance,
-            has_anti_sponsorship: !!sp?.has_anti,
-            has_pro_sponsorship: !!sp?.has_pro,
-            primary_sponsorship_count: sp?.anti_primary ?? 0,
-            cosponsorship_count: sp?.cosponsor_count ?? 0,
-            is_chair_of_kratom_relevant: c.role === "chair" && !!c.is_kratom_relevant,
-            is_member_of_kratom_relevant: !!c.is_kratom_relevant,
-            bills_in_their_committees: 1, // this very bill
-            pharma_usd: indAmt("pharma_biotech"),
-            alcohol_usd: indAmt("alcohol"),
-            tobacco_usd: indAmt("tobacco_nicotine"),
-            addiction_treatment_usd: indAmt("addiction_treatment"),
-            cannabis_usd: indAmt("cannabis"),
-            gaming_usd: indAmt("gaming_casino"),
-            hospital_health_usd: indAmt("hospital_health"),
-            kratom_adjacent_trade_count: isFederalLeg ? (tradesByLeg.get(c.legislator_id) ?? 0) : null,
-          });
-          committeeMembers.push({
-            legislator_id: c.legislator_id,
-            full_name: l.full_name,
-            state: l.state,
-            role: l.role,
-            district: l.district,
-            party: l.party,
-            phone: l.phone,
-            email: l.email,
-            website: l.website,
-            title: l.title,
-            committee_role: c.role,
-            tier: assess.tier,
-            tier_label: assess.tier_label,
-            tier_emoji: assess.tier_emoji,
-            tier_color: assess.tier_color,
-            threat_score: assess.threat_score,
-            vulnerability_score: assess.vulnerability_score,
-            has_anti_sponsorship: !!sp?.has_anti,
-            has_pro_sponsorship: !!sp?.has_pro,
-            rationale: assess.rationale,
-          });
-        }
-        const TIER_ORDER_LOCAL: Record<string, number> = {
-          active_opponent: 0, hostile_decision_maker: 1, flippable_target: 2,
-          champion: 3, sympathetic_ally: 4, education_target: 5, low_priority: 6,
-        };
-        committeeMembers.sort((a, b) => {
-          if (a.committee_role === "chair" && b.committee_role !== "chair") return -1;
-          if (b.committee_role === "chair" && a.committee_role !== "chair") return 1;
-          const ta = TIER_ORDER_LOCAL[a.tier] ?? 9;
-          const tb = TIER_ORDER_LOCAL[b.tier] ?? 9;
-          if (ta !== tb) return ta - tb;
-          return b.threat_score - a.threat_score;
-        });
-      }
-    } catch {
-      // bill-committee lib or threat-score lib unavailable — silent.
-    }
-  }
 
   // Staleness assessment — live now() so the "closed session" warning is
   // accurate regardless of the snapshot's revalidate window.
@@ -1154,8 +959,6 @@ export default async function BillDetailPage({
           agendaItemNumber={bill.local_meta.agenda_item_number}
           officials={localOfficials}
           sourceUrl={alertSourceUrl}
-          signedIn={viewerSignedIn}
-          initiallySubscribed={initiallySubscribed}
         />
       )}
 
@@ -1369,12 +1172,7 @@ export default async function BillDetailPage({
                 </li>
               ))}
           </ul>
-          {(totalActions ?? 0) > 0 && (
-            <p className="mt-3 text-xs text-zinc-500">
-              {totalActions?.toLocaleString()} action{totalActions === 1 ? "" : "s"} taken
-              across all campaigns for this bill.
-            </p>
-          )}
+          <ActionsTakenLine billId={bill.id} />
         </section>
       )}
 
@@ -1384,25 +1182,10 @@ export default async function BillDetailPage({
           federal bill) → AI-drafted, personalized letter → send via
           Gmail/Outlook/mail app. Recipients are always populated (fixes the
           empty-"To" the old alert-response panel produced on bill pages). */}
-      {officialGroups && (officialGroups.groups.length > 0 || officialGroups.needsProfile) && (
-        <section id="email-officials" className="mb-6 rounded-lg border-2 border-emerald-700/50 bg-gradient-to-br from-emerald-950/25 to-zinc-950/40 p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
-            ✉ Email your officials about this bill
-          </h2>
-          <p className="mt-1 text-[11px] text-zinc-500">
-            Draft a personalized letter and send it to the officials who decide this bill — your voice, your email address. Pick a group:
-          </p>
-          <div className="mt-3">
-            <EmailGroupButton
-              groups={officialGroups.groups}
-              billId={bill.id}
-              stance={billStance}
-              needsProfile={officialGroups.needsProfile}
-              scope={officialGroups.scope}
-            />
-          </div>
-        </section>
-      )}
+      {/* Federal "email your officials" needs the reader's own delegation, so it
+          is fetched client-side. State/local scopes are viewer-independent and
+          render from the cached snapshot elsewhere on this page. */}
+      <FederalEmailOfficials billId={bill.id} stance={billStance} />
 
       {/* Alerts for this bill. (The old empty-recipient DraftResponsePanel was
           removed from bill pages — the "Email your officials" section above is
@@ -2001,111 +1784,7 @@ export default async function BillDetailPage({
             this bill currently sits, ranked by threat-matrix tier so
             advocates know who can block / advance / be flipped.
             Highest-leverage call list on the page. */}
-        {committeeMembers.length > 0 && (
-          <div className="mt-4 rounded-md border border-emerald-700/40 bg-emerald-950/10 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
-              🎯 Committee leverage · who&apos;s deciding this bill
-            </p>
-            <p className="mt-1 text-[10px] text-zinc-500">
-              The bill is in <span className="font-mono text-zinc-300">{currentCommitteeName ?? "committee"}</span>.
-              {" "}{committeeMembers.length} member{committeeMembers.length === 1 ? "" : "s"}, ranked by threat-matrix tier.
-              <span className="ml-1 text-emerald-300">
-                {(() => {
-                  const callable = committeeMembers.filter(
-                    (m) => m.tier === "flippable_target" || m.tier === "hostile_decision_maker" || m.committee_role === "chair",
-                  );
-                  return callable.length > 0
-                    ? `${callable.length} priority call target${callable.length === 1 ? "" : "s"} below.`
-                    : "";
-                })()}
-              </span>
-            </p>
-            <ul className="mt-2 space-y-1.5">
-              {committeeMembers.map((m) => {
-                const isPriority =
-                  m.tier === "flippable_target" ||
-                  m.tier === "hostile_decision_maker" ||
-                  m.committee_role === "chair";
-                return (
-                <li key={m.legislator_id}>
-                  <div
-                    className={`block rounded border px-2.5 py-1.5 text-[11px] ${m.tier_color}`}
-                    title={m.rationale}
-                  >
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                      <a
-                        href={`/legislators/${m.legislator_id}/briefing`}
-                        className="font-semibold hover:underline"
-                      >
-                        {m.full_name}
-                      </a>
-                      <span className="rounded bg-zinc-900/40 px-1.5 py-0.5 font-mono text-[9px] uppercase">
-                        {m.role.replace(/_/g, " ")}
-                      </span>
-                      {m.district && (
-                        <span className="text-[10px] text-zinc-400">D{m.district}</span>
-                      )}
-                      {m.party && (
-                        <span className="text-[10px] text-zinc-400">{m.party}</span>
-                      )}
-                      {m.committee_role === "chair" && (
-                        <span className="rounded bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
-                          🪑 CHAIR
-                        </span>
-                      )}
-                      {m.committee_role === "vice_chair" && (
-                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] uppercase text-zinc-400">
-                          vice chair
-                        </span>
-                      )}
-                      <span className="ml-auto flex items-center gap-2">
-                        <span className="font-mono text-[10px]">
-                          {m.tier_emoji} {m.tier_label}
-                        </span>
-                        <span className="font-mono text-[9px] opacity-75">
-                          T{m.threat_score}·V{m.vulnerability_score}
-                        </span>
-                      </span>
-                    </div>
-                    {/* Contact row — only when we have a phone/email AND
-                        this member is one of the priority targets. Keeps
-                        the panel scannable; the briefing covers full
-                        contact details for any row the user clicks through. */}
-                    {isPriority && (m.phone || m.email) && (
-                      <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-zinc-900/40 pt-1 text-[10px]">
-                        {m.phone && (
-                          <a
-                            href={`tel:${m.phone.replace(/[^\d+]/g, "")}`}
-                            className="rounded bg-emerald-950/40 px-2 py-0.5 font-mono text-emerald-200 hover:bg-emerald-900/40"
-                          >
-                            📞 {m.phone}
-                          </a>
-                        )}
-                        <EmailOfficialButton
-                          official={{
-                            id: m.legislator_id,
-                            name: m.full_name,
-                            role: m.role,
-                            title: m.title,
-                            state: m.state,
-                            email: m.email,
-                            website: m.website,
-                          }}
-                          context={{ kind: "bill", billId: bill.id }}
-                          source="bill_committee"
-                          variant="inline"
-                          label={m.email ? "✉ email" : "🌐 contact"}
-                        />
-                        <span className="text-zinc-500">— {m.tier === "flippable_target" ? "highest conversion ROI" : m.committee_role === "chair" ? "controls the calendar" : "blocking leverage"}</span>
-                      </div>
-                    )}
-                  </div>
-                </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
+        <CommitteeLeverage billId={bill.id} currentCommitteeName={currentCommitteeName} />
 
         {/* Sources */}
         <div className="mt-4 space-y-1">

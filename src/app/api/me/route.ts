@@ -3,6 +3,7 @@ import { getCachedAuthProfile } from "@/lib/supabase/server";
 import { getUnreadNotificationCount } from "@/modules/notifications/actions";
 import { getUnreadDmCount } from "@/modules/dm/actions";
 import { getMyInviteSummary } from "@/modules/invite/actions";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { readLocale } from "@/modules/auth/actions-locale";
 
 /**
@@ -71,6 +72,20 @@ const ANON: ChromeMe = {
 
 export async function GET() {
   try {
+    // This is the one endpoint every real browser hits on every page load, and
+    // it does a profile read plus three counts. The cap is deliberately high —
+    // normal browsing never approaches 300/min, and shared NAT egress means a
+    // tight limit would punish an office or campus before it stopped anyone.
+    // Returns the ANON shape rather than an error so the site chrome still
+    // renders; a rate-limited reader sees a signed-out header, not a broken page.
+    const ip = await getClientIp();
+    if (!(await checkRateLimit(`chrome-me:${ip}`, 300, 60))) {
+      return NextResponse.json(ANON, {
+        status: 429,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
     // Locale is resolved for EVERYONE, before the signed-out early return: an
     // anonymous reader can still have a language cookie, and this route is now
     // the only place the site reads it (see components/TranslatedText.tsx).
