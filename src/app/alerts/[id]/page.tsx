@@ -1,16 +1,39 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
-import { DraftResponsePanel } from "./DraftResponsePanel";
+import { SignedInDraftPanel } from "./SignedInDraftPanel";
 import { YourRepDecidingThisBill } from "@/app/bills/[id]/YourRepDecidingThisBill";
 import { bestSourceUrl, publisherFromUrl } from "@/lib/source-link";
 
-export const dynamic = "force-dynamic";
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (tests/egress-freeze-expiry)
+ *
+ * ~5,000 alert pages, and the largest single crawler surface on the platform.
+ * The public read set was already a cookieless service-role snapshot inside
+ * unstable_cache; the ONE thing forcing a render per request was an
+ * auth.getUser() call used solely to decide whether to show the signed-in AI
+ * rebuttal panel — a question about a visitor who, being a bot, was never
+ * signed in. That moved to SignedInDraftPanel, reading the /api/me chrome
+ * value that real browsers already fetch.
+ *
+ * generateStaticParams is MANDATORY on a dynamic segment — `export const
+ * revalidate` alone leaves the route server-rendered on demand. Empty array:
+ * render on first request, then cache. Fanning out 5,000 pages at build time
+ * would be worse than the problem being solved.
+ *
+ * Beyond egress: exceeding the Supabase free-tier cap RESTRICTS the project
+ * rather than billing for it. Dynamic routes 500 in that state; prerendered
+ * ones keep serving from the CDN.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 900
+
+export function generateStaticParams() {
+  return [];
+}
 
 const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
 
@@ -132,11 +155,6 @@ export default async function AlertDetailPage({ params }: Props) {
   const snap = await getAlertData(id);
   if (!snap) notFound();
   const { a, linkedCampaign, linkedNews, linkedBill, linkedBillCommittee, realEventDate: realEventDateStr } = snap;
-
-  // Viewer stays request-bound (uncached) — drives the signed-in-only AI
-  // rebuttal panel below. All the public data above came from the snapshot.
-  const sb = await createClient();
-  const { data: { user: viewer } } = await sb.auth.getUser();
 
   const sourceUrl = bestSourceUrl(linkedNews?.resolved_url, linkedNews?.url, a.source_url);
   const sourceTitle = linkedNews?.title ?? null;
@@ -387,15 +405,11 @@ export default async function AlertDetailPage({ params }: Props) {
       {/* AI rebuttal generator — signed-in only. Mission-critical lever:
           equalizes against astroturf form-letter campaigns by generating
           individually-personalized comment letters. See PR #218. */}
-      {viewer && (
-        <div className="mt-6">
-          <DraftResponsePanel
-            alertId={a.id}
-            alertTitle={a.title}
-            sourceUrl={sourceUrl}
-          />
-        </div>
-      )}
+      <SignedInDraftPanel
+        alertId={a.id}
+        alertTitle={a.title}
+        sourceUrl={sourceUrl}
+      />
 
       {/* Signup nudge — high intent: someone clicked through to a
           specific alert means they care about kratom policy and would
