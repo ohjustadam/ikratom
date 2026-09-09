@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { TranslatedText } from "@/components/TranslatedText";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { EmailGroupButton } from "@/modules/compose/EmailGroupButton";
@@ -16,8 +17,6 @@ import { displayTitle, displaySubtitle } from "@/lib/bill-title";
 import { billStatusLabel } from "@/lib/bill-status";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
-import { getTranslation } from "@/lib/translations";
-import { readLocale } from "@/modules/auth/actions-locale";
 import { BillFullText } from "./BillFullText";
 import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillLocalActionCard";
 import { findSimilarBillsCached } from "@/lib/bill-similarity";
@@ -1293,7 +1292,7 @@ export default async function BillDetailPage({
           {bill.advocacy_callout && (
             <div className="mt-4 rounded-md border border-emerald-900/30 bg-emerald-950/20 p-3">
               <p className="text-xs font-semibold text-emerald-400">For advocates:</p>
-              <TranslatedSection
+              <TranslatedText
                 type="bill_callout"
                 id={bill.id}
                 sourceText={bill.advocacy_callout}
@@ -1320,7 +1319,7 @@ export default async function BillDetailPage({
             return null;
           })()}
           {/* The actual translated content is fetched + rendered below */}
-          <TranslatedSection
+          <TranslatedText
             type="bill_summary"
             id={bill.id}
             sourceText={bill.summary_ai}
@@ -1328,7 +1327,7 @@ export default async function BillDetailPage({
           {bill.advocacy_callout && (
             <div className="mt-4 rounded-md border border-emerald-900/30 bg-emerald-950/20 p-3">
               <p className="text-xs font-semibold text-emerald-400">For advocates:</p>
-              <TranslatedSection
+              <TranslatedText
                 type="bill_callout"
                 id={bill.id}
                 sourceText={bill.advocacy_callout}
@@ -2289,41 +2288,3 @@ export default async function BillDetailPage({
   );
 }
 
-/**
- * Renders translated text for an entity if a translation is cached for the
- * current locale; falls back to the original. Server component (async).
- */
-async function TranslatedSection({
-  type, id, sourceText, className,
-}: {
-  type: "bill_summary" | "bill_callout";
-  id: string;
-  sourceText: string;
-  className?: string;
-}) {
-  const locale = await readLocale();
-  if (locale === "en") {
-    return <p className={className ?? "mt-2 text-base text-zinc-200"}>{sourceText}</p>;
-  }
-  const supabase = await createClient();
-  const translated = await getTranslation(supabase, { type, id }, locale);
-  if (!translated) {
-    return (
-      <div>
-        <p className={className ?? "mt-2 text-base text-zinc-200"}>{sourceText}</p>
-        <p className="mt-1 text-[10px] text-zinc-600">
-          (No translation available yet — admin: run <code className="rounded bg-zinc-950 px-1">npm run translate:content</code>.)
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div>
-      <p className={className ?? "mt-2 text-base text-zinc-200"}>{translated}</p>
-      <details className="mt-2 text-xs text-zinc-500">
-        <summary className="cursor-pointer">Show original (English)</summary>
-        <p className="mt-1">{sourceText}</p>
-      </details>
-    </div>
-  );
-}

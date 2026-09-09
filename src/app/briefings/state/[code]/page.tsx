@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { STATE_NAMES } from "@/lib/state-names";
 
 /**
  * /briefings/state/[code] — FOLDED into the State HQ (2026-06-22, see
@@ -8,7 +9,14 @@ import { redirect } from "next/navigation";
  * redirects there, preserving the launch-broadcast link (/briefings/state/OK)
  * and any printed/shared links.
  */
-export const dynamic = "force-dynamic";
+/**
+ * Static. This is a pure redirect with no data reads at all, so force-dynamic
+ * was buying a server invocation per hit to compute a constant. The state list
+ * is fixed and small, so every one of them prerenders at build.
+ */
+export function generateStaticParams() {
+  return Object.keys(STATE_NAMES).map((code) => ({ code }));
+}
 
 export default async function StateBriefingRedirect({
   params,

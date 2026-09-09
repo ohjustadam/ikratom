@@ -3,6 +3,7 @@ import { getCachedAuthProfile } from "@/lib/supabase/server";
 import { getUnreadNotificationCount } from "@/modules/notifications/actions";
 import { getUnreadDmCount } from "@/modules/dm/actions";
 import { getMyInviteSummary } from "@/modules/invite/actions";
+import { readLocale } from "@/modules/auth/actions-locale";
 
 /**
  * /api/me — the ONE per-user read the site chrome needs.
@@ -33,6 +34,7 @@ export type ChromeMe = {
   fullName: string | null;
   state: string | null;
   emailConnected: boolean;
+  locale: string;
   isAdmin: boolean;
   isLeader: boolean;
   leaderTourPending: boolean;
@@ -55,6 +57,7 @@ const ANON: ChromeMe = {
   fullName: null,
   state: null,
   emailConnected: false,
+  locale: "en",
   isAdmin: false,
   isLeader: false,
   leaderTourPending: false,
@@ -68,9 +71,14 @@ const ANON: ChromeMe = {
 
 export async function GET() {
   try {
+    // Locale is resolved for EVERYONE, before the signed-out early return: an
+    // anonymous reader can still have a language cookie, and this route is now
+    // the only place the site reads it (see components/TranslatedText.tsx).
+    const locale = await readLocale().catch(() => "en");
+
     const { userId, profile } = await getCachedAuthProfile();
     if (!userId || !profile) {
-      return NextResponse.json(ANON, {
+      return NextResponse.json({ ...ANON, locale }, {
         headers: { "Cache-Control": "no-store" },
       });
     }
@@ -101,6 +109,7 @@ export async function GET() {
       fullName: profile.full_name ?? null,
       state: profile.state ?? null,
       emailConnected: !!integ?.account_email,
+      locale,
       isAdmin,
       isLeader,
       leaderTourPending: isLeader && !!profile.leader_tour_pending,
