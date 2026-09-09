@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 /**
  * /api/states/[code]/my-reps — the per-viewer half of the State HQ.
@@ -53,6 +54,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ code: s
     const { code } = await params;
     const state = String(code || "").toUpperCase();
     if (!/^[A-Z]{2}$/.test(state)) return json({ kind: "anon" });
+
+    // Reachable unauthenticated, and every call costs at minimum a session
+    // verification. Cap per IP so it cannot be used as a cheap way to make the
+    // auth service work. Fails OPEN (see lib/rate-limit) — a limiter that locks
+    // readers out when its own store hiccups is worse than the abuse.
+    const ip = await getClientIp();
+    if (!(await checkRateLimit(`state-myreps:${ip}`, 120, 60))) {
+      return NextResponse.json({ kind: "anon" }, {
+        status: 429,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
 
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();

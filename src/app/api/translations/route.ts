@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { getTranslation, type TranslatedContentRef } from "@/lib/translations";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 /**
  * /api/translations?type=…&id=…&lang=… — a cached translation, if one exists.
@@ -51,6 +52,23 @@ export async function GET(req: Request) {
     return NextResponse.json({ translated: null }, {
       status: 400,
       headers: { "Cache-Control": "public, max-age=3600" },
+    });
+  }
+
+  // AMPLIFICATION GUARD. This route is publicly cacheable, which is normally
+  // the point — but it also means an attacker cycling RANDOM well-formed UUIDs
+  // produces a unique cache key every time: guaranteed CDN miss, guaranteed
+  // origin hit, guaranteed database query. The format validation above stops
+  // junk, not volume. So the origin gets a per-IP cap as well.
+  //
+  // The 429 MUST be no-store. A cacheable 429 would be far worse than the
+  // attack: the CDN would happily serve one rate-limited reader's rejection to
+  // everyone else asking for the same translation.
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`translations:${ip}`, 240, 60))) {
+    return NextResponse.json({ translated: null }, {
+      status: 429,
+      headers: { "Cache-Control": "no-store" },
     });
   }
 
