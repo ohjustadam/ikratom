@@ -1,18 +1,37 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createAnonClient } from "@/lib/supabase/anon";
 import { Markdown } from "@/components/Markdown";
 import { TYPE_ICONS, TYPE_LABELS, type LibraryItemType } from "@/modules/library/types";
-import { getCreatorContext } from "@/modules/admin/actions";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
+import { CreatorEditLink } from "./CreatorEditLink";
 
 import Link from "next/link";
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (tests/egress-freeze-expiry)
+ *
+ * Library items are public content, but the page read them through the
+ * cookie-bound client AND called getCreatorContext() to decide whether to show
+ * a staff-only Edit link — so it re-rendered against Supabase on every crawler
+ * hit. Reads move to the anon client (verified: identical rows, and select("*")
+ * is permitted for anon on this table), and the Edit affordance moves to
+ * CreatorEditLink, gated on the /api/me chrome read.
+ *
+ * generateStaticParams is MANDATORY on a dynamic segment — `export const
+ * revalidate` alone leaves the route server-rendered on demand.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 900
+
+export function generateStaticParams() {
+  return [];
+}
+
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createAnonClient();
   const { data } = await supabase
     .from("library_items")
     .select("title, description, summary, type, author, source_org")
@@ -40,7 +59,7 @@ export default async function LibraryItemPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createAnonClient();
   const { data: item } = await supabase
     .from("library_items")
     .select("*")
@@ -48,9 +67,6 @@ export default async function LibraryItemPage({
     .eq("active", true)
     .single();
   if (!item) notFound();
-
-  const ctx = await getCreatorContext();
-  const canEdit = ctx.ok;
 
   const typeLabel = TYPE_LABELS[item.type as LibraryItemType] ?? item.type;
   const typeIcon = TYPE_ICONS[item.type as LibraryItemType] ?? "•";
@@ -85,16 +101,7 @@ export default async function LibraryItemPage({
             {item.published_at && <span className="ml-2 text-zinc-600">· {item.published_at}</span>}
           </p>
         )}
-        {canEdit && (
-          <div className="mt-3">
-            <a
-              href={`/admin/library/${item.id}/edit`}
-              className="rounded-md border border-zinc-700 px-3 py-1 text-xs hover:border-emerald-500"
-            >
-              Edit
-            </a>
-          </div>
-        )}
+        <CreatorEditLink itemId={item.id} />
       </header>
 
       {/* Embed (video/audio) */}
