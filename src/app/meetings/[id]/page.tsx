@@ -73,7 +73,30 @@ export async function generateMetadata({ params }: Props) {
   };
 }
 
-export const dynamic = "force-dynamic";
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (tests/egress-freeze-expiry)
+ *
+ * Was force-dynamic for no reason this page still has: its whole read set is
+ * already a cookieless service-role snapshot inside unstable_cache, and it
+ * reads no cookies and no searchParams. The export was the only thing
+ * forcing a render per request.
+ *
+ * generateStaticParams is MANDATORY on a dynamic segment — `export const
+ * revalidate` alone leaves the route server-rendered on demand, which is the
+ * quiet way this conversion fails while looking done.
+ *
+ * Beyond egress: exceeding the Supabase free-tier cap RESTRICTS the project
+ * rather than billing for it. Dynamic routes 500 in that state; prerendered
+ * ones are files on the CDN and keep serving.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 900
+
+export function generateStaticParams() {
+  // Empty: render on first request, then cache. There are thousands of
+  // meetings and fanning them all out at build time would be worse than the
+  // problem being solved.
+  return [];
+}
 
 // Format a Date as Google Calendar's expected URL format:
 // YYYYMMDDTHHMMSSZ (UTC). Same shape as iCal but without the colon

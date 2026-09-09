@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { SubmitFlash } from "./SubmitFlash";
 import { unstable_cache } from "next/cache";
 import { renderMarkdown } from "@/lib/markdown";
 import { jsonLdSafe } from "@/lib/jsonld";
@@ -12,7 +14,27 @@ import { ShareEverywhere } from "@/components/ShareEverywhere";
 import { getAdminContext } from "@/modules/admin/actions";
 
 export const metadata = { title: "Research paper" };
-export const dynamic = "force-dynamic";
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (tests/egress-freeze-expiry)
+ *
+ * The paper itself is already a cookieless service-role snapshot inside
+ * unstable_cache. What forced a render per request was reading
+ * `?from=submit&duplicate=1` on the server — navigation state that only ever
+ * matters to the one person who just submitted, decided on every crawler hit.
+ * That moved to SubmitFlash, a client component.
+ *
+ * generateStaticParams is MANDATORY on a dynamic segment — `export const
+ * revalidate` alone leaves the route server-rendered on demand.
+ *
+ * Beyond egress: exceeding the Supabase free-tier cap RESTRICTS the project
+ * rather than billing for it. Dynamic routes 500 in that state; prerendered
+ * ones keep serving from the CDN.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 900
+
+export function generateStaticParams() {
+  return [];
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -50,15 +72,10 @@ const STRENGTH_COLORS: Record<string, string> = {
 
 export default async function ResearchPaperPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ from?: string; duplicate?: string }>;
 }) {
   const { id } = await params;
-  const sp = (await searchParams) ?? {};
-  const arrivedFromSubmit = sp.from === "submit";
-  const wasDuplicate = sp.duplicate === "1";
 
   if (!UUID_RE.test(id)) notFound();
   const p = await getResearchPaper(id);
@@ -139,25 +156,11 @@ export default async function ResearchPaperPage({
         ← Research library
       </Link>
 
-      {/* Flash from /research/submit. wasDuplicate = library already had
-          this URL; otherwise it's a fresh submission landing for review. */}
-      {arrivedFromSubmit && (
-        <div className={`mt-3 mb-4 rounded-md border-2 p-3 text-sm ${
-          wasDuplicate
-            ? "border-amber-700/50 bg-amber-950/15 text-amber-200"
-            : "border-emerald-700/50 bg-emerald-950/15 text-emerald-200"
-        }`}>
-          {wasDuplicate ? (
-            <>
-              📚 This paper was already in the library. Taking you to its existing entry.
-            </>
-          ) : (
-            <>
-              ✓ Added to the library. Bibliographic metadata captured; topic tags + AI evaluation will populate after the next editorial pass. Thanks for contributing.
-            </>
-          )}
-        </div>
-      )}
+      {/* Flash from /research/submit. Client-side: reading the query string
+          on the server made this whole page dynamic (see SubmitFlash). */}
+      <Suspense fallback={null}>
+        <SubmitFlash />
+      </Suspense>
 
       <header className="mt-2 mb-6 border-b border-zinc-800 pb-4">
         <div className="flex flex-wrap items-baseline gap-2 text-[11px]">

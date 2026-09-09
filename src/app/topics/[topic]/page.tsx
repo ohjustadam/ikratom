@@ -3,7 +3,29 @@ import { notFound } from "next/navigation";
 import { STANCE_TOPIC_META, STANCE_TOPICS } from "@/lib/legislator-action-plan";
 import { getBillsForTopic, isStanceTopic, STANCE_TONE } from "@/lib/topic-bills";
 
-export const dynamic = "force-dynamic";
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (tests/egress-freeze-expiry)
+ *
+ * Was force-dynamic despite reading no cookies and no searchParams —
+ * getBillsForTopic uses a cookieless service-role client. The export was the
+ * only thing forcing a render per request.
+ *
+ * generateStaticParams is MANDATORY on a dynamic segment — `export const
+ * revalidate` alone leaves the route server-rendered on demand, which is the
+ * quiet way this conversion fails while looking done.
+ *
+ * Beyond egress: exceeding the Supabase free-tier cap RESTRICTS the project
+ * rather than billing for it. Dynamic routes 500 in that state; prerendered
+ * ones are files on the CDN and keep serving.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 900
+
+export function generateStaticParams() {
+  // The topic set is a fixed, known list, so unlike the id-keyed routes these
+  // CAN all be prerendered at build time — a handful of pages, and then zero
+  // renders at runtime.
+  return STANCE_TOPICS.map((topic) => ({ topic }));
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ topic: string }> }) {
   const { topic } = await params;
