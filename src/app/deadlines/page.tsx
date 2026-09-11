@@ -1,13 +1,13 @@
-import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
-import { SignUpNudge } from "@/components/SignUpNudge";
-import { EnablePushNudge } from "@/components/EnablePushNudge";
+import { Suspense } from "react";
+import { createAnonClient } from "@/lib/supabase/anon";
+import { DeadlineSummary } from "./DeadlineSummary";
+import { DeadlinesView } from "./DeadlinesView";
+import type { DeadlineItem } from "./types";
 
 export const metadata = {
   title: "Comment deadline radar — every public-input window we know about",
   description: "Every state BoP rule, federal DEA scheduling proposal, and city ordinance currently accepting public comment, with countdown timers. The intel lobbyists already have.",
 };
-export const dynamic = "force-dynamic";
 
 /**
  * /deadlines — public-comment deadline radar.
@@ -26,125 +26,194 @@ export const dynamic = "force-dynamic";
  *   🟡 7-30 days — calendar
  *   🟢 > 30 days — monitor
  *
- * Each row has a one-click 'Draft my response' link (signed-in users)
- * or 'Sign up to draft' (anonymous).
+ * Each row links to the alert/bill detail page, where signed-in users get the
+ * one-click draft flow. Nothing on THIS page is per-viewer.
  */
 
-type DeadlineItem = {
+/**
+ * ISR — was `force-dynamic`.
+ *
+ * WHY (2026-09-10 egress emergency). Three things forced a per-request render:
+ * the cookie-bound `@/lib/supabase/server` client (a cookie read alone opts a
+ * route out of caching), the `?state=` searchParams read, and an explicit
+ * `force-dynamic`. All three are gone: the data is public reference data, so it
+ * now goes through `createAnonClient()` (verified same row counts as service
+ * role for both queries below), and the state narrow moved client-side.
+ *
+ * Two wins, not one. Supabase's free plan does not bill for egress overage — it
+ * RESTRICTS the project, and 99.97% of hits on this class of page are crawlers
+ * that were each re-running both queries. And a prerendered page is a file on
+ * the CDN: it keeps serving through an outage that would 500 a dynamic route.
+ *
+ * The queries also got narrower. Alerts are now windowed in SQL instead of
+ * pulling an arbitrary unordered 200 rows and discarding almost all of them
+ * (measured: 200 rows -> 1), and bills filter on the JSON key itself
+ * (44 rows / 22.9 KB -> 1 row).
+ */
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 1800 ON 2026-09-16. ⚠
+ *
+ * Supabase free-tier egress was over the 5 GB cap with the cycle resetting
+ * 09-16, and exceeding it RESTRICTS the project (the API stops answering; the
+ * site goes down). ISR is lazy — a cached page only re-renders when a request
+ * arrives after its window — so the window IS the per-page cost ceiling.
+ * Stretching it past the reset means this page renders at most once more for
+ * the rest of the cycle and then costs nothing at all.
+ *
+ * Staleness is survivable here specifically because the countdowns are NOT
+ * baked into the cached HTML: `useVisibleDeadlines` re-buckets against the
+ * browser's clock and drops anything that has since closed, so a week-old page
+ * never tells an advocate they have three days left on a window that shut.
+ * What a frozen window can cost is a brand-new deadline appearing late — and
+ * the cron fleet that discovers them is already deferred by the egress gate, so
+ * there is little new to miss. On-demand revalidation still works if something
+ * genuinely urgent needs to publish.
+ *
+ * tests/egress-freeze-expiry.test.ts turns red after 2026-09-16 so this reverts
+ * on evidence rather than on someone remembering.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 1800
+
+/**
+ * How far past the render clock the server fetches. Deliberately WIDER than the
+ * 90 days the client displays: the cached HTML can be up to a week old, and a
+ * viewer's live 90-day horizon reaches further than the render-time one did.
+ */
+const HORIZON_MS = 120 * 86_400_000;
+/** Small look-back so date-only / offset-bearing values don't fall off the edge. */
+const LOOKBACK_MS = 86_400_000;
+
+/**
+ * Civic dates anchor to Eastern, and formatting server-side keeps the string
+ * byte-identical between the prerender and hydration (a viewer-local format
+ * would mismatch). Previously this rendered in the Netlify runtime's UTC.
+ */
+const DEADLINE_FMT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "America/New_York",
+});
+
+type AlertRow = {
   id: string;
-  kind: "alert" | "bill";
   title: string;
+  body: string | null;
   locality: string | null;
-  state: string | null;
-  deadline: Date;
-  deadlineSource: "occurs_at" | "expires_at" | "local_meta_comment_deadline";
-  link: string;
-  body?: string | null;
+  occurs_at: string | null;
+  expires_at: string | null;
 };
 
-export default async function DeadlinesPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ state?: string }>;
-}) {
-  const sp = (await searchParams) ?? {};
-  const stateFilter = sp.state?.toUpperCase() ?? null;
-  const supabase = await createClient();
-  const now = new Date();
-  const horizon90d = new Date(now.getTime() + 90 * 86_400_000);
+type BillRow = {
+  id: string;
+  state: string;
+  bill_number: string;
+  title: string | null;
+  locality: string | null;
+  local_meta: { public_comment_deadline?: string } | null;
+};
 
-  // Alerts with upcoming occurs_at or expires_at
-  let alertQ = supabase
-    .from("policy_alerts")
-    .select("id, title, body, kind, locality, occurs_at, expires_at, bill_id")
-    .eq("moderation_status", "approved")
-    .in("severity", ["critical", "alert"]);
-  if (stateFilter) {
-    alertQ = alertQ.or(`locality.eq.${stateFilter},locality.ilike.%, ${stateFilter}`);
-  }
-  const { data: alertsRaw } = await alertQ.limit(200);
+/** First non-empty paragraph, minus any leading **Bold label**: prefix. */
+function excerptOf(body: string | null): string | null {
+  const para = body?.split(/\n+/).find((p) => p.trim().length > 0);
+  return para ? para.replace(/^\*\*[^*]+\*\*:?\s*/, "").slice(0, 400) : null;
+}
 
-  // Bills with public-comment deadlines in local_meta
-  let billQ = supabase
-    .from("bills")
-    .select("id, state, bill_number, title, locality, local_meta")
-    .eq("active", true)
-    .not("local_meta", "is", null);
-  if (stateFilter) {
-    billQ = billQ.eq("state", stateFilter);
-  }
-  const { data: billsRaw } = await billQ.limit(200);
+/**
+ * `state` drives the hub chip and the pill list (exact 2-letter locality only,
+ * as before). `filterState` reproduces the old server-side `?state=` match,
+ * which also accepted a trailing ", XX" — so "Ventura, CA" keeps filtering
+ * under CA without gaining a CA hub chip it never had.
+ */
+function codesFor(locality: string | null) {
+  const exact = /^[A-Z]{2}$/.test(locality ?? "") ? locality : null;
+  const suffix = locality?.match(/,\s*([A-Za-z]{2})$/)?.[1]?.toUpperCase() ?? null;
+  return { state: exact, filterState: exact ?? suffix };
+}
+
+export default async function DeadlinesPage() {
+  const supabase = createAnonClient();
+  const renderedAt = Date.now();
+  const fromMs = renderedAt - LOOKBACK_MS;
+  const toMs = renderedAt + HORIZON_MS;
+  const fromIso = new Date(fromMs).toISOString();
+  const toIso = new Date(toMs).toISOString();
+  const inWindow = (ms: number) => Number.isFinite(ms) && ms >= fromMs && ms <= toMs;
+
+  const [alertsRes, billsRes] = await Promise.all([
+    // Alerts whose comment window closes inside the horizon. The window is
+    // applied in SQL now — this used to pull 200 arbitrary rows (body column
+    // included) and throw nearly all of them away in JS.
+    supabase
+      .from("policy_alerts")
+      .select("id, title, body, locality, occurs_at, expires_at")
+      .eq("moderation_status", "approved")
+      .in("severity", ["critical", "alert"])
+      .or(
+        `and(expires_at.gte.${fromIso},expires_at.lte.${toIso}),` +
+        `and(occurs_at.gte.${fromIso},occurs_at.lte.${toIso})`,
+      )
+      .limit(200),
+    // Bills carrying an explicit public-comment deadline. Filtering on the JSON
+    // key drops this from 44 rows to the handful that actually have one; the
+    // date comparison stays in JS because the stored value is a free-form
+    // string and lexical text comparison would be a silent-drop hazard.
+    supabase
+      .from("bills")
+      .select("id, state, bill_number, title, locality, local_meta")
+      .eq("active", true)
+      .not("local_meta->>public_comment_deadline", "is", null)
+      .limit(200),
+  ]);
 
   const items: DeadlineItem[] = [];
 
-  // Surface alerts whose occurs_at is upcoming (these are event-windows
-  // like 'BoP rule hearing on Date X' that have a comment deadline)
-  for (const a of alertsRaw ?? []) {
-    const occurs = a.occurs_at ? new Date(a.occurs_at) : null;
-    const expires = a.expires_at ? new Date(a.expires_at) : null;
-    // Prefer expires_at (explicit deadline); fall back to occurs_at
-    if (expires && expires > now && expires < horizon90d) {
-      items.push({
-        id: `alert-${a.id}`,
-        kind: "alert",
-        title: a.title,
-        locality: a.locality,
-        state: /^[A-Z]{2}$/.test(a.locality ?? "") ? a.locality : null,
-        deadline: expires,
-        deadlineSource: "expires_at",
-        link: `/alerts/${a.id}`,
-        body: a.body,
-      });
-    } else if (occurs && occurs > now && occurs < horizon90d) {
-      items.push({
-        id: `alert-${a.id}`,
-        kind: "alert",
-        title: a.title,
-        locality: a.locality,
-        state: /^[A-Z]{2}$/.test(a.locality ?? "") ? a.locality : null,
-        deadline: occurs,
-        deadlineSource: "occurs_at",
-        link: `/alerts/${a.id}`,
-        body: a.body,
-      });
-    }
+  for (const a of (alertsRes.data ?? []) as unknown as AlertRow[]) {
+    const expires = a.expires_at ? Date.parse(a.expires_at) : NaN;
+    const occurs = a.occurs_at ? Date.parse(a.occurs_at) : NaN;
+    // Prefer expires_at (explicit deadline); fall back to occurs_at.
+    const picked = inWindow(expires)
+      ? { ms: expires, source: "expires_at" as const }
+      : inWindow(occurs)
+        ? { ms: occurs, source: "occurs_at" as const }
+        : null;
+    if (!picked) continue;
+    items.push({
+      id: `alert-${a.id}`,
+      kind: "alert",
+      title: a.title,
+      locality: a.locality,
+      ...codesFor(a.locality),
+      deadline: new Date(picked.ms).toISOString(),
+      deadlineSource: picked.source,
+      deadlineLabel: DEADLINE_FMT.format(picked.ms),
+      link: `/alerts/${a.id}`,
+      excerpt: excerptOf(a.body),
+    });
   }
 
-  // Surface bills whose local_meta.public_comment_deadline is upcoming
-  type BillRow = {
-    id: string; state: string; bill_number: string; title: string | null;
-    locality: string | null;
-    local_meta: { public_comment_deadline?: string; meeting_at?: string } | null;
-  };
-  for (const b of (billsRaw ?? []) as BillRow[]) {
-    const dlStr = b.local_meta?.public_comment_deadline;
-    if (!dlStr) continue;
-    const dl = new Date(dlStr);
-    if (Number.isNaN(dl.getTime()) || dl < now || dl > horizon90d) continue;
+  for (const b of (billsRes.data ?? []) as unknown as BillRow[]) {
+    const ms = Date.parse(b.local_meta?.public_comment_deadline ?? "");
+    if (!inWindow(ms)) continue;
     items.push({
       id: `bill-${b.id}`,
       kind: "bill",
       title: `${b.state} ${b.bill_number} · ${b.title?.slice(0, 80) ?? "(no title)"}`,
       locality: b.locality ?? b.state,
       state: b.state,
-      deadline: dl,
+      filterState: b.state,
+      deadline: new Date(ms).toISOString(),
       deadlineSource: "local_meta_comment_deadline",
+      deadlineLabel: DEADLINE_FMT.format(ms),
       link: `/bills/${b.id}`,
+      excerpt: null,
     });
   }
 
-  // Sort: closest deadline first
-  items.sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
-
-  // Bucket
-  const urgent = items.filter((i) => (i.deadline.getTime() - now.getTime()) < 7 * 86_400_000);
-  const soon = items.filter((i) => {
-    const d = i.deadline.getTime() - now.getTime();
-    return d >= 7 * 86_400_000 && d < 30 * 86_400_000;
-  });
-  const later = items.filter((i) => (i.deadline.getTime() - now.getTime()) >= 30 * 86_400_000);
-
-  const stateOptions = [...new Set(items.map((i) => i.state).filter(Boolean) as string[])].sort();
+  // Closest deadline first. The client re-sorts after filtering, but shipping
+  // it ordered keeps the prerendered HTML correct for crawlers.
+  items.sort((x, y) => Date.parse(x.deadline) - Date.parse(y.deadline));
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -159,76 +228,16 @@ export default async function DeadlinesPage({
           subscriptions for this intel. We give it free because every comment
           submitted moves the needle.
         </p>
-        <p className="mt-2 text-xs text-zinc-500">
-          {items.length} window{items.length === 1 ? "" : "s"} open
-          {stateFilter ? ` in ${stateFilter}` : " across all jurisdictions"}.
-          {urgent.length > 0 && (
-            <span className="ml-2 rounded bg-red-950/50 px-1.5 py-0.5 text-red-300">
-              {urgent.length} close in &lt; 7 days
-            </span>
-          )}
-        </p>
+        {/* Suspense is REQUIRED around anything calling useSearchParams(): Next
+            refuses to prerender a page that reads them outside a boundary. */}
+        <Suspense fallback={<p className="mt-2 h-4 text-xs" />}>
+          <DeadlineSummary items={items} baselineNow={renderedAt} />
+        </Suspense>
       </header>
 
-      {/* State filter pills */}
-      {stateOptions.length > 0 && (
-        <nav className="mb-6 flex flex-wrap gap-2 text-xs">
-          <Link
-            href="/deadlines"
-            className={`rounded px-3 py-1.5 ${!stateFilter ? "bg-emerald-600 text-zinc-950" : "border border-zinc-800 bg-zinc-950/40 hover:border-emerald-500"}`}
-          >
-            All ({items.length})
-          </Link>
-          {stateOptions.map((s) => (
-            <Link
-              key={s}
-              href={`/deadlines?state=${s}`}
-              className={`rounded px-3 py-1.5 ${stateFilter === s ? "bg-emerald-600 text-zinc-950" : "border border-zinc-800 bg-zinc-950/40 hover:border-emerald-500"}`}
-            >
-              {s}
-            </Link>
-          ))}
-        </nav>
-      )}
-
-      <SignUpNudge context="default" className="mb-6" />
-      <EnablePushNudge context="default" className="mb-6" />
-
-      {items.length === 0 && (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-10 text-center">
-          <p className="text-3xl">⏰</p>
-          <p className="mt-2 text-sm text-zinc-400">
-            No public-comment windows currently open
-            {stateFilter ? ` in ${stateFilter}` : ""}.
-          </p>
-          <p className="mt-1 text-xs text-zinc-600">
-            That&apos;s a good thing — quiet means no active threats. New windows
-            surface here automatically.
-          </p>
-        </div>
-      )}
-
-      {urgent.length > 0 && (
-        <Bucket
-          title="🔴 Closing in less than 7 days — act now"
-          items={urgent}
-          tone="red"
-        />
-      )}
-      {soon.length > 0 && (
-        <Bucket
-          title="🟡 7–30 days out — calendar it"
-          items={soon}
-          tone="amber"
-        />
-      )}
-      {later.length > 0 && (
-        <Bucket
-          title="🟢 Over 30 days out — monitor"
-          items={later}
-          tone="emerald"
-        />
-      )}
+      <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-zinc-900/50" />}>
+        <DeadlinesView items={items} baselineNow={renderedAt} />
+      </Suspense>
 
       <footer className="mt-10 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-xs text-zinc-400">
         <p className="font-semibold text-zinc-200">How this radar works</p>
@@ -241,88 +250,5 @@ export default async function DeadlinesPage({
         </p>
       </footer>
     </div>
-  );
-}
-
-function Bucket({
-  title,
-  items,
-  tone,
-}: {
-  title: string;
-  items: DeadlineItem[];
-  tone: "red" | "amber" | "emerald";
-}) {
-  const headTone =
-    tone === "red" ? "text-red-300"
-      : tone === "amber" ? "text-amber-300"
-      : "text-emerald-300";
-  return (
-    <section className="mb-8">
-      <h2 className={`mb-3 text-sm font-semibold uppercase tracking-wider ${headTone}`}>{title}</h2>
-      <ul className="space-y-2">
-        {items.map((i) => {
-          const now = Date.now();
-          const daysLeft = Math.ceil((i.deadline.getTime() - now) / 86_400_000);
-          const hoursLeft = Math.ceil((i.deadline.getTime() - now) / 3_600_000);
-          const dotCls =
-            tone === "red" ? "bg-red-500 animate-pulse"
-              : tone === "amber" ? "bg-amber-400"
-              : "bg-emerald-400";
-          return (
-            <li
-              key={i.id}
-              className={`rounded-md border p-4 ${
-                tone === "red" ? "border-red-700/50 bg-red-950/15"
-                  : tone === "amber" ? "border-amber-700/40 bg-amber-950/10"
-                  : "border-zinc-800 bg-zinc-950/40"
-              }`}
-            >
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className={`inline-block h-2 w-2 rounded-full ${dotCls}`} />
-                <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
-                  {i.locality ?? "FED"}
-                </span>
-                <span className={`text-[11px] font-bold ${headTone}`}>
-                  {daysLeft <= 1 ? `${hoursLeft}h left` : `${daysLeft}d left`}
-                </span>
-                <span className="ml-auto text-[10px] text-zinc-500">
-                  deadline {i.deadline.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                </span>
-              </div>
-              <h3 className="mt-2 text-sm font-semibold leading-snug text-zinc-100">
-                <Link href={i.link} className="hover:text-emerald-400 hover:underline">
-                  {i.title}
-                </Link>
-              </h3>
-              {i.body && (
-                <p className="mt-1 line-clamp-2 text-xs text-zinc-400">
-                  {i.body.split(/\n+/).find((p) => p.trim().length > 0)?.replace(/^\*\*[^*]+\*\*:?\s*/, "")}
-                </p>
-              )}
-              <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                <Link
-                  href={i.link}
-                  className={`rounded px-2.5 py-1 font-semibold ${
-                    tone === "red" ? "bg-red-600 text-white hover:bg-red-500"
-                      : "bg-emerald-500 text-zinc-950 hover:bg-emerald-400"
-                  }`}
-                >
-                  ✍ Draft response →
-                </Link>
-                {i.state && (
-                  <Link
-                    href={`/states/${i.state}`}
-                    className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500"
-                  >
-                    📍 {i.state} hub
-                  </Link>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
   );
 }

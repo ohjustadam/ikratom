@@ -58,7 +58,18 @@ const BUDGET_GB = 5;
  * RE-CALIBRATE by reading Usage in the Supabase dashboard (org ikratom-2) and
  * setting this to dashboardGB / thisWatchdogsGB on the same day.
  */
-const BILLABLE_RATIO = 0.54;
+// RE-CALIBRATED 2026-09-10. At 0.54 this watchdog computed 5.116 GB (102.3%)
+// while the dashboard read 4.71 GB (94.2%) — it was calling a breach that had
+// not happened, on a day the site was serving fine. 4.71/5.116 = 0.921, so
+// 0.54 x 0.921 = 0.497.
+//
+// Over-reporting is not the "safe" direction, and this codebase has learned
+// that twice already: the pre-calibration version cried 161% at 87% and got
+// discounted, and the Netlify credit floor went the same way. A watchdog you
+// have to mentally derate is a watchdog you eventually ignore — and this one
+// now also drives the load-shedding gate, so reading high means deferring real
+// work for no reason.
+const BILLABLE_RATIO = 0.497;
 const THRESHOLDS = [0.5, 0.75, 0.9]; // page at 50%, 75%, 90%
 const EGRESS_CYCLE_ANCHOR_DAY = 16;  // org created 2026-07-16
 

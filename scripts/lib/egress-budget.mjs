@@ -34,8 +34,14 @@
 import { createClient } from "@supabase/supabase-js";
 
 export const BUDGET_GB = 5;
-/** Raw NIC counter -> billable. Calibrated against the dashboard; see check-egress-usage.mjs. */
-export const BILLABLE_RATIO = 0.54;
+/**
+ * Raw NIC counter -> billable. Re-calibrated 2026-09-10 from 0.54: at that
+ * value the watchdog read 102.3% while the dashboard read 94.2%, i.e. it was
+ * declaring a breach that had not happened. Keep this in step with
+ * check-egress-usage.mjs — the gate below sheds real work based on it, so
+ * reading high defers jobs for no reason and reading low would miss the wall.
+ */
+export const BILLABLE_RATIO = 0.497;
 export const EGRESS_CYCLE_ANCHOR_DAY = 16;
 
 /** Fraction of the cap at which each tier stops running. */

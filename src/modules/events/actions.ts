@@ -67,8 +67,10 @@ export async function createEvent(formData: FormData) {
     targetId: ctx.userId,
     details: { event_id: row.id, state: stateRaw, title, starts_at: startsAt.toISOString() },
   });
-  revalidatePath("/events");
-  redirect("/events");
+  // /events is now a next.config redirect, not a route — point at the real
+  // destination so the admin isn't bounced through an extra hop.
+  revalidatePath("/calendar");
+  redirect("/calendar");
 }
 
 export async function cancelEvent(eventId: string) {
@@ -80,7 +82,7 @@ export async function cancelEvent(eventId: string) {
     .update({ active: false })
     .eq("id", eventId);
   if (error) return { error: error.message };
-  revalidatePath("/events");
+  revalidatePath("/calendar");
   return { ok: true };
 }
 

@@ -1,23 +1,66 @@
 import Link from "next/link";
 import { unstable_cache } from "next/cache";
-import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { createAnonClient } from "@/lib/supabase/anon";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
 export const metadata = {
   title: "Where kratom is banned — every state, county, and city tracking",
   description: "Comprehensive list of US jurisdictions banning kratom — states, counties, and cities. Updated as bans are enacted or repealed.",
 };
-// REVERTED to force-dynamic (2026-07-23). Dropping it made Next try to
-// PRERENDER this page at build time, which needs SUPABASE_SERVICE_ROLE_KEY —
-// absent in CI, so the build died with "Error occurred prerendering page
-// /banned". A local build passed because .env.local supplies the key: a false
-// green. Lesson: converting a page that reads the DB is not just a flag change,
-// it moves the fetch into BUILD time, and the build environment has no secrets.
-//
-// To make this static later, the page's data read must tolerate a missing key
-// at build time (fail soft, like lib/emergency-banner.ts) — worth doing, since
-// this is a heavily-crawled public surface.
-export const dynamic = "force-dynamic";
+
+/**
+ * Static + ISR (2026-09-10 egress conversion).
+ *
+ * This page never read a cookie: the whole render is public record, already
+ * snapshotted across visitors inside unstable_cache. The only thing forcing a
+ * per-request render — and therefore three Supabase queries per crawler hit on
+ * one of our most-indexed public surfaces — was the force-dynamic export
+ * below, kept for a build-environment reason that no longer holds.
+ *
+ * WHY THE OLD force-dynamic COMMENT IS OBSOLETE. It said dropping the flag
+ * killed CI, because prerendering moved the read to BUILD time where
+ * createServiceRoleClient() throws on the missing key. True in 2026-07-23;
+ * fixed the same day by adding a stub SUPABASE_SERVICE_ROLE_KEY pointing at
+ * example.supabase.co to the CI build env (see .github/workflows/ci.yml).
+ * Switching to the ANON client here removes the dependency outright — the page
+ * now needs only NEXT_PUBLIC_* vars, which every environment has. The stubbed
+ * host does not resolve, supabase-js returns an error rather than throwing, and
+ * every read below already falls back to `?? []`, so a PR build renders an
+ * empty shell instead of dying and never touches the real database.
+ *
+ * ANON, NOT SERVICE ROLE. Verified identical row sets on 2026-09-10 for every
+ * query this page runs — bills 681/681 overall and 83/83 after the ban filter,
+ * state_status 51/51 and 7/7 banned, local_vote_outcomes 60/60 and 4/4
+ * defeated — including the exact column lists (no PostgREST column-grant
+ * surprise). Service role was reading nothing an anonymous visitor cannot see,
+ * so least privilege costs this page nothing.
+ *
+ * And the reason this outlives the egress crunch: exceeding the Supabase free
+ * cap RESTRICTS the project rather than billing for it. A dynamic route 500s
+ * in that state; a prerendered one is a file on the CDN and keeps answering
+ * "is kratom banned in my town?" through the outage.
+ */
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 600 ON 2026-09-16. ⚠
+ *
+ * Supabase free-tier egress was at 96.3% with the cycle resetting 09-16, and
+ * exceeding it RESTRICTS the project (the API stops answering; the site goes
+ * down). ISR is lazy — a cached page only re-renders when a request arrives
+ * after its window — so the window IS the per-page cost ceiling. Stretching it
+ * past the reset means this page renders at most once more for the rest of the
+ * cycle and then costs nothing at all, while still serving instantly from the
+ * CDN.
+ *
+ * The usual objection — "but the content goes stale" — barely applies here:
+ * the cron fleet is ALREADY deferred by the egress gate, so the underlying
+ * data is not moving either. Freezing the presentation of data that is itself
+ * frozen loses almost nothing, and on-demand revalidation still works if
+ * something genuinely urgent needs to publish.
+ *
+ * tests/egress-freeze-expiry.test.ts turns red after 2026-09-16 so this
+ * reverts on evidence rather than on someone remembering.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 600 (matches the inner snapshot window)
 
 /**
  * /banned — the comprehensive ban tracker.
@@ -70,14 +113,15 @@ const STATE_NAMES: Record<string, string> = {
 
 /**
  * All /banned data, snapshotted across visitors (10-min revalidate) via the
- * /status pattern: cookieless service-role client inside unstable_cache. Every
- * table read here (bills, state_status, local_vote_outcomes) is public-read —
- * identical rows to what an anon cookie client saw, minus the per-visit DB
- * round-trips. Bans change on cron cadence, not user cadence.
+ * /status pattern: cookieless ANON client inside unstable_cache. Every table
+ * read here (bills, state_status, local_vote_outcomes) is public-read, and the
+ * anon key returns provably identical rows (see the note above the revalidate
+ * export), minus the per-visit DB round-trips. Bans change on cron cadence, not
+ * user cadence. Cookieless is what lets the whole page prerender.
  */
 const getBannedData = unstable_cache(
   async () => {
-    const sb = createServiceRoleClient();
+    const sb = createAnonClient();
     const [billsRes, ssRes, defeatedRes] = await Promise.all([
       sb.from("bills")
         .select("id, state, bill_number, title, status, scope, locality, effective_date, last_action_at, source_url, opposition_summary_md, verification_status")
