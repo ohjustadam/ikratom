@@ -98,7 +98,7 @@
     "md-to-pdf": "^5.2.5",
     "tailwindcss": "^4",
     "typescript": "5.9.3",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "postcss": "^8.5.14",
