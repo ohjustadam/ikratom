@@ -29,6 +29,7 @@ const FROZEN_PAGES: Array<[string, number]> = [
   ["src/app/news/page.tsx", 1800],
   ["src/app/campaigns/page.tsx", 900],
   ["src/app/states/[code]/page.tsx", 900],
+  ["src/app/how-it-works/page.tsx", 3600],
 ];
 
 function revalidateOf(relPath: string): number | null {

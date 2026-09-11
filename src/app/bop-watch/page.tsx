@@ -1,48 +1,64 @@
-import { createClient } from "@/lib/supabase/server";
-
+import { Suspense } from "react";
 import Link from "next/link";
+import { createAnonClient } from "@/lib/supabase/anon";
+import { CoverageTable } from "./CoverageTable";
+import { DirectFindingsStat, FilteredFindings } from "./FilteredView";
+import { countDirect, FindingsList, StatCard } from "./parts";
+import type { Finding, Source } from "./types";
+
 export const metadata = {
   title: "BoP Watch · State Pharmacy Board Monitoring",
   description:
     "iKratom monitors every U.S. state Board of Pharmacy daily for kratom-related rulemaking — the administrative path to a ban that bypasses the legislature. Live coverage status + flagged findings.",
 };
-export const dynamic = "force-dynamic";
 
-type Source = {
-  state: string;
-  board_name: string;
-  surface: string;
-  kind: string;
-  agenda_url: string;
-  enabled: boolean;
-  last_scraped_at: string | null;
-  last_status: string | null;
-  last_finding_count: number;
-};
-type Finding = {
-  id: string;
-  state: string;
-  title: string;
-  snippet: string | null;
-  url: string | null;
-  meeting_date: string | null;
-  relevance: string;
-  severity: string;
-  ai_confidence: number | null;
-  ai_reasoning: string | null;
-  alert_emitted_at: string | null;
-  found_at: string;
-  board_name: string;
-  surface: string;
-};
+/**
+ * Static + ISR. Was force-dynamic.
+ *
+ * WHY (2026-09-08 egress emergency). Two things forced a render per request:
+ * the cookie-bound `@/lib/supabase/server` client, and reading `?state=XX`
+ * from searchParams. Neither was per-viewer. Both public RPCs
+ * (`get_public_bop_sources` / `get_public_bop_findings`) return identical rows
+ * to an anonymous caller — verified 2026-09-10 against service role: 53
+ * sources, 1 finding, same ids and columns — which is why
+ * modules/bop/BopWatchSummary.tsx already moved to the anon client. This page
+ * now uses the same client, and the state filter moved into FilteredView.tsx
+ * behind useSearchParams(). Nothing on this page is scoped to the viewer, so
+ * there is nothing per-user to leak into the shared cache.
+ *
+ * The findings/stat Suspense fallbacks are the SAME components rendered
+ * unfiltered on the server, so the static HTML carries the real numbers and
+ * the real findings — a crawler with no JS sees the page as it always looked,
+ * and a reader with a `?state=` link gets it narrowed on hydration.
+ *
+ * Beyond egress: exceeding the Supabase free-tier cap RESTRICTS the project
+ * rather than billing for it. A dynamic route 500s in that state; a
+ * prerendered one is a file on the CDN and keeps serving — and BoP Watch is
+ * exactly the early-warning surface you do not want dark during an outage.
+ */
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 3600 ON 2026-09-16. ⚠
+ *
+ * Supabase free-tier egress was at 96.3% with the cycle resetting 09-16, and
+ * exceeding it RESTRICTS the project (the API stops answering; the site goes
+ * down). ISR is lazy — a cached page only re-renders when a request arrives
+ * after its window — so the window IS the per-page cost ceiling. Stretching it
+ * past the reset means this page renders at most once more for the rest of the
+ * cycle and then costs nothing at all, while still serving instantly from the
+ * CDN.
+ *
+ * The usual objection — "but the content goes stale" — barely applies here:
+ * the cron fleet is ALREADY deferred by the egress gate, so the underlying
+ * data is not moving either. The BoP sweep itself only runs once a day at
+ * 10:00 UTC, which is why the post-freeze window is an hour and not minutes.
+ *
+ * tests/egress-freeze-expiry.test.ts turns red after 2026-09-16 so the frozen
+ * pages revert on evidence rather than on someone remembering.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 3600
 
-export default async function BopWatchPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ state?: string }>;
-}) {
-  const { state: stateFilter } = await searchParams;
-  const supabase = await createClient();
+export default async function BopWatchPage() {
+  const supabase = createAnonClient();
 
   const [{ data: sources }, { data: findings }] = await Promise.all([
     supabase.rpc("get_public_bop_sources"),
@@ -60,21 +76,7 @@ export default async function BopWatchPage({
     .pop();
   const okCount = allSources.filter((s) => s.last_status === "ok" || s.last_status === "no_findings").length;
   const errorCount = allSources.filter((s) => s.last_status === "error").length;
-
-  const visibleFindings = stateFilter
-    ? allFindings.filter((f) => f.state.toLowerCase() === stateFilter.toLowerCase())
-    : allFindings;
-  const directFindings = visibleFindings.filter((f) => f.relevance === "kratom_direct");
-  const adjacentFindings = visibleFindings.filter((f) => f.relevance === "kratom_adjacent");
-
-  // Group sources by state for the coverage map
-  const sourcesByState = new Map<string, Source[]>();
-  for (const s of allSources) {
-    const arr = sourcesByState.get(s.state) ?? [];
-    arr.push(s);
-    sourcesByState.set(s.state, arr);
-  }
-  const stateRows = Array.from(sourcesByState.entries()).sort(([a], [b]) => a.localeCompare(b));
+  const directTotal = countDirect(allFindings);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
@@ -96,7 +98,8 @@ export default async function BopWatchPage({
         </p>
       </header>
 
-      {/* Live status banner */}
+      {/* Live status banner. Three cards are filter-independent and stay on the
+          server; only the kratom-direct count reacts to `?state=`. */}
       <section className="mb-10 grid gap-4 sm:grid-cols-4">
         <StatCard label="Sources monitored" value={enabledCount} sub="states + DC" />
         <StatCard
@@ -105,12 +108,18 @@ export default async function BopWatchPage({
           sub={okCount === enabledCount ? "all clear" : `${errorCount} error${errorCount === 1 ? "" : "s"}`}
           accent={okCount === enabledCount ? "ok" : errorCount > 5 ? "warn" : "neutral"}
         />
-        <StatCard
-          label="Kratom-direct findings"
-          value={directFindings.length}
-          sub={`last 90 days${stateFilter ? ` · ${stateFilter.toUpperCase()}` : ""}`}
-          accent={directFindings.length > 0 ? "warn" : "ok"}
-        />
+        <Suspense
+          fallback={
+            <StatCard
+              label="Kratom-direct findings"
+              value={directTotal}
+              sub="last 90 days"
+              accent={directTotal > 0 ? "warn" : "ok"}
+            />
+          }
+        >
+          <DirectFindingsStat findings={allFindings} />
+        </Suspense>
         <StatCard
           label="Last sweep"
           value={lastScrapeAt ? new Date(lastScrapeAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
@@ -118,101 +127,13 @@ export default async function BopWatchPage({
         />
       </section>
 
-      {/* Findings */}
-      <section className="mb-12">
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-xl font-semibold">
-            Flagged findings
-            {stateFilter && <span className="text-zinc-500"> · {stateFilter.toUpperCase()}</span>}
-          </h2>
-          {stateFilter && (
-            <a href="/bop-watch" className="text-xs text-emerald-400 hover:underline">
-              ← All states
-            </a>
-          )}
-        </div>
+      {/* Suspense is REQUIRED: FilteredFindings calls useSearchParams(), and
+          Next refuses to prerender a page that reads them outside a boundary. */}
+      <Suspense fallback={<FindingsList findings={allFindings} />}>
+        <FilteredFindings findings={allFindings} />
+      </Suspense>
 
-        {directFindings.length === 0 && adjacentFindings.length === 0 ? (
-          <EmptyState stateFilter={stateFilter} />
-        ) : (
-          <div className="space-y-3">
-            {directFindings.map((f) => <FindingCard key={f.id} f={f} />)}
-            {adjacentFindings.map((f) => <FindingCard key={f.id} f={f} />)}
-          </div>
-        )}
-      </section>
-
-      {/* Coverage table */}
-      <section className="mb-10">
-        <h2 className="mb-3 text-xl font-semibold">Coverage</h2>
-        <p className="mb-4 text-sm text-zinc-400">
-          Every state we monitor. Click a state to filter findings.
-        </p>
-        <div className="overflow-hidden rounded-lg border border-zinc-800">
-          <table className="w-full text-sm">
-            <thead className="bg-zinc-950 text-xs uppercase tracking-wider text-zinc-500">
-              <tr>
-                <th className="p-2 text-left">State</th>
-                <th className="p-2 text-left">Agency · Surface</th>
-                <th className="p-2 text-left">Status</th>
-                <th className="p-2 text-right">Last scrape</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-900 bg-zinc-950/40">
-              {stateRows.map(([state, rows]) =>
-                rows.map((s) => (
-                  <tr key={`${state}-${s.board_name}-${s.surface}`}>
-                    <td className="p-2 align-top">
-                      <a
-                        href={`/bop-watch?state=${state}`}
-                        className="font-mono text-xs text-emerald-400 hover:underline"
-                      >
-                        {state}
-                      </a>
-                    </td>
-                    <td className="p-2 align-top">
-                      <div className="text-zinc-200">{s.board_name}</div>
-                      <div className="text-xs text-zinc-400">
-                        {s.surface} ·{" "}
-                        <a
-                          href={s.agenda_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-zinc-500 hover:text-emerald-400"
-                        >
-                          source ↗
-                        </a>
-                      </div>
-                    </td>
-                    <td className="p-2 align-top text-xs">
-                      {!s.enabled && (
-                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-500">paused</span>
-                      )}
-                      {s.enabled && s.last_status === "ok" && (
-                        <span className="rounded bg-emerald-950/50 px-1.5 py-0.5 text-emerald-300">live</span>
-                      )}
-                      {s.enabled && s.last_status === "no_findings" && (
-                        <span className="rounded bg-emerald-950/30 px-1.5 py-0.5 text-emerald-400/70">all clear</span>
-                      )}
-                      {s.enabled && s.last_status === "error" && (
-                        <span className="rounded bg-amber-950/50 px-1.5 py-0.5 text-amber-300">retry pending</span>
-                      )}
-                      {s.enabled && !s.last_status && (
-                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-500">pending</span>
-                      )}
-                    </td>
-                    <td className="p-2 text-right align-top text-xs text-zinc-400">
-                      {s.last_scraped_at
-                        ? new Date(s.last_scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                        : "—"}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <CoverageTable sources={allSources} />
 
       <footer className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 text-sm text-zinc-400">
         <h3 className="mb-2 font-semibold text-zinc-200">How this works</h3>
@@ -231,114 +152,5 @@ export default async function BopWatchPage({
         </p>
       </footer>
     </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  sub,
-  accent = "neutral",
-}: {
-  label: string;
-  value: string | number;
-  sub: string;
-  accent?: "ok" | "warn" | "neutral";
-}) {
-  const tone =
-    accent === "ok" ? "text-emerald-300" :
-    accent === "warn" ? "text-amber-300" :
-    "text-zinc-100";
-  return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
-      <p className="text-xs uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className={`mt-1 text-2xl font-bold ${tone}`}>{value}</p>
-      <p className="mt-1 text-xs text-zinc-400">{sub}</p>
-    </div>
-  );
-}
-
-function EmptyState({ stateFilter }: { stateFilter?: string }) {
-  return (
-    <div className="rounded-lg border border-dashed border-emerald-800/40 bg-emerald-950/10 p-8 text-center">
-      <p className="text-3xl">✓</p>
-      <h3 className="mt-3 text-lg font-semibold text-emerald-300">
-        {stateFilter
-          ? `No kratom-related BoP activity in ${stateFilter.toUpperCase()} (last 90 days)`
-          : "No kratom-related BoP activity anywhere (last 90 days)"}
-      </h3>
-      <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
-        That&apos;s the outcome we want. The monitoring is running daily — when
-        something hostile lands, it&apos;ll surface here within 24 hours and the
-        admin will get a push notification.
-      </p>
-    </div>
-  );
-}
-
-function FindingCard({ f }: { f: Finding }) {
-  const isDirect = f.relevance === "kratom_direct";
-  const isHostile = f.severity === "hostile_proposal";
-  const ring =
-    isDirect && isHostile ? "border-red-700/50 bg-red-950/20" :
-    isDirect ? "border-amber-700/40 bg-amber-950/10" :
-    "border-zinc-800 bg-zinc-950/40";
-
-  return (
-    <article className={`rounded-lg border p-4 ${ring}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-wider text-zinc-500">
-            <a
-              href={`/bop-watch?state=${f.state}`}
-              className="text-emerald-400 hover:underline"
-            >
-              {f.state}
-            </a>
-            {" · "}
-            {f.board_name} · {f.surface} · {new Date(f.found_at).toLocaleDateString()}
-          </p>
-          <h3 className="mt-1 font-medium text-zinc-100 break-words">{f.title}</h3>
-          {f.snippet && (
-            <p className="mt-1 text-sm text-zinc-400">{f.snippet}</p>
-          )}
-          {f.ai_reasoning && (
-            <p className="mt-2 rounded-md border border-emerald-800/30 bg-emerald-950/10 p-2 text-xs italic text-emerald-200/90">
-              <span className="font-semibold text-emerald-300">AI verdict</span>
-              {f.ai_confidence !== null && (
-                <span className="text-emerald-400/70"> · {Math.round(f.ai_confidence * 100)}% conf.</span>
-              )}{" "}
-              — {f.ai_reasoning}
-            </p>
-          )}
-          {f.url && (
-            <a
-              href={f.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 inline-block break-all text-xs text-emerald-400 hover:underline"
-            >
-              View source ↗
-            </a>
-          )}
-        </div>
-        <div className="flex flex-col items-end gap-1 text-[10px]">
-          {isDirect && (
-            <span className={`rounded px-1.5 py-0.5 ${isHostile ? "bg-red-950/50 text-red-300" : "bg-amber-950/50 text-amber-300"}`}>
-              kratom-direct
-            </span>
-          )}
-          {!isDirect && f.relevance === "kratom_adjacent" && (
-            <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">adjacent</span>
-          )}
-          {isHostile && (
-            <span className="rounded bg-red-950/50 px-1.5 py-0.5 text-red-300">hostile</span>
-          )}
-          {f.alert_emitted_at && (
-            <span className="rounded bg-emerald-950/50 px-1.5 py-0.5 text-emerald-300">alert sent</span>
-          )}
-        </div>
-      </div>
-    </article>
   );
 }

@@ -1,63 +1,68 @@
-import Link from "next/link";
+import { Suspense } from "react";
 import { unstable_cache } from "next/cache";
-import { createClient, getCachedAuthProfile } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { SignUpNudge } from "@/components/SignUpNudge";
-import { CalendarSyncButton } from "./CalendarSyncButton";
-import { EVENT_TYPE_LABELS } from "@/modules/events/labels";
+import { CalendarView } from "./CalendarView";
+import { etYmd, type CalendarSnapshot } from "./types";
 
 export const metadata = {
   title: "Community Calendar — every public kratom event",
   description: "The kratom community calendar: elections + primaries, town halls + hearings, city/county meetings, bill actions, and legislative sessions in one place. Subscribe to the .ics feed.",
 };
-export const dynamic = "force-dynamic";
 
-type Event = {
-  kind: "municipal" | "alert" | "bill_action" | "state_session" | "election" | "townhall" | "bill_effective" | "bill_sunset" | "local_vote";
-  date: Date;
-  end_date?: Date | null;
-  allDay?: boolean;
-  scope?: string | null;
-  title: string;
-  body?: string | null;
-  state: string | null;
-  locality?: string | null;
-  zoom_url?: string | null;
-  livestream_url?: string | null;
-  agenda_url?: string | null;
-  public_comment_url?: string | null;
-  in_person_address?: string | null;
-  source_url?: string | null;
-  detail_href?: string | null;       // primary internal link (this event's own page)
-  bill_href?: string | null;         // secondary cross-link to the related bill
-  severity?: string | null;
-};
-
-const KIND_BADGE: Record<string, { emoji: string; label: string; cls: string }> = {
-  municipal: { emoji: "🏛️", label: "City/county", cls: "bg-amber-950/30 text-amber-300 border-amber-700/40" },
-  alert: { emoji: "🚨", label: "Policy alert", cls: "bg-red-950/30 text-red-300 border-red-700/40" },
-  bill_action: { emoji: "📜", label: "Bill action", cls: "bg-blue-950/30 text-blue-300 border-blue-700/40" },
-  state_session: { emoji: "🏛️", label: "State session", cls: "bg-emerald-950/30 text-emerald-300 border-emerald-700/40" },
-  election: { emoji: "🗳️", label: "Election", cls: "bg-violet-950/30 text-violet-300 border-violet-700/40" },
-  townhall: { emoji: "🎤", label: "Town hall", cls: "bg-teal-950/30 text-teal-300 border-teal-700/40" },
-  bill_effective: { emoji: "⚖️", label: "Takes effect", cls: "bg-rose-950/30 text-rose-300 border-rose-700/40" },
-  bill_sunset: { emoji: "⏳", label: "Expires", cls: "bg-orange-950/30 text-orange-300 border-orange-700/40" },
-  local_vote: { emoji: "🗳️", label: "Local vote", cls: "bg-cyan-950/30 text-cyan-300 border-cyan-700/40" },
-};
-
-// Eastern calendar day for an instant (NOT UTC). A 9pm-ET event must land on the
-// right day for US users — see memory civic-dates-anchor-eastern.
-const etYmd = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+/**
+ * Static + ISR. Was `force-dynamic`.
+ *
+ * WHY (2026-09-10 egress work). Two things pinned this page to a per-request
+ * render, and neither was the data: the nine calendar sources have been a
+ * cookieless service-role snapshot inside unstable_cache all along.
+ *   - A COOKIE READ. `getCachedAuthProfile()` plus a `profiles` row lookup,
+ *     used only to geofence election rows to the viewer's home state. That
+ *     read now comes from the one /api/me chrome fetch real browsers already
+ *     make — crawlers don't run JS, so they never trigger it.
+ *   - searchParams. state/kind/view/month/day all steered the server render.
+ *     They now live in CalendarView via useSearchParams(), inside the Suspense
+ *     boundary Next requires for a prerendered page.
+ *
+ * Nothing per-viewer is baked into the cached HTML. The election geofence is a
+ * convenience filter over public, already-approved rows — not access control —
+ * so shipping the full set to the client and filtering there leaks nothing.
+ *
+ * And the reason this matters beyond egress: exceeding the Supabase free-tier
+ * cap RESTRICTS the project rather than billing for it. A dynamic route 500s
+ * in that state; a prerendered one is a file on the CDN and keeps serving.
+ */
+/**
+ * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠
+ *
+ * Supabase free-tier egress was at 96.3% with the cycle resetting 09-16, and
+ * exceeding it RESTRICTS the project (the API stops answering; the site goes
+ * down). ISR is lazy — a cached page only re-renders when a request arrives
+ * after its window — so the window IS the per-page cost ceiling. Stretching it
+ * past the reset means this page renders at most once more for the rest of the
+ * cycle and then costs nothing at all, while still serving instantly from the
+ * CDN.
+ *
+ * The usual objection — "but the content goes stale" — barely applies here:
+ * the cron fleet is ALREADY deferred by the egress gate, so the underlying
+ * data is not moving either. Freezing the presentation of data that is itself
+ * frozen loses almost nothing, and on-demand revalidation still works if
+ * something genuinely urgent needs to publish.
+ *
+ * tests/egress-freeze-expiry.test.ts turns red after 2026-09-16 so this
+ * reverts on evidence rather than on someone remembering.
+ */
+export const revalidate = 604800; // 7d — frozen; normal is 900
 
 // All 9 calendar sources are public + identical for everyone (elections are
-// geofenced in JS below, per viewer, from the full cached set) → one shared
-// snapshot across requests instead of 9 DB reads per visit/crawl. Service-role
-// client because unstable_cache can't use the cookie-bound request client; the
+// geofenced in JS, per viewer, from the full cached set) → one shared snapshot
+// across requests instead of 9 DB reads per visit/crawl. Service-role client
+// because the data is public and unstable_cache can't use the cookie-bound
+// request client; explicit public-safe columns only, never select("*"). The
 // value is JSON-serialized, so raw rows (date strings) are cached and Date
-// objects are built in the page component. State/kind filtering also happens
-// in JS below, so searchParams never fragment the cache.
+// objects are built client-side. State/kind filtering also happens there, so
+// searchParams never fragment the cache.
 const getCalendarData = unstable_cache(
-  async () => {
+  async (): Promise<CalendarSnapshot> => {
     const supabase = createServiceRoleClient();
     const now = new Date();
     const horizon = new Date(now.getTime() + 90 * 86_400_000);  // next 90 days
@@ -135,617 +140,36 @@ const getCalendarData = unstable_cache(
         .limit(200),
     ]);
 
+    // Supabase's generated types lag several of these migrations, so the row
+    // shapes are declared in ./types and cast at this boundary.
     return {
-      meetings: meetings.data ?? [],
-      alerts: alerts.data ?? [],
-      billActions: billActions.data ?? [],
-      sessions: sessions.data ?? [],
-      elections: elections.data ?? [],
-      townhalls: townhalls.data ?? [],
-      billsEffective: billsEffective.data ?? [],
-      billsSunset: billsSunset.data ?? [],
-      localVotes: localVotes.data ?? [],
+      meetings: (meetings.data ?? []) as unknown as CalendarSnapshot["meetings"],
+      alerts: (alerts.data ?? []) as unknown as CalendarSnapshot["alerts"],
+      billActions: (billActions.data ?? []) as unknown as CalendarSnapshot["billActions"],
+      sessions: (sessions.data ?? []) as unknown as CalendarSnapshot["sessions"],
+      elections: (elections.data ?? []) as unknown as CalendarSnapshot["elections"],
+      townhalls: (townhalls.data ?? []) as unknown as CalendarSnapshot["townhalls"],
+      billsEffective: (billsEffective.data ?? []) as unknown as CalendarSnapshot["billsEffective"],
+      billsSunset: (billsSunset.data ?? []) as unknown as CalendarSnapshot["billsSunset"],
+      localVotes: (localVotes.data ?? []) as unknown as CalendarSnapshot["localVotes"],
     };
   },
   ["calendar-events"],
   { revalidate: 900, tags: ["calendar-events"] },
 );
 
-export default async function CalendarPage({ searchParams }: {
-  searchParams?: Promise<{ state?: string; kind?: string; view?: string; month?: string; day?: string }>;
-}) {
-  const sp = (await searchParams) ?? {};
-  const stateFilter = sp.state?.toUpperCase() ?? null;
-  const kindFilter = sp.kind ?? null;
-  const view: "list" | "month" = sp.view === "month" ? "month" : "list";
-
-  const now = new Date();
-  const horizon = new Date(now.getTime() + 90 * 86_400_000);  // next 90 days
-
-  // Geofence elections to the viewer's state: an explicit ?state= wins, else
-  // the signed-in user's profile state. national-scope elections show to all;
-  // state elections only when they match (anon/stateless → national only).
-  // This is the ONLY per-request read — the shared event data comes from the
-  // cached snapshot below.
-  const { userId } = await getCachedAuthProfile();
-  let userState: string | null = null;
-  if (userId) {
-    const sb = await createClient();
-    const { data: prof } = await sb.from("profiles").select("state").eq("id", userId).maybeSingle();
-    userState = prof?.state ? String(prof.state).toUpperCase() : null;
-  }
-  const viewerState = stateFilter ?? userState;
-
-  const { meetings, alerts, billActions, sessions, elections, townhalls, billsEffective, billsSunset, localVotes } = await getCalendarData();
-
-  const events: Event[] = [];
-
-  for (const m of meetings) {
-    events.push({
-      kind: "municipal",
-      date: new Date(m.meeting_at),
-      title: `${m.locality ?? "(locality)"} · ${m.body_name ?? "Public meeting"}`,
-      body: m.agenda_text,
-      state: m.state,
-      locality: m.locality,
-      zoom_url: m.zoom_url,
-      livestream_url: m.livestream_url,
-      agenda_url: m.agenda_url,
-      public_comment_url: m.public_comment_signup_url,
-      in_person_address: m.in_person_address,
-      source_url: m.source_url,
-      detail_href: `/meetings/${m.id}`,
-    });
-  }
-
-  for (const a of alerts) {
-    events.push({
-      kind: "alert",
-      date: new Date(a.occurs_at!),
-      title: a.title,
-      body: a.body?.split("\n")[0] ?? null,
-      state: /^[A-Z]{2}$/.test(a.locality ?? "") ? a.locality : null,
-      locality: a.locality,
-      source_url: a.source_url,
-      detail_href: `/alerts/${a.id}`,                       // the specific alert, not generic /pulse
-      bill_href: a.bill_id ? `/bills/${a.bill_id}` : null,  // cross-link to the bill the alert is about
-      severity: a.severity,
-    });
-  }
-
-  // Recent bill actions surface for advocates who want to track current legislative motion
-  for (const b of billActions) {
-    if (!b.last_action_at) continue;
-    events.push({
-      kind: "bill_action",
-      date: new Date(b.last_action_at),
-      title: `${b.state} ${b.bill_number} · ${b.last_action ?? b.status ?? "action"}`,
-      body: b.title ? b.title.slice(0, 200) : null,
-      state: b.state,
-      detail_href: `/bills/${b.id}`,
-    });
-  }
-
-  // State sessions — show start and end dates if upcoming
-  for (const s of sessions) {
-    if (s.current_session_start) {
-      const start = new Date(s.current_session_start);
-      if (start.getTime() > now.getTime() && start.getTime() < horizon.getTime()) {
-        events.push({
-          kind: "state_session",
-          date: start,
-          title: `${s.state} legislative session begins`,
-          body: `${s.capital_city ?? "?"} · ${s.current_session_id ?? "?"}`,
-          state: s.state,
-          source_url: s.legislature_url,
-          detail_href: `/states/${s.state}`,
-        });
-      }
-    }
-    if (s.current_session_end) {
-      const end = new Date(s.current_session_end);
-      if (end.getTime() > now.getTime() && end.getTime() < horizon.getTime()) {
-        events.push({
-          kind: "state_session",
-          date: end,
-          title: `${s.state} legislative session ends — last day to act`,
-          body: `${s.capital_city ?? "?"} · ${s.current_session_id ?? "?"}`,
-          state: s.state,
-          source_url: s.legislature_url,
-          detail_href: `/states/${s.state}`,
-        });
-      }
-    }
-  }
-
-  // Legislator town halls + hearings (hand-verified). Folded in from the old
-  // /events page, which now redirects here — this is the one community calendar.
-  for (const t of townhalls) {
-    const typeLabel = EVENT_TYPE_LABELS[t.event_type] ?? t.event_type;
-    events.push({
-      kind: "townhall",
-      date: new Date(t.starts_at),
-      title: t.title,
-      body: [typeLabel, t.description?.split("\n")[0]].filter(Boolean).join(" · "),
-      state: t.state,
-      locality: t.locality,
-      in_person_address: t.venue,
-      source_url: t.source_url,
-      detail_href: t.legislator_id ? `/legislators/${t.legislator_id}` : null,
-    });
-  }
-
-  // Elections — geofenced. national-scope rows show to everyone; state rows
-  // only when they match the viewer's state. Rendered as all-day events.
-  for (const el of elections) {
-    const national = el.scope === "national";
-    if (!national && (!viewerState || el.state !== viewerState)) continue;
-    // Parse the DATE at noon UTC so it lands on the same calendar day in every
-    // US timezone (midnight UTC would shift the date west of the Atlantic).
-    const regNote = el.registration_deadline
-      ? `Register to vote by ${new Date(el.registration_deadline + "T12:00:00Z").toLocaleDateString(undefined, { month: "long", day: "numeric" })}.`
-      : null;
-    events.push({
-      kind: "election",
-      date: new Date(el.election_date + "T12:00:00Z"),
-      allDay: true,
-      scope: el.scope,
-      title: el.title,
-      body: regNote,
-      state: national ? null : el.state,
-      source_url: el.source_url,
-    });
-  }
-
-  // "Takes effect" dates for tracked bills — when a passed/signed law actually
-  // hits. All-day, links to the bill. Answers "when does this affect me?".
-  for (const b of billsEffective) {
-    if (!b.effective_date) continue;
-    events.push({
-      kind: "bill_effective",
-      date: new Date(b.effective_date + "T12:00:00Z"),
-      allDay: true,
-      title: `${b.state} ${b.bill_number} takes effect`,
-      body: b.title ? b.title.slice(0, 200) : null,
-      state: b.state,
-      detail_href: `/bills/${b.id}`,
-    });
-  }
-
-  // Sunset/expiration dates — when a law auto-repeals. All-day, links to bill.
-  for (const b of billsSunset) {
-    if (!b.sunset_date) continue;
-    events.push({
-      kind: "bill_sunset",
-      date: new Date(b.sunset_date + "T12:00:00Z"),
-      allDay: true,
-      title: `${b.state} ${b.bill_number} expires`,
-      body: b.title ? b.title.slice(0, 200) : null,
-      state: b.state,
-      detail_href: `/bills/${b.id}`,
-    });
-  }
-
-  // Local vote outcomes — past city/county kratom votes with a pass/fail badge.
-  for (const v of localVotes) {
-    events.push({
-      kind: "local_vote",
-      date: new Date(v.vote_date + "T12:00:00Z"),
-      allDay: true,
-      title: `${v.locality}${v.state ? ", " + v.state : ""} — local vote ${v.outcome}`,
-      body: v.measure,
-      state: v.state,
-      locality: v.locality,
-      source_url: v.source_url,
-      detail_href: v.policy_alert_id ? `/alerts/${v.policy_alert_id}` : null,
-    });
-  }
-
-  // Whether state-scoped elections exist but are hidden because the viewer has
-  // no resolved state — drives the "set your state" nudge below.
-  const hasHiddenStateElections =
-    !viewerState && elections.some((el) => el.scope !== "national");
-
-  // Apply filters + sort by date. Elections are pre-geofenced above; keep
-  // national elections (state === null) visible even under a ?state= filter.
-  let filtered = events;
-  if (stateFilter) {
-    filtered = filtered.filter((e) =>
-      e.kind === "election" ? e.state === null || e.state === stateFilter : e.state === stateFilter,
-    );
-  }
-  if (kindFilter) filtered = filtered.filter((e) => e.kind === kindFilter);
-  filtered.sort((a, b) => a.date.getTime() - b.date.getTime());
-
-  // Bucket by Eastern calendar day — drives both the list groups and the month
-  // grid cells (same source of truth so the two views always agree).
-  const groups = new Map<string, Event[]>();
-  for (const e of filtered) {
-    const k = etYmd(e.date);
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k)!.push(e);
-  }
-
-  // Month-view state: displayed month (?month=YYYY-MM) + selected day (?day=).
-  const todayYmd = etYmd(now);
-  const displayMonth = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : todayYmd.slice(0, 7);
-  const selectedDay =
-    /^\d{4}-\d{2}-\d{2}$/.test(sp.day ?? "") && sp.day!.startsWith(displayMonth) ? sp.day! :
-    todayYmd.startsWith(displayMonth) ? todayYmd : `${displayMonth}-01`;
-  const monthBuckets = new Map<string, Event[]>();
-  for (const [k, es] of groups) if (k.startsWith(displayMonth)) monthBuckets.set(k, es);
-
-  // Counts for filter pills
-  const stateOptions = [...new Set(events.map((e) => e.state).filter(Boolean) as string[])].sort();
-  const counts = {
-    election: events.filter((e) => e.kind === "election").length,
-    townhall: events.filter((e) => e.kind === "townhall").length,
-    municipal: events.filter((e) => e.kind === "municipal").length,
-    alert: events.filter((e) => e.kind === "alert").length,
-    bill_action: events.filter((e) => e.kind === "bill_action").length,
-    bill_effective: events.filter((e) => e.kind === "bill_effective").length,
-    bill_sunset: events.filter((e) => e.kind === "bill_sunset").length,
-    local_vote: events.filter((e) => e.kind === "local_vote").length,
-    state_session: events.filter((e) => e.kind === "state_session").length,
-  };
-
-  // Feed (.ics) subscribe URLs — the current state/kind filter carries through
-  // so a user subscribes to exactly the slice they're viewing.
-  const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
-  const feedQs = new URLSearchParams();
-  if (viewerState) feedQs.set("state", viewerState);
-  if (kindFilter) feedQs.set("kind", kindFilter);
-  const feedSuffix = feedQs.toString() ? `?${feedQs.toString()}` : "";
-  const feedHttps = `${SITE}/calendar/feed.ics${feedSuffix}`;
-  const feedWebcal = feedHttps.replace(/^https?:/, "webcal:");
-  const feedGoogle = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(feedHttps)}`;
-  const feedScope = [viewerState, kindFilter ? kindFilter.replace("_", " ") : null]
-    .filter(Boolean).join(" · ") || "every event";
-
-  // Build a /calendar href preserving the current state/kind/view/month, with
-  // per-call overrides. Pass null to clear a param (e.g. view:null → list).
-  const mkHref = (o: { view?: "list" | "month" | null; kind?: string | null; state?: string | null; month?: string | null; day?: string | null } = {}) => {
-    const st = o.state !== undefined ? o.state : stateFilter;
-    const k = o.kind !== undefined ? o.kind : kindFilter;
-    const v = o.view !== undefined ? o.view : (view === "month" ? "month" : null);
-    const mo = o.month !== undefined ? o.month : (v === "month" ? displayMonth : null);
-    const dy = o.day !== undefined ? o.day : null;
-    const p = new URLSearchParams();
-    if (st) p.set("state", st);
-    if (k) p.set("kind", k);
-    if (v) p.set("view", v);
-    if (mo) p.set("month", mo);
-    if (dy) p.set("day", dy);
-    const s = p.toString();
-    return `/calendar${s ? `?${s}` : ""}`;
-  };
+export default async function CalendarPage() {
+  const snapshot = await getCalendarData();
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-      <header className="mb-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-              📅 Community Calendar
-            </p>
-            <h1 className="mt-2 text-3xl font-bold">Every event we know about</h1>
-          </div>
-          <CalendarSyncButton httpsUrl={feedHttps} webcalUrl={feedWebcal} googleUrl={feedGoogle} scopeLabel={feedScope} />
-        </div>
-        <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-          Elections + primaries · town halls + hearings · city/county meetings ·
-          bill action dates · legislative session bookends. One place for every
-          public kratom event. Join by Zoom, livestream, in-person, or phone —
-          links + addresses below.
-        </p>
-        <p className="mt-2 text-xs text-zinc-500">
-          Found something we missed? Drop the URL in <Link href="/alerts/submit" className="text-emerald-400 hover:underline">intel-tip</Link>.
-        </p>
-
-        {/* Coverage stat — surfaces the breadth of what's being surfaced
-            so users immediately see "this platform is actually working." */}
-        {events.length > 0 && (
-          <p className="mt-2 inline-flex flex-wrap items-baseline gap-1 rounded-md border border-emerald-700/40 bg-emerald-950/15 px-2.5 py-1 text-xs text-emerald-200">
-            <span className="font-mono font-bold">{events.length}</span>
-            <span>{events.length === 1 ? "event" : "events"} across</span>
-            <span className="font-mono font-bold">{[...new Set(events.map((e) => e.state).filter(Boolean))].length}</span>
-            <span>{[...new Set(events.map((e) => e.state).filter(Boolean))].length === 1 ? "state" : "states"} · next 90 days</span>
-          </p>
-        )}
-
-      </header>
-
-      {/* Signup nudge — calendar viewers want push reminders, not just .ics */}
-      <SignUpNudge context="calendar" stateCode={stateFilter ?? undefined} className="mb-6" />
-
-      {/* Election geofence nudge — explain why only national elections show
-          and point the viewer at the one setting that unlocks their primaries. */}
-      {hasHiddenStateElections && (
-        <div className="mb-6 rounded-md border border-violet-700/40 bg-violet-950/15 px-3 py-2 text-xs text-violet-200">
-          🗳️ You&apos;re seeing national election dates.{" "}
-          {userId ? (
-            <>Set your state in your <Link href="/account" className="font-semibold underline hover:text-violet-100">account</Link> to see your state&apos;s primary + local elections and get voting reminders.</>
-          ) : (
-            <>Sign in and set your state to see your primary dates and get voting reminders.</>
-          )}
-        </div>
-      )}
-
-      {/* View toggle + filter pills */}
-      <div className="mb-4 space-y-2">
-        <nav className="flex flex-wrap items-center gap-2 text-xs" aria-label="Calendar layout">
-          <span className="text-[11px] uppercase tracking-wider text-zinc-500">View</span>
-          <FilterPill label="☰ List" href={mkHref({ view: null, day: null })} active={view === "list"} />
-          <FilterPill label="▦ Month" href={mkHref({ view: "month", month: displayMonth, day: null })} active={view === "month"} />
-        </nav>
-        <nav className="flex flex-wrap gap-2 text-xs">
-          <FilterPill label={`All kinds (${events.length})`} href={mkHref({ kind: null })} active={!kindFilter} />
-          {Object.entries(counts).map(([k, n]) => n > 0 && (
-            <FilterPill
-              key={k}
-              label={`${KIND_BADGE[k].emoji} ${KIND_BADGE[k].label} (${n})`}
-              href={mkHref({ kind: k })}
-              active={kindFilter === k}
-            />
-          ))}
-        </nav>
-        {stateOptions.length > 0 && (
-          <nav className="flex flex-wrap gap-2 text-xs">
-            <FilterPill label="All states" href={mkHref({ state: null })} active={!stateFilter} />
-            {stateOptions.map((s) => (
-              <FilterPill key={s} label={s} href={mkHref({ state: s })} active={stateFilter === s} />
-            ))}
-          </nav>
-        )}
-      </div>
-
-      {/* Events — month grid or day-grouped list */}
-      {view === "month" ? (
-        <MonthGrid
-          displayMonth={displayMonth}
-          todayYmd={todayYmd}
-          selectedDay={selectedDay}
-          buckets={monthBuckets}
-          mkHref={mkHref}
-        />
-      ) : groups.size === 0 ? (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-10 text-center">
-          <p className="text-3xl">📅</p>
-          <p className="mt-2 text-sm text-zinc-400">
-            No events match the current filter in the next 90 days.
-          </p>
-          {(stateFilter || kindFilter) && (
-            <Link href="/calendar" className="mt-3 inline-block text-xs text-emerald-400 hover:underline">
-              Clear filters →
-            </Link>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {[...groups.entries()].map(([day, es]) => {
-            const rel = Math.round((Date.parse(day + "T12:00:00Z") - Date.parse(todayYmd + "T12:00:00Z")) / 86_400_000);
-            return (
-              <section key={day}>
-                <h2 className="mb-2 flex items-baseline gap-3 border-b border-zinc-800 pb-1">
-                  <span className="text-base font-bold text-zinc-100">
-                    {new Date(day + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" })}
-                  </span>
-                  <span className="text-xs text-zinc-500">
-                    {rel === 0 ? "today" : rel === 1 ? "tomorrow" : rel === -1 ? "yesterday" : rel < 0 ? `${Math.abs(rel)}d ago` : `in ${rel}d`}
-                  </span>
-                </h2>
-                <ul className="space-y-2">
-                  {es.map((e, i) => <EventCard key={i} e={e} />)}
-                </ul>
-              </section>
-            );
-          })}
-        </div>
-      )}
+      {/* Suspense is REQUIRED: CalendarView calls useSearchParams(), and Next
+          refuses to prerender a page that reads them outside a boundary.
+          renderedAtIso pins "now" so the prerender and the first client render
+          agree; the client corrects to the real clock on mount. */}
+      <Suspense fallback={<div className="h-96 animate-pulse rounded-lg bg-zinc-900/50" />}>
+        <CalendarView snapshot={snapshot} renderedAtIso={new Date().toISOString()} />
+      </Suspense>
     </div>
-  );
-}
-
-function FilterPill({ label, href, active }: { label: string; href: string; active: boolean }) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "true" : undefined}
-      className={`rounded px-3 py-1.5 ${active ? "bg-emerald-600 text-zinc-950" : "border border-zinc-800 bg-zinc-950/40 hover:border-emerald-500"}`}
-    >
-      {label}
-    </Link>
-  );
-}
-
-/** One event row — shared by the day-grouped list and the month-view day detail. */
-function EventCard({ e }: { e: Event }) {
-  const meta = KIND_BADGE[e.kind];
-  return (
-    <li className={`rounded-md border p-3 ${
-      e.severity === "critical" ? "border-red-700/50 bg-red-950/10" : "border-zinc-800 bg-zinc-950/40"
-    }`}>
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${meta.cls}`}>
-          {meta.emoji} {meta.label}
-        </span>
-        {e.state && <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">{e.state}</span>}
-        <span className="text-[11px] text-zinc-500">
-          {e.allDay
-            ? "All day"
-            : e.date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-        </span>
-        {e.severity === "critical" && <span className="text-[10px] font-bold uppercase text-red-400 animate-pulse">CRITICAL</span>}
-      </div>
-      <h3 className="mt-1 text-sm font-semibold text-zinc-100">{e.title}</h3>
-      {e.body && (
-        <p className="mt-1 line-clamp-3 text-xs text-zinc-400">{e.body}</p>
-      )}
-      <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-        {e.zoom_url && (
-          <a href={e.zoom_url} target="_blank" rel="noopener noreferrer"
-            className="rounded bg-emerald-600 px-2.5 py-1 font-semibold text-zinc-950 hover:bg-emerald-500">
-            📹 Join Zoom
-          </a>
-        )}
-        {e.livestream_url && (
-          <a href={e.livestream_url} target="_blank" rel="noopener noreferrer"
-            className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
-            📺 Livestream
-          </a>
-        )}
-        {e.public_comment_url && (
-          <a href={e.public_comment_url} target="_blank" rel="noopener noreferrer"
-            className="rounded border border-amber-700/60 bg-amber-950/30 px-2.5 py-1 text-amber-200 hover:border-amber-500">
-            🎤 Sign up to speak
-          </a>
-        )}
-        {e.agenda_url && (
-          <a href={e.agenda_url} target="_blank" rel="noopener noreferrer"
-            className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 hover:border-emerald-500">
-            📄 Agenda
-          </a>
-        )}
-        {e.in_person_address && (
-          <span className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-zinc-400">
-            📍 {e.in_person_address.slice(0, 80)}
-          </span>
-        )}
-        {e.detail_href && (
-          <Link href={e.detail_href} className="rounded border border-emerald-700/40 bg-emerald-950/20 px-2.5 py-1 font-semibold text-emerald-300 hover:border-emerald-500">
-            {e.kind === "bill_action" || e.kind === "bill_effective" ? "📜 View bill" :
-             e.kind === "alert" ? "🔗 Open alert" :
-             e.kind === "municipal" ? "🏛️ Meeting detail" :
-             e.kind === "townhall" ? "👤 Legislator" :
-             e.kind === "state_session" ? "📍 State hub" : "detail →"}
-          </Link>
-        )}
-        {e.bill_href && (
-          <Link href={e.bill_href} className="rounded border border-blue-700/40 bg-blue-950/20 px-2.5 py-1 font-semibold text-blue-300 hover:border-blue-500">
-            📜 Related bill
-          </Link>
-        )}
-        {e.source_url && !e.detail_href && (
-          <a href={e.source_url} target="_blank" rel="noopener noreferrer" className="text-zinc-500 hover:text-emerald-400">
-            source ↗
-          </a>
-        )}
-      </div>
-    </li>
-  );
-}
-
-type MkHref = (o?: { view?: "list" | "month" | null; month?: string | null; day?: string | null }) => string;
-
-/** Month grid (7-col weeks) + prev/next nav + the selected day's events. */
-function MonthGrid({ displayMonth, todayYmd, selectedDay, buckets, mkHref }: {
-  displayMonth: string;
-  todayYmd: string;
-  selectedDay: string;
-  buckets: Map<string, Event[]>;
-  mkHref: MkHref;
-}) {
-  const [yy, mm] = displayMonth.split("-").map(Number);
-  const daysInMonth = new Date(Date.UTC(yy, mm, 0)).getUTCDate();           // mm is 1-based → day 0 of next month
-  const firstWeekday = new Date(Date.UTC(yy, mm - 1, 1)).getUTCDay();        // 0=Sun
-  const monthLabel = new Date(Date.UTC(yy, mm - 1, 1)).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
-  const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
-  const nextMonth = mm === 12 ? `${yy + 1}-01` : `${yy}-${String(mm + 1).padStart(2, "0")}`;
-  const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-  const cells: (string | null)[] = [];
-  for (let i = 0; i < firstWeekday; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(`${displayMonth}-${String(d).padStart(2, "0")}`);
-  while (cells.length % 7 !== 0) cells.push(null);
-  // Chunk into weeks so the grid has a valid ARIA structure (grid > row > cell).
-  const weeks: (string | null)[][] = [];
-  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
-
-  return (
-    <section aria-label={`Month view, ${monthLabel}`}>
-      <div className="mb-3 flex items-center justify-between">
-        <Link href={mkHref({ view: "month", month: prevMonth, day: null })} aria-label="Previous month"
-          className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1 text-sm hover:border-emerald-500">←</Link>
-        <h2 className="text-base font-bold text-zinc-100">{monthLabel}</h2>
-        <Link href={mkHref({ view: "month", month: nextMonth, day: null })} aria-label="Next month"
-          className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1 text-sm hover:border-emerald-500">→</Link>
-      </div>
-
-      <div role="grid" aria-label={`${monthLabel} calendar`} className="grid grid-cols-7 gap-1">
-        {/* display:contents rows give a valid grid>row>cell ARIA tree while the
-            cells still flow into the parent's CSS grid columns. */}
-        <div role="row" className="contents">
-          {WEEKDAYS.map((w) => (
-            <div key={w} role="columnheader" className="pb-1 text-center text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              <span className="hidden sm:inline">{w}</span><span className="sm:hidden">{w[0]}</span>
-            </div>
-          ))}
-        </div>
-        {weeks.map((week, wi) => (
-          <div key={wi} role="row" className="contents">
-            {week.map((key, i) => {
-              if (!key) return <div key={`b${wi}-${i}`} role="gridcell" aria-hidden="true" className="min-h-[3.25rem] rounded bg-zinc-950/20 sm:min-h-[5.5rem]" />;
-              const d = Number(key.slice(-2));
-              const evs = buckets.get(key) ?? [];
-              const isToday = key === todayYmd;
-              const isSelected = key === selectedDay;
-              return (
-                // gridcell wraps the <Link> so the anchor keeps its native link role.
-                <div key={key} role="gridcell" aria-current={isSelected ? "date" : undefined}>
-                  <Link
-                    href={mkHref({ view: "month", month: displayMonth, day: key })}
-                    aria-label={`${monthLabel} ${d}${isToday ? ", today" : ""}, ${evs.length} event${evs.length === 1 ? "" : "s"}`}
-                    className={`flex h-full min-h-[3.25rem] flex-col overflow-hidden rounded border p-1 text-left transition sm:min-h-[5.5rem] ${
-                      isSelected ? "border-emerald-400 bg-emerald-950/40 ring-1 ring-emerald-400"
-                      : isToday ? "border-emerald-600/60 bg-emerald-950/15"
-                      : "border-zinc-800 bg-zinc-950/40 hover:border-emerald-600/50"
-                    }`}
-                  >
-                    <span className={`text-[11px] font-semibold ${isToday ? "text-emerald-300" : "text-zinc-400"}`}>{d}</span>
-                    {/* chips with titles on sm+ */}
-                    <span className="mt-0.5 hidden flex-col gap-0.5 sm:flex">
-                      {evs.slice(0, 3).map((e, j) => (
-                        <span key={j} className={`truncate rounded border px-1 text-[9px] leading-tight ${KIND_BADGE[e.kind].cls}`}>
-                          {KIND_BADGE[e.kind].emoji} {e.title}
-                        </span>
-                      ))}
-                      {evs.length > 3 && <span className="text-[9px] text-zinc-500">+{evs.length - 3} more</span>}
-                    </span>
-                    {/* compact emoji dots on mobile */}
-                    {evs.length > 0 && (
-                      <span className="mt-auto flex flex-wrap gap-0.5 sm:hidden" aria-hidden="true">
-                        {evs.slice(0, 4).map((e, j) => <span key={j} className="text-[9px]">{KIND_BADGE[e.kind].emoji}</span>)}
-                        {evs.length > 4 && <span className="text-[8px] text-zinc-500">+{evs.length - 4}</span>}
-                      </span>
-                    )}
-                  </Link>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-
-      <DayDetail day={selectedDay} events={buckets.get(selectedDay) ?? []} />
-    </section>
-  );
-}
-
-/** The selected day's events below the month grid. */
-function DayDetail({ day, events }: { day: string; events: Event[] }) {
-  const label = new Date(day + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
-  return (
-    <section className="mt-5" aria-live="polite">
-      <h3 className="mb-2 border-b border-zinc-800 pb-1 text-sm font-bold text-zinc-100">{label}</h3>
-      {events.length === 0 ? (
-        <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-6 text-center text-xs text-zinc-500">
-          No events on this day. Tap another day above, or switch to <span className="text-zinc-400">List</span> to see everything upcoming.
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {events.map((e, i) => <EventCard key={i} e={e} />)}
-        </ul>
-      )}
-    </section>
   );
 }
