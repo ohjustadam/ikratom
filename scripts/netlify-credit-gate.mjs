@@ -110,6 +110,39 @@ if (est.pct >= THRESHOLD) {
   console.error("  (--warn-only set: not failing the build)");
 }
 
+/**
+ * SUPABASE EGRESS, shown at the moment you decide to deploy.
+ *
+ * This lives in the Netlify credit gate because of something the static-
+ * conversion work changed that nobody would guess: making pages prerendered
+ * moved their database reads from PER-REQUEST to PER-BUILD. Every `next build`
+ * -- local or on Netlify -- renders all ~58 prerendered routes against
+ * PRODUCTION Supabase. /news alone measures 0.293 MB per render.
+ *
+ * So a deploy is no longer only a Netlify credit cost, it is a Supabase egress
+ * cost too. On 2026-09-10 a day of heavy local builds plus two deploys moved
+ * egress 4.71 -> 4.85 GB against a 5 GB cap that RESTRICTS the project when
+ * exceeded. The ISR freeze holds RUNTIME renders to one per 7 days, and then a
+ * rebuild re-renders the lot anyway.
+ *
+ * Two numbers, one decision point. Fails open: if egress cannot be read, the
+ * credit verdict below still prints.
+ */
+try {
+  const { getEgressStatus, BUDGET_GB } = await import("./lib/egress-budget.mjs");
+  const eg = await getEgressStatus();
+  if (eg.pct != null) {
+    const pct = eg.pct * 100;
+    const leftMb = BUDGET_GB * 1000 - (eg.usedMb ?? 0);
+    console.log("");
+    console.log(`  Supabase egress ${pct.toFixed(1)}% of ${BUDGET_GB}GB · ~${leftMb.toFixed(0)} MB left this cycle`);
+    if (pct >= 90) {
+      console.log("  ⚠ A BUILD RE-RENDERS EVERY PRERENDERED ROUTE against production Supabase.");
+      console.log("    At this level, deploy only what must ship, and avoid local `next build`.");
+    }
+  }
+} catch { /* egress unreadable -- the credit verdict below still stands */ }
+
 if (sev === "critical") {
   console.log(`\n⚠ ${est.pct.toFixed(0)}% spent — deploy only if this change matters today.`);
 } else if (sev === "warn") {
