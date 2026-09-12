@@ -111,22 +111,25 @@ if (est.pct >= THRESHOLD) {
 }
 
 /**
+/**
  * SUPABASE EGRESS, shown at the moment you decide to deploy.
  *
- * This lives in the Netlify credit gate because of something the static-
- * conversion work changed that nobody would guess: making pages prerendered
- * moved their database reads from PER-REQUEST to PER-BUILD. Every `next build`
- * -- local or on Netlify -- renders all ~58 prerendered routes against
- * PRODUCTION Supabase. /news alone measures 0.293 MB per render.
+ * ⚠ CORRECTION (2026-09-12). The first version of this block claimed a build
+ * re-renders every prerendered route against production Supabase and was
+ * therefore a major egress cost. THAT WAS WRONG, and it was wrong in the worst
+ * way: it was a story that fit the numbers, asserted without measuring.
  *
- * So a deploy is no longer only a Netlify credit cost, it is a Supabase egress
- * cost too. On 2026-09-10 a day of heavy local builds plus two deploys moved
- * egress 4.71 -> 4.85 GB against a 5 GB cap that RESTRICTS the project when
- * exceeded. The ISR freeze holds RUNTIME renders to one per 7 days, and then a
- * rebuild re-renders the lot anyway.
+ * scripts/measure-build-egress.mjs settles it by reading the raw transmit
+ * counter either side of a real build: **a full `next build` costs ~0 MB of
+ * Supabase egress**. Next serves prerenders from .next/cache, and the ISR
+ * routes use generateStaticParams() -> [] so they render on first request,
+ * not at build time. Builds are free. Build and typecheck as much as you like.
  *
- * Two numbers, one decision point. Fails open: if egress cannot be read, the
- * credit verdict below still prints.
+ * What egress IS worth seeing here is simply that it exists and is finite:
+ * exceeding the free cap RESTRICTS the project rather than billing for it, so
+ * the site stops serving. Two costs, one decision point.
+ *
+ * Fails open: if egress cannot be read, the credit verdict below still prints.
  */
 try {
   const { getEgressStatus, BUDGET_GB } = await import("./lib/egress-budget.mjs");
@@ -137,8 +140,9 @@ try {
     console.log("");
     console.log(`  Supabase egress ${pct.toFixed(1)}% of ${BUDGET_GB}GB · ~${leftMb.toFixed(0)} MB left this cycle`);
     if (pct >= 90) {
-      console.log("  ⚠ A BUILD RE-RENDERS EVERY PRERENDERED ROUTE against production Supabase.");
-      console.log("    At this level, deploy only what must ship, and avoid local `next build`.");
+      console.log("  ⚠ Near the cap. Exceeding it RESTRICTS the project — the API stops");
+      console.log("    answering and the site goes down. Builds are NOT the cost (measured);");
+      console.log("    heavy multi-agent runs and bulk scripts are.");
     }
   }
 } catch { /* egress unreadable -- the credit verdict below still stands */ }
