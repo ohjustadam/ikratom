@@ -6,23 +6,7 @@ import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 
 export const metadata = { title: "Bill tracker" };
 
-/**
- * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (see tests/egress-freeze-expiry)
- *
- * Was force-dynamic. The bill snapshot below has been behind unstable_cache all
- * along; what actually forced a per-request render was the page reading
- * searchParams AND cookies — `?state=XX` seeded a filter and
- * `?filter=in-my-committees` resolved the signed-in viewer's representatives
- * and their committee assignments. Both now live client-side in BillsView,
- * with the per-viewer narrow fetched from /api/bills/my-committees.
- *
- * Beyond the egress saving: exceeding the Supabase free-tier cap RESTRICTS the
- * project rather than billing for it, and a dynamic route 500s in that state
- * while a prerendered one keeps serving from the CDN. /bills is the platform's
- * most valuable indexed content, so it is also the page we most want to
- * survive.
- */
-export const revalidate = 604800; // 7d — frozen; normal is 900
+export const revalidate = 900;
 
 // Shape returned by the page query. Supabase generated types lag the
 // migration that added summary_ai/advocacy_callout/relevance_confidence,

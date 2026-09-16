@@ -26,24 +26,7 @@ export const metadata = { title: "How iKratom works" };
  * the CDN and keeps serving through that; a dynamic route 500s. The tour a new
  * advocate lands on should be the last thing to go dark.
  */
-/**
- * ⚠ FROZEN WINDOW — RESTORE TO 3600 ON 2026-09-16. ⚠
- *
- * Supabase free-tier egress is over the 5 GB cap with the cycle resetting on
- * 09-16, and exceeding it RESTRICTS the project (the API stops answering; the
- * site goes down). ISR is lazy — a cached page only re-renders when a request
- * arrives after its window — so the window IS the per-page cost ceiling.
- * Stretching it past the reset means this page renders at most once more for
- * the rest of the cycle and then costs nothing, while still serving instantly.
- *
- * Staleness costs almost nothing here: the only moving parts are four counts
- * and one admin-editable paragraph, and `getContent` edits already propagate
- * on their own 60s cache once the page next renders.
- *
- * tests/egress-freeze-expiry.test.ts turns red after 2026-09-16 so this reverts
- * on evidence rather than on someone remembering.
- */
-export const revalidate = 604800; // 7d — frozen; normal is 3600
+export const revalidate = 3600;
 
 export default async function HowItWorksPage() {
   // Cookieless anon client: these three counts are public aggregates and were
