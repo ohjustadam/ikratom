@@ -90,6 +90,39 @@ function startCooldown(p, ms = 60_000) {
 }
 
 /**
+ * HARD FAILURES vs THROTTLING (added 2026-09-16).
+ *
+ * A 429 means "not right now" and a 60s cooldown is the right answer. Some
+ * statuses mean "not ever", and retrying those on every call is pure waste:
+ *
+ *   402 Payment Required — Cerebras moved off free tier. Every call to it has
+ *       returned "Payment required to access this resource" since then.
+ *   410 Gone — GitHub Models is mid-retirement ("github_models_retirement_
+ *       brownout"). It is not coming back.
+ *
+ * Measured on 2026-09-16: of nine configured providers only openrouter and
+ * ollama answered, and every single AI call in every cron script was still
+ * paying a full round-trip to both of these before reaching one that works.
+ * Cooldowns live in a Map for the life of the process, and cron scripts make
+ * hundreds of calls per process, so skipping after the first hard failure is
+ * most of the win — without needing new state or a deploy when the next
+ * provider dies.
+ *
+ * Deliberately NOT removing them from availableProviders(): if Cerebras
+ * reinstates a free tier or GitHub reverses course, the next process picks
+ * them straight back up. This makes a dead provider cheap, not permanent.
+ */
+const HARD_FAIL_STATUS = new Set([402, 410]);
+function noteHardFailure(p, status, body = "") {
+  if (!HARD_FAIL_STATUS.has(status)) return false;
+  // 6h, not forever: long enough that a cron run pays the round-trip once
+  // instead of hundreds of times, short enough that recovery is automatic.
+  startCooldown(p, 6 * 3600_000);
+  console.log(`    ⓘ ${p} hard-failed (${status}) — skipping it for 6h: ${body.slice(0, 80)}`);
+  return true;
+}
+
+/**
  * Strip chain-of-thought reasoning blocks from LLM output.
  * Some reasoning models (originally DeepSeek R1; now GPT-OSS / Qwen)
  * occasionally leak <think>...</think> reasoning even under
@@ -171,7 +204,11 @@ async function callGroq(sys, user, maxTokens, modelOverride) {
     // from per-day quota exhaustion — the message differs.
     throw new Error(`Groq 429: ${body.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 200);
+    noteHardFailure("groq", r.status, body);
+    throw new Error(`Groq ${r.status}: ${body}`);
+  }
   const data = await r.json();
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
@@ -196,7 +233,11 @@ async function callGemini(sys, user, maxTokens) {
     startCooldown("gemini", 60_000);
     throw new Error(`Gemini ${r.status} (cooling down 60s)`);
   }
-  if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 200);
+    noteHardFailure("gemini", r.status, body);
+    throw new Error(`Gemini ${r.status}: ${body}`);
+  }
   const d = await r.json();
   const text = d.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "{}";
   return parseLooseJson(text);
@@ -228,7 +269,11 @@ async function callCerebras(sys, user, maxTokens) {
     startCooldown("cerebras", 60_000);
     throw new Error("Cerebras 429 (cooling down 60s)");
   }
-  if (!r.ok) throw new Error(`Cerebras ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 200);
+    noteHardFailure("cerebras", r.status, body);
+    throw new Error(`Cerebras ${r.status}: ${body}`);
+  }
   const data = await r.json();
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
@@ -253,7 +298,11 @@ async function callMistral(sys, user, maxTokens) {
     startCooldown("mistral", 60_000);
     throw new Error("Mistral 429 (cooling down 60s)");
   }
-  if (!r.ok) throw new Error(`Mistral ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 200);
+    noteHardFailure("mistral", r.status, body);
+    throw new Error(`Mistral ${r.status}: ${body}`);
+  }
   const data = await r.json();
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
@@ -280,7 +329,11 @@ async function callCloudflare(sys, user, maxTokens) {
     startCooldown("cloudflare", 60_000);
     throw new Error("Cloudflare 429 (cooling down 60s)");
   }
-  if (!r.ok) throw new Error(`Cloudflare ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 200);
+    noteHardFailure("cloudflare", r.status, body);
+    throw new Error(`Cloudflare ${r.status}: ${body}`);
+  }
   const data = await r.json();
   // Cloudflare wraps the OpenAI-compatible response in a result envelope:
   //   { result: { response: "...json..." }, success: true, errors: [] }
@@ -319,7 +372,11 @@ async function callOpenAICompat(name, { url, key, model, extraHeaders = {} }, sy
     startCooldown(name, 60_000);
     throw new Error(`${name} 429 (cooling down 60s)`);
   }
-  if (!r.ok) throw new Error(`${name} ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 200);
+    noteHardFailure(name, r.status, body);
+    throw new Error(`${name} ${r.status}: ${body}`);
+  }
   const data = await r.json();
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
@@ -374,7 +431,11 @@ async function callOllama(sys, user) {
     }),
     signal: AbortSignal.timeout(180_000),
   });
-  if (!r.ok) throw new Error(`Ollama ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 200);
+    noteHardFailure("ollama", r.status, body);
+    throw new Error(`Ollama ${r.status}: ${body}`);
+  }
   const data = await r.json();
   return parseLooseJson(data.message?.content ?? "{}");
 }
