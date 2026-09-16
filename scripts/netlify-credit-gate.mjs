@@ -31,7 +31,12 @@ import {
 } from "./lib/netlify-credits.mjs";
 
 const argv = process.argv.slice(2);
-const WARN_ONLY = argv.includes("--warn-only");
+// --watchdog IMPLIES --warn-only. Without this the brake paths below exit(1)
+// before the watchdog block at the bottom is ever reached — and they exit(1)
+// precisely when credits are exceeded or on track to be, i.e. the one case the
+// watchdog exists for. It would have paged in every situation except the
+// emergency.
+const WARN_ONLY = argv.includes("--warn-only") || argv.includes("--watchdog");
 const tIdx = argv.indexOf("--threshold");
 const THRESHOLD = tIdx >= 0 ? Number(argv[tIdx + 1]) : CREDIT_THRESHOLDS.brake;
 
@@ -154,4 +159,101 @@ if (sev === "critical") {
 } else {
   console.log("\n✓ Clear to deploy.");
 }
+
+/**
+ * ── WATCHDOG MODE (--watchdog, added 2026-09-16) ────────────────────────────
+ *
+ * Everything above runs at DEPLOY time, from CI. That was the whole coverage
+ * story for Netlify credits, and it has a hole big enough to have already
+ * caused an outage: credits burn from bandwidth, requests and compute, none of
+ * which need a deploy to happen. A bot sweep or a traffic spike can spend the
+ * month with no PR open at all — and with nobody opening one, the gate never
+ * runs, so the first signal is the site being disabled. That is 2026-07-30.
+ *
+ * Supabase egress already had a daily watchdog that pages the owner. Netlify
+ * did not. This makes the two symmetric, deliberately by extending the gate
+ * rather than adding a second script: the estimate is subtle (the compute and
+ * request components are NOT exposed by Netlify and are modelled from a
+ * calibration reading), and a copy of that math would drift from this one.
+ *
+ * Always exits 0 — a watchdog that fails its own cron job is just a second
+ * thing to notice. The alarm is the push and the telemetry row, not the badge.
+ */
+if (argv.includes("--watchdog")) {
+  const DRY = argv.includes("--dry-run");
+  // Page on the same trajectory conditions the gate brakes on, plus the level
+  // threshold. willExceedBeforeReset is the one that matters most: it fires
+  // while there is still time to act, instead of at the cap.
+  const shouldPage = est.exceeded || est.willExceedBeforeReset || sev === "critical" || sev === "warn";
+  let pagedNote = "";
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    console.log("\n[watchdog] no Supabase creds — cannot record telemetry or page.");
+    process.exit(0);
+  }
+  const { createClient } = await import("@supabase/supabase-js");
+  const sb = createClient(url, key);
+
+  if (shouldPage && !DRY) {
+    try {
+      const { data: owner } = await sb.from("profiles").select("id").eq("is_owner", true).maybeSingle();
+      if (owner) {
+        const { data: subs } = await sb.from("push_subscriptions")
+          .select("endpoint, p256dh, auth").eq("user_id", owner.id);
+        const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY, priv = process.env.VAPID_PRIVATE_KEY;
+        if (subs?.length && pub && priv) {
+          const { createRequire } = await import("node:module");
+          const webpush = createRequire(import.meta.url)("web-push");
+          webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:support@ikratom.org", pub, priv);
+          // Lead with the DATE, not the percentage — "83%" does not tell you
+          // whether to act today, "cap in 4 days, reset in 12" does.
+          const runway = est.willExceedBeforeReset
+            ? ` Cap in ~${est.daysToCap.toFixed(0)}d but reset is ${est.daysRemaining.toFixed(0)}d out —`
+              + ` on track for ${est.projectedAtReset.toFixed(0)}/${est.planCredits}.`
+            : "";
+          const payload = JSON.stringify({
+            title: est.exceeded
+              ? "🛑 Netlify credits EXCEEDED — site disabled"
+              : `💳 Netlify credits at ${est.pct.toFixed(0)}%`,
+            body: `${est.projectedUsed.toFixed(0)}/${est.planCredits} projected at `
+              + `${est.burnPerDay.toFixed(1)}/day.${runway}`
+              + ` Netlify DISABLES the site at the cap (2026-07-30).`,
+            link: "/admin/ops", tag: "netlify-credit-watchdog",
+          });
+          for (const s of subs) {
+            try {
+              await webpush.sendNotification(
+                { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+                payload, { TTL: 6 * 3600 },
+              );
+            } catch { /* per-sub best-effort */ }
+          }
+          pagedNote = " · paged owner";
+        }
+      }
+    } catch (e) {
+      console.log(`[watchdog] paging failed: ${e.message}`);
+    }
+  }
+
+  if (!DRY) {
+    try {
+      await sb.from("scraper_runs").insert({
+        source: "netlify_credit_watchdog",
+        started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+        // "error" is how this surfaces in /admin/automation — it means the
+        // watchdog is FIRING, not that the watchdog is broken (same convention
+        // as egress_watchdog, and the same thing that confused a past reader).
+        status: est.exceeded || est.willExceedBeforeReset ? "error" : "success",
+        rows_updated: Math.round(est.projectedUsed),
+        notes: `${est.projectedUsed.toFixed(0)}/${est.planCredits} (${est.pct.toFixed(1)}%) · `
+          + `${est.burnPerDay.toFixed(1)}/day · sev=${sev}${pagedNote}`,
+      });
+    } catch { /* best-effort */ }
+  }
+  console.log(`\n[watchdog] recorded · sev=${sev}${pagedNote}${DRY ? " (dry run)" : ""}`);
+}
+
 process.exit(0);

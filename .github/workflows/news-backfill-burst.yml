@@ -30,7 +30,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── SUPABASE EGRESS GATE (bulk tier) ──────────────────────────────────
+  # The highest-volume job in the repo — up to 4,000 URL resolves and 7,000 body
+  # extracts in one run, each a Supabase read plus write. It is manual-dispatch,
+  # which is exactly why it needed the gate MOST and had it LEAST: a human firing
+  # a burst at 80% of the cap has no way to know that is what they are doing. The
+  # gate now declines and says why, instead of spending the rest of the month.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier bulk
   burst:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:

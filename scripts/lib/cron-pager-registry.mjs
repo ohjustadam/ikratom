@@ -160,4 +160,34 @@ export const REGISTRY = [
   { source: "fetch_bill_texts", interval_hours: 72, system: "github-actions", cadence: "daily" },
   { source: "sync_elections", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "extract_local_vote_outcomes", interval_hours: 72, system: "github-actions", cadence: "daily" },
+
+  // ── The monitors themselves (registered 2026-09-16) ────────────────────────
+  // Found by the reverse guard in tests/cron-pager-registry.test.ts: both write
+  // scraper_runs on every scheduled run, and NEITHER was registered, so the one
+  // layer that watches everything else was the one layer nothing watched.
+  //
+  // egress_gate is the load-shedder. It writes a row each time a gated workflow
+  // starts, so it is the highest-frequency source we have. Its silence means one
+  // of two things: every gated cron stopped (which the downstream sources would
+  // also report), or the gate step was dropped from the workflows and nothing is
+  // shedding load any more. The second case is the dangerous one — it is silent
+  // by construction, and this entry is the only thing that would catch it.
+  // Runs with cron-hourly (2h cadence) → 4h interval, 12h before it pages.
+  { source: "egress_gate", interval_hours: 4, system: "github-actions", cadence: "every-2h" },
+
+  // check_cron_staleness is the pager. Registering it is PARTIALLY circular and
+  // worth being honest about: if it stops running entirely it cannot page for
+  // its own silence. What this entry does catch is a GAP — when it runs today
+  // and finds its own last row is 9h old, it reports the hours nobody was
+  // watching. That is the common failure (a workflow timing out, a few runs
+  // cancelled), not total death. Total death still needs a human at
+  // /admin/automation, which is the documented limitation in that script's
+  // header — this narrows the window, it does not close it.
+  { source: "check_cron_staleness", interval_hours: 4, system: "github-actions", cadence: "every-2h" },
+
+  // netlify_credit_watchdog — the Netlify half of the "free tier must not stop
+  // serving the site" failsafe, running in the same ungated daily job as
+  // egress_watchdog. Registered from birth rather than retrofitted, which is
+  // the entire point of the reverse guard that found the two above.
+  { source: "netlify_credit_watchdog", interval_hours: 24, system: "github-actions", cadence: "daily" },
 ];
