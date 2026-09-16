@@ -136,6 +136,27 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
         run: node scripts/check-egress-usage.mjs
+      # Netlify's half of the same failsafe (added 2026-09-16). Credits burn
+      # from bandwidth, requests and compute — NONE of which need a deploy — so
+      # the PR-time gate in ci.yml could not see the burn that disabled the site
+      # on 2026-07-30 with no PR open. Same job as the egress watchdog because
+      # they answer the same question ("is the free tier about to stop serving
+      # the site"), and for the same reason that job is NOT behind the egress
+      # gate: a monitor that load-sheds is a monitor that goes quiet exactly
+      # when it matters. --watchdog implies --warn-only, so a braking verdict
+      # pages instead of failing this job.
+      - name: Check Netlify credit budget (pages owner on trajectory)
+        continue-on-error: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_ACCOUNT_SLUG: ${{ secrets.NETLIFY_ACCOUNT_SLUG }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node scripts/netlify-credit-gate.mjs --watchdog
 
   verify-bill-status:
     needs: budget
