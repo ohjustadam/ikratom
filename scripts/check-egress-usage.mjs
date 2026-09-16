@@ -120,13 +120,58 @@ for (const v of [...readings, currentBytes]) {
   else mtdBytes += 0; // first reading of the cycle anchors the baseline
   prev = v;
 }
-// If this is the very first reading of the cycle, use the counter itself as a
-// conservative (over-counting) estimate — better a false early warning than none.
-if (readings.length === 0) mtdBytes = currentBytes;
+/**
+ * FIRST READING OF A NEW CYCLE (fixed 2026-09-16, after it fired).
+ *
+ * This used to say `if (readings.length === 0) mtdBytes = currentBytes`, on the
+ * reasoning that a conservative over-count beats no warning. It does not, and
+ * the arithmetic is worse than "conservative": the counter is cumulative since
+ * INSTANCE START, not since the cycle start, so the first reading of a cycle
+ * reported the instance's entire lifetime as this month's usage.
+ *
+ * On 2026-09-16 — the morning the cycle reset — it read 12.59 GB against a 5 GB
+ * cap, called it 251.8%, and pushed the owner a "project about to be
+ * RESTRICTED" alert. Real usage at that moment was 0.019 GB. That is not an
+ * early warning, it is a guaranteed false alarm on day one of EVERY cycle, and
+ * the cost of it is specific: this is the one alarm that must be believed, and
+ * nothing teaches someone to swipe an alert away faster than it being wrong
+ * every month on a schedule.
+ *
+ * The counter reading taken just BEFORE the cycle boundary is, to within a few
+ * hours, the counter's value AT the boundary — so the difference is this
+ * cycle's usage. The watchdog runs daily, so that reading essentially always
+ * exists. When it genuinely does not (first ever run, or a gap across the
+ * boundary), we cannot know the split, and saying so is better than inventing
+ * a number in either direction: anchor the baseline, report ~0, and let
+ * tomorrow's delta be the first real measurement.
+ */
+let baselineNote = "";
+if (readings.length === 0) {
+  const { data: preCycle } = await sb
+    .from("scraper_runs")
+    .select("finished_at, rows_updated")
+    .eq("source", "egress_watchdog")
+    .lt("finished_at", cycleStart().toISOString())
+    .order("finished_at", { ascending: false })
+    .limit(1);
+  const anchorBytes = (preCycle?.[0]?.rows_updated ?? 0) * 1e6;
+  if (anchorBytes > 0 && currentBytes >= anchorBytes) {
+    mtdBytes = currentBytes - anchorBytes;
+    baselineNote = ` · anchored to the ${String(preCycle[0].finished_at).slice(0, 10)} reading`;
+  } else {
+    // No usable anchor — either no prior reading, or the instance restarted and
+    // reset the counter. Both mean this cycle's usage is unknown, not huge.
+    mtdBytes = 0;
+    baselineNote = anchorBytes > 0
+      ? " · counter reset since last reading — baseline re-anchored, MTD unknown until tomorrow"
+      : " · no pre-cycle reading — baseline anchored, MTD unknown until tomorrow";
+    console.log(`⚠ first reading of this cycle with no usable anchor${baselineNote}`);
+  }
+}
 
 const billableBytes = mtdBytes * BILLABLE_RATIO;
 const pct = billableBytes / (BUDGET_GB * 1e9);
-console.log(`month-to-date billable estimate: ${(billableBytes / 1e9).toFixed(3)} GB of ${BUDGET_GB} GB (${(pct * 100).toFixed(1)}%) · cycle since ${cycleStart().toISOString().slice(0, 10)}`);
+console.log(`month-to-date billable estimate: ${(billableBytes / 1e9).toFixed(3)} GB of ${BUDGET_GB} GB (${(pct * 100).toFixed(1)}%) · cycle since ${cycleStart().toISOString().slice(0, 10)}${baselineNote}`);
 
 // PROJECTION. A percentage answers "how bad is it"; only a DATE answers "how
 // long have I got". On 2026-09-07 this read 94.3% with 8 days still to run —
@@ -215,7 +260,7 @@ if (!DRY) {
       started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
       status: pct >= 0.9 ? "error" : "success",
       rows_updated: Math.round(currentBytes / 1e6),
-      notes: `MTD ~${(billableBytes / 1e9).toFixed(2)}GB/${BUDGET_GB}GB (${(pct * 100).toFixed(1)}%)${pagedNote}`,
+      notes: `MTD ~${(billableBytes / 1e9).toFixed(2)}GB/${BUDGET_GB}GB (${(pct * 100).toFixed(1)}%)${baselineNote}${pagedNote}`,
     });
   } catch { /* best-effort */ }
 }
