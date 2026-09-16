@@ -30,31 +30,7 @@ import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { StanceChips, roleMeta, orderedDisplayRoles, displayRole, type StanceValue } from "@/lib/stakeholder-stance";
 import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
 
-/**
- * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (tests/egress-freeze-expiry)
- *
- * The large PUBLIC read set has always come from a per-id unstable_cache
- * snapshot. What kept the route dynamic was five per-viewer reads: locale for
- * translations, signed-in + subscription state, the reader's federal
- * delegation, an RLS-scoped action count, and the committee-leverage table.
- * ~680 bill pages therefore re-queried Supabase on every crawler hit, for data
- * about a visitor who was never signed in.
- *
- * All five moved client-side. Translations go through TranslatedText; the
- * other four share ONE fetch of /api/bills/[id]/viewer (see useBillViewer) so
- * a cached page did not become four round trips.
- *
- * THE COMMITTEE TABLE IS THE REASON THAT ROUTE USES THE COOKIE CLIENT. Its
- * tiers derive from legislator_stance, which is RLS-gated; running it under the
- * reader's own session keeps anon and unverified readers on stance-blind tiers
- * exactly as before. Computing it once with service-role and caching it would
- * publish "active opponent" labels about named legislators to everyone.
- *
- * generateStaticParams is MANDATORY on a dynamic segment — revalidate alone
- * leaves the route server-rendered on demand. Empty array: render on first
- * request, then cache.
- */
-export const revalidate = 604800; // 7d — frozen; normal is 900
+export const revalidate = 900;
 
 export function generateStaticParams() {
   return [];

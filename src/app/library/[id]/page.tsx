@@ -6,20 +6,7 @@ import { PageShareWithAttribution } from "@/components/PageShareWithAttribution"
 import { CreatorEditLink } from "./CreatorEditLink";
 
 import Link from "next/link";
-/**
- * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (tests/egress-freeze-expiry)
- *
- * Library items are public content, but the page read them through the
- * cookie-bound client AND called getCreatorContext() to decide whether to show
- * a staff-only Edit link — so it re-rendered against Supabase on every crawler
- * hit. Reads move to the anon client (verified: identical rows, and select("*")
- * is permitted for anon on this table), and the Edit affordance moves to
- * CreatorEditLink, gated on the /api/me chrome read.
- *
- * generateStaticParams is MANDATORY on a dynamic segment — `export const
- * revalidate` alone leaves the route server-rendered on demand.
- */
-export const revalidate = 604800; // 7d — frozen; normal is 900
+export const revalidate = 900;
 
 export function generateStaticParams() {
   return [];

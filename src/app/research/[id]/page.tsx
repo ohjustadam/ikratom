@@ -14,23 +14,7 @@ import { ShareEverywhere } from "@/components/ShareEverywhere";
 import { getAdminContext } from "@/modules/admin/actions";
 
 export const metadata = { title: "Research paper" };
-/**
- * ⚠ FROZEN WINDOW — RESTORE TO 900 ON 2026-09-16. ⚠ (tests/egress-freeze-expiry)
- *
- * The paper itself is already a cookieless service-role snapshot inside
- * unstable_cache. What forced a render per request was reading
- * `?from=submit&duplicate=1` on the server — navigation state that only ever
- * matters to the one person who just submitted, decided on every crawler hit.
- * That moved to SubmitFlash, a client component.
- *
- * generateStaticParams is MANDATORY on a dynamic segment — `export const
- * revalidate` alone leaves the route server-rendered on demand.
- *
- * Beyond egress: exceeding the Supabase free-tier cap RESTRICTS the project
- * rather than billing for it. Dynamic routes 500 in that state; prerendered
- * ones keep serving from the CDN.
- */
-export const revalidate = 604800; // 7d — frozen; normal is 900
+export const revalidate = 900;
 
 export function generateStaticParams() {
   return [];

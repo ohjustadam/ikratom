@@ -50,29 +50,7 @@ export const metadata = {
  * (measured: 200 rows -> 1), and bills filter on the JSON key itself
  * (44 rows / 22.9 KB -> 1 row).
  */
-/**
- * ⚠ FROZEN WINDOW — RESTORE TO 1800 ON 2026-09-16. ⚠
- *
- * Supabase free-tier egress was over the 5 GB cap with the cycle resetting
- * 09-16, and exceeding it RESTRICTS the project (the API stops answering; the
- * site goes down). ISR is lazy — a cached page only re-renders when a request
- * arrives after its window — so the window IS the per-page cost ceiling.
- * Stretching it past the reset means this page renders at most once more for
- * the rest of the cycle and then costs nothing at all.
- *
- * Staleness is survivable here specifically because the countdowns are NOT
- * baked into the cached HTML: `useVisibleDeadlines` re-buckets against the
- * browser's clock and drops anything that has since closed, so a week-old page
- * never tells an advocate they have three days left on a window that shut.
- * What a frozen window can cost is a brand-new deadline appearing late — and
- * the cron fleet that discovers them is already deferred by the egress gate, so
- * there is little new to miss. On-demand revalidation still works if something
- * genuinely urgent needs to publish.
- *
- * tests/egress-freeze-expiry.test.ts turns red after 2026-09-16 so this reverts
- * on evidence rather than on someone remembering.
- */
-export const revalidate = 604800; // 7d — frozen; normal is 1800
+export const revalidate = 1800;
 
 /**
  * How far past the render clock the server fetches. Deliberately WIDER than the
