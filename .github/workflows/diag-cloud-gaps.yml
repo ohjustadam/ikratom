@@ -9,10 +9,9 @@ name: Diagnose cloud gaps
 # (the probe has zero dependencies). Costs nothing but a runner minute,
 # so it is safe to dispatch whenever a provider's status is in doubt.
 
+# Dispatch-only: it answers a question, so it runs when the question is asked.
 on:
   workflow_dispatch:
-  push:
-    branches: ["claude/cloud-only-jobs-ilhs07"]
 
 jobs:
   probe:
