@@ -241,6 +241,29 @@ if (recovered.length > 0 && !DRY) {
   console.log(`  Cleared ${recovered.length} recovered source(s)`);
 }
 
+// 5b. Prune alert rows whose source is no longer registered.
+// Unregistering a source drops it from the loop above, so its alert row can
+// never reach the "recovered" path in step 5 — it sits in cron_staleness_alerts
+// forever, and would silently swallow the FIRST real alert if that source is
+// ever registered again (step 4 only pushes for sources not already in
+// alertedSources). Not hypothetical: egress_gate was unregistered on 2026-09-17
+// while actively alerting, because it writes telemetry only when it defers, so
+// a healthy fleet read as a dead job. Its row is the one this clears.
+// local_box_offline is synthesised by this script rather than registered, so it
+// is not an orphan and must survive the prune.
+const SYNTHETIC_SOURCES = new Set(["local_box_offline"]);
+const registeredSources = new Set(REGISTRY.map((e) => e.source));
+const orphanAlerts = [...alertedSources].filter(
+  (s) => !registeredSources.has(s) && !SYNTHETIC_SOURCES.has(s),
+);
+if (orphanAlerts.length > 0) {
+  console.log(`  ${orphanAlerts.length} alert row(s) for unregistered source(s): ${orphanAlerts.join(", ")}`);
+  if (!DRY) {
+    await sb.from("cron_staleness_alerts").delete().in("source", orphanAlerts);
+    console.log(`  Cleared ${orphanAlerts.length} orphaned alert row(s)`);
+  }
+}
+
 if (DRY) {
   console.log("DRY RUN — first 10 newly-silent sources:");
   for (const s of newlySilent.slice(0, 10)) {
