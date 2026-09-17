@@ -108,8 +108,27 @@ describe("cron pager registry ↔ writer integrity", () => {
    * Cross-checked against live scraper_runs the same day: the DB showed exactly
    * these two as scheduled-and-unregistered, so this static scan agrees with
    * ground truth rather than approximating it.
+   *
+   * ONE OF THE TWO WAS THE WRONG CALL (corrected 2026-09-17). `egress_gate`
+   * writes only when it DEFERS, so registering it made the pager alert on the
+   * healthy state. "Writes scraper_runs" is not "writes it every run", and this
+   * scan cannot tell the difference — hence CONDITIONAL_WRITERS below.
    */
   it("every scheduled script's telemetry source is registered (no orphans)", () => {
+    // Sources that write scraper_runs ONLY on an exception path. Silence from
+    // these is HEALTH, not death, so registering them makes the pager fire
+    // continuously while everything works — which is how egress_gate paged the
+    // owner nonstop from 2026-09-16 until it was unregistered on 09-17.
+    // An entry here is a promise that the source's coverage lives somewhere
+    // else; name where, so removing that coverage is a visible decision.
+    const CONDITIONAL_WRITERS: Record<string, string> = {
+      // scripts/egress-gate.mjs inserts only when gate.skip is true (a DEFER),
+      // by design — a row per pass would be a row every 2h in the very table
+      // the staleness watchdog reads. Covered instead, statically and at PR
+      // time, by tests/egress-gate-wiring.test.ts.
+      egress_gate: "tests/egress-gate-wiring.test.ts",
+    };
+
     // PRECISION MATTERS MORE THAN REACH HERE. A first cut matched any `source:`
     // key and flagged 8 — six were false, because `election_dates.source`,
     // `bill_actions.source` and `legislators.portrait_source` are data-
@@ -147,7 +166,7 @@ describe("cron pager registry ↔ writer integrity", () => {
         for (const re of WRITE_PATTERNS) {
           for (const m of body.matchAll(re)) {
             writesFound++;
-            if (registered.has(m[1])) continue;
+            if (registered.has(m[1]) || CONDITIONAL_WRITERS[m[1]]) continue;
             if (!orphans.has(m[1])) orphans.set(m[1], new Set());
             orphans.get(m[1])!.add(`${f} → scripts/${s}`);
           }
