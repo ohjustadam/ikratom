@@ -1,0 +1,92 @@
+name: Bill embeddings
+
+# Cross-state bill similarity (/bills/[id]) runs on embeddings that, until
+# 2026-09-17, only a local Ollama could produce — which is why the corpus went
+# stale every time the owner's PC was off. compute-bill-embeddings.mjs now goes
+# through scripts/lib/embed-router.mjs and can use any free provider with a key.
+#
+# ── NOT SCHEDULED YET, ON PURPOSE ────────────────────────────────────────────
+# Switching provider means re-embedding the WHOLE corpus: vectors from two
+# models are not comparable, so a partial migration produces confident nonsense
+# rather than a visible error. The script enforces that (it refuses to top up a
+# corpus another model wrote), but the first cutover rewrites every vector in
+# production, and that is the owner's call, not CI's.
+#
+# To turn it on once a provider is chosen:
+#   1. dispatch this workflow ONCE with refresh=true to lay down the new corpus
+#   2. uncomment the `schedule:` block below
+#   3. flip `bill_embeddings` to system: "github-actions" in
+#      scripts/lib/cron-pager-registry.mjs
+#
+# Provider status on 2026-09-17 (scripts/diagnose-cloud-gaps.mjs, run 35268056013):
+#   cloudflare  @cf/baai/bge-base-en-v1.5   768   daily free allocation exhausted
+#   gemini      gemini-embedding-001        768   429, key's credits depleted
+#   mistral     mistral-embed              1024   WORKS, 373ms  (needs EMBED_DIMS=1024)
+#   ollama      nomic-embed-text            768   unreachable from CI, as expected
+
+on:
+  workflow_dispatch:
+    inputs:
+      refresh:
+        description: "Re-embed the entire corpus (required when changing provider)"
+        type: boolean
+        default: false
+      provider:
+        description: "Force one provider (cloudflare | gemini | mistral | ollama)"
+        type: string
+        default: ""
+  # schedule:
+  #   - cron: "40 6 * * *"   # daily, staggered off the other cloud crons
+
+concurrency:
+  group: bill-embeddings
+  cancel-in-progress: false
+
+jobs:
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier bulk
+
+  embed:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Embed bills + state briefings
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          # mistral-embed is 1024-wide. Harmless for the 768 providers: the
+          # router only picks a provider whose width matches this, so a wrong
+          # pairing fails loudly at preflight instead of writing mixed vectors.
+          EMBED_DIMS: ${{ vars.EMBED_DIMS || '768' }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.refresh }}" = "true" ]; then ARGS="$ARGS --refresh"; fi
+          if [ -n "${{ github.event.inputs.provider }}" ]; then ARGS="$ARGS --provider ${{ github.event.inputs.provider }}"; fi
+          node scripts/compute-bill-embeddings.mjs $ARGS
