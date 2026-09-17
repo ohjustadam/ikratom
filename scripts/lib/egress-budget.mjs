@@ -86,7 +86,21 @@ export async function getEgressStatus(sb = client()) {
     .limit(200);
   if (error || !data?.length) return { pct: null, usedMb: null, readings: 0, staleHours: null };
 
-  const pts = data.map((r) => Number(r.rows_updated ?? 0)).filter((v) => v > 0);
+  // Only rows that actually CARRY a counter reading count, for both the usage
+  // sum and the freshness check. check-egress-usage.mjs writes a row with
+  // status "error" and no rows_updated when the metrics endpoint refuses it —
+  // a run that happened but measured nothing.
+  //
+  // Deriving staleHours from every row instead (fixed 2026-09-17) made that
+  // case invisible in the worst possible way: the freshness check read the
+  // error row's timestamp and stayed green, while pct froze at whatever the
+  // last real reading said. The gate then kept comparing a number that had
+  // stopped moving against its ceiling, so it would never shed and never hit
+  // the 48h fail-open path that exists precisely for a blind watchdog. A
+  // stuck-but-plausible reading is worse than a missing one, because the
+  // missing one is documented to fail open and this one just quietly lied.
+  const withReading = data.filter((r) => Number(r.rows_updated ?? 0) > 0);
+  const pts = withReading.map((r) => Number(r.rows_updated));
   if (pts.length < 2) return { pct: null, usedMb: null, readings: pts.length, staleHours: null };
 
   let usedMb = 0;
@@ -96,7 +110,7 @@ export async function getEgressStatus(sb = client()) {
     usedMb += pts[i] >= pts[i - 1] ? pts[i] - pts[i - 1] : pts[i];
   }
   usedMb *= BILLABLE_RATIO;
-  const last = data[data.length - 1]?.finished_at;
+  const last = withReading[withReading.length - 1]?.finished_at;
   const staleHours = last ? (Date.now() - new Date(last).getTime()) / 3.6e6 : null;
   return { pct: usedMb / (BUDGET_GB * 1000), usedMb, readings: pts.length, staleHours };
 }
