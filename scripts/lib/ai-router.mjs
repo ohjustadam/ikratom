@@ -29,9 +29,13 @@
  */
 
 import { OLLAMA_NUM_THREAD } from "./ollama-options.mjs";
+import { pickGeminiKey, markGeminiKeyCooldown, geminiKeyCount } from "./gemini-keys.mjs";
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
+// Gemini is the one provider with a multi-key pool (one free key per GCP
+// project, each with its own quota). gemini-keys.mjs owns that rotation; the
+// router asks it for a key per call instead of pinning process.env.GEMINI_API_KEY,
+// so adding GEMINI_API_KEY_2..9 multiplies the router's free ceiling too.
 const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY;
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY;
 const CLOUDFLARE_AI_TOKEN = process.env.CLOUDFLARE_AI_TOKEN;
@@ -55,11 +59,114 @@ const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 // and skip it until the deadline passes.
 const cooldownUntil = new Map();
 
+/**
+ * Per-provider health for the life of the process.
+ *
+ * WHY: until now a run where every provider was dead and a run where the first
+ * provider answered every call looked identical in the logs — a wall of
+ * "⚠ <provider> failed" lines with no total, and callers reported only their own
+ * "N failed". That is how the pool could collapse to one rate-limited provider
+ * for days without the telemetry saying so. logProviderSummary() prints one line
+ * per provider at the end of a run, and providerSummary() hands the same data to
+ * scraper_runs so a depleted pool is a visible fact rather than a guess.
+ */
+const health = new Map(); // provider -> { attempts, ok, fail, lastError }
+
+/**
+ * Process-wide ceiling on time spent waiting for a throttled pool.
+ *
+ * Waiting out a 60s throttle turns "0 digested" into a full batch, but a job
+ * with --limit 300 could in principle wait on wave after wave and blow its CI
+ * timeout — and a cancelled job writes no telemetry at all, which is the 2-day
+ * outage class this repo has already been bitten by. So the waiting is budgeted
+ * for the whole process, not just per call: generous enough to ride out the
+ * throttles that actually occur, hard-capped so it can never become the reason
+ * a job is killed.
+ */
+const TOTAL_WAIT_BUDGET_MS = Number(process.env.AI_ROUTER_WAIT_BUDGET_MS ?? 300_000);
+let _waitedMs = 0;
+
+function noteAttempt(p) {
+  const h = health.get(p) ?? { attempts: 0, ok: 0, fail: 0, lastError: null };
+  h.attempts++;
+  health.set(p, h);
+  return h;
+}
+
+/** Snapshot of provider health, sorted most-used first. Safe to JSON.stringify. */
+export function providerSummary() {
+  return [...health.entries()]
+    .map(([provider, h]) => ({ provider, ...h }))
+    .sort((a, b) => b.attempts - a.attempts);
+}
+
+/**
+ * One compact line of provider health, for scraper_runs.notes.
+ *
+ * The telemetry every cron script writes said "18 failed" and nothing about
+ * WHY, so a depleted provider pool and a genuinely broken classifier produced
+ * identical rows. Appending this makes the difference queryable after the fact,
+ * which is the only way to notice the pool shrinking before a pipeline stops.
+ * Example: "ai: openrouter 12/3, mistral 0/5" (ok/fail).
+ */
+export function providerNote() {
+  const rows = providerSummary();
+  if (rows.length === 0) return "ai: no calls";
+  const parts = rows.map((r) => `${r.provider} ${r.ok}/${r.fail}`);
+  const anyOk = rows.some((r) => r.ok > 0);
+  return `ai${anyOk ? "" : " NONE-ANSWERED"}: ${parts.join(", ")}`;
+}
+
+/**
+ * Print the pool's health. Call once at the end of a script that makes many AI
+ * calls — the cost is one block of output per run, and it is the difference
+ * between "18 failed" and "18 failed because every configured provider is 429".
+ */
+export function logProviderSummary(label = "AI providers") {
+  const rows = providerSummary();
+  const configured = availableProviders();
+  if (rows.length === 0) {
+    console.log(`  ${label}: no calls made (configured: ${configured.join(", ") || "none"})`);
+    return;
+  }
+  console.log(`  ${label} — configured: ${configured.join(", ")}`);
+  for (const r of rows) {
+    const note = r.ok === 0 && r.fail > 0 ? `  ← never answered: ${String(r.lastError ?? "").slice(0, 70)}` : "";
+    console.log(`    ${r.provider.padEnd(11)} ok ${String(r.ok).padStart(4)} / fail ${String(r.fail).padStart(4)}${note}`);
+  }
+  const anyOk = rows.some((r) => r.ok > 0);
+  if (!anyOk) {
+    console.log(`  ⚠ NO free AI provider answered this run. Add a key (see docs/AI_PROVIDERS.md) — enrichment is blocked, not broken.`);
+  }
+}
+
 let _cursor = 0;
+
+/**
+ * AI_PROVIDER_ORDER — comma-separated provider names, highest priority first.
+ * Providers named here are tried before any others; anything unnamed keeps its
+ * default position behind them. Unknown or unconfigured names are ignored.
+ *
+ * WHY: when a provider dies (Cerebras → paid, GitHub Models → retired) or a new
+ * free one appears, the fix should be an env change on the workflow, not a
+ * deploy. `AI_PROVIDER_ORDER=groq,mistral,openrouter` is the whole knob.
+ */
+function orderPreference() {
+  return (process.env.AI_PROVIDER_ORDER || "")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function applyPreference(list) {
+  const pref = orderPreference();
+  if (pref.length === 0) return list;
+  const preferred = pref.filter((p) => list.includes(p));
+  return [...preferred, ...list.filter((p) => !preferred.includes(p))];
+}
+
 function availableProviders() {
   const out = [];
   if (GROQ_KEY) out.push("groq");
-  if (GEMINI_KEY) out.push("gemini");
+  if (geminiKeyCount() > 0) out.push("gemini");
   if (CEREBRAS_KEY) out.push("cerebras");
   if (MISTRAL_KEY) out.push("mistral");
   if (CLOUDFLARE_AI_TOKEN && CLOUDFLARE_ACCOUNT_ID) out.push("cloudflare");
@@ -67,8 +174,20 @@ function availableProviders() {
   if (SAMBANOVA_API_KEY) out.push("sambanova");
   if (OPENROUTER_API_KEY) out.push("openrouter");
   if (NVIDIA_API_KEY) out.push("nvidia");
+  // Ollama stays last by default: it only answers on the owner's box, so in the
+  // cloud it is a guaranteed timeout, not a fallback. AI_PROVIDER_ORDER can
+  // still promote it for local runs.
   out.push("ollama");
-  return out;
+  return applyPreference(out);
+}
+
+/**
+ * Cloud providers only — what the router can actually reach from CI.
+ * Exported so a script can say "no free provider is configured" up front
+ * instead of discovering it one failed item at a time.
+ */
+export function cloudProviderCount() {
+  return availableProviders().filter((p) => p !== "ollama").length;
 }
 
 function pickStart(override) {
@@ -214,7 +333,10 @@ async function callGroq(sys, user, maxTokens, modelOverride) {
 }
 
 async function callGemini(sys, user, maxTokens) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
+  const key = pickGeminiKey();
+  if (!key) throw new Error("Gemini: no key configured");
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -230,8 +352,11 @@ async function callGemini(sys, user, maxTokens) {
     signal: AbortSignal.timeout(60_000),
   });
   if (r.status === 429 || r.status === 503) {
-    startCooldown("gemini", 60_000);
-    throw new Error(`Gemini ${r.status} (cooling down 60s)`);
+    // Park THIS key, not the whole provider: with several free keys (one per
+    // GCP project) an exhausted key must not take the others down with it.
+    markGeminiKeyCooldown(key);
+    if (geminiKeyCount() <= 1) startCooldown("gemini", 60_000);
+    throw new Error(`Gemini ${r.status} (key parked; ${geminiKeyCount()} key(s) in pool)`);
   }
   if (!r.ok) {
     const body = (await r.text()).slice(0, 200);
@@ -470,6 +595,9 @@ export async function aiRouter({
   // self-critique loop can target DeepSeek R1 Distill 70B while normal
   // generation stays on Llama-3.3-70B. Other providers ignore the value.
   modelOverride = null,
+  // How long a call may wait for a fully-parked pool to free up. 0 disables the
+  // wait. AI_ROUTER_MAX_WAIT_MS tunes it per workflow without a deploy.
+  maxWaitMs = Number(process.env.AI_ROUTER_MAX_WAIT_MS ?? 75_000),
   verbose = true,
 }) {
   const list = availableProviders();
@@ -483,19 +611,76 @@ export async function aiRouter({
   const t0 = Date.now();
   let lastErr = null;
   for (const p of order) {
+    // Re-check the cooldown HERE, not just when `order` was built.
+    //
+    // THE STAMPEDE (measured 2026-09-17). generate-news-digest runs
+    // --concurrency 6, so six aiRouter calls are in flight at once. Each one
+    // built its provider order before any of the others had come back, so all
+    // six hit groq simultaneously, all six got 429, then all six moved to
+    // gemini together, and so on down the list. One burst tripped every
+    // provider's per-minute limit at once and parked the entire pool. The job
+    // gave up 5.7 seconds later having digested NOTHING — out of four items.
+    // Six parallel calls were spending six times the quota to do the work of
+    // one. Re-reading the cooldown at attempt time means callers 2..6 skip a
+    // provider that caller 1 has already discovered is throttled.
+    if (inCooldown(p)) continue;
+    const h = noteAttempt(p);
     try {
       const parsed = await callOne(p, systemPrompt, userPrompt, maxTokens, modelOverride);
+      h.ok++;
       return { provider: p, parsed, elapsedMs: Date.now() - t0 };
     } catch (e) {
+      h.fail++;
+      h.lastError = String(e.message ?? e).slice(0, 160);
       lastErr = e;
       if (verbose) {
-        const msg = String(e.message ?? e).slice(0, 140);
-        console.log(`    ⚠ ${p} failed: ${msg}`);
+        console.log(`    ⚠ ${p} failed: ${h.lastError.slice(0, 140)}`);
       }
       // Brief gap before next provider
       await new Promise((r) => setTimeout(r, 800));
     }
   }
+  // Distinguish "the pool is empty" from "the pool answered badly". The first is
+  // an operator action (add a key); the second is a provider outage to wait out.
+  // Both used to surface as the same opaque last-provider error string.
+  if (cloudProviderCount() === 0) {
+    throw new Error(
+      "NO_AI_PROVIDER: no free cloud AI key is configured for this run " +
+      "(checked: GROQ_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY, OPENROUTER_API_KEY, " +
+      "CEREBRAS_API_KEY, SAMBANOVA_API_KEY, NVIDIA_API_KEY, CLOUDFLARE_AI_TOKEN, " +
+      "GH_MODELS_TOKEN). See docs/AI_PROVIDERS.md.",
+    );
+  }
+
+  // Throttled, not dead: wait it out. Throwing here turned a 60-second throttle
+  // into a whole hour of lost enrichment, because the next cron run is an hour
+  // away — that is how a 4-item digest job came back "digested 0" in 5.7s.
+  //
+  // Fires in BOTH shapes of the same situation: providers already parked when
+  // this call started (the stampede's later callers), and providers that 429'd
+  // during this very call (the first caller of a throttled minute). Only the
+  // second is common, and gating on `attempted === 0` missed it entirely.
+  if (order.length > 0) {
+    const cooling = order.map((p) => cooldownUntil.get(p) ?? 0).filter((t) => t > Date.now());
+    if (cooling.length === 0) throw lastErr ?? new Error("all providers failed");
+    const soonest = Math.min(...cooling);
+    const waitMs = Math.max(soonest - Date.now(), 0);
+    // Only wait when the wait actually ENDS within our budget. A pool parked
+    // entirely on 6-hour hard failures (every provider off the free tier) will
+    // look identical to a throttled one otherwise, and we would burn the full
+    // budget per call learning nothing had changed.
+    if (waitMs > 0 && waitMs <= maxWaitMs && _waitedMs + waitMs <= TOTAL_WAIT_BUDGET_MS) {
+      _waitedMs += waitMs;
+      if (verbose) console.log(`    ⏸ every provider is cooling — waiting ${Math.ceil(waitMs / 1000)}s rather than giving up`);
+      await new Promise((r) => setTimeout(r, waitMs + 250));
+      return aiRouter({
+        systemPrompt, userPrompt, maxTokens, providerOverride, modelOverride, verbose,
+        // One wait per call, never a chain of them.
+        maxWaitMs: 0,
+      });
+    }
+  }
+
   throw lastErr ?? new Error("all providers failed");
 }
 

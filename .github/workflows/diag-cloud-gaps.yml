@@ -10,6 +10,8 @@ name: Diagnose cloud gaps
 # so it is safe to dispatch whenever a provider's status is in doubt.
 
 # Dispatch-only: it answers a question, so it runs when the question is asked.
+# The push trigger this file shipped with named one feature branch, which on
+# main fires on nothing.
 on:
   workflow_dispatch:
 

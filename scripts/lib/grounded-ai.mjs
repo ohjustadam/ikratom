@@ -36,6 +36,7 @@
  * "free-ai-router-provider-churn" for the provider-retirement history.
  */
 import { aiRouter } from "./ai-router.mjs";
+import { pickGeminiKey, markGeminiKeyCooldown, geminiKeyCount } from "./gemini-keys.mjs";
 
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -103,7 +104,11 @@ export async function groundedGenerate({
   // every existing caller on exactly the path it has today.
   grounder = null,
 }) {
-  const key = process.env.GEMINI_API_KEY;
+  // gemini-keys.mjs exists precisely for this path: grounded google_search calls
+  // burn the scarce per-PROJECT free quota, and each extra free key is a whole
+  // extra project's allowance. Reading process.env.GEMINI_API_KEY directly meant
+  // the pool was never consulted and GEMINI_API_KEY_2..9 did nothing at all.
+  const key = pickGeminiKey();
 
   // Every declination gets a line here, and the throw below joins them. A bare
   // "GROUNDING_UNAVAILABLE" told whoever was on call that *a* door was shut but
@@ -112,7 +117,7 @@ export async function groundedGenerate({
   const coolingMs = _geminiCoolUntil - Date.now();
 
   if (!key) {
-    attempts.push("gemini: no GEMINI_API_KEY");
+    attempts.push("gemini: no key configured (GEMINI_API_KEY / GEMINI_API_KEY_2..9)");
   } else if (coolingMs > 0) {
     // Silent on purpose — logging this would just restore the 51-line spam the
     // cooldown exists to kill. The 429 that armed it was logged once already.
@@ -146,7 +151,13 @@ export async function groundedGenerate({
         // 429 = quota depleted, 403 = key disabled/restricted. Both persist for
         // the life of the run, so arm the cooldown. A 500/503 is transient and
         // deliberately does NOT arm it — the next state deserves a fresh try.
-        if (res.status === 429 || res.status === 403) _geminiCoolUntil = Date.now() + GEMINI_COOLDOWN_MS;
+        if (res.status === 429 || res.status === 403) {
+          // Park the exhausted KEY first. With a multi-key pool the next call
+          // reaches a different project's quota instead of sitting out 15
+          // minutes because one of several keys was depleted.
+          markGeminiKeyCooldown(key, GEMINI_COOLDOWN_MS);
+          if (geminiKeyCount() <= 1) _geminiCoolUntil = Date.now() + GEMINI_COOLDOWN_MS;
+        }
         console.log(`  ↻ Gemini ${res.status} — falling back to the router (ungrounded): ${body.slice(0, 90)}`);
         attempts.push(`gemini: HTTP ${res.status}`);
       }

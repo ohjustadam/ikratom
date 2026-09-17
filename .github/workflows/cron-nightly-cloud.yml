@@ -30,6 +30,39 @@ concurrency:
   group: nightly-cloud
   cancel-in-progress: false
 
+# ---------------------------------------------------------------------------
+# Free AI provider pool — workflow-level so EVERY step inherits it.
+#
+# Why this is here and not on each step: the router (scripts/lib/ai-router.mjs)
+# can only use a provider whose key is in the step's environment. Keys were
+# added per step as each provider was adopted, so older steps kept an older,
+# smaller pool — this workflow reached the router with no OPENROUTER_API_KEY at
+# all while OpenRouter was the only provider still answering. Ingestion kept
+# running and every enrichment step failed, which is exactly the "reads the
+# world but cannot make sense of it" state we were in.
+#
+# A workflow-level env block is inherited by every job and every step, and a
+# step-level env still wins where one is set, so this can only widen the pool.
+# Adding a provider is now: create the secret, add one line here.
+# An unset secret expands to "" and the router skips that provider silently.
+# See docs/AI_PROVIDERS.md.
+env:
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+  GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+  MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+  CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+  CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  # GitHub Actions forbids secret names starting with GITHUB_, hence GH_MODELS_TOKEN.
+  GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+  # Optional: reorder the pool without a deploy, e.g. "groq,mistral,openrouter".
+  AI_PROVIDER_ORDER: ${{ vars.AI_PROVIDER_ORDER }}
+
 jobs:
   # ── SUPABASE EGRESS GATE (bulk tier) ────────────────────────────────────
   # Supabase RESTRICTS the project at 100% of the free egress cap rather than

@@ -11,9 +11,15 @@
  *   2. `usages_exceeded`, which only becomes non-empty AT the moment the site
  *      is already disabled. That is a death certificate, not a warning.
  *
- * Netlify's free tier is now `credit-free`: ONE pooled budget (300 credits) that
- * every meter draws from. Bandwidth is no longer a ceiling, it's an input priced
- * at 20 credits/GB. So the only number worth alerting on is credits.
+ * Netlify's free tier is now `credit-free`: ONE pooled budget that every meter
+ * draws from. Bandwidth is no longer a ceiling, it's an input priced at
+ * 20 credits/GB. So the only number worth alerting on is credits.
+ *
+ * The allowance is NOT hard-coded and this comment used to say 300, which was
+ * wrong and was quoted as fact for weeks. It is read from the account on every
+ * run; the 2026-09-17 reading was 1000. Thresholds below are percentages of
+ * whatever the API returns, so they stay correct when the plan changes — do not
+ * reintroduce a literal budget here.
  *
  * Published rates (netlify.com/pricing, read 2026-07-30):
  *   production deploy  15 credits each
