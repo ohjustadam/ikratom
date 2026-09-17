@@ -21,6 +21,7 @@
  *
  *   node --env-file=.env.local scripts/diagnose-cloud-gaps.mjs
  *   node scripts/diagnose-cloud-gaps.mjs --only=embed
+ *   node scripts/diagnose-cloud-gaps.mjs --only=embed --burst=40
  */
 
 import { EMBED_PROVIDERS, embedWith } from "./lib/embed-router.mjs";
@@ -28,6 +29,7 @@ import { EMBED_PROVIDERS, embedWith } from "./lib/embed-router.mjs";
 const args = process.argv.slice(2);
 const opt = (n) => { const h = args.find((a) => a.startsWith(`--${n}=`)); return h ? h.slice(n.length + 3) : null; };
 const ONLY = opt("only"); // 'legiscan' | 'embed'
+const BURST = parseInt(opt("burst") || "0", 10);
 
 const SAMPLE = "An act relating to kratom; providing for the regulation of kratom products; establishing labeling and age restrictions; providing penalties.";
 
@@ -91,6 +93,44 @@ async function probeEmbeddings() {
   }
 }
 
+// ─── Probe C: can a provider actually carry a corpus re-embed? ──────────
+//
+// A single successful call proves a key works. It does NOT prove the provider
+// will serve ~550 sequential calls, which is what switching the corpus costs.
+// That difference matters because a re-embed that dies halfway leaves the
+// corpus half one model and half another, and the start-of-run interlock in
+// compute-bill-embeddings.mjs cannot catch damage done after it ran.
+//
+// It also answers a question a single call cannot: whether the embedding
+// endpoint has quota SEPARATE from the chat quota. On 2026-09-17 the chat pool
+// was returning 429 across every provider while mistral-embed answered in
+// 306ms, which suggests separate budgets — this measures it instead.
+async function probeBurst(n) {
+  console.log(`\n=== C. Sustained burst: ${n} sequential calls per provider ===`);
+  for (const p of EMBED_PROVIDERS) {
+    if (!p.configured()) continue;
+    let ok = 0, throttled = 0, other = 0, firstErr = null;
+    const t0 = Date.now();
+    for (let i = 0; i < n; i++) {
+      try {
+        await embedWith(p.id, `${SAMPLE} (call ${i})`);
+        ok++;
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        if (/\b429\b|rate.?limit|capacity/i.test(msg)) throttled++;
+        else other++;
+        firstErr ??= msg.slice(0, 80);
+      }
+    }
+    const ms = Date.now() - t0;
+    if (ok === 0 && throttled === 0 && other === n) continue; // never reachable; skip noise
+    const detail = `${ok}/${n} ok, ${throttled} throttled, ${other} other, ${(ms / n).toFixed(0)}ms/call${firstErr ? ` — ${firstErr}` : ""}`;
+    line(`${p.id} burst`, ok === n, detail);
+  }
+  console.log(`\n  A provider that cannot finish ${n} in a row cannot carry a corpus re-embed.`);
+}
+
 if (!ONLY || ONLY === "legiscan") await probeLegiscan();
 if (!ONLY || ONLY === "embed") await probeEmbeddings();
+if (BURST > 0) await probeBurst(BURST);
 console.log("");

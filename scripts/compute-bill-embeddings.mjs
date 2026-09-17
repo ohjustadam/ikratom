@@ -178,8 +178,33 @@ if (priorModel && priorModel !== MODEL && !REFRESH) {
   console.error("  (or pin the old one with --provider, if it is still reachable).");
   process.exit(1);
 }
+// A MODEL SWITCH RETIRES THE OLD VECTORS BEFORE IT WRITES NEW ONES.
+//
+// The check above guards the START of a run. It cannot guard the middle: with
+// --refresh across a model change, every row updated so far holds the new model
+// and every row not yet reached still holds the old one. A run that dies partway
+// — a 429 mid-corpus, a cancelled job, a timeout — therefore leaves a corpus
+// that is half each, and nothing downstream can tell, because both are just
+// float arrays. findSimilarBills would score them against each other.
+//
+// So retire the old vectors first. findSimilarBills filters
+// `.not("embedding","is",null)` and skips non-array rows, so an interrupted run
+// degrades to "no similar bills yet" — visibly less, never quietly wrong — and
+// re-running finishes the job. These vectors are derived data, recomputed from
+// title/summary on demand, so an empty window costs nothing but the recompute.
 if (priorModel && priorModel !== MODEL) {
   console.log(`  --refresh: replacing the ${priorModel} corpus with ${MODEL}`);
+  const targets = [["bills", "bills"], ["state briefings", "state_briefings"]]
+    .filter(([, table]) => TARGET === "all" || TARGET === (table === "bills" ? "bills" : "briefings"));
+  for (const [label, table] of targets) {
+    const { error } = await sb.from(table).update({ embedding: null }).not("embedding", "is", null);
+    if (error) {
+      console.error(`✗ could not retire ${label} embeddings: ${error.message}`);
+      console.error("  Refusing to fill a corpus that would end up half one model and half another.");
+      process.exit(1);
+    }
+    console.log(`  retired ${label} vectors written by ${priorModel}`);
+  }
 }
 
 // =============================================================
