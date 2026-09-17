@@ -73,7 +73,7 @@ async function probeLegiscan() {
 // ─── Probe B: who will serve an embedding, and at what dimension ─────────
 async function probeEmbeddings() {
   console.log("\n=== B. Free-tier embedding providers ===");
-  console.log(`  target: 768 dims (nomic-embed-text, what bills.embedding holds today)\n`);
+  console.log(`  today: 768 dims from nomic-embed-text. Width is a free choice —\n  the column is jsonb and cosine runs in JS — but the whole corpus must share one model.\n`);
   for (const p of EMBED_PROVIDERS) {
     if (!p.configured()) { console.log(`  SKIP  ${p.id.padEnd(34)} no key set`); continue; }
     const t0 = Date.now();
@@ -81,7 +81,10 @@ async function probeEmbeddings() {
       const vec = await embedWith(p.id, SAMPLE);
       const ms = Date.now() - t0;
       const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
-      line(`${p.id} (${p.model})`, vec.length === 768, `${vec.length} dims, |v|=${norm.toFixed(3)}, ${ms}ms`);
+      // PASS means "this provider will serve us a vector". Width is reported,
+      // not judged: the corpus is jsonb + JS cosine, so any consistent width
+      // works — see the note in embed-router.mjs.
+      line(`${p.id} (${p.model})`, true, `${vec.length} dims, |v|=${norm.toFixed(3)}, ${ms}ms`);
     } catch (e) {
       line(`${p.id} (${p.model})`, false, String(e?.message ?? e).slice(0, 100));
     }

@@ -4,12 +4,13 @@ name: Topic classify
 #   - classify-bill-topics.mjs: re-tags bills.bill_topics as new kratom bills
 #     sync in (keyless keyword pass).
 #
-# NOTE: the LegiScan DISCOVERY half (discover-topic-bills.mjs) runs on the OWNER
-# BOX (run-nightly-steps.cmd), NOT here — LegiScan's getSearch query API refuses
-# connections from GitHub Actions datacenter IPs (verified: 6/6 connect timeouts
-# on two dispatches), while it works from the box's residential IP. (The kratom
-# LegiScan sync works on GHA because it pulls getDataset ZIPs from a CDN, not the
-# query API.) See run-nightly-steps.cmd.
+# The LegiScan DISCOVERY half (discover-topic-bills.mjs) now runs HERE too, as of
+# 2026-09-17. It used to be owner-box-only on the grounds that LegiScan's getSearch
+# query API refuses GitHub Actions datacenter IPs (6/6 connect timeouts across two
+# dispatches, July). That is no longer true: scripts/diagnose-cloud-gaps.mjs probed
+# it from a runner with the real key and got 3/3 OK in ~100-126ms, 50 rows each,
+# with the getDatasetList control passing alongside. Dispatch that probe before
+# concluding anything if the timeouts ever return.
 #
 # Self-gates to weekly via scraper_runs (bill_topics_classify); dispatch passes
 # --force. `|| true` keeps a blip from failing the badge — telemetry is truth.
@@ -74,3 +75,12 @@ jobs:
           echo "force=$FORCE" >> "$GITHUB_OUTPUT"
       - name: Tag existing bills by topic (keyless)
         run: node scripts/classify-bill-topics.mjs ${{ steps.flags.outputs.force }} || true
+
+      # Discovery runs AFTER the keyless pass so a LegiScan outage can never cost
+      # us the classification work. The script self-gates to every 6 days off its
+      # own scraper_runs row, so the weekly schedule plus a stray dispatch cannot
+      # double-spend the ~30k/month LegiScan query allowance.
+      - name: Discover non-kratom topic bills (LegiScan getSearch)
+        env:
+          LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
+        run: node scripts/discover-topic-bills.mjs ${{ steps.flags.outputs.force }} || true

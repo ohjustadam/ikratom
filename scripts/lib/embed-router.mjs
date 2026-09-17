@@ -24,7 +24,16 @@
  *   const vec = await embed("some text");   // → number[768]
  */
 
-const EMBED_DIMS = 768;
+const DEFAULT_DIMS = 768;
+
+/**
+ * The corpus dimensionality. NOT fixed by the schema: `bills.embedding` is a
+ * jsonb float array and cosineSim() runs in application JS (no pgvector), so
+ * any width works as long as the WHOLE corpus shares it. 768 is simply what
+ * nomic-embed-text wrote. Override with EMBED_DIMS to adopt a provider whose
+ * native width differs — but only alongside a full re-embed.
+ */
+const TARGET_DIMS = parseInt(process.env.EMBED_DIMS || String(DEFAULT_DIMS), 10);
 
 const CLOUDFLARE_AI_TOKEN = process.env.CLOUDFLARE_AI_TOKEN;
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -68,12 +77,12 @@ export const EMBED_PROVIDERS = [
   },
   {
     id: "gemini",
-    model: "text-embedding-004",
+    model: "gemini-embedding-001",
     dims: 768,
     maxChars: 8000,
     configured: () => Boolean(GEMINI_KEY),
     call: async (text) => {
-      const model = process.env.GEMINI_EMBED_MODEL || "text-embedding-004";
+      const model = process.env.GEMINI_EMBED_MODEL || "gemini-embedding-001";
       const r = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${GEMINI_KEY}`,
         {
@@ -82,7 +91,7 @@ export const EMBED_PROVIDERS = [
           body: JSON.stringify({
             model: `models/${model}`,
             content: { parts: [{ text }] },
-            outputDimensionality: EMBED_DIMS,
+            outputDimensionality: TARGET_DIMS,
           }),
           signal: AbortSignal.timeout(30_000),
         },
@@ -97,7 +106,7 @@ export const EMBED_PROVIDERS = [
   {
     id: "mistral",
     model: "mistral-embed",
-    dims: 1024, // excluded from rotation: wrong dimensionality for this corpus
+    dims: 1024, // usable, but only via EMBED_DIMS=1024 + a full re-embed
     maxChars: 8000,
     configured: () => Boolean(process.env.MISTRAL_API_KEY),
     call: async (text) => {
@@ -162,8 +171,8 @@ export function activeEmbedProvider() {
     _active = p;
     return _active;
   }
-  const p = EMBED_PROVIDERS.find((x) => x.dims === EMBED_DIMS && x.configured());
-  if (!p) throw new Error("No embedding provider configured");
+  const p = EMBED_PROVIDERS.find((x) => x.dims === TARGET_DIMS && x.configured());
+  if (!p) throw new Error(`No embedding provider configured at ${TARGET_DIMS} dims`);
   _active = p;
   return _active;
 }
@@ -172,10 +181,10 @@ export function activeEmbedProvider() {
 export async function embed(text) {
   const p = activeEmbedProvider();
   const vec = await p.call(text.slice(0, p.maxChars));
-  if (vec.length !== EMBED_DIMS) {
-    throw new Error(`${p.id}/${p.model} returned ${vec.length} dims, expected ${EMBED_DIMS}`);
+  if (vec.length !== TARGET_DIMS) {
+    throw new Error(`${p.id}/${p.model} returned ${vec.length} dims, expected ${TARGET_DIMS}`);
   }
   return vec;
 }
 
-export { EMBED_DIMS };
+export { TARGET_DIMS as EMBED_DIMS };
