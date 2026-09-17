@@ -38,10 +38,11 @@ const PROVIDER_OVERRIDE = arg("--provider");
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const GROQ_KEY = process.env.GROQ_API_KEY;
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY;
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+// (No per-provider keys here.) This script read four provider keys of its own
+// before it moved onto the shared router, and the dead consts outlived the code
+// that used them — which is misleading in exactly the wrong place: it reads as
+// though this script's provider pool were those four, when the router's pool is
+// the real one. Provider config lives in scripts/lib/ai-router.mjs only.
 
 if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1); }
 
@@ -106,7 +107,7 @@ Return ONLY the JSON. No prose, no markdown fences.`;
 
 // AI routing now flows through the shared scripts/lib/ai-router.mjs
 // (cooldown-aware + JSON repair).
-import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
+import { aiRouter, listAvailableProviders, logProviderSummary, providerNote } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
 import { getFederalSchedulingFacts, groundingBlock, findFalseClaims } from "./lib/federal-scheduling.mjs";
 
@@ -358,6 +359,8 @@ for (const item of items) {
 console.log(`\nDone. classified=${classified}, alerts=${alertsCreated}, skipped=${skipped}, failed=${failed}`);
 
 // Best-effort scraper_runs logging for /admin/intel-health.
+logProviderSummary();
+
 try {
   await sb.from("scraper_runs").insert({
     source: "classify_news_policy",
@@ -366,7 +369,7 @@ try {
     status: guard.status(classified),
     rows_added: alertsCreated,
     rows_updated: classified,
-    notes: `${alertsCreated} alerts, ${skipped} not-event, ${failed} failed`,
+    notes: `${alertsCreated} alerts, ${skipped} not-event, ${failed} failed · ${providerNote()}`,
     error_message: guard.note(),
   });
 } catch { /* best-effort */ }

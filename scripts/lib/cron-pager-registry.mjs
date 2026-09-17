@@ -142,9 +142,14 @@ export const REGISTRY = [
   { source: "verify_local_bans", interval_hours: 24, system: "github-actions", cadence: "daily" },
   { source: "sweep_locality_intel", interval_hours: 24, system: "github-actions", cadence: "daily" },
   { source: "clear_review_queues", interval_hours: 24, system: "github-actions", cadence: "daily" },
-  // Genuinely box-only. LegiScan's query API refuses GitHub Actions datacenter
-  // IPs (6/6 connect timeouts), so this one cannot be moved by wanting it.
-  { source: "topic_bill_discovery", interval_hours: 216, system: "local-box", cadence: "weekly" },
+  // MOVED OFF THE BOX 2026-09-17 into topic-bills-sync.yml. The old comment
+  // here said LegiScan's query API refuses GitHub Actions datacenter IPs
+  // (6/6 connect timeouts) and so this could never move. Re-measured from a
+  // runner with the real key (scripts/diagnose-cloud-gaps.mjs, run 35267836232):
+  // getSearch answered 3/3 in ~100-126ms, 50 rows each, alongside the
+  // getDatasetList control. Whatever blocked it in July is gone. If it ever
+  // comes back the probe is the thing to re-dispatch before re-theorising.
+  { source: "topic_bill_discovery", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   // Free-AI research agents — MOVED OFF THE BOX 2026-09-07 into
   // cron-nightly-cloud.yml as their own jobs. They drive lib/tool-chat.mjs,
   // which runs the same tool-calling loop on local Ollama OR any free
@@ -162,18 +167,33 @@ export const REGISTRY = [
   { source: "extract_local_vote_outcomes", interval_hours: 72, system: "github-actions", cadence: "daily" },
 
   // ── The monitors themselves (registered 2026-09-16) ────────────────────────
-  // Found by the reverse guard in tests/cron-pager-registry.test.ts: both write
-  // scraper_runs on every scheduled run, and NEITHER was registered, so the one
-  // layer that watches everything else was the one layer nothing watched.
+  // Found by the reverse guard in tests/cron-pager-registry.test.ts: the layer
+  // that watches everything else was the layer nothing watched. The guard flags
+  // any scheduled script that writes scraper_runs and is not registered, which
+  // is the right question to ask — but "writes scraper_runs" is not the same as
+  // "writes it on every run", and one of the two it found writes only on the
+  // exception path. See the egress_gate note below.
   //
-  // egress_gate is the load-shedder. It writes a row each time a gated workflow
-  // starts, so it is the highest-frequency source we have. Its silence means one
-  // of two things: every gated cron stopped (which the downstream sources would
-  // also report), or the gate step was dropped from the workflows and nothing is
-  // shedding load any more. The second case is the dangerous one — it is silent
-  // by construction, and this entry is the only thing that would catch it.
-  // Runs with cron-hourly (2h cadence) → 4h interval, 12h before it pages.
-  { source: "egress_gate", interval_hours: 4, system: "github-actions", cadence: "every-2h" },
+  // egress_gate is DELIBERATELY NOT REGISTERED (was, 2026-09-16 → 2026-09-17).
+  // It was registered on the belief that it "writes a row each time a gated
+  // workflow starts". It does not: scripts/egress-gate.mjs inserts scraper_runs
+  // ONLY on the DEFER path, and says so in its own comment — recording every
+  // pass would add a row every two hours to the table this pager reads. So a
+  // healthy fleet, which is the normal state, writes nothing at all, the pager
+  // read that silence as death, and it paged the owner continuously for a gate
+  // that was working perfectly. A monitor that fires when nothing is wrong
+  // trains the owner to ignore the channel the real alerts arrive on, so it is
+  // worse than no monitor.
+  //
+  // The failure it was MEANT to catch — the gate step being dropped from the
+  // workflows, so nothing sheds load any more — is a static property of the
+  // workflow files, not a runtime one, so it is now asserted at CI time by
+  // tests/egress-gate-wiring.test.ts. That guard is strictly better here: it
+  // catches the removal in the PR that does it, instead of 12h after the fact.
+  //
+  // Do not re-add this entry. If the gate is ever changed to write telemetry on
+  // the pass path too, registering it becomes valid again — and at that point
+  // the exemption in tests/cron-pager-registry.test.ts must come out with it.
 
   // check_cron_staleness is the pager. Registering it is PARTIALLY circular and
   // worth being honest about: if it stops running entirely it cannot page for

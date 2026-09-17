@@ -27,6 +27,8 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { groundedGenerate } from "./lib/grounded-ai.mjs";
+import { logProviderSummary } from "./lib/ai-router.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -35,8 +37,15 @@ const arg = (n, fallback = null) => { const i = args.indexOf(n); return i >= 0 ?
 const DRY_RUN = flag("--dry-run");
 const LIMIT = parseInt(arg("--limit", "30"), 10);
 
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-if (!GEMINI_KEY) { console.log("GEMINI_API_KEY not set — skipping"); process.exit(0); }
+// NO hard exit on a missing GEMINI_API_KEY (was: `process.exit(0)`).
+//
+// This script called Gemini directly with no fallback, so the day the key hit
+// its quota the job stopped doing anything — and `continue-on-error: true` on
+// its workflow step meant the run still went green. A dead pipeline that
+// reports success is worse than one that fails. Now it goes through
+// groundedGenerate(), which draws from the whole Gemini key pool
+// (GEMINI_API_KEY_2..9) and falls through to any other grounding tier, and the
+// summary at the end states plainly whether grounding was ever available.
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -106,36 +115,33 @@ If kratom is NOT explicitly on the next agenda, OR if you can't find the next me
 
 Return ONLY the JSON. No markdown fences, no prose.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-  const body = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
-  };
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60_000),
+  // allowUngrounded: false is deliberate. This script writes MEETING DATES into
+  // municipal_meetings, and a model guessing a date without a search behind it
+  // invents a hearing that nobody is holding — exactly the failure mode that put
+  // a bogus "effective date" and a "ban expiry" into the review queue. No
+  // grounding means no answer, and the caller counts that separately from a real
+  // error so a depleted key never reads as "no kratom item upcoming".
+  const { parsed } = await groundedGenerate({
+    system:
+      "You research municipal and county legislative calendars. Answer only from " +
+      "what the search results actually show. Never infer or extrapolate a meeting " +
+      "date. Return ONLY JSON.",
+    user: prompt,
+    maxTokens: 1024,
+    json: true,
+    allowUngrounded: false,
   });
-  if (!res.ok) {
-    throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("grounded call returned no JSON object");
   }
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text ?? "").join("") ?? "";
-  // Strip markdown fences, parse JSON loosely
-  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-  const start = stripped.indexOf("{");
-  const end = stripped.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error(`No JSON in response: ${stripped.slice(0, 120)}`);
-  return JSON.parse(stripped.slice(start, end + 1));
+  return parsed;
 }
 
 // =============================================================
 // Main loop
 // =============================================================
 const t0 = Date.now();
-let ok = 0, miss = 0, fail = 0, newMeetings = 0;
+let ok = 0, miss = 0, fail = 0, newMeetings = 0, ungrounded = 0;
 
 for (const e of entries) {
   process.stdout.write(`  ${e.state} · ${e.body_name.slice(0, 40)}… `);
@@ -143,7 +149,16 @@ for (const e of entries) {
   try {
     parsed = await checkBody(e);
   } catch (err) {
-    console.log(`FAIL: ${String(err.message).slice(0, 80)}`);
+    const msg = String(err.message ?? err);
+    // GROUNDING_UNAVAILABLE is not a failure of this body — it is the pool being
+    // empty or throttled. Counting it as `fail` is what made a dead key look
+    // like 25 individually-unlucky lookups.
+    if (msg.startsWith("GROUNDING_UNAVAILABLE")) {
+      console.log(`SKIP (no grounding): ${msg.slice(0, 90)}`);
+      ungrounded++;
+      continue;
+    }
+    console.log(`FAIL: ${msg.slice(0, 80)}`);
     fail++;
     continue;
   }
@@ -195,4 +210,16 @@ for (const e of entries) {
   await new Promise(r => setTimeout(r, 1500));
 }
 
-console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — ok=${ok}, miss=${miss}, fail=${fail}, new_meetings=${newMeetings}`);
+console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — ok=${ok}, miss=${miss}, fail=${fail}, ungrounded=${ungrounded}, new_meetings=${newMeetings}`);
+logProviderSummary("AI providers (ungrounded fallback tier)");
+
+// The step is `continue-on-error: true`, so this can never fail the daily run —
+// but a run that checked NOTHING because grounding was unavailable must not read
+// as a clean pass in the log. Say it in one unmissable line.
+if (ungrounded > 0 && ok === 0 && miss === 0) {
+  console.log(
+    `\n⚠ Watchlist re-check did NO work: all ${ungrounded} bodies were skipped for lack of a ` +
+    `working grounded-search key. Add a free Gemini key (GEMINI_API_KEY, or GEMINI_API_KEY_2..9 ` +
+    `for extra quota) — see docs/AI_PROVIDERS.md.`,
+  );
+}

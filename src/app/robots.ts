@@ -95,7 +95,39 @@ export default function robots(): MetadataRoute.Robots {
   // The trade, in the words of the 09-01 note that set this precedent: being
   // disabled is a 100% outage, which is strictly worse than being temporarily
   // less discoverable.
-  const COST_CONTROL_EXPIRES_AT = Date.UTC(2026, 8, 16); // 2026-09-16T00:00Z — Supabase egress cycle reset
+  // RE-ARMED 2026-09-17, one day after it lifted, because lifting it is what
+  // started the burn it was created to prevent.
+  //
+  // The expiry fired at 2026-09-16T00:00Z — the same instant the egress cycle
+  // reset — and the hourly re-render above put the permissive robots.txt live
+  // without a deploy, exactly as designed. What the design missed is that only
+  // HALF the 09-08 plan was automated. The note above says restoring these
+  // paths should happen "ideally together with CDN-caching these routes"; the
+  // discoverability half self-executed on schedule and the cost half never
+  // shipped, so ~28 high-cardinality route families went back to being
+  // crawled while every hit is still a live DB render.
+  //
+  // What that cost, measured: within ~36 hours the cycle was at 0.321 GB with
+  // a burn of ~189 MB/day against a sustainable 167, projecting a breach on
+  // ~2026-10-11, five days before the 10-16 reset. The last cycle spent with
+  // these paths open peaked at 96.3%, and the cycle before that breached and
+  // RESTRICTED the project (2026-07-16). This is not a cron problem and the
+  // load-shedding gate cannot help: the gate sheds GitHub Actions jobs, and
+  // measured traffic on this class of page is 99.97% bots hitting page
+  // renders, which nothing in the cron fleet controls.
+  //
+  // The date is now past the owner's 60-day-untouched window (2026-11-16, a
+  // cycle boundary) rather than the next reset, because a measure that lapses
+  // inside that window is a measure that lapses while nobody is watching.
+  // Re-arming is reversible in one line and it restores a protection that was
+  // measured to work; it is NOT the permanent answer. The permanent answer is
+  // still the one the 09-01 note named: make these routes CDN-cacheable (move
+  // the signed-in signup wall client-side, per the /api/me pattern the root
+  // layout already uses) so a crawl costs nothing, then delete this block for
+  // good instead of dating it again. tests/robots-cost-control.test.ts now
+  // goes red two weeks BEFORE this date, so the next lapse is a decision
+  // rather than a discovery.
+  const COST_CONTROL_EXPIRES_AT = Date.UTC(2026, 10, 16); // 2026-11-16T00:00Z — past the 60-day unattended window
   const costControlActive = Date.now() < COST_CONTROL_EXPIRES_AT;
 
   const COST_CONTROL_PATHS = costControlActive
