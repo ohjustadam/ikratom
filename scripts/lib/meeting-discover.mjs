@@ -439,7 +439,11 @@ const ZOOM_RX = /https?:\/\/[\w.-]*zoom\.us\/[jwm]\/[^\s"'<>]+/i;
 const LIVESTREAM_RX = /https?:\/\/[^\s"'<>]*(?:youtube\.com\/(?:watch\?v=|live\/)|youtu\.be\/|\/MediaPlayer\.php|granicus\.com\/player)[^\s"'<>]*/i;
 const ANY_URL_RX = /https?:\/\/[^\s"'<>]+/gi;
 const ADDRESS_ANCHOR_RX = /(city hall|council chambers|located at|meeting location|meeting will be held at)/gi;
-const ADDRESS_RX = /\d{1,6}\s+[A-Z][\w.'-]+(?:\s+[\w.'-]+){0,4}\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Dr|Drive|Way|Ln|Lane|Pkwy|Plaza|Sq|Square|Hwy)\b[^\n]{0,40}/;
+// The tail is city / state / ZIP only. It used to be [^\n]{0,40}, which assumed
+// line breaks survive extraction; they do not (page text is whitespace-collapsed),
+// so the live Garden Grove row stored "11300 Stanford Ave. Share this: Share
+// Share on X (Opens in" as the meeting address.
+const ADDRESS_RX = /\d{1,6}\s+[A-Z][\w.'-]+(?:\s+[\w.'-]+){0,4}\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Dr|Drive|Way|Ln|Lane|Pkwy|Plaza|Sq|Square|Hwy)\b(?:,\s*[A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*){0,2})?(?:,?\s+[A-Z]{2}\b)?(?:\s+\d{5}(?:-\d{4})?)?/;
 const PUBLIC_COMMENT_RX = /public comment/gi;
 
 /**
@@ -663,6 +667,26 @@ export async function verifyCandidate({
   const ST = String(scopeState ?? "").toUpperCase();
   const name = stateName ?? STATE_NAMES[ST] ?? ST;
   const reject = (reason, extra = {}) => ({ status: "reject", reason, readerOk: false, isAgenda: false, ...extra });
+
+  // 0. Only an official or agenda-platform page may make a meeting claim, and
+  //    that is decided from the URL — before any bandwidth or model spend.
+  //
+  //    Added 2026-09-17 after the first live run. It wrote 4 rows, all from
+  //    news sites or Facebook, and all 4 were wrong: a ban vote that had
+  //    already passed, a hearing held in June, a February council item, and a
+  //    teen group's post. Three carried the CRAWL date, because news pages print
+  //    today's date in their masthead ("Thursday, September 17, 2026") and
+  //    stamp every sidebar story ("Sept. 16, 2026 9:00 PM"). Those land in the
+  //    date window, and the meeting itself is only ever referred to in prose
+  //    ("Tuesday's meeting", "voted unanimously"), so no candidate on such a
+  //    page is ever the meeting's own date. checkPageIsAgenda cannot separate
+  //    the two either: it passed two of those articles, one because its slug
+  //    was "...-bans-on-agenda". Those rows could never auto-publish (the scorer
+  //    caps non-authoritative tiers at 0.60), but "searxng_verified" on a wrong
+  //    date in the admin queue invites a trusting click. News-derived meeting
+  //    signals already have their own human-gated path (extract-news-events).
+  const earlyTier = meetingTierOf(url);
+  if (earlyTier !== "official" && earlyTier !== "vendor") return reject(`non-authoritative-tier(${earlyTier})`);
 
   // 1. Fetch. A failure here is COUNTED, never inferred as "nothing found".
   const text = await fetchPage(url, { pdf: true, maxChars: 60_000 });
@@ -913,7 +937,18 @@ export async function discoverMeetings({
   // whole fetch budget on URLs an earlier state already fetched and leave the
   // unseen ones below the cut unvisited.
   counters.seenKeys ??= new Set();
+  counters.skippedNonAuthoritative ??= 0;
   const ranked = rankMeetingCandidates(all, { maxCandidates: maxFetches * 4 })
+    // Same rule as verifyCandidate's gate 0, applied BEFORE the cap. Filtering
+    // after would let news hits occupy fetch slots and then be rejected unread —
+    // the first live run spent its 220-fetch budget and stopped at 42/51 states.
+    // Counted, not silently dropped, so the run notes show what was passed over.
+    .filter((u) => {
+      const t = meetingTierOf(u);
+      if (t === "official" || t === "vendor") return true;
+      counters.skippedNonAuthoritative++;
+      return false;
+    })
     .filter((u) => {
       let key;
       try { key = `${registrableDomain(u)}${new URL(u).pathname}`; } catch { return false; }
