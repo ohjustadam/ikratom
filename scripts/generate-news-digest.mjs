@@ -20,7 +20,7 @@
  *   node --env-file=.env.local scripts/generate-news-digest.mjs --refresh --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
-import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
+import { aiRouter, listAvailableProviders, logProviderSummary, providerNote } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
 import { getFederalSchedulingFacts, groundingBlock, findFalseClaims, correctionSentence } from "./lib/federal-scheduling.mjs";
 
@@ -169,6 +169,8 @@ await Promise.all(Array.from({ length: Math.max(1, CONCURRENCY) }, () => worker(
 
 console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — digested ${done}, skipped ${skipped} (thin), failed ${failed}`);
 if (!DRY) {
+  logProviderSummary();
+
   try {
     await sb.from("scraper_runs").insert({
       source: "generate_news_digest",
@@ -177,7 +179,7 @@ if (!DRY) {
       status: guard.status(done),
       rows_updated: done,
       error_message: guard.note(),
-      notes: `digested ${done} skipped ${skipped} failed ${failed}`,
+      notes: `digested ${done} skipped ${skipped} failed ${failed} · ${providerNote()}`,
     });
   } catch { /* best-effort */ }
 }

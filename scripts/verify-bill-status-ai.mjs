@@ -27,8 +27,18 @@ const sb = createClient(
   { auth: { persistSession: false } },
 );
 
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-if (!GEMINI_KEY) { console.error("GEMINI_API_KEY required"); process.exit(1); }
+// Grounded-only by nature: this verifies a bill's CURRENT status against the live
+// web, and an ungrounded model would simply restate our own DB back at us. So the
+// requirement stays — but it is now satisfied by ANY key in the pool, and a
+// depleted key rotates to the next project's quota instead of ending the run.
+import { pickGeminiKey, markGeminiKeyCooldown, geminiKeyCount } from "./lib/gemini-keys.mjs";
+if (geminiKeyCount() === 0) {
+  console.error(
+    "No Gemini key configured (GEMINI_API_KEY, or GEMINI_API_KEY_2..9 / GEMINI_API_KEYS). " +
+    "This job needs Google-Search grounding — see docs/AI_PROVIDERS.md.",
+  );
+  process.exit(1);
+}
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -65,7 +75,8 @@ Rules:
 async function verifyBill(bill) {
   const userPrompt = `State: ${bill.state}\nBill number: ${bill.bill_number}\nOur DB shows: status=${bill.status}, last_action="${bill.last_action ?? '(none)'}" on ${bill.last_action_at ?? '?'}\nTitle: ${(bill.title ?? '').slice(0, 200)}\n\nWhat is the CURRENT status of this bill as of today?`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
+  const geminiKey = pickGeminiKey();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -77,7 +88,11 @@ async function verifyBill(bill) {
     }),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) {
+    // Park the exhausted key so the next bill reaches a different project's quota.
+    if (res.status === 429 || res.status === 403) markGeminiKeyCooldown(geminiKey);
+    throw new Error(`Gemini ${res.status} (${geminiKeyCount()} key(s) in pool): ${(await res.text()).slice(0, 200)}`);
+  }
   const data = await res.json();
   const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
   const m = text.match(/<result>([\s\S]*?)<\/result>/);
