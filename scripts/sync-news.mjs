@@ -13,6 +13,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { pickGeminiKey } from "./lib/gemini-keys.mjs";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA",
@@ -67,12 +68,18 @@ Rules:
 - URLs must be real, working URLs (no fabrications).
 - Output ONLY the <result>...</result> block.`;
 
-const apiKey = process.env.GEMINI_API_KEY;
+// Grounded news discovery — same reasoning as verify-bill-status-ai: an
+// ungrounded model cannot discover an article that exists. Drawn from the pool so
+// extra free keys raise the ceiling.
+const apiKey = pickGeminiKey();
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!apiKey || !supabaseUrl || !serviceKey) {
-  console.error("Missing env vars (GEMINI_API_KEY / Supabase keys)");
+  console.error(
+    "Missing env vars — needs Supabase keys plus a Gemini key for Google-Search " +
+    "grounding (GEMINI_API_KEY, or GEMINI_API_KEY_2..9). See docs/AI_PROVIDERS.md.",
+  );
   process.exit(1);
 }
 

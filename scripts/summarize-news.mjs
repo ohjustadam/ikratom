@@ -13,7 +13,7 @@
  *   node --env-file=.env.local scripts/summarize-news.mjs --refresh --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
-import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
+import { aiRouter, listAvailableProviders, logProviderSummary, providerNote } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
 import { getFederalSchedulingFacts, groundingBlock, findFalseClaims, enforceFederalTruth } from "./lib/federal-scheduling.mjs";
 
@@ -112,6 +112,8 @@ for (const it of items) {
 
 console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — summarized ${done}, failed ${failed}`);
 if (!DRY) {
+  logProviderSummary();
+
   try {
     await sb.from("scraper_runs").insert({
       source: "summarize_news",
@@ -120,7 +122,7 @@ if (!DRY) {
       status: guard.status(done),
       rows_updated: done,
       error_message: guard.note(),
-      notes: `summarized ${done} failed ${failed}`,
+      notes: `summarized ${done} failed ${failed} · ${providerNote()}`,
     });
   } catch { /* best-effort */ }
 }

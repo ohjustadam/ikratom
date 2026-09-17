@@ -29,9 +29,13 @@
  */
 
 import { OLLAMA_NUM_THREAD } from "./ollama-options.mjs";
+import { pickGeminiKey, markGeminiKeyCooldown, geminiKeyCount } from "./gemini-keys.mjs";
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
+// Gemini is the one provider with a multi-key pool (one free key per GCP
+// project, each with its own quota). gemini-keys.mjs owns that rotation; the
+// router asks it for a key per call instead of pinning process.env.GEMINI_API_KEY,
+// so adding GEMINI_API_KEY_2..9 multiplies the router's free ceiling too.
 const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY;
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY;
 const CLOUDFLARE_AI_TOKEN = process.env.CLOUDFLARE_AI_TOKEN;
@@ -55,11 +59,100 @@ const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 // and skip it until the deadline passes.
 const cooldownUntil = new Map();
 
+/**
+ * Per-provider health for the life of the process.
+ *
+ * WHY: until now a run where every provider was dead and a run where the first
+ * provider answered every call looked identical in the logs — a wall of
+ * "⚠ <provider> failed" lines with no total, and callers reported only their own
+ * "N failed". That is how the pool could collapse to one rate-limited provider
+ * for days without the telemetry saying so. logProviderSummary() prints one line
+ * per provider at the end of a run, and providerSummary() hands the same data to
+ * scraper_runs so a depleted pool is a visible fact rather than a guess.
+ */
+const health = new Map(); // provider -> { attempts, ok, fail, lastError }
+
+function noteAttempt(p) {
+  const h = health.get(p) ?? { attempts: 0, ok: 0, fail: 0, lastError: null };
+  h.attempts++;
+  health.set(p, h);
+  return h;
+}
+
+/** Snapshot of provider health, sorted most-used first. Safe to JSON.stringify. */
+export function providerSummary() {
+  return [...health.entries()]
+    .map(([provider, h]) => ({ provider, ...h }))
+    .sort((a, b) => b.attempts - a.attempts);
+}
+
+/**
+ * One compact line of provider health, for scraper_runs.notes.
+ *
+ * The telemetry every cron script writes said "18 failed" and nothing about
+ * WHY, so a depleted provider pool and a genuinely broken classifier produced
+ * identical rows. Appending this makes the difference queryable after the fact,
+ * which is the only way to notice the pool shrinking before a pipeline stops.
+ * Example: "ai: openrouter 12/3, mistral 0/5" (ok/fail).
+ */
+export function providerNote() {
+  const rows = providerSummary();
+  if (rows.length === 0) return "ai: no calls";
+  const parts = rows.map((r) => `${r.provider} ${r.ok}/${r.fail}`);
+  const anyOk = rows.some((r) => r.ok > 0);
+  return `ai${anyOk ? "" : " NONE-ANSWERED"}: ${parts.join(", ")}`;
+}
+
+/**
+ * Print the pool's health. Call once at the end of a script that makes many AI
+ * calls — the cost is one block of output per run, and it is the difference
+ * between "18 failed" and "18 failed because every configured provider is 429".
+ */
+export function logProviderSummary(label = "AI providers") {
+  const rows = providerSummary();
+  const configured = availableProviders();
+  if (rows.length === 0) {
+    console.log(`  ${label}: no calls made (configured: ${configured.join(", ") || "none"})`);
+    return;
+  }
+  console.log(`  ${label} — configured: ${configured.join(", ")}`);
+  for (const r of rows) {
+    const note = r.ok === 0 && r.fail > 0 ? `  ← never answered: ${String(r.lastError ?? "").slice(0, 70)}` : "";
+    console.log(`    ${r.provider.padEnd(11)} ok ${String(r.ok).padStart(4)} / fail ${String(r.fail).padStart(4)}${note}`);
+  }
+  const anyOk = rows.some((r) => r.ok > 0);
+  if (!anyOk) {
+    console.log(`  ⚠ NO free AI provider answered this run. Add a key (see docs/AI_PROVIDERS.md) — enrichment is blocked, not broken.`);
+  }
+}
+
 let _cursor = 0;
+
+/**
+ * AI_PROVIDER_ORDER — comma-separated provider names, highest priority first.
+ * Providers named here are tried before any others; anything unnamed keeps its
+ * default position behind them. Unknown or unconfigured names are ignored.
+ *
+ * WHY: when a provider dies (Cerebras → paid, GitHub Models → retired) or a new
+ * free one appears, the fix should be an env change on the workflow, not a
+ * deploy. `AI_PROVIDER_ORDER=groq,mistral,openrouter` is the whole knob.
+ */
+function orderPreference() {
+  return (process.env.AI_PROVIDER_ORDER || "")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function applyPreference(list) {
+  const pref = orderPreference();
+  if (pref.length === 0) return list;
+  const preferred = pref.filter((p) => list.includes(p));
+  return [...preferred, ...list.filter((p) => !preferred.includes(p))];
+}
+
 function availableProviders() {
   const out = [];
   if (GROQ_KEY) out.push("groq");
-  if (GEMINI_KEY) out.push("gemini");
+  if (geminiKeyCount() > 0) out.push("gemini");
   if (CEREBRAS_KEY) out.push("cerebras");
   if (MISTRAL_KEY) out.push("mistral");
   if (CLOUDFLARE_AI_TOKEN && CLOUDFLARE_ACCOUNT_ID) out.push("cloudflare");
@@ -67,8 +160,20 @@ function availableProviders() {
   if (SAMBANOVA_API_KEY) out.push("sambanova");
   if (OPENROUTER_API_KEY) out.push("openrouter");
   if (NVIDIA_API_KEY) out.push("nvidia");
+  // Ollama stays last by default: it only answers on the owner's box, so in the
+  // cloud it is a guaranteed timeout, not a fallback. AI_PROVIDER_ORDER can
+  // still promote it for local runs.
   out.push("ollama");
-  return out;
+  return applyPreference(out);
+}
+
+/**
+ * Cloud providers only — what the router can actually reach from CI.
+ * Exported so a script can say "no free provider is configured" up front
+ * instead of discovering it one failed item at a time.
+ */
+export function cloudProviderCount() {
+  return availableProviders().filter((p) => p !== "ollama").length;
 }
 
 function pickStart(override) {
@@ -214,7 +319,10 @@ async function callGroq(sys, user, maxTokens, modelOverride) {
 }
 
 async function callGemini(sys, user, maxTokens) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
+  const key = pickGeminiKey();
+  if (!key) throw new Error("Gemini: no key configured");
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -230,8 +338,11 @@ async function callGemini(sys, user, maxTokens) {
     signal: AbortSignal.timeout(60_000),
   });
   if (r.status === 429 || r.status === 503) {
-    startCooldown("gemini", 60_000);
-    throw new Error(`Gemini ${r.status} (cooling down 60s)`);
+    // Park THIS key, not the whole provider: with several free keys (one per
+    // GCP project) an exhausted key must not take the others down with it.
+    markGeminiKeyCooldown(key);
+    if (geminiKeyCount() <= 1) startCooldown("gemini", 60_000);
+    throw new Error(`Gemini ${r.status} (key parked; ${geminiKeyCount()} key(s) in pool)`);
   }
   if (!r.ok) {
     const body = (await r.text()).slice(0, 200);
@@ -483,18 +594,32 @@ export async function aiRouter({
   const t0 = Date.now();
   let lastErr = null;
   for (const p of order) {
+    const h = noteAttempt(p);
     try {
       const parsed = await callOne(p, systemPrompt, userPrompt, maxTokens, modelOverride);
+      h.ok++;
       return { provider: p, parsed, elapsedMs: Date.now() - t0 };
     } catch (e) {
+      h.fail++;
+      h.lastError = String(e.message ?? e).slice(0, 160);
       lastErr = e;
       if (verbose) {
-        const msg = String(e.message ?? e).slice(0, 140);
-        console.log(`    ⚠ ${p} failed: ${msg}`);
+        console.log(`    ⚠ ${p} failed: ${h.lastError.slice(0, 140)}`);
       }
       // Brief gap before next provider
       await new Promise((r) => setTimeout(r, 800));
     }
+  }
+  // Distinguish "the pool is empty" from "the pool answered badly". The first is
+  // an operator action (add a key); the second is a provider outage to wait out.
+  // Both used to surface as the same opaque last-provider error string.
+  if (cloudProviderCount() === 0) {
+    throw new Error(
+      "NO_AI_PROVIDER: no free cloud AI key is configured for this run " +
+      "(checked: GROQ_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY, OPENROUTER_API_KEY, " +
+      "CEREBRAS_API_KEY, SAMBANOVA_API_KEY, NVIDIA_API_KEY, CLOUDFLARE_AI_TOKEN, " +
+      "GH_MODELS_TOKEN). See docs/AI_PROVIDERS.md.",
+    );
   }
   throw lastErr ?? new Error("all providers failed");
 }
