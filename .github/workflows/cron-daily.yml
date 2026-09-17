@@ -939,28 +939,68 @@ jobs:
     if: needs.budget.outputs.run == 'true'
     # Discover city/county council + town-hall meetings with kratom
     # (or related: gas-station-heroin, 7-OH, tianeptine) on the agenda.
-    # Uses Gemini grounded search per state. Found meetings land in
-    # pending_review for admin moderation; once approved they fire
-    # 7d/3d/1d push reminders to users in the locality.
+    # Found meetings land in pending_review for admin moderation; once
+    # approved they fire 7d/3d/1d push reminders to users in the locality.
     #
-    # 2026-05-14: widened from --priority-only (10 states) to --all-states
-    # (51 states). ~51 Gemini grounded calls per run, well under the
-    # 1500/day free tier.
+    # 2026-05-14: widened from --priority-only (10 states) to --all-states.
+    # 2026-09-16: the pipeline no longer writes rows out of model JSON.
+    # SearXNG finds candidate URLs, code ranks and fetches them, and the LLM
+    # only READS one page we already hold — it never authors a URL, a date, an
+    # address or a confidence number. That matters here specifically because
+    # auto-approve-meetings.mjs promotes any row with ai_confidence >= 0.85
+    # straight onto the public /calendar and pushes it to real people with no
+    # human click, so a fabricated meeting carrying a high confidence number
+    # would have gone live by itself. Gemini survives only as a lead
+    # generator: its URLs go through the same verification as SearXNG's.
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Job-level so both scripts in this job see the same providers. The router
+    # tries every provider whose key is set, so the whole free set is listed
+    # rather than just today's working one — see docs/AI_TOOLKIT.md.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+      # The composite action below does NOT export this — it has no $GITHUB_ENV
+      # write and no outputs:. Drop this line and you get a healthy container, a
+      # green step, searxngConfigured() === false, and a run that searches
+      # nothing while reporting success. Same silent no-op shape as the
+      # pipelines that logged "0 found" for four days with a dead provider.
+      SEARXNG_URL: http://localhost:8080
+      # No Ollama in CI. Without this the reader pins providerOverride "ollama"
+      # and burns one connection-refused round trip per page before the router
+      # falls through. Same knob shape as BAN_EXTRACT_PROVIDER /
+      # OFFICIALS_EXTRACT_PROVIDER; openrouter rather than groq because as of
+      # 2026-09-16 it is the cloud provider actually answering.
+      MEETING_EXTRACT_PROVIDER: openrouter
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: "npm"
+      # Deliberately WITHOUT --ignore-scripts, unlike the sibling grounded
+      # workflows: playwright-chromium's postinstall is what downloads the
+      # browser, and that browser is the only way renderPage() can read a
+      # JS-shell agenda viewer (Granicus AgendaViewer.php). Skip it and those
+      # pages come back as an empty shell no gate can rescue.
       - run: npm ci --omit=dev --no-audit --no-fund
+      # After checkout + npm ci: the action mounts
+      # $GITHUB_WORKSPACE/scripts/searxng/settings.yml and hard-fails without
+      # it. ~8-17s to start, 90s hard ceiling, and it fails the job rather than
+      # letting the run continue ungrounded.
+      - uses: ./.github/actions/searxng
       - name: Discover municipal meetings across ALL 51 states
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/discover-municipal-meetings.mjs --all-states
+        run: node scripts/discover-municipal-meetings.mjs --all-states --max-minutes 40
       - name: Re-check watchlist bodies for upcoming kratom agenda items
         # Targeted re-check of legislative bodies that have previously
         # hosted a kratom item. Derived from municipal_meetings rows
@@ -976,6 +1016,14 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node scripts/recheck-watchlist-meetings.mjs --limit 25
+      # Diagnostics only, never a failure signal. On a datacenter IP this log
+      # is always noisy — ahmia/torch engine-load errors, the missing
+      # limiter.toml, "X-Forwarded-For nor X-Real-IP", per-engine
+      # brave/mojeek/wikidata HTTP failures. Do NOT wire an alert off ERROR
+      # lines here; the monitored signal is scraper_runs.status.
+      - name: SearXNG logs (always)
+        if: always()
+        run: docker logs searxng 2>&1 | tail -40 || true
 
   fire-meeting-reminders:
     # Push reminders for upcoming approved meetings — 7d / 3d / 1d

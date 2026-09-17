@@ -35,9 +35,24 @@
  * See also lib/ai-router.mjs (the free-provider rotation) and memory
  * "free-ai-router-provider-churn" for the provider-retirement history.
  */
-import { aiRouter, listAvailableProviders } from "./ai-router.mjs";
+import { aiRouter } from "./ai-router.mjs";
 
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
+
+/**
+ * Per-PROCESS Gemini cooldown.
+ *
+ * A depleted key answers 429 in a few hundred ms, but a 51-state run still paid
+ * 51 of those round-trips — and 51 identical "↻ Gemini 429" lines — for a key
+ * we already knew was dead on state #1. Worse, the same key is shared with the
+ * free router, so every pointless retry is spent against a quota we want back.
+ *
+ * One quota/auth failure mutes the Gemini attempt for the rest of the process.
+ * Deliberately in-memory only: nothing is persisted, so the next run re-probes
+ * from scratch and a key topped up between runs is picked up immediately.
+ */
+const GEMINI_COOLDOWN_MS = 15 * 60_000;
+let _geminiCoolUntil = 0;
 
 /**
  * Extract the first JSON object/array from a model response. Models wrap JSON
@@ -68,6 +83,11 @@ export function extractJson(text) {
  * @param {number} [o.maxTokens]
  * @param {string} [o.model]         Gemini model (default gemini-2.5-flash)
  * @param {boolean}[o.json]          parse the reply as JSON (default true)
+ * @param {(() => Promise<{ ok: boolean, parsed?: any, provider?: string, reason?: string }>)|null} [o.grounder]
+ *        Second grounding tier, tried only when Gemini declines. Zero-arg and
+ *        async: the caller closes over its own query/state, so this module never
+ *        learns what is being searched for. `ok:false` is a declination (its
+ *        `reason` lands in the GROUNDING_UNAVAILABLE message), not an error.
  * @returns {Promise<{ text: string, parsed: any, grounded: boolean, provider: string }>}
  */
 export async function groundedGenerate({
@@ -79,10 +99,25 @@ export async function groundedGenerate({
   timeoutMs = 60_000,
   // Opt-in. false = grounding is REQUIRED; throw rather than guess.
   allowUngrounded = true,
+  // Gemini is no longer the only door to the live web. Defaulting to null keeps
+  // every existing caller on exactly the path it has today.
+  grounder = null,
 }) {
   const key = process.env.GEMINI_API_KEY;
 
-  if (key) {
+  // Every declination gets a line here, and the throw below joins them. A bare
+  // "GROUNDING_UNAVAILABLE" told whoever was on call that *a* door was shut but
+  // not which of the four, so diagnosing a blocked run meant reading this file.
+  const attempts = [];
+  const coolingMs = _geminiCoolUntil - Date.now();
+
+  if (!key) {
+    attempts.push("gemini: no GEMINI_API_KEY");
+  } else if (coolingMs > 0) {
+    // Silent on purpose — logging this would just restore the 51-line spam the
+    // cooldown exists to kill. The 429 that armed it was logged once already.
+    attempts.push(`gemini: cooling ${Math.ceil(coolingMs / 1000)}s`);
+  } else {
     try {
       const res = await fetch(`${GEMINI_ENDPOINT}/${model}:generateContent?key=${key}`, {
         method: "POST",
@@ -102,12 +137,38 @@ export async function groundedGenerate({
         if (text.trim()) {
           return { text, parsed: json ? extractJson(text) : null, grounded: true, provider: "gemini" };
         }
+        // A 200 whose parts are all empty (a safety block, or maxOutputTokens
+        // spent entirely on the search tool) used to fall through here with no
+        // log and no counter at all — indistinguishable downstream from "no key".
+        attempts.push("gemini: 200 with empty text");
       } else {
         const body = (await res.text()).slice(0, 160);
+        // 429 = quota depleted, 403 = key disabled/restricted. Both persist for
+        // the life of the run, so arm the cooldown. A 500/503 is transient and
+        // deliberately does NOT arm it — the next state deserves a fresh try.
+        if (res.status === 429 || res.status === 403) _geminiCoolUntil = Date.now() + GEMINI_COOLDOWN_MS;
         console.log(`  ↻ Gemini ${res.status} — falling back to the router (ungrounded): ${body.slice(0, 90)}`);
+        attempts.push(`gemini: HTTP ${res.status}`);
       }
     } catch (e) {
       console.log(`  ↻ Gemini unreachable — falling back to the router (ungrounded): ${String(e.message ?? e).slice(0, 70)}`);
+      attempts.push(`gemini: ${String(e.message ?? e).slice(0, 60)}`);
+    }
+  }
+
+  // Second grounding tier, BEFORE the allowUngrounded check: a caller that
+  // forbids guessing still deserves every real search backend we have. The
+  // grounder owns its own verification — this module just relays the verdict,
+  // so `ok:true` means the caller already proved what it is returning.
+  if (typeof grounder === "function") {
+    try {
+      const g = await grounder();
+      if (g && g.ok) {
+        return { text: JSON.stringify(g.parsed ?? {}), parsed: g.parsed ?? null, grounded: true, provider: g.provider ?? "searxng" };
+      }
+      attempts.push(`searxng: ${g?.reason ?? "declined"}`);
+    } catch (e) {
+      attempts.push(`searxng threw: ${String(e.message ?? e).slice(0, 60)}`);
     }
   }
 
@@ -115,10 +176,10 @@ export async function groundedGenerate({
     // Discovery work: no search means no evidence, and no evidence means we do
     // not answer. The caller surfaces this in telemetry so a depleted key reads
     // as "grounding unavailable", never as "nothing found".
-    throw new Error("GROUNDING_UNAVAILABLE: search-grounded generation required but Gemini is not answering");
-  }
-  if (listAvailableProviders().length === 0) {
-    throw new Error("No grounded provider and no router providers configured");
+    //
+    // The "GROUNDING_UNAVAILABLE" prefix is load-bearing — the caller branches
+    // on startsWith — but everything after the colon is free diagnostic space.
+    throw new Error(`GROUNDING_UNAVAILABLE: ${attempts.join("; ") || "no grounding provider configured"}`);
   }
 
   const r = await aiRouter({
