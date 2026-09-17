@@ -1306,3 +1306,78 @@ describe("searxngSearch — every failure still degrades to []", () => {
     });
   });
 });
+
+/**
+ * 2026-09-17 — the first live run. It wrote 4 rows and all 4 were wrong, every
+ * one from a news site or Facebook, three carrying the crawl date taken from the
+ * page masthead or sidebar timestamps. These pin the fix: only an official or
+ * agenda-platform page may make a meeting claim, decided before any fetch, and
+ * news hits no longer occupy the run's fetch budget.
+ */
+import * as MD from "../scripts/lib/meeting-discover.mjs";
+
+describe("first-live-run regression — non-authoritative pages never become meetings", () => {
+  const LIVE_JUNK = [
+    "https://www.cascadiadaily.com/2026/aug/26/kratom-and-7-oh-ban-passes-in-mount-vernon/",
+    "https://www.outerbanksvoice.com/2026/06/29/dare-county-to-hold-public-hearing-as-it-seeks-to-regulate-kratom/",
+    "https://orangecountytribune.com/2026/02/06/kratom-nitrous-bans-on-agenda/",
+    "https://www.facebook.com/wearepcyb/posts/thanks-for-the-coverage-fox-carolina/1459786096184831/",
+  ];
+
+  it("rejects each live junk URL before spending a fetch", async () => {
+    for (const url of LIVE_JUNK) {
+      let fetches = 0;
+      const r = await MD.verifyCandidate({
+        url, scopeState: "NC", stateName: "North Carolina", now: new Date("2026-09-17T15:05:00Z"),
+        fetchPage: (async () => { fetches++; return "Thursday, September 17, 2026 kratom public hearing"; }) as never,
+        ai: (async () => { throw new Error("reader must not be reached"); }) as never,
+      } as never);
+      expect(r.status, url).toBe("reject");
+      expect(String((r as { reason?: string }).reason), url).toMatch(/^non-authoritative-tier/);
+      expect(fetches, url).toBe(0);
+    }
+  });
+
+  it("still fetches official and agenda-platform pages", async () => {
+    for (const url of ["https://cityofx.gov/agenda/2026-10-06", "https://ci.sarasota.fl.us/agenda", "https://cityofx.legistar.com/MeetingDetail.aspx?ID=1"]) {
+      let fetches = 0;
+      const r = await MD.verifyCandidate({
+        url, scopeState: "FL", stateName: "Florida",
+        fetchPage: (async () => { fetches++; return null; }) as never,
+      } as never);
+      expect(fetches, url).toBe(1);
+      expect(r.status, url).toBe("fetch_failed");
+    }
+  });
+
+  it("keeps news hits out of the fetch budget, and counts what it skipped", async () => {
+    const prev = process.env.SEARXNG_URL;
+    process.env.SEARXNG_URL = "http://localhost:8080";
+    try {
+      const hit = (url: string) => ({ url, title: "kratom agenda city council ordinance", content: "kratom agenda", engine: "stub" });
+      const results = [
+        ...["a", "b", "c", "d", "e"].map((s) => hit(`https://www.${s}localnews.com/story-${s}`)),
+        hit("https://cityofx.legistar.com/MeetingDetail.aspx?ID=7"),
+      ];
+      const verified: string[] = [];
+      const counters: Record<string, unknown> = {};
+      await MD.discoverMeetings({
+        scopeState: "FL", stateName: "Florida", maxFetches: 3, dryRun: true, counters,
+        probeResult: { ok: true }, localityLane: false,
+        search: (async () => ({ ok: true, status: 200, reason: "ok", results })) as never,
+        verify: (async ({ url }: { url: string }) => { verified.push(url); return { status: "reject", reason: "stub", readerOk: true, isAgenda: false }; }) as never,
+      } as never);
+      expect(verified).toEqual(["https://cityofx.legistar.com/MeetingDetail.aspx?ID=7"]);
+      expect(counters.skippedNonAuthoritative).toBe(5);
+    } finally {
+      if (prev === undefined) delete process.env.SEARXNG_URL; else process.env.SEARXNG_URL = prev;
+    }
+  });
+
+  it("does not let page chrome ride into the address (live Garden Grove row)", () => {
+    const junk = MD.harvestContacts("Meeting location: City Hall, located at 11300 Stanford Ave. Share this: Share Share on X (Opens in new window)");
+    expect(junk.in_person_address).toBe("11300 Stanford Ave");
+    const full = MD.harvestContacts("Council Chambers located at 1565 First Street, Sarasota, FL 34236. Doors open at 5:30.");
+    expect(full.in_person_address).toBe("1565 First Street, Sarasota, FL 34236");
+  });
+});

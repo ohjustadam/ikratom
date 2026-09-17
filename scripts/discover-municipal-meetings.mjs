@@ -552,7 +552,7 @@ if (unbucketed.length && Date.now() <= deadline && counters.fetched < MAX_FETCHE
 }
 
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
-console.log(`\nDone in ${elapsed} min — ${counters.searched} searches (${counters.searchFailed} failed) · ${counters.fetched} fetched · ${agendaHits} agenda hits · ${counters.readerFailed} reader failures`);
+console.log(`\nDone in ${elapsed} min — ${counters.searched} searches (${counters.searchFailed} failed) · ${counters.fetched} fetched · ${agendaHits} agenda hits · ${counters.skippedNonAuthoritative ?? 0} non-official skipped · ${counters.readerFailed} reader failures`);
 console.log(`  ${rowsNew} new · ${rowsEnriched} enriched · ${counters.autoPublished} auto-publishable${DRY_RUN ? " [DRY RUN — nothing written]" : ""}`);
 if (blocked > 0) {
   console.log(`⛔ ${blocked}/${done} states could NOT be searched or read (${firstBlockReason}).`);
@@ -576,7 +576,7 @@ try {
       ? `grounding unavailable for ${blocked}/${targets.length} states — ${firstBlockReason}`
       : null,
     notes: `${targets.length} states · ${counters.searched} searches (${counters.searchFailed} failed) · ${counters.fetched} fetched`
-      + ` · ${agendaHits} agenda hits · ${counters.readerFailed} reader failures · ${rowsNew} new · ${rowsEnriched} enriched`
+      + ` · ${agendaHits} agenda hits · ${counters.skippedNonAuthoritative ?? 0} non-official skipped · ${counters.readerFailed} reader failures · ${rowsNew} new · ${rowsEnriched} enriched`
       + ` · ${counters.autoPublished} auto-publishable`
       + (blocked ? ` · ${blocked} BLOCKED (could not search)` : "")
       + (writeErrors ? ` · ${writeErrors} WRITE ERRORS` : "")
