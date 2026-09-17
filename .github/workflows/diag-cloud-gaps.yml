@@ -14,6 +14,11 @@ name: Diagnose cloud gaps
 # main fires on nothing.
 on:
   workflow_dispatch:
+    inputs:
+      burst:
+        description: "Sequential calls per provider — does it survive a corpus re-embed, not just one call?"
+        type: string
+        default: "0"
 
 jobs:
   probe:
@@ -31,4 +36,4 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/diagnose-cloud-gaps.mjs
+        run: node scripts/diagnose-cloud-gaps.mjs --burst=${{ github.event.inputs.burst || 0 }}
