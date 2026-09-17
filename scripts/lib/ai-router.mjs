@@ -72,6 +72,20 @@ const cooldownUntil = new Map();
  */
 const health = new Map(); // provider -> { attempts, ok, fail, lastError }
 
+/**
+ * Process-wide ceiling on time spent waiting for a throttled pool.
+ *
+ * Waiting out a 60s throttle turns "0 digested" into a full batch, but a job
+ * with --limit 300 could in principle wait on wave after wave and blow its CI
+ * timeout — and a cancelled job writes no telemetry at all, which is the 2-day
+ * outage class this repo has already been bitten by. So the waiting is budgeted
+ * for the whole process, not just per call: generous enough to ride out the
+ * throttles that actually occur, hard-capped so it can never become the reason
+ * a job is killed.
+ */
+const TOTAL_WAIT_BUDGET_MS = Number(process.env.AI_ROUTER_WAIT_BUDGET_MS ?? 300_000);
+let _waitedMs = 0;
+
 function noteAttempt(p) {
   const h = health.get(p) ?? { attempts: 0, ok: 0, fail: 0, lastError: null };
   h.attempts++;
@@ -581,6 +595,9 @@ export async function aiRouter({
   // self-critique loop can target DeepSeek R1 Distill 70B while normal
   // generation stays on Llama-3.3-70B. Other providers ignore the value.
   modelOverride = null,
+  // How long a call may wait for a fully-parked pool to free up. 0 disables the
+  // wait. AI_ROUTER_MAX_WAIT_MS tunes it per workflow without a deploy.
+  maxWaitMs = Number(process.env.AI_ROUTER_MAX_WAIT_MS ?? 75_000),
   verbose = true,
 }) {
   const list = availableProviders();
@@ -594,6 +611,19 @@ export async function aiRouter({
   const t0 = Date.now();
   let lastErr = null;
   for (const p of order) {
+    // Re-check the cooldown HERE, not just when `order` was built.
+    //
+    // THE STAMPEDE (measured 2026-09-17). generate-news-digest runs
+    // --concurrency 6, so six aiRouter calls are in flight at once. Each one
+    // built its provider order before any of the others had come back, so all
+    // six hit groq simultaneously, all six got 429, then all six moved to
+    // gemini together, and so on down the list. One burst tripped every
+    // provider's per-minute limit at once and parked the entire pool. The job
+    // gave up 5.7 seconds later having digested NOTHING — out of four items.
+    // Six parallel calls were spending six times the quota to do the work of
+    // one. Re-reading the cooldown at attempt time means callers 2..6 skip a
+    // provider that caller 1 has already discovered is throttled.
+    if (inCooldown(p)) continue;
     const h = noteAttempt(p);
     try {
       const parsed = await callOne(p, systemPrompt, userPrompt, maxTokens, modelOverride);
@@ -621,6 +651,36 @@ export async function aiRouter({
       "GH_MODELS_TOKEN). See docs/AI_PROVIDERS.md.",
     );
   }
+
+  // Throttled, not dead: wait it out. Throwing here turned a 60-second throttle
+  // into a whole hour of lost enrichment, because the next cron run is an hour
+  // away — that is how a 4-item digest job came back "digested 0" in 5.7s.
+  //
+  // Fires in BOTH shapes of the same situation: providers already parked when
+  // this call started (the stampede's later callers), and providers that 429'd
+  // during this very call (the first caller of a throttled minute). Only the
+  // second is common, and gating on `attempted === 0` missed it entirely.
+  if (order.length > 0) {
+    const cooling = order.map((p) => cooldownUntil.get(p) ?? 0).filter((t) => t > Date.now());
+    if (cooling.length === 0) throw lastErr ?? new Error("all providers failed");
+    const soonest = Math.min(...cooling);
+    const waitMs = Math.max(soonest - Date.now(), 0);
+    // Only wait when the wait actually ENDS within our budget. A pool parked
+    // entirely on 6-hour hard failures (every provider off the free tier) will
+    // look identical to a throttled one otherwise, and we would burn the full
+    // budget per call learning nothing had changed.
+    if (waitMs > 0 && waitMs <= maxWaitMs && _waitedMs + waitMs <= TOTAL_WAIT_BUDGET_MS) {
+      _waitedMs += waitMs;
+      if (verbose) console.log(`    ⏸ every provider is cooling — waiting ${Math.ceil(waitMs / 1000)}s rather than giving up`);
+      await new Promise((r) => setTimeout(r, waitMs + 250));
+      return aiRouter({
+        systemPrompt, userPrompt, maxTokens, providerOverride, modelOverride, verbose,
+        // One wait per call, never a chain of them.
+        maxWaitMs: 0,
+      });
+    }
+  }
+
   throw lastErr ?? new Error("all providers failed");
 }
 
