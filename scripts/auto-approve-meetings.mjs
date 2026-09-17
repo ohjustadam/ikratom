@@ -9,6 +9,11 @@
  * reminders — without a manual admin click. Low-confidence or
  * source-less rows stay pending for human review.
  *
+ * PROVENANCE GATE (2026-09-17). Confidence alone is not enough: only rows whose
+ * confidence was assigned by CODE are eligible — see lib/meeting-autoapprove.mjs
+ * for the allowlist and the two non-meetings that made it necessary. News-
+ * extracted rows (a model's self-reported number) always wait for a human.
+ *
  * The policy is admin-tunable on the site_config singleton (editable
  * from /admin/meetings, no deploy):
  *   - meeting_auto_approve_enabled        (default true)
@@ -27,6 +32,7 @@
  *   node --env-file=.env.local scripts/auto-approve-meetings.mjs --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
+import { VERIFIED_VIA_LIST, isAutoApprovable } from "./lib/meeting-autoapprove.mjs";
 
 const DRY = process.argv.slice(2).includes("--dry-run");
 
@@ -37,6 +43,10 @@ const sb = createClient(
 );
 
 const t0 = Date.now();
+// Declared up front: tag() also runs on the early-exit paths below, and reading a
+// not-yet-initialised const there throws even under typeof — inside tag()'s
+// try/catch that would silently drop the run's telemetry row.
+let heldForHuman = null;
 
 // 1. Read the policy from site_config (singleton row).
 const { data: cfg } = await sb
@@ -63,13 +73,29 @@ let q = sb
   .eq("moderation_status", "pending_review")
   .gte("meeting_at", new Date().toISOString())
   .gte("ai_confidence", minConf)
+  // Provenance filter in the query too, not only in JS: never even fetch a row a
+  // model scored for itself.
+  .in("discovered_via", VERIFIED_VIA_LIST)
   .order("meeting_at", { ascending: true })
   .limit(200);
 const { data: candidates, error } = await q;
 if (error) { console.error("query failed:", error.message); await tag("error", 0, 0); process.exit(1); }
 
-const eligible = (candidates ?? []).filter((m) => !requireSource || (m.source_url && m.source_url.length > 0));
-console.log(`  ${candidates?.length ?? 0} confident pending · ${eligible.length} eligible after source gate`);
+// Defense in depth: the same predicate the test suite pins, so the query filter
+// and the rule cannot drift apart.
+const eligible = (candidates ?? []).filter((m) => isAutoApprovable(m, { minConf, requireSource }).ok);
+console.log(`  ${candidates?.length ?? 0} confident verified-provenance pending · ${eligible.length} eligible`);
+
+// Say out loud what is being held back, so "approved 0" never reads as "nothing
+// was waiting" when confident model-scored rows are sitting in the queue.
+({ count: heldForHuman } = await sb
+  .from("municipal_meetings")
+  .select("id", { count: "exact", head: true })
+  .eq("moderation_status", "pending_review")
+  .gte("meeting_at", new Date().toISOString())
+  .gte("ai_confidence", minConf)
+  .not("discovered_via", "in", `(${VERIFIED_VIA_LIST.join(",")})`));
+if (heldForHuman) console.log(`  ${heldForHuman} confident row(s) held for human review — model-scored provenance`);
 
 let approved = 0;
 for (const m of eligible) {
@@ -121,7 +147,8 @@ async function tag(status, added, processed) {
       status,
       rows_added: added,
       rows_updated: processed,
-      notes: `enabled=${enabled} minConf=${minConf} requireSource=${requireSource} · approved ${added}/${processed}`,
+      notes: `enabled=${enabled} minConf=${minConf} requireSource=${requireSource} · approved ${added}/${processed}`
+        + (typeof heldForHuman === "number" && heldForHuman > 0 ? ` · ${heldForHuman} held for human (model-scored)` : ""),
     });
   } catch { /* best-effort */ }
 }
