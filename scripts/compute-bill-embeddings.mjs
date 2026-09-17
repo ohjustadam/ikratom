@@ -1,42 +1,50 @@
 /**
- * Compute Ollama embeddings for bills and (optionally) state briefings.
+ * Compute embeddings for bills and (optionally) state briefings.
  * Phase 3 D6 — backs the cross-state-similarity query on /bills/[id].
  *
- * Pattern follows scripts/dedupe-news.mjs (in-prod since migration 0019):
- *   - Local Ollama with nomic-embed-text (free, no API key)
- *   - 768-dim float array stored as jsonb (no pgvector dependency)
+ *   - 768-dim (or any width) float array stored as jsonb — no pgvector
  *   - Cosine similarity computed in application JS at query time
  *
- * Runs locally only — Ollama isn't available in the CI/cron environment.
- * The maintainer runs this when:
- *   - New bills land (LegiScan / OpenStates sync added them)
- *   - Bill text is refreshed (summary_ai changed)
- *   - State briefings are regenerated (daily cron, but embed lag is
- *     fine — similarity is a slow-moving signal)
+ * RUNS IN THE CLOUD SINCE 2026-09-17. It used to require a local Ollama
+ * serving nomic-embed-text, which is why `bill_embeddings` was the last
+ * compute dependency on the owner's PC: with the box off, cross-state bill
+ * similarity silently went stale. It now goes through lib/embed-router.mjs
+ * and will use whichever free provider has a key (Cloudflare bge-base,
+ * Gemini gemini-embedding-001, Mistral mistral-embed), falling back to a
+ * local Ollama when one is actually running.
+ *
+ * THE INTERLOCK. Vectors from two different models are not comparable — they
+ * are the same shape and cosineSim() will return a confident, meaningless
+ * number for a bge-vs-nomic pair. So this script refuses to top up a corpus
+ * that a DIFFERENT model wrote: it reads the model recorded by the last
+ * successful `bill_embeddings` scraper_runs row and, if the active provider
+ * disagrees, stops and tells you to re-embed everything with --refresh. That
+ * is the whole safety story for a provider switch; there is no schema column
+ * to keep in sync and nothing to migrate.
  *
  * Idempotent: skips rows already embedded unless `--refresh` is set.
  *
  * Usage:
- *   ollama pull nomic-embed-text          # one-time
- *   ollama serve                          # in another terminal
  *   node --env-file=.env.local scripts/compute-bill-embeddings.mjs
+ *   EMBED_PROVIDER=ollama node --env-file=.env.local scripts/compute-bill-embeddings.mjs
  *
  * Flags:
- *   --refresh           re-embed everything (use sparingly)
+ *   --refresh           re-embed everything (REQUIRED when changing provider)
+ *   --provider NAME     force one provider (same as EMBED_PROVIDER)
  *   --target bills      only embed bills (default: bills + briefings)
  *   --target briefings  only embed briefings
  *   --limit N           stop after N rows per target (debug)
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
+import { embed, activeEmbedProvider } from "./lib/embed-router.mjs";
 
 const args = process.argv.slice(2);
 const arg = (n, fallback = null) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : fallback; };
 const flag = (n) => args.includes(n);
 
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const MODEL = arg("--model", "nomic-embed-text");
+const PROVIDER_OVERRIDE = arg("--provider", null);
+if (PROVIDER_OVERRIDE) process.env.EMBED_PROVIDER = PROVIDER_OVERRIDE;
 const TARGET = arg("--target", "all"); // 'all' | 'bills' | 'briefings'
 const LIMIT = parseInt(arg("--limit", "9999"), 10);
 const REFRESH = flag("--refresh");
@@ -45,24 +53,6 @@ const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
-
-// =============================================================
-// Ollama call. Mirrors the embed() function in dedupe-news.mjs so
-// we use the same model + endpoint shape; we deliberately don't
-// extract it to a shared helper yet (3rd duplication = extract).
-// =============================================================
-async function embed(text) {
-  const res = await fetch(`${OLLAMA_URL}/api/embeddings`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: MODEL, prompt: text, options: { num_thread: OLLAMA_NUM_THREAD } }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  if (!Array.isArray(data.embedding)) throw new Error("No embedding in response");
-  return data.embedding;
-}
 
 // =============================================================
 // Text-to-embed builders. Keep these short and information-dense
@@ -142,22 +132,55 @@ async function embedTable(label, table, textOf, selectCols, refreshFilter) {
 }
 
 // =============================================================
-// Verify Ollama is up before we waste time enumerating rows.
+// Provider preflight + the cross-model interlock.
+//
+// One real embed proves the key works and tells us the width, before we
+// spend time enumerating rows. Then we compare the active model against
+// whatever wrote the corpus last; disagreeing without --refresh is the
+// failure mode this script exists to prevent.
 // =============================================================
+let provider;
 try {
-  const tags = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) });
-  if (!tags.ok) throw new Error(`/api/tags returned ${tags.status}`);
-  const list = await tags.json();
-  const has = list?.models?.some(m => m.name?.startsWith(MODEL));
-  if (!has) {
-    console.error(`✗ Ollama is up but '${MODEL}' isn't installed. Run: ollama pull ${MODEL}`);
-    process.exit(1);
-  }
+  provider = activeEmbedProvider();
 } catch (e) {
-  console.error(`✗ Ollama unreachable at ${OLLAMA_URL}: ${e.message}\n  Start it with: ollama serve`);
+  console.error(`✗ ${e.message}\n  Set one of CLOUDFLARE_AI_TOKEN+CLOUDFLARE_ACCOUNT_ID, GEMINI_API_KEY,`);
+  console.error("  MISTRAL_API_KEY (with EMBED_DIMS=1024), or run Ollama locally.");
   process.exit(1);
 }
-console.log(`✓ Ollama up at ${OLLAMA_URL} with ${MODEL}`);
+
+let probeDims;
+try {
+  probeDims = (await embed("kratom regulation preflight")).length;
+} catch (e) {
+  console.error(`✗ ${provider.id}/${provider.model} could not embed: ${String(e.message ?? e).slice(0, 200)}`);
+  console.error("  Run scripts/diagnose-cloud-gaps.mjs to see which providers are answering today.");
+  process.exit(1);
+}
+const MODEL = `${provider.id}/${provider.model}`;
+console.log(`✓ ${MODEL} up, ${probeDims} dims`);
+
+// What wrote the corpus last? scraper_runs.notes has carried `model=` since
+// this script first ran, so it is the record we already have — no new column.
+const { data: lastRun } = await sb
+  .from("scraper_runs")
+  .select("notes, finished_at")
+  .eq("source", "bill_embeddings")
+  .eq("status", "success")
+  .order("finished_at", { ascending: false })
+  .limit(1);
+const priorModel = lastRun?.[0]?.notes?.match(/model=(\S+)/)?.[1] ?? null;
+
+if (priorModel && priorModel !== MODEL && !REFRESH) {
+  console.error(`\n✗ Corpus was embedded by ${priorModel}; this run would use ${MODEL}.`);
+  console.error("  Two models' vectors are not comparable, and filling gaps with a second");
+  console.error("  model corrupts similarity silently. Re-embed the whole corpus instead:");
+  console.error(`    node scripts/compute-bill-embeddings.mjs --refresh --provider ${provider.id}`);
+  console.error("  (or pin the old one with --provider, if it is still reachable).");
+  process.exit(1);
+}
+if (priorModel && priorModel !== MODEL) {
+  console.log(`  --refresh: replacing the ${priorModel} corpus with ${MODEL}`);
+}
 
 // =============================================================
 // Run targeted embedders
@@ -201,6 +224,6 @@ try {
     finished_at: new Date().toISOString(),
     status: ok === 0 && fail > 0 ? "fail" : "success",
     rows_updated: ok,
-    notes: `embedded=${ok} failed=${fail} model=${MODEL} target=${TARGET}`,
+    notes: `embedded=${ok} failed=${fail} model=${MODEL} dims=${probeDims} target=${TARGET}`,
   });
 } catch { /* best-effort */ }

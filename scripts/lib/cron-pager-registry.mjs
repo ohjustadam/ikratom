@@ -142,9 +142,14 @@ export const REGISTRY = [
   { source: "verify_local_bans", interval_hours: 24, system: "github-actions", cadence: "daily" },
   { source: "sweep_locality_intel", interval_hours: 24, system: "github-actions", cadence: "daily" },
   { source: "clear_review_queues", interval_hours: 24, system: "github-actions", cadence: "daily" },
-  // Genuinely box-only. LegiScan's query API refuses GitHub Actions datacenter
-  // IPs (6/6 connect timeouts), so this one cannot be moved by wanting it.
-  { source: "topic_bill_discovery", interval_hours: 216, system: "local-box", cadence: "weekly" },
+  // MOVED OFF THE BOX 2026-09-17 into topic-bills-sync.yml. The old comment
+  // here said LegiScan's query API refuses GitHub Actions datacenter IPs
+  // (6/6 connect timeouts) and so this could never move. Re-measured from a
+  // runner with the real key (scripts/diagnose-cloud-gaps.mjs, run 35267836232):
+  // getSearch answered 3/3 in ~100-126ms, 50 rows each, alongside the
+  // getDatasetList control. Whatever blocked it in July is gone. If it ever
+  // comes back the probe is the thing to re-dispatch before re-theorising.
+  { source: "topic_bill_discovery", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   // Free-AI research agents — MOVED OFF THE BOX 2026-09-07 into
   // cron-nightly-cloud.yml as their own jobs. They drive lib/tool-chat.mjs,
   // which runs the same tool-calling loop on local Ollama OR any free

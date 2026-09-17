@@ -1,0 +1,33 @@
+name: Diagnose cloud gaps
+
+# Measures, from a GitHub Actions runner, whether the two remaining
+# `system: "local-box"` jobs can move to the cloud:
+#   A. does LegiScan's getSearch query API answer a datacenter IP?
+#   B. will any free-tier provider serve a 768-dim embedding?
+#
+# Read-only: no Supabase client, no scraper_runs row, no npm install
+# (the probe has zero dependencies). Costs nothing but a runner minute,
+# so it is safe to dispatch whenever a provider's status is in doubt.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/cloud-only-jobs-ilhs07"]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Probe LegiScan + embedding providers
+        env:
+          LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: node scripts/diagnose-cloud-gaps.mjs
