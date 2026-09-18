@@ -77,7 +77,7 @@ export const OUT_OF_SCOPE = [
   },
   {
     path: "supabase/migrations/**",
-    why: "SQL, not JavaScript.",
+    why: "SQL, not JavaScript — v8 has nothing to instrument.",
     covered_by: "tests/rls.test.ts, which `verify` excludes — see scripts/report-safety-coverage.mjs",
   },
 ];

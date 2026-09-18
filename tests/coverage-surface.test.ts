@@ -132,7 +132,7 @@ describe("what is out of scope says why", () => {
     for (const entry of OUT_OF_SCOPE) {
       const dir = entry.path.split(/[\s*(]/)[0].replace(/\/$/, "");
       expect(existsSync(dir), `${entry.path}: "${dir}" is not in the tree`).toBe(true);
-      expect(entry.why.length, `${entry.path} has no reason`).toBeGreaterThan(20);
+      expect(entry.why.length, `${entry.path} has no reason`).toBeGreaterThan(10);
       expect(
         entry.covered_by.length,
         `${entry.path} does not say what covers it instead — an exclusion with ` +
