@@ -60,10 +60,24 @@ restored:
 
 - the account-lock / force-password-change redirect (data is still
   RLS-protected; this was the UX bounce to `/locked`)
-- **embed / invite / landing-state cookie capture** — so referral
-  attribution is currently not recorded at all. Partner QR codes, invite
-  links and embeds credit nobody. Every growth number in `docs/VISION.md` is
-  measured through a funnel that does not record its own input.
+
+Attribution capture was **not** one of them, contrary to what reading the
+proxy's comment block suggests. PR #845 rebuilt it in July as a client island
+plus `src/app/api/attribution/route.ts`, and invite links have credited
+correctly ever since.
+
+What is broken there is narrower and harder to see. The rebuilt endpoint
+validates `embed_ref` against `HOST_RE`, which requires at least one dot — a
+bare hostname. A partner QR code carries a shop slug like `green-leaf-okc`,
+which has no dot, so every poster scan is rejected at the door while invite
+links work fine. The embed credit window also came back as 30 days, where the
+proxy used 60.
+
+**Why this matters more than the bug does:** a rejected referral is
+indistinguishable from a visitor who arrived without one. Nothing logs, nothing
+alerts, and a survey that reads the code rather than calling the endpoint
+reaches the wrong conclusion — which is exactly what happened here, twice, over
+seven weeks. Verify attribution by exercising it, not by reading it.
 
 ---
 
@@ -172,8 +186,8 @@ visible in surfaces users already see:
 
 The shape across the codebase: **everything that reads the world is close to
 done; everything that recruits a human is not.** Bills, money, news and
-meetings refresh themselves. Referral attribution, leader field tools,
-app-store presence and medical outreach are where the work is left — and
+meetings refresh themselves. Leader field tools, app-store presence, medical
+outreach and the rough edges in attribution are where the work is left — and
 `docs/VISION.md` measures winning entirely in those terms.
 
 ---

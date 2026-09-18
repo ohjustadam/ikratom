@@ -21,20 +21,21 @@ import { getPatchNote, patchNoteFileSlugs } from "@/lib/patch-notes";
  * when there is nothing to show. A noindex soft-404 is not indexed, which is
  * what the original comment was actually protecting against.
  *
- * ── What this cost, measured ──────────────────────────────────────────────
- * generateStaticParams still lists the file back-catalogue, but the route no
- * longer prerenders: `next build` reports /whats-new/[slug] as ƒ (dynamic).
- * generateMetadata resolves the note through getPatchNote, which builds a
- * cookie-scoped Supabase client, and reading cookies opts the segment out of
- * static generation — so the 40 file notes are server-rendered per request
- * now, where before they were static HTML.
+ * ── Staying cacheable ─────────────────────────────────────────────────────
+ * The first cut of this read through the cookie-bound Supabase client, which
+ * opted the segment out of static generation entirely — `next build` reported
+ * it as ƒ. That would have moved 40 public, crawlable pages to a live database
+ * render per hit, in the same month an expired crawl block did exactly that to
+ * ~28 route families and put egress on course to breach.
  *
- * That is a deliberate trade, not an oversight. Serving them statically again
- * would mean reading them without a Supabase client, which also means a
- * database row could never correct a file-era note — and being able to fix a
- * published note without touching the repo is the point of migration 0250.
- * These are low-traffic changelog pages; correctness beat the cache.
+ * getPatchNote now uses the cookie-free anon client, so the route prerenders
+ * its file back-catalogue and revalidates on a window. Publishing is still
+ * immediate: the admin actions call revalidatePath for the index and the slug,
+ * so a new or corrected note invalidates its own page rather than waiting out
+ * the window. dynamicParams stays true so a slug that exists only in the
+ * database is rendered on demand and then cached like the rest.
  */
+export const revalidate = 900;
 export const dynamicParams = true;
 
 export function generateStaticParams() {

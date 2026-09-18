@@ -2,7 +2,7 @@ import "server-only";
 import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
-import { createClient } from "@/lib/supabase/server";
+import { createAnonClient } from "@/lib/supabase/anon";
 import { frontmatterString } from "@/lib/frontmatter";
 
 /**
@@ -20,6 +20,19 @@ import { frontmatterString } from "@/lib/frontmatter";
  * FAIL-OPEN: if Supabase is unreachable or unconfigured, the file
  * back-catalogue still renders. A changelog that 500s because the database
  * blinked is worse than a changelog missing its newest entry.
+ *
+ * ── Why the ANON client, not the cookie-bound one ─────────────────────────
+ * Reading cookies opts a route out of static generation, and these pages are
+ * public and crawlable (/whats-new is NOT in the robots cost-control block).
+ * A dynamic public page is a live database render on every bot hit, which is
+ * the exact shape that put the project's egress in breach territory in
+ * September 2026 — measured traffic on that page class is 99.97% bots.
+ *
+ * Going through createAnonClient keeps these routes ISR-cacheable, and it is
+ * also the safer read: RLS always evaluates as an anonymous visitor, so the
+ * cached payload is exactly what a logged-out person may see. An admin
+ * browsing the public changelog cannot pull their own drafts into a shared
+ * cache.
  */
 
 export type PatchNote = {
@@ -67,11 +80,10 @@ export async function listPatchNotes(): Promise<PatchNote[]> {
 
   let fromDb: PatchNote[] = [];
   try {
-    const supabase = await createClient();
-    // RLS (patch_notes_select_published) already hides drafts; the explicit
-    // filter is defence in depth, not decoration — an admin viewing this page
-    // passes the admin policy and would otherwise see their own drafts on the
-    // PUBLIC changelog.
+    const supabase = createAnonClient();
+    // RLS (patch_notes_select_published) already hides drafts from the anon
+    // role; the explicit filter is defence in depth against a future policy
+    // edit, not decoration.
     const { data } = await supabase
       .from("patch_notes")
       .select("slug, title, summary, published_on, total_commits")
@@ -109,7 +121,7 @@ export async function getPatchNote(slug: string): Promise<PatchNoteDetail | null
   if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return null;
 
   try {
-    const supabase = await createClient();
+    const supabase = createAnonClient();
     const { data } = await supabase
       .from("patch_notes")
       .select("slug, title, summary, body_md, published_on, total_commits")

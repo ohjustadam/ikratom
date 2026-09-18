@@ -10,11 +10,17 @@ export const metadata = {
  * /whats-new — public changelog.
  *
  * Reads src/lib/patch-notes.ts, which merges the markdown back-catalogue with
- * the `patch_notes` table (migration 0250). Dynamic because a note published
- * from /admin/whats-new must appear on the next request — the whole point of
- * moving off files was that a new note should not need a deploy.
+ * the `patch_notes` table (migration 0250).
+ *
+ * ISR, not force-dynamic. Publishing still takes effect immediately, because
+ * setPatchNoteStatus calls revalidatePath on this route — on-demand
+ * revalidation gives the "no deploy needed" property without paying a database
+ * render per request. That matters here: this page is public and crawlable,
+ * and a dynamic public page is what the September 2026 egress incident was
+ * made of. The 900s window is only the backstop for a change that arrives
+ * without passing through the admin action.
  */
-export const dynamic = "force-dynamic";
+export const revalidate = 900;
 
 export default async function WhatsNewIndex() {
   const notes = await listPatchNotes();
