@@ -56,6 +56,10 @@ const eslintConfig = defineConfig([
     ".netlify/**",
     "out/**",
     "build/**",
+    // `npm run coverage` output. Only JSON today, which eslint does not lint,
+    // but this directory is generated and gitignored -- and eslint does not
+    // read .gitignore, which is how .netlify/** above cost 384 problems.
+    "coverage/**",
     "next-env.d.ts",
   ]),
 ]);

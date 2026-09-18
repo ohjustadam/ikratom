@@ -123,6 +123,28 @@ npm run build           # full Next.js build, ~33s  ← only when checking deplo
 
 `verify` excludes `tests/rls.test.ts` because that test creates real Supabase users via service role — works in CI with a dedicated test project, fails locally because dev `.env.local` points at prod which rate-limits user creation. Run it explicitly when needed: `npx vitest run tests/rls.test.ts`.
 
+### Coverage is a number now, not a claim
+
+```bash
+npm run coverage            # the suite + line coverage of the logic layer
+npm run coverage:baseline   # re-record tests/coverage-baseline.json
+```
+
+The measured surface is `src/lib/**/*.ts`, `src/modules/**/*.ts` and
+`scripts/lib/**/*.mjs` — declared once in `scripts/lib/coverage-surface.mjs`,
+which also records what is deliberately outside it and what covers that
+instead. `src/app/**` and components are not in it on purpose: nothing
+unit-tests them, so including them would report ~10% forever and move mainly
+when someone adds a page.
+
+CI runs this inside the existing "Typecheck + tests" job and fails only if
+coverage drops more than 1pp below the recorded baseline. A newly untested
+module is a warning, not a block. `tests/coverage-surface.test.ts` guards the
+surface itself, because the one way to beat a coverage floor is to measure
+less. **Re-record the baseline without `.env.local` in the environment** — with
+DB credentials present, `rate-limit.test.ts` runs and the number comes out
+higher than CI can ever reach.
+
 Repo-level merge settings (post-PR #254):
 - ✅ `delete_branch_on_merge` — merged branches auto-delete on GitHub
 - ✅ `squash_merge_commit_title: PR_TITLE` — clean main history

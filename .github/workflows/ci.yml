@@ -5,6 +5,7 @@ name: CI
 #   - Test failures
 #   - Build failures (Next.js production build)
 #   - High/critical npm CVEs in dependencies
+#   - Logic-layer coverage falling below tests/coverage-baseline.json
 #
 # Runs on every PR + on pushes to main (to catch the rare squash-merge
 # that introduced a regression). Uses ubuntu-latest + Node 22 to match
@@ -34,8 +35,25 @@ jobs:
           cache: npm
       - name: Install deps
         run: npm ci --no-audit --no-fund
-      - name: Verify (typecheck + tests)
-        run: npm run verify
+      - name: Verify (typecheck + tests, instrumented)
+        # `test:coverage` is `verify`'s test command plus --coverage. The v8
+        # provider reads V8's own counters instead of rewriting the source, so
+        # the tests that run here are the same tests `npm run verify` runs
+        # locally -- this is not a second, differently-behaving suite. It costs
+        # a few seconds of remapping and saves a whole extra job, which on a
+        # repo this budget-conscious is the right trade.
+        #
+        # `npm run verify` stays untouched as the ~9s local loop AGENTS.md
+        # points contributors at.
+        run: npm run typecheck && npm run test:coverage
+      - name: Coverage floor + report
+        # Deliberately NOT `if: always()`: coverage of a run whose tests failed
+        # measures nothing worth reading, and a second red step would just
+        # obscure the first. Exits non-zero only when coverage has fallen more
+        # than a point below tests/coverage-baseline.json -- see
+        # scripts/report-coverage.mjs for why a new untested module is a
+        # warning rather than a block.
+        run: node scripts/report-coverage.mjs
       - name: Report safety-suite coverage
         # `verify` is green even when the RLS and rate-limit suites never ran
         # (rls.test.ts is excluded; rate-limit self-skips without DB env, and
