@@ -116,6 +116,13 @@ export const REGISTRY = [
       "backfill_state_term_dates",
       // Wayback portrait recovery (portrait-sync.yml) — was unregistered.
       "portraits_wayback",
+      // The weekly self-review (cron-weekly.yml). Registered from birth. It
+      // writes a row on EVERY run, including the run where no free model
+      // answered — that path still publishes the evidence and records why the
+      // narrative is missing, so silence here means the job itself stopped,
+      // which is the thing worth paging about. (Contrast egress_gate below,
+      // which writes only on the exception path and must stay unregistered.)
+      "weekly_self_review",
      ].map((source) => ({ source, interval_hours: 216, system: "gh-weekly", cadence: "weekly" })),
 
   // vercel (different system, but still monitorable)
@@ -204,6 +211,15 @@ export const REGISTRY = [
   // /admin/automation, which is the documented limitation in that script's
   // header — this narrows the window, it does not close it.
   { source: "check_cron_staleness", interval_hours: 4, system: "github-actions", cadence: "every-2h" },
+
+  // patch_note_draft — the daily changelog draft, written into `patch_notes`
+  // by generate-patch-note.mjs --db (auto-patch-notes.yml). Weekday-only, so
+  // the real worst-case gap is Friday 11:00 → Monday 11:00 = 72h; a 36h
+  // interval pages at 108h, which clears a weekend and still catches a job
+  // that has genuinely stopped. Registered from birth: the silent failure of
+  // its PR-based predecessor (nobody merges, nothing complains) is exactly
+  // what this entry exists to prevent recurring in the new shape.
+  { source: "patch_note_draft", interval_hours: 36, system: "github-actions", cadence: "daily" },
 
   // netlify_credit_watchdog — the Netlify half of the "free tier must not stop
   // serving the site" failsafe, running in the same ungated daily job as

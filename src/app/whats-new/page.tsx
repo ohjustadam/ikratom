@@ -1,8 +1,5 @@
-import fs from "fs";
-import path from "path";
-import matter from "gray-matter";
 import Link from "next/link";
-import { frontmatterString } from "@/lib/frontmatter";
+import { listPatchNotes } from "@/lib/patch-notes";
 
 export const metadata = {
   title: "What's new — platform changelog",
@@ -12,30 +9,21 @@ export const metadata = {
 /**
  * /whats-new — public changelog.
  *
- * File-driven, same pattern as /briefings. Markdown files in
- * src/content/patch-notes/ are auto-discovered + listed newest first.
+ * Reads src/lib/patch-notes.ts, which merges the markdown back-catalogue with
+ * the `patch_notes` table (migration 0250).
  *
- * Drafts come from scripts/generate-patch-note.mjs which reads recent
- * git log + groups by conventional-commit prefix.
+ * ISR, not force-dynamic. Publishing still takes effect immediately, because
+ * setPatchNoteStatus calls revalidatePath on this route — on-demand
+ * revalidation gives the "no deploy needed" property without paying a database
+ * render per request. That matters here: this page is public and crawlable,
+ * and a dynamic public page is what the September 2026 egress incident was
+ * made of. The 900s window is only the backstop for a change that arrives
+ * without passing through the admin action.
  */
-export default function WhatsNewIndex() {
-  const dir = path.join(process.cwd(), "src", "content", "patch-notes");
-  const files = fs.existsSync(dir)
-    ? fs.readdirSync(dir).filter((f) => f.endsWith(".md"))
-    : [];
+export const revalidate = 900;
 
-  const notes = files
-    .map((f) => {
-      const { data } = matter(fs.readFileSync(path.join(dir, f), "utf8"));
-      return {
-        slug: frontmatterString(data.slug) ?? f.replace(/\.md$/, ""),
-        title: frontmatterString(data.title) ?? f,
-        summary: frontmatterString(data.summary),
-        published: frontmatterString(data.published),
-        totalCommits: typeof data.total_commits === "number" ? data.total_commits : null,
-      };
-    })
-    .sort((a, b) => (a.published && b.published ? (a.published < b.published ? 1 : -1) : 0));
+export default async function WhatsNewIndex() {
+  const notes = await listPatchNotes();
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">

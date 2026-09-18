@@ -44,3 +44,7 @@ deno.lock
 # but NOT previously ignored, so a stray `git add -A` could have committed it --
 # and it has held credential files (tok.txt). This repo is public; keep it out.
 .tmpwork/
+
+# vitest coverage output (npm run coverage) — regenerated, never committed.
+# The committed artifact is tests/coverage-baseline.json.
+coverage/

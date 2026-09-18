@@ -2,7 +2,9 @@
 
 You are working on **iKratom**, a nonpartisan kratom advocacy platform. This file is the cold-start brief: read it once and you have enough context to be useful without wasting tokens grepping.
 
-**START HERE if you're a new session:** read `private/V2_KICKOFF.md` — single source of truth for what's left before app-store submission and v2 work. It supersedes `ROADMAP.md` and anything below this line if there's a conflict.
+**START HERE if you're a new session:** read **`STATE_OF_PLAY.md`** (repo root) — the in-repo cold-start brief. Where the platform actually runs, what survives 60 days untouched, what will bite you, and where the forward plan is declared.
+
+Then read `private/V2_KICKOFF.md` — the owner's working notes and the single source of truth for what's in flight. It supersedes `STATE_OF_PLAY.md`, `ROADMAP.md` and anything below this line if there's a conflict. **But `private/` is gitignored, so V2_KICKOFF does not exist in a fresh clone** — any session not running on the owner's own machine will not have it, and that is exactly why `STATE_OF_PLAY.md` exists. Don't treat its absence as "no context available"; several cloud sessions burned a run re-deriving the platform from scratch, and one of them derived it wrongly.
 
 **🏛️ If your task touches `/states`, `/briefings`, `/intel`, `/legislators`, or any state-scoped surface: ALSO read `private/STATE_HUB_SPEC.md` FIRST** — the canonical spec for the active State-HQ rebuild (owner ask 2026-06-22). It sets the consolidation IA (`/states/[code]` is the one hub), the 3-tier model, the live-data-not-baked rule, and the section-by-section build plan + fast-follow pipelines. Build to it; don't re-architect these pages ad hoc.
 
@@ -122,6 +124,35 @@ npm run build           # full Next.js build, ~33s  ← only when checking deplo
 ```
 
 `verify` excludes `tests/rls.test.ts` because that test creates real Supabase users via service role — works in CI with a dedicated test project, fails locally because dev `.env.local` points at prod which rate-limits user creation. Run it explicitly when needed: `npx vitest run tests/rls.test.ts`.
+
+### Coverage is a number now, not a claim
+
+```bash
+npm run coverage            # the suite + line coverage of the logic layer
+npm run coverage:baseline   # re-record tests/coverage-baseline.json
+```
+
+The measured surface is `src/lib/**/*.ts`, `src/modules/**/*.ts` and
+`scripts/lib/**/*.mjs` — declared once in `scripts/lib/coverage-surface.mjs`,
+which also records what is deliberately outside it and what covers that
+instead. `src/app/**` and components are not in it on purpose: nothing
+unit-tests them, so including them would report ~10% forever and move mainly
+when someone adds a page.
+
+First reading, 2026-09-18: **20.96%** of lines, and **208 of 291 modules are
+never loaded by any test** — overwhelmingly the `actions.ts` server actions,
+i.e. the mutation surface.
+
+CI runs this inside the existing "Typecheck + tests" job. **The floor is on
+COVERED LINES, not on the percentage**: it fails when tests stop covering ~50+
+lines, which is what a removed or broken suite looks like. Adding a module with
+no tests dilutes the percentage (one 260-line server action is 2pp) but moves
+covered lines not at all, so that is a warning, never a block — a gate that
+goes red for writing new code gets deleted. `tests/coverage-surface.test.ts`
+guards the surface itself, because the one way to beat a coverage floor is to
+measure less. **Re-record the baseline without `.env.local` in the
+environment** — with DB credentials present, `rate-limit.test.ts` runs and the
+number comes out higher than CI can ever reach.
 
 Repo-level merge settings (post-PR #254):
 - ✅ `delete_branch_on_merge` — merged branches auto-delete on GitHub
