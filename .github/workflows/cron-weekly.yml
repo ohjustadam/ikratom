@@ -215,6 +215,47 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/broadcast-whats-new.mjs --slug ${{ steps.latest.outputs.slug }} --all-users
 
+  weekly-self-review:
+    # The PROPOSE arm. Reads a week of scraper_runs, a week of admin_audit_log
+    # (action names only) and this repo's merge history, then asks the free AI
+    # pool for "what moved, what decayed, what I would do next" and posts it as
+    # a comment on one rolling GitHub issue. One model call, one Action run,
+    # no deploy — telling the owner what changed must never cost Netlify
+    # credits, which is the same lesson the patch-note backlog taught.
+    #
+    # NOT behind the egress gate, for the same reason the digest broadcast
+    # isn't: a review that gets shed is a review that never happens, and a
+    # skipped week leaves a hole in the week-over-week comparison the next run
+    # depends on. Its read is deliberately small — six columns over 14 days.
+    #
+    # fetch-depth: 0 is load-bearing. The "what shipped" section is `git log`
+    # on the checkout rather than an API call; at the default depth of 1 it
+    # sees one commit and silently reports nothing shipped.
+    #
+    # issues: write is the only extra permission, and it is scoped to this job
+    # alone rather than the workflow, so nothing else here can write to the
+    # repo. GITHUB_TOKEN is the built-in one — no PAT, no secret to rotate.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Draft the weekly self-review
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/weekly-self-review.mjs
+
   draft-legislator-stance-all:
     # Run the AI stance drafter for every state — skips already-stanced
     # legislators so cost stays low after the first full pass. Provides
