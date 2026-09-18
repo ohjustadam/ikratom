@@ -61,6 +61,7 @@ import {
   findMovement,
   parseNarrative,
   renderMarkdown,
+  resolvePublishEnv,
 } from "./lib/self-review.mjs";
 
 const args = process.argv.slice(2);
@@ -178,9 +179,10 @@ async function generateNarrative(evidence) {
 const MARKER = "<!-- ikratom:weekly-self-review -->";
 
 async function publishToIssue(body) {
-  const token = process.env.GITHUB_TOKEN;
-  const repo = process.env.GITHUB_REPOSITORY;
-  if (!token || !repo) return { published: false, reason: "no GITHUB_TOKEN/GITHUB_REPOSITORY" };
+  // Throws inside Actions, returns null outside it — see resolvePublishEnv.
+  const creds = resolvePublishEnv(process.env);
+  if (!creds) return { published: false, reason: "no GITHUB_TOKEN/GITHUB_REPOSITORY (not running in Actions)" };
+  const { token, repo } = creds;
 
   const api = async (path, init = {}) => {
     const res = await fetch(`https://api.github.com/repos/${repo}${path}`, {

@@ -262,3 +262,32 @@ export function renderMarkdown({ evidence, narrative, degraded, windowStartMs, n
   L.push("</details>");
   return L.join("\n");
 }
+
+/**
+ * Decide whether missing publish credentials are an ordinary local run or a
+ * broken workflow.
+ *
+ * WHY THIS IS NOT JUST `if (!token) return`. Inside Actions the token is
+ * always available to the workflow, but it only reaches the SCRIPT through an
+ * explicit `GITHUB_TOKEN:` line in the step's env block. Delete that one line
+ * and the job reads a full week of telemetry, publishes to nobody, and exits
+ * green — the exact "ran, did nothing, reported success" failure this whole
+ * job exists to notice. A tool that cannot fail that way is worth three lines.
+ *
+ * Returns the credentials, returns null when publishing should be skipped
+ * (a local run, where the operator is reading stdout), or throws when the
+ * absence is a fault.
+ */
+export function resolvePublishEnv(env) {
+  const token = env.GITHUB_TOKEN;
+  const repo = env.GITHUB_REPOSITORY;
+  if (token && repo) return { token, repo };
+  if (env.GITHUB_ACTIONS) {
+    const missing = [!token && "GITHUB_TOKEN", !repo && "GITHUB_REPOSITORY"].filter(Boolean).join(" and ");
+    throw new Error(
+      `running in GitHub Actions without ${missing} — the step's env block is missing it, or the value is empty. ` +
+        "The review was gathered but could not be published to anyone.",
+    );
+  }
+  return null;
+}

@@ -9,6 +9,7 @@ import {
   findMovement,
   parseNarrative,
   renderMarkdown,
+  resolvePublishEnv,
 } from "../scripts/lib/self-review.mjs";
 
 /**
@@ -250,7 +251,13 @@ describe("weekly self-review — workflow wiring", () => {
    * workflow file, asserted at PR time rather than discovered at 09:13 UTC.
    */
   const wf = load(readFileSync(join(".github", "workflows", "cron-weekly.yml"), "utf8")) as {
-    jobs: Record<string, { permissions?: Record<string, string>; steps: { run?: string; with?: Record<string, unknown> }[] }>;
+    jobs: Record<
+      string,
+      {
+        permissions?: Record<string, string>;
+        steps: { run?: string; with?: Record<string, unknown>; env?: Record<string, string> }[];
+      }
+    >;
   };
   const job = wf.jobs["weekly-self-review"];
 
@@ -263,8 +270,47 @@ describe("weekly self-review — workflow wiring", () => {
     expect(job.permissions).toEqual({ contents: "read", issues: "write" });
   });
 
+  it("passes GITHUB_TOKEN through to the script", () => {
+    // The workflow HAS the token; the script only sees it through this line.
+    // Deleting it used to mean a green job that published to nobody.
+    const step = job.steps.find((s) => s.run?.includes("scripts/weekly-self-review.mjs"));
+    expect(Object.keys(step?.env ?? {})).toEqual(
+      expect.arrayContaining(["GITHUB_TOKEN", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]),
+    );
+  });
+
   it("checks out full history, because 'what shipped' is git log not an API call", () => {
     // At the default depth of 1 the review silently reports nothing shipped.
     expect(job.steps.some((s) => s.with?.["fetch-depth"] === 0)).toBe(true);
+  });
+});
+
+describe("weekly self-review — publish credentials", () => {
+  /**
+   * The static guard above catches the `GITHUB_TOKEN:` line being deleted from
+   * the workflow. This catches every other way it can go missing at runtime —
+   * an empty secret, a renamed variable — because the outcome is identical and
+   * far worse than a crash: a full week of telemetry read, published to
+   * nobody, exit 0. This job's entire purpose is noticing that pattern, so it
+   * must not be able to fail that way itself.
+   */
+  it("returns the credentials when both are present", () => {
+    expect(resolvePublishEnv({ GITHUB_TOKEN: "t", GITHUB_REPOSITORY: "o/r" })).toEqual({
+      token: "t",
+      repo: "o/r",
+    });
+  });
+
+  it("throws inside Actions when the token never reached the script", () => {
+    expect(() => resolvePublishEnv({ GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "o/r" })).toThrow(/GITHUB_TOKEN/);
+    expect(() => resolvePublishEnv({ GITHUB_ACTIONS: "true", GITHUB_TOKEN: "" , GITHUB_REPOSITORY: "o/r" })).toThrow(
+      /could not be published/,
+    );
+    expect(() => resolvePublishEnv({ GITHUB_ACTIONS: "true", GITHUB_TOKEN: "t" })).toThrow(/GITHUB_REPOSITORY/);
+  });
+
+  it("skips quietly outside Actions, where a local run has no token by design", () => {
+    expect(resolvePublishEnv({})).toBeNull();
+    expect(resolvePublishEnv({ GITHUB_REPOSITORY: "o/r" })).toBeNull();
   });
 });
