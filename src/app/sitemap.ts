@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { createClient } from "@/lib/supabase/server";
+import { isDisallowed } from "@/lib/crawl-policy";
 import fs from "fs";
 import path from "path";
 
@@ -168,5 +169,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error("[sitemap] briefings scan failed:", e);
   }
 
-  return [...STATIC, ...dynamic];
+  // Never advertise what robots.txt forbids (2026-09-18).
+  //
+  // These two files are halves of one decision and they had drifted. The
+  // withholding above was done by hand, family by family, and only for the two
+  // anyone remembered: bill and legislator details. Meanwhile this sitemap was
+  // still inviting crawlers to ten `/intel/...` pages plus every
+  // `/library/<id>`, `/campaigns/<slug>` and `/briefings/<slug>` it could find
+  // — all of them disallowed in robots.txt, and all of them live DB renders.
+  //
+  // Filtering through the shared policy instead of deleting four more lists by
+  // hand is the point: a family added here later cannot silently reopen the
+  // hole, and when the cost-control block lifts itself these URLs come back on
+  // their own, with no deploy and nobody having to remember.
+  //
+  // This changes no priority and no changeFrequency. What to advertise, once
+  // robots.txt allows it at all, stays the owner's call.
+  return [...STATIC, ...dynamic].filter((entry) => !isDisallowed(entry.url));
 }
