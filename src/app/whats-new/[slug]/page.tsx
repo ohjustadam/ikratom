@@ -21,8 +21,19 @@ import { getPatchNote, patchNoteFileSlugs } from "@/lib/patch-notes";
  * when there is nothing to show. A noindex soft-404 is not indexed, which is
  * what the original comment was actually protecting against.
  *
- * generateStaticParams still lists the file back-catalogue so those 40 notes
- * keep being prerendered at build time and cost nothing to serve.
+ * ── What this cost, measured ──────────────────────────────────────────────
+ * generateStaticParams still lists the file back-catalogue, but the route no
+ * longer prerenders: `next build` reports /whats-new/[slug] as ƒ (dynamic).
+ * generateMetadata resolves the note through getPatchNote, which builds a
+ * cookie-scoped Supabase client, and reading cookies opts the segment out of
+ * static generation — so the 40 file notes are server-rendered per request
+ * now, where before they were static HTML.
+ *
+ * That is a deliberate trade, not an oversight. Serving them statically again
+ * would mean reading them without a Supabase client, which also means a
+ * database row could never correct a file-era note — and being able to fix a
+ * published note without touching the repo is the point of migration 0250.
+ * These are low-traffic changelog pages; correctness beat the cache.
  */
 export const dynamicParams = true;
 
