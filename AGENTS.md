@@ -2,7 +2,9 @@
 
 You are working on **iKratom**, a nonpartisan kratom advocacy platform. This file is the cold-start brief: read it once and you have enough context to be useful without wasting tokens grepping.
 
-**START HERE if you're a new session:** read `private/V2_KICKOFF.md` — single source of truth for what's left before app-store submission and v2 work. It supersedes `ROADMAP.md` and anything below this line if there's a conflict.
+**START HERE if you're a new session:** read **`STATE_OF_PLAY.md`** (repo root) — the in-repo cold-start brief. Where the platform actually runs, what survives 60 days untouched, what will bite you, and where the forward plan is declared.
+
+Then read `private/V2_KICKOFF.md` — the owner's working notes and the single source of truth for what's in flight. It supersedes `STATE_OF_PLAY.md`, `ROADMAP.md` and anything below this line if there's a conflict. **But `private/` is gitignored, so V2_KICKOFF does not exist in a fresh clone** — any session not running on the owner's own machine will not have it, and that is exactly why `STATE_OF_PLAY.md` exists. Don't treat its absence as "no context available"; several cloud sessions burned a run re-deriving the platform from scratch, and one of them derived it wrongly.
 
 **🏛️ If your task touches `/states`, `/briefings`, `/intel`, `/legislators`, or any state-scoped surface: ALSO read `private/STATE_HUB_SPEC.md` FIRST** — the canonical spec for the active State-HQ rebuild (owner ask 2026-06-22). It sets the consolidation IA (`/states/[code]` is the one hub), the 3-tier model, the live-data-not-baked rule, and the section-by-section build plan + fast-follow pipelines. Build to it; don't re-architect these pages ad hoc.
 

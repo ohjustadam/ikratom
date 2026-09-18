@@ -1,12 +1,30 @@
 name: Daily patch-note auto-draft
 
 # Auto-generate a "what's new" patch-note draft each morning so /whats-new
-# stays current without manual effort. Opens a PR with the draft —
-# admin reviews + merges (often a 1-click).
+# stays current without manual effort.
 #
-# Trigger: every weekday at 11:00 UTC (~6am ET) so admins see a fresh
-# draft in their inbox when they wake. Workflow_dispatch lets you fire
-# it manually any time.
+# ⚠️ CHANGED 2026-09-17 — read before editing.
+# This used to open a pull request containing a new
+# src/content/patch-notes/*.md file, to be squash-merged by hand. That merge
+# was a production build: netlify.toml's `ignore` rule excludes
+# `:(exclude,glob)*.md`, and git's glob magic stops `*` at a `/`, so only
+# TOP-LEVEL markdown skips a build — a note nested under src/content/ never
+# did. Telling people what changed cost 15 credits, so the cheapest action was
+# to merge nothing: seven drafts piled up between 2026-08-26 and 2026-09-17
+# and the public changelog went stale.
+#
+# Now the draft is written straight into the `patch_notes` table (migration
+# 0250) with status='draft'. No branch, no PR, no build. An admin reviews it
+# at /admin/whats-new and presses Publish, and the note appears on the next
+# request.
+#
+# THE CURATION STEP SURVIVED THE CHANGE ON PURPOSE. Generator output is a
+# starting point, never publishable copy — raw commit subjects once shipped an
+# editor instruction onto the public page (PR #691). `--db` writes a DRAFT and
+# nothing else; only a human makes a note public.
+#
+# Trigger: every weekday at 11:00 UTC (~6am ET) so an admin has a fresh draft
+# waiting. Workflow_dispatch fires it manually any time.
 
 on:
   schedule:
@@ -20,9 +38,10 @@ concurrency:
 jobs:
   draft-patch-note:
     runs-on: ubuntu-latest
+    # Read-only now. The job no longer pushes a branch or opens a PR, so it
+    # does not need contents:write or pull-requests:write.
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v5
         with:
@@ -30,70 +49,22 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+      - run: npm ci --omit=dev --ignore-scripts
 
       - name: Report changelog gaps
-        # The failure mode of this job is SILENCE: it opens a PR and waits for a
-        # human, and when nobody merges, nothing complains. Seven days of
-        # changelog went missing that way and stayed missing for three months.
-        # Reporting-only (never fails the job) — it writes any hole into the run
-        # summary so a dropped draft surfaces the next morning instead of never.
+        # The old failure mode of this job was SILENCE: it opened a PR and
+        # waited for a human, and when nobody merged, nothing complained.
+        # Seven days of changelog went missing that way and stayed missing for
+        # three months. Still reporting-only (never fails the job) — a hole
+        # lands in the run summary instead of nowhere.
         run: node scripts/check-changelog-gaps.mjs --days 120
 
-      - name: Generate patch-note draft for the last 24 hours
-        id: gen
-        run: |
-          node scripts/generate-patch-note.mjs --since "24 hours ago"
-          # Detect whether a new file landed in src/content/patch-notes
-          NEW=$(git status --porcelain src/content/patch-notes/ | awk '/^\?\?/ {print $2}' | head -1)
-          if [ -z "$NEW" ]; then
-            echo "No new patch note generated (no commits in last 24h, or file already exists)."
-            echo "should_pr=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "Generated $NEW"
-          echo "patch_file=$NEW" >> "$GITHUB_OUTPUT"
-          echo "should_pr=true" >> "$GITHUB_OUTPUT"
-          # Extract title for PR title
-          TITLE=$(grep -m1 '^title:' "$NEW" | sed -E 's/title: "(.*)"/\1/')
-          echo "patch_title=$TITLE" >> "$GITHUB_OUTPUT"
-
-      - name: Open PR with draft + enable auto-merge
-        if: steps.gen.outputs.should_pr == 'true'
+      - name: Write today's draft into patch_notes
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # main has a branch ruleset requiring all changes go through a
-        # PR, so the bot can't push straight to main — it must open a
-        # PR. For `gh pr create` to work with GITHUB_TOKEN, the repo
-        # setting Settings → Actions → General → "Allow GitHub Actions
-        # to create and approve pull requests" must be ON. If this step
-        # fails with "GitHub Actions is not permitted to create or
-        # approve pull requests", that setting is off — flip it once.
-        # The PR only touches src/content/patch-notes/*.md, so auto-
-        # merge lands it as soon as Vercel preview passes.
-        run: |
-          BR="auto-patch-note-$(date -u +%Y%m%d)"
-          git config user.name "ikratom-bot"
-          git config user.email "noreply@ikratom.org"
-          git checkout -b "$BR"
-          git add "${{ steps.gen.outputs.patch_file }}"
-          git commit -m "docs: ${{ steps.gen.outputs.patch_title }} (auto-draft)"
-          git push -u origin "$BR"
-          PR_URL=$(gh pr create \
-            --title "docs: ${{ steps.gen.outputs.patch_title }} (auto-draft)" \
-            --body "Auto-generated patch-note draft covering the last 24 hours. Markdown-only (\`src/content/patch-notes/*.md\`). Review and squash-merge when the copy reads right. 🤖 .github/workflows/auto-patch-notes.yml" \
-            --label "patch-notes,auto-draft")
-
-          # Auto-merge is DELIBERATELY disabled on this repo (see AGENTS.md:
-          # allow_auto_merge was skipped, and the documented flow is a manual
-          # `gh pr merge --squash --delete-branch` after CI passes). Requesting
-          # it therefore hard-fails with:
-          #   GraphQL: Auto merge is not allowed for this repository
-          # ...AFTER the branch and PR were already created successfully. So the
-          # job did its whole job and still reported failure every single day,
-          # which is how a red X stops meaning anything.
-          #
-          # Try it, but never fail the run over it: if auto-merge is ever turned
-          # on the draft lands by itself, and if it stays off the PR simply waits
-          # for a human — which is the current policy anyway.
-          gh pr merge "$PR_URL" --auto --squash --delete-branch \
-            || echo "note: auto-merge unavailable (disabled for this repo) — PR left open for manual review: $PR_URL"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        # Writes scraper_runs source `patch_note_draft`, registered in
+        # scripts/lib/cron-pager-registry.mjs — if this stops running, the
+        # self-pager says so instead of the changelog quietly going stale
+        # again.
+        run: node scripts/generate-patch-note.mjs --since "24 hours ago" --db
