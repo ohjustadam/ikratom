@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { COST_CONTROL_PATHS, PRIVATE_PATHS, costControlActive } from "@/lib/crawl-policy";
 
 /**
  * robots.txt — allow ordinary search engines + AI CITATION crawlers,
@@ -34,8 +35,6 @@ export const revalidate = 3600;
 export default function robots(): MetadataRoute.Robots {
   const base = process.env.APP_URL ?? "https://www.ikratom.org";
 
-  // Private surfaces — never index regardless of crawler
-  const PRIVATE_PATHS = ["/admin/", "/api/", "/account/", "/messages/", "/dashboard/", "/pitch"];
 
   // Cost-control disallow, added 2026-09-01. NOT a privacy or quality call.
   //
@@ -87,10 +86,33 @@ export default function robots(): MetadataRoute.Robots {
   // traffic on this class of page was 99.97% bots.
   //
   // Trailing slashes matter: "/campaigns/" blocks /campaigns/<slug> but NOT
-  // the /campaigns index, which is now static and stays indexed. Same for
-  // /alerts, /forum, /research and the rest — the browsable index pages
-  // remain discoverable, and every page stays reachable in-app and by direct
-  // link. We are only declining to invite a multi-thousand-URL sweep.
+  // the /campaigns index. Every page stays reachable in-app and by direct
+  // link; we are only declining to invite a multi-thousand-URL sweep.
+  //
+  // CORRECTION 2026-09-18. This comment used to go on to say the index pages
+  // are "now static" and therefore free to crawl, naming /alerts, /forum and
+  // /research. An audit of all 214 routes says otherwise, and a wrong comment
+  // beside a cost decision is how the next reader inherits the mistake.
+  //
+  // True for /campaigns (ISR 900s), /news (1800s) and the state hubs (SSG).
+  // NOT true for nine indexes this list leaves crawlable:
+  //   /academy /coalitions /intel /research /topics   — force-dynamic
+  //   /alerts /forum /legislators /library            — dynamic in practice
+  // The second group has no directive but awaits searchParams and/or builds a
+  // cookie-scoped Supabase client, which makes the render per-request anyway.
+  //
+  // They are NOT a drop-in ISR fix, which is the tempting conclusion. Seven of
+  // the nine render per-user or per-role (/intel and /library gate admin-only
+  // sections on getAdminContext/getCreatorContext, so a shared cache would be
+  // a leak, not a slow page). /topics is viewer-independent but stays dynamic
+  // for the build-time-secrets reason in its own comment. /research is already
+  // cheap despite being force-dynamic: its reads go through unstable_cache with
+  // a service-role client, so a crawl of it does not touch the database.
+  //
+  // Scale, so nobody over-corrects: 45 uncovered live-render route patterns,
+  // 44 of them single URLs — only /states/[code]/briefing is parameterised, at
+  // ~51. Call it ~95 crawlable live-render URLs against the ~10,000 this list
+  // covers. Worth fixing, nowhere near a reason to distrust the block.
   //
   // The trade, in the words of the 09-01 note that set this precedent: being
   // disabled is a 100% outage, which is strictly worse than being temporarily
@@ -127,37 +149,12 @@ export default function robots(): MetadataRoute.Robots {
   // good instead of dating it again. tests/robots-cost-control.test.ts now
   // goes red two weeks BEFORE this date, so the next lapse is a decision
   // rather than a discovery.
-  const COST_CONTROL_EXPIRES_AT = Date.UTC(2026, 10, 16); // 2026-11-16T00:00Z — past the 60-day unattended window
-  const costControlActive = Date.now() < COST_CONTROL_EXPIRES_AT;
+  // The expiry date, the prefix list and the private list all live in
+  // src/lib/crawl-policy.ts so sitemap.ts reads exactly the same policy and
+  // cannot advertise what this file forbids.
+  const costControl = costControlActive() ? [...COST_CONTROL_PATHS] : [];
 
-  const COST_CONTROL_PATHS = costControlActive
-    ? [
-      // Pre-existing (2026-09-01). Now expire on the same date rather than
-      // the obsolete Netlify one.
-      "/legislators/",
-      "/bills/",
-      // Added 2026-09-08. High-cardinality routes that are still server-
-      // rendered per request; ordered by URL count.
-      "/alerts/",       // 5,687 policy alerts
-      "/campaigns/",    // 2,818 campaign + operation slugs
-      "/forum/",        // one URL per thread
-      "/meetings/",
-      "/research/",
-      "/library/",
-      "/topics/",
-      "/briefings/",
-      "/coalitions/",
-      "/intel/",
-      "/academy/",
-      "/partners/",
-      // No search value at any time — personal/invite surfaces that were
-      // never meant to be indexed.
-      "/profile/",
-      "/i/",
-    ]
-    : [];
-
-  const DISALLOW = [...PRIVATE_PATHS, ...COST_CONTROL_PATHS];
+  const DISALLOW = [...PRIVATE_PATHS, ...costControl];
 
   // ALLOW: AI search/citation crawlers — query-time fetchers that
   // attribute back to the source URL. Sending them to our structured
