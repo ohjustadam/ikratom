@@ -9,12 +9,11 @@
  * surface declared in scripts/lib/coverage-surface.mjs, lists the modules no
  * test touches at all, and compares both against a committed baseline.
  *
- * IT BLOCKS ON ONE THING ONLY: coverage falling more than TOLERANCE_PP below
- * the baseline. That catches a deleted suite or a large slab of untested
- * logic — the regressions worth a red check. It does NOT block on a single new
- * untested module, because on a codebase this size that happens in ordinary
- * work, and a gate that fires during ordinary work gets deleted. Those are
- * warnings, which is the honest weight for them.
+ * IT BLOCKS ON ONE THING ONLY: the number of COVERED lines falling below the
+ * baseline. That is the shape of a removed or broken suite. It deliberately
+ * does not block on the percentage, which also falls whenever untested code is
+ * added — ordinary work here — nor on a new module sitting at 0%. Those are
+ * warnings, which is the honest weight for them. See COVERED_TOLERANCE below.
  *
  * Usage:
  *   npm run coverage             # run the suite instrumented, then this
@@ -30,11 +29,25 @@ const SUMMARY = join(ROOT, "coverage", "coverage-summary.json");
 const BASELINE = join(ROOT, "tests", "coverage-baseline.json");
 
 /**
- * How far coverage may fall before the check goes red. One percentage point of
- * the logic layer is a couple of hundred lines — big enough that ordinary work
- * does not trip it, small enough that a dropped test file does.
+ * THE FLOOR IS ON COVERED LINES, NOT ON THE PERCENTAGE, and that distinction is
+ * the difference between a gate people keep and one they delete.
+ *
+ * The percentage falls for two unrelated reasons. A suite is removed or breaks
+ * — a regression. Or somebody adds a module with no tests — ordinary work on a
+ * codebase where 208 of 291 logic modules already have none. The first reading
+ * measured 12,638 lines, so ONE new untested server action of the size that is
+ * normal in src/modules (auth/actions.ts is 262 lines) dilutes the percentage
+ * by 2pp on its own. A percentage floor would go red for writing new code,
+ * which is the fastest way to teach everyone that this check is noise.
+ *
+ * Covered lines fall only when tests stop covering something; new untested code
+ * does not move them at all. So that is what blocks, and the percentage is the
+ * headline number, with a warning when it slips.
+ *
+ * 50 lines of slack absorbs incidental refactoring while still catching the
+ * removal of even a small suite.
  */
-const TOLERANCE_PP = 1.0;
+const COVERED_TOLERANCE = 50;
 
 /**
  * How many zero-coverage modules to name. The list is the whole point, but an
@@ -130,7 +143,7 @@ if (write) {
     _comment:
       "Recorded coverage of the surface declared in scripts/lib/coverage-surface.mjs. " +
       "Regenerate with `npm run coverage:baseline`. scripts/report-coverage.mjs fails " +
-      "CI if lines_pct falls more than " + TOLERANCE_PP + "pp below this, and " +
+      "CI if lines_covered falls more than " + COVERED_TOLERANCE + " lines below this, and " +
       "tests/coverage-surface.test.ts fails if `surface` stops matching the " +
       "declaration — so the number cannot be raised by measuring less.",
     measured_on: new Date().toISOString().slice(0, 10),
@@ -145,6 +158,7 @@ if (write) {
 } else {
   const base = JSON.parse(readFileSync(BASELINE, "utf8"));
   const delta = Number((pct - base.lines_pct).toFixed(2));
+  const coveredDelta = linesCovered - base.lines_covered;
 
   if (base.db_env !== dbEnv) {
     say();
@@ -158,15 +172,31 @@ if (write) {
   say();
   say("  Baseline " + base.lines_pct + "% recorded " + base.measured_on + " · now " + pct + "% (" + (delta >= 0 ? "+" : "") + delta + "pp)");
 
-  if (delta < -TOLERANCE_PP) {
+  say(
+    "  Covered lines " + base.lines_covered.toLocaleString() + " → " +
+      linesCovered.toLocaleString() + " (" + (coveredDelta >= 0 ? "+" : "") + coveredDelta + ")",
+  );
+
+  if (coveredDelta < -COVERED_TOLERANCE) {
     headline =
-      "Coverage fell " + Math.abs(delta) + "pp to " + pct + "% (baseline " + base.lines_pct +
-      "%, tolerance " + TOLERANCE_PP + "pp). A suite was probably removed, or a large slab " +
-      "of untested logic added.";
+      "Tests stopped covering " + Math.abs(coveredDelta) + " lines (" +
+      base.lines_covered.toLocaleString() + " → " + linesCovered.toLocaleString() +
+      "). Adding untested code does not do this — a suite was removed, skipped, or no " +
+      "longer reaches what it used to.";
     say("  ✗ " + headline);
     exitCode = 1;
-  } else if (delta < 0) {
-    say("  ~ down " + Math.abs(delta) + "pp, inside the " + TOLERANCE_PP + "pp tolerance.");
+  } else if (coveredDelta < 0) {
+    say(
+      "  ~ " + Math.abs(coveredDelta) + " fewer lines covered, inside the " +
+        COVERED_TOLERANCE + "-line tolerance.",
+    );
+  }
+
+  if (delta < -0.5 && exitCode === 0) {
+    say(
+      "  ⚠ the percentage fell " + Math.abs(delta) + "pp to " + pct + "% while covered " +
+        "lines held. That is dilution: untested code was added.",
+    );
   }
 
   if (untested.length > base.files_untested) {
@@ -178,8 +208,11 @@ if (write) {
     if (exitCode === 0) headline += " — " + grew + " newly untested";
   }
 
-  if (delta > TOLERANCE_PP) {
-    say("  ✓ up " + delta + "pp. Re-record with `npm run coverage:baseline` to hold the gain.");
+  if (coveredDelta > COVERED_TOLERANCE) {
+    say(
+      "  ✓ " + coveredDelta + " more lines covered. Re-record with " +
+        "`npm run coverage:baseline` to hold the gain.",
+    );
   }
 }
 

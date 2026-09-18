@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import baseline from "./coverage-baseline.json";
 import {
   MEASURED,
   NOT_MEASURED,
@@ -92,6 +93,46 @@ describe("the measured coverage surface", () => {
         ).toBe(false);
       }
     }
+  });
+});
+
+describe("the recorded baseline", () => {
+  it("was measured against the surface that is declared now", () => {
+    expect(
+      baseline.surface,
+      "tests/coverage-baseline.json records a different surface than " +
+        "scripts/lib/coverage-surface.mjs declares. Changing the surface changes " +
+        "what the number means, so re-record it in the same change: " +
+        "`npm run coverage:baseline`.",
+    ).toEqual(MEASURED);
+  });
+
+  it("records a floor that can actually be fallen below", () => {
+    // A baseline of zero covered lines would leave the gate in place and
+    // vacuous -- green forever, proving nothing. Same failure shape as a
+    // skipped safety suite reported as a pass.
+    expect(baseline.lines_covered).toBeGreaterThan(0);
+    expect(baseline.files_measured).toBeGreaterThan(100);
+    expect(baseline.lines_total).toBeGreaterThan(1000);
+    expect(baseline.lines_covered).toBeLessThanOrEqual(baseline.lines_total);
+    expect(
+      Number(((baseline.lines_covered / baseline.lines_total) * 100).toFixed(2)),
+      "lines_pct does not match lines_covered / lines_total -- the baseline was " +
+        "hand-edited rather than recorded. Run `npm run coverage:baseline`.",
+    ).toBe(baseline.lines_pct);
+  });
+
+  it("was recorded under CI's conditions, not a developer's", () => {
+    // tests/rate-limit.test.ts skips itself without DB credentials, so a
+    // baseline recorded on a machine with .env.local covers more than CI can
+    // ever reach, and the floor would sit red for a reason unrelated to any
+    // test. CI has no credentials, so the baseline must not either.
+    expect(
+      baseline.db_env,
+      "tests/coverage-baseline.json was recorded with Supabase credentials in " +
+        "the environment. Re-record it without them (as CI runs) — otherwise " +
+        "the coverage floor is unreachable.",
+    ).toBe(false);
   });
 });
 

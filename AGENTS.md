@@ -137,13 +137,20 @@ instead. `src/app/**` and components are not in it on purpose: nothing
 unit-tests them, so including them would report ~10% forever and move mainly
 when someone adds a page.
 
-CI runs this inside the existing "Typecheck + tests" job and fails only if
-coverage drops more than 1pp below the recorded baseline. A newly untested
-module is a warning, not a block. `tests/coverage-surface.test.ts` guards the
-surface itself, because the one way to beat a coverage floor is to measure
-less. **Re-record the baseline without `.env.local` in the environment** — with
-DB credentials present, `rate-limit.test.ts` runs and the number comes out
-higher than CI can ever reach.
+First reading, 2026-09-18: **20.96%** of lines, and **208 of 291 modules are
+never loaded by any test** — overwhelmingly the `actions.ts` server actions,
+i.e. the mutation surface.
+
+CI runs this inside the existing "Typecheck + tests" job. **The floor is on
+COVERED LINES, not on the percentage**: it fails when tests stop covering ~50+
+lines, which is what a removed or broken suite looks like. Adding a module with
+no tests dilutes the percentage (one 260-line server action is 2pp) but moves
+covered lines not at all, so that is a warning, never a block — a gate that
+goes red for writing new code gets deleted. `tests/coverage-surface.test.ts`
+guards the surface itself, because the one way to beat a coverage floor is to
+measure less. **Re-record the baseline without `.env.local` in the
+environment** — with DB credentials present, `rate-limit.test.ts` runs and the
+number comes out higher than CI can ever reach.
 
 Repo-level merge settings (post-PR #254):
 - ✅ `delete_branch_on_merge` — merged branches auto-delete on GitHub
