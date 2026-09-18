@@ -276,16 +276,22 @@ async function main() {
     return { rowsAdded: 0, rowsUpdated: 0 };
   }
 
-  let published = { published: false, reason: "not attempted" };
-  try {
-    published = await publishToIssue(body);
-    console.log(published.published ? `  published to issue #${published.number}` : `  not published: ${published.reason}`);
-  } catch (e) {
-    // A failed publish must not lose the review — it is already in the job
-    // summary and the log above, and must not fail the run either.
-    published = { published: false, reason: redact(e?.message ?? e) };
-    console.log(`  ⚠ publish failed: ${published.reason}`);
-  }
+  // A REFUSED WRITE IS NOT A DEGRADE, and the two must not be confused.
+  //
+  // The AI half degrades quietly on purpose: a busy free vendor is a normal
+  // Sunday, and the evidence still reaches the job summary either way. A
+  // publish that fails is the opposite — the review reaches NOBODY, and a run
+  // that then exits 0 is the exact shape of failure this repo loses for weeks.
+  // A missing `issues: write`, a token whose scope changed, an API outage: all
+  // of them look like a clean green weekly job while nothing has been said to
+  // anyone since. So this throws. runWithLogging records status 'error' with
+  // the reason and the run goes red, where the next person to look will see it.
+  //
+  // The one non-fatal case is having no token at all, which only happens
+  // outside Actions — a local run, where the operator is reading stdout and
+  // the review is already on it.
+  const published = await publishToIssue(body);
+  console.log(published.published ? `  published to issue #${published.number}` : `  not published: ${published.reason}`);
 
   const notes = [
     `${cur.size} sources, ${movement.totals.runs} runs`,

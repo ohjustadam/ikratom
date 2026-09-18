@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { load } from "js-yaml";
 import {
   redact,
   summarise,
@@ -231,5 +234,37 @@ describe("weekly self-review — rendering", () => {
   it("dates the review by its window", () => {
     const md = renderMarkdown({ evidence, narrative: null, degraded: "x", windowStartMs: WINDOW_START, nowMs: NOW });
     expect(md).toContain("2026-09-11 to 2026-09-18");
+  });
+});
+
+describe("weekly self-review — workflow wiring", () => {
+  /**
+   * The job's last act is a GitHub API write, and a workflow's default token
+   * carries no `issues: write` unless the workflow asks for it. Without the
+   * block below the job would run on schedule, do all of its reading, and then
+   * 403 on the final call — and since the script throws on a refused publish,
+   * that is a red weekly job every Sunday until someone notices. Cheaper to
+   * catch the missing permission here, in the diff that drops it.
+   *
+   * Same shape as tests/egress-gate-wiring.test.ts: a static property of the
+   * workflow file, asserted at PR time rather than discovered at 09:13 UTC.
+   */
+  const wf = load(readFileSync(join(".github", "workflows", "cron-weekly.yml"), "utf8")) as {
+    jobs: Record<string, { permissions?: Record<string, string>; steps: { run?: string; with?: Record<string, unknown> }[] }>;
+  };
+  const job = wf.jobs["weekly-self-review"];
+
+  it("is a job in the weekly cron", () => {
+    expect(job).toBeTruthy();
+    expect(job.steps.some((s) => s.run?.includes("scripts/weekly-self-review.mjs"))).toBe(true);
+  });
+
+  it("declares the issues:write it needs to publish, and nothing wider", () => {
+    expect(job.permissions).toEqual({ contents: "read", issues: "write" });
+  });
+
+  it("checks out full history, because 'what shipped' is git log not an API call", () => {
+    // At the default depth of 1 the review silently reports nothing shipped.
+    expect(job.steps.some((s) => s.with?.["fetch-depth"] === 0)).toBe(true);
   });
 });
