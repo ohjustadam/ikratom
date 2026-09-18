@@ -1,8 +1,5 @@
-import fs from "fs";
-import path from "path";
-import matter from "gray-matter";
 import Link from "next/link";
-import { frontmatterString } from "@/lib/frontmatter";
+import { listPatchNotes } from "@/lib/patch-notes";
 
 export const metadata = {
   title: "What's new — platform changelog",
@@ -12,30 +9,15 @@ export const metadata = {
 /**
  * /whats-new — public changelog.
  *
- * File-driven, same pattern as /briefings. Markdown files in
- * src/content/patch-notes/ are auto-discovered + listed newest first.
- *
- * Drafts come from scripts/generate-patch-note.mjs which reads recent
- * git log + groups by conventional-commit prefix.
+ * Reads src/lib/patch-notes.ts, which merges the markdown back-catalogue with
+ * the `patch_notes` table (migration 0250). Dynamic because a note published
+ * from /admin/whats-new must appear on the next request — the whole point of
+ * moving off files was that a new note should not need a deploy.
  */
-export default function WhatsNewIndex() {
-  const dir = path.join(process.cwd(), "src", "content", "patch-notes");
-  const files = fs.existsSync(dir)
-    ? fs.readdirSync(dir).filter((f) => f.endsWith(".md"))
-    : [];
+export const dynamic = "force-dynamic";
 
-  const notes = files
-    .map((f) => {
-      const { data } = matter(fs.readFileSync(path.join(dir, f), "utf8"));
-      return {
-        slug: frontmatterString(data.slug) ?? f.replace(/\.md$/, ""),
-        title: frontmatterString(data.title) ?? f,
-        summary: frontmatterString(data.summary),
-        published: frontmatterString(data.published),
-        totalCommits: typeof data.total_commits === "number" ? data.total_commits : null,
-      };
-    })
-    .sort((a, b) => (a.published && b.published ? (a.published < b.published ? 1 : -1) : 0));
+export default async function WhatsNewIndex() {
+  const notes = await listPatchNotes();
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">

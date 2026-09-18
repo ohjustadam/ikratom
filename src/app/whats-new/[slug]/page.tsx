@@ -1,60 +1,53 @@
-import fs from "fs";
-import path from "path";
-import matter from "gray-matter";
 import { marked } from "marked";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { frontmatterString } from "@/lib/frontmatter";
-
-export const metadata = { title: "Patch note" };
-
-const NOTES_DIR = path.join(process.cwd(), "src", "content", "patch-notes");
+import { getPatchNote, patchNoteFileSlugs } from "@/lib/patch-notes";
 
 /**
- * Enumerate the patch notes at build time; reject anything else at the router.
+ * A patch note, from either source (see src/lib/patch-notes.ts).
  *
- * Previously a missing slug called `redirect("/whats-new")` — kind to a reader
- * who followed a push notification for a note that never landed, but it served
- * the changelog index under HTTP 200 at a bogus URL, which is a soft redirect:
- * crawlers index the junk URL as duplicate content. The status could not be
- * fixed in place, because the root `src/app/loading.tsx` Suspense boundary
- * commits 200 before this component runs (proven by removing it — the route
- * answered 404 again).
+ * ── Why dynamicParams is true now ─────────────────────────────────────────
+ * This route used to set `dynamicParams = false` and enumerate the markdown
+ * directory, so an unknown slug was rejected by the ROUTER with a true 404.
+ * That was a deliberate fix: calling notFound() inside the component returns
+ * HTTP 200, because the root src/app/loading.tsx Suspense boundary commits the
+ * status before this component runs. A 200 on a bogus URL is a soft 404 and
+ * crawlers index it as duplicate content.
  *
- * `dynamicParams = false` moves the miss to the router, which returns a true
- * 404. The kindness is preserved by ../not-found.tsx, which points at the
- * changelog exactly like the old redirect did — now with an honest status.
+ * Notes published from the database cannot be enumerated at build time — that
+ * is the entire point of migration 0250 — so the router can no longer be the
+ * gate. The SEO property is preserved a different way: generateMetadata
+ * resolves the note first and returns `robots: { index: false, follow: false }`
+ * when there is nothing to show. A noindex soft-404 is not indexed, which is
+ * what the original comment was actually protecting against.
  *
- * Safe because every note's frontmatter `slug` equals its filename (verified
- * across all 40), which is what the index links to.
+ * generateStaticParams still lists the file back-catalogue so those 40 notes
+ * keep being prerendered at build time and cost nothing to serve.
  */
+export const dynamicParams = true;
+
 export function generateStaticParams() {
-  if (!fs.existsSync(NOTES_DIR)) return [];
-  return fs
-    .readdirSync(NOTES_DIR)
-    .filter((f) => f.endsWith(".md"))
-    .map((f) => ({ slug: f.replace(/\.md$/, "") }));
+  return patchNoteFileSlugs().map((slug) => ({ slug }));
 }
 
-export const dynamicParams = false;
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const note = await getPatchNote(slug);
+  if (!note) {
+    return { title: "Patch note not found", robots: { index: false, follow: false } };
+  }
+  return {
+    title: note.title,
+    description: note.summary ?? undefined,
+  };
+}
 
 export default async function PatchNotePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const dir = NOTES_DIR;
-  const filePath = path.join(dir, `${slug}.md`);
-  // Unreachable for unknown slugs now (the router rejects them), but kept as a
-  // guard in case a file is deleted between build and request.
-  if (!fs.existsSync(filePath)) notFound();
+  const note = await getPatchNote(slug);
+  if (!note) notFound();
 
-  const raw = fs.readFileSync(filePath, "utf8");
-  const { data, content } = matter(raw);
-
-  const title = frontmatterString(data.title) ?? slug;
-  const published = frontmatterString(data.published);
-  const summary = frontmatterString(data.summary);
-  const totalCommits = typeof data.total_commits === "number" ? data.total_commits : null;
-
-  const html = await marked.parse(content, { gfm: true, breaks: false });
+  const html = await marked.parse(note.bodyMd, { gfm: true, breaks: false });
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
@@ -65,13 +58,13 @@ export default async function PatchNotePage({ params }: { params: Promise<{ slug
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
           Patch note
         </p>
-        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">{title}</h1>
-        {(published || totalCommits != null) && (
+        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">{note.title}</h1>
+        {(note.published || note.totalCommits != null) && (
           <p className="mt-2 font-mono text-xs text-zinc-500">
-            {published}{totalCommits != null && ` · ${totalCommits} commits`}
+            {note.published}{note.totalCommits != null && ` · ${note.totalCommits} commits`}
           </p>
         )}
-        {summary && <p className="mt-3 text-sm text-zinc-300">{summary}</p>}
+        {note.summary && <p className="mt-3 text-sm text-zinc-300">{note.summary}</p>}
       </header>
       <article className="briefing-md" dangerouslySetInnerHTML={{ __html: html }} />
     </div>
