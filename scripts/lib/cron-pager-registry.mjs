@@ -116,6 +116,13 @@ export const REGISTRY = [
       "backfill_state_term_dates",
       // Wayback portrait recovery (portrait-sync.yml) — was unregistered.
       "portraits_wayback",
+      // The weekly self-review (cron-weekly.yml). Registered from birth. It
+      // writes a row on EVERY run, including the run where no free model
+      // answered — that path still publishes the evidence and records why the
+      // narrative is missing, so silence here means the job itself stopped,
+      // which is the thing worth paging about. (Contrast egress_gate below,
+      // which writes only on the exception path and must stay unregistered.)
+      "weekly_self_review",
      ].map((source) => ({ source, interval_hours: 216, system: "gh-weekly", cadence: "weekly" })),
 
   // vercel (different system, but still monitorable)
