@@ -21,12 +21,13 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
+import { aiRouter, listAvailableProviders, providerNote, logProviderSummary } from "./lib/ai-router.mjs";
 
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const args = process.argv.slice(2);
 const modelIdx = args.indexOf("--model");
-const MODEL = modelIdx >= 0 ? args[modelIdx + 1] : "llama3.1:8b";
+// Honoured by providers that accept a per-call model (Groq today) and by local
+// Ollama when the router falls through to it. Null means "let the router decide".
+const MODEL_OVERRIDE = modelIdx >= 0 ? args[modelIdx + 1] : null;
 const limitIdx = args.indexOf("--limit");
 const LIMIT = limitIdx >= 0 ? parseInt(args[limitIdx + 1]) : 1000;
 
@@ -60,55 +61,28 @@ Given a headline + source, return a JSON object with these EXACT fields:
 Return ONLY the JSON object, nothing else. Example:
 {"summary":"Oklahoma lawmakers introduced a bill regulating kratom sales. The bill targets the 7-OH alkaloid specifically.","relevance":0.95,"topic":"legislation"}`;
 
-async function checkOllama() {
-  try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return false;
-    const data = await res.json();
-    const models = (data.models ?? []).map((m) => m.name);
-    if (!models.some((m) => m === MODEL || m.startsWith(MODEL.split(":")[0]))) {
-      console.error(`✗ Ollama is running but model "${MODEL}" not found.`);
-      console.error(`  Available: ${models.join(", ") || "(none)"}`);
-      console.error(`  Pull it: ollama pull ${MODEL}`);
-      return false;
-    }
-    return true;
-  } catch {
-    console.error(`✗ Can't reach Ollama at ${OLLAMA_URL}.`);
-    console.error(`  Start it (system tray icon, or run \`ollama serve\` in a terminal).`);
-    return false;
-  }
-}
-
 async function enrichOne(item) {
   const userPrompt = `Headline: ${item.title}\nSource: ${item.source_name ?? "Unknown"}\nURL: ${item.url}`;
 
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: userPrompt },
-      ],
-      format: "json",  // ask Ollama to enforce JSON output
-      stream: false,
-      options: { temperature: 0.1, num_thread: OLLAMA_NUM_THREAD },
-    }),
-    signal: AbortSignal.timeout(60_000),
+  // THE FREE ROUTER, not a direct Ollama call (2026-09-21). This script spoke to
+  // http://localhost:11434 and nothing else, so it could only ever run on the
+  // owner's PC — which is why it was never added to a workflow, and why every
+  // news_item kept the ai_relevance_score: 0.5 placeholder that sync-news-rss
+  // writes with the comment "default; enrich:news adjusts". Nothing adjusted it.
+  // 150 of 150 items in the last fortnight scored exactly 0.5, push-state-news
+  // gates at >= 0.85, and so every state news notification silently sent nothing.
+  //
+  // aiRouter tries the free cloud providers and STILL falls through to local
+  // Ollama last, so running this on the box behaves as before while CI can now
+  // run it at all. The router is JSON-only, which suits this prompt exactly.
+  const { parsed } = await aiRouter({
+    systemPrompt: SYSTEM,
+    userPrompt,
+    maxTokens: 400,
+    ...(MODEL_OVERRIDE ? { modelOverride: MODEL_OVERRIDE } : {}),
+    verbose: false,
   });
-
-  if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  const raw = data.message?.content ?? "";
-
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    throw new Error(`Bad JSON: ${raw.slice(0, 100)}`);
-  }
+  if (!parsed || typeof parsed !== "object") throw new Error("router returned no JSON object");
 
   const validTopics = new Set(["legislation", "science", "business", "enforcement", "culture", "other"]);
   const summary = typeof parsed.summary === "string" ? parsed.summary.slice(0, 1000) : null;
@@ -121,36 +95,52 @@ async function enrichOne(item) {
 }
 
 // ---------- main ----------
-console.log(`\nEnriching news with Ollama (${MODEL} @ ${OLLAMA_URL})…\n`);
+const t0 = Date.now();
+console.log(`\nEnriching news via the free AI router (${listAvailableProviders().join(", ") || "none configured"})…\n`);
 
-const ok = await checkOllama();
-if (!ok) process.exit(1);
+// No checkOllama() gate any more: it hard-exited when localhost:11434 was
+// unreachable, which is every CI runner, and is the second half of why this
+// script never ran in the cloud. The router decides what is reachable.
 
+// THE QUEUE IS THE PLACEHOLDER, NOT THE MISSING SUMMARY (fixed 2026-09-21).
+// This used to select `.is("summary", null)` — the exact same queue
+// summarize-news.mjs claims hourly with a better, body-aware summary. Since
+// that one actually runs, it drains the queue first, so scheduling this script
+// on the old selector would have been a no-op: it would find nothing, the 0.5
+// relevance placeholder would survive anyway, and the news notifications would
+// stay silently dead. What is genuinely unfixed is the SCORE, so that is what
+// this asks for. Exactly 0.5 is sync-news-rss's literal default; a real score
+// landing on 0.5 is rare and re-scoring it costs one call.
 const { data: items } = await supabase
   .from("news_items")
-  .select("id, title, source_name, url")
+  .select("id, title, source_name, url, summary")
   .eq("active", true)
-  .is("summary", null)
+  .or("ai_relevance_score.eq.0.5,ai_relevance_score.is.null,summary.is.null")
   .limit(LIMIT);
 
 if (!items || items.length === 0) {
   console.log("Nothing to enrich — all news items have summaries already.");
-  console.log("(Run `npm run sync:news:rss` first if the queue is empty.)");
+  await tag("empty", 0, 0);
   process.exit(0);
 }
 
 console.log(`Found ${items.length} items to enrich…\n`);
 
 let done = 0, failed = 0;
-const t0 = Date.now();
 
 for (const item of items) {
   process.stdout.write(`  [${done + 1}/${items.length}] ${item.title.slice(0, 60)}… `);
   try {
     const enrichment = await enrichOne(item);
+    // Never clobber an existing summary: summarize-news.mjs writes a body-aware
+    // one, while this prompt only ever sees the headline. Score and topic are
+    // always ours to set — the score is the whole reason this runs.
+    const patch = item.summary
+      ? { ai_relevance_score: enrichment.ai_relevance_score, kratom_topic: enrichment.kratom_topic }
+      : enrichment;
     const { error } = await supabase
       .from("news_items")
-      .update(enrichment)
+      .update(patch)
       .eq("id", item.id);
     if (error) {
       console.log(`DB ✗ ${error.message}`);
@@ -167,4 +157,26 @@ for (const item of items) {
 
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
 console.log(`\nDone in ${elapsed} min — ${done} enriched, ${failed} failed.`);
+logProviderSummary("enrich-news providers");
+
+// TELEMETRY, added with the router port. This script wrote NONE at all, so the
+// fact that it had never run in the cloud was invisible to the staleness pager,
+// to /admin/automation and to every audit — while the 0.5 placeholder it exists
+// to replace quietly disabled the whole news notification path. Silence has to
+// be detectable or it is not monitored.
+await tag(done > 0 ? "success" : (failed > 0 ? "error" : "empty"), done, items.length);
 process.exit(failed > items.length / 2 ? 1 : 0);
+
+async function tag(status, added, processed) {
+  try {
+    await supabase.from("scraper_runs").insert({
+      source: "enrich_news",
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      status,
+      rows_added: added,
+      rows_updated: processed,
+      notes: `${added} enriched · ${failed} failed · ${providerNote()}`,
+    });
+  } catch { /* best-effort */ }
+}

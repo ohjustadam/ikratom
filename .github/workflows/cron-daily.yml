@@ -147,6 +147,35 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET" \
             "${CRON_ORIGIN:-$APP_URL}/api/cron/reverify-local-officials"
 
+  national-news-digest:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    # The country-wide counterpart to push-state-news (cron-hourly), which only
+    # ever reaches in-state users — so a Florida advocate never heard that Ohio
+    # moved. ONE condensed digest per user per day of news from other states plus
+    # national coverage; their own state's stories are excluded because they
+    # already arrived individually.
+    #
+    # Gated like every other daily job: it is a scheduled digest, not an urgent
+    # alert, so it yields when the egress budget is tight.
+    #
+    # Free — inserts notifications rows; the hourly fanout turns them into web
+    # pushes with our existing VAPID keys.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Push the national news digest
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/push-national-news-digest.mjs
+
   egress-watchdog:
     # The "never restricted again" failsafe (2026-07-16 incident): reads the
     # project's Prometheus metrics endpoint and pages the owner at 50/75/90%
