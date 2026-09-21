@@ -298,6 +298,17 @@ jobs:
         # body+media are extracted) opening fast + drain the extract backlog.
         continue-on-error: true
         run: node scripts/extract-news-content.mjs --limit 200
+      - name: Score news relevance + topic via the free AI router
+        # WHY THIS IS A CRON AT ALL (2026-09-21): it never ran in the cloud.
+        # sync-news-rss inserts ai_relevance_score 0.5 as a placeholder and this
+        # is the only thing that replaces it, but it spoke straight to
+        # localhost:11434, so it could only run on the owner's PC. Result: 150 of
+        # 150 items in a fortnight sat at exactly 0.5, push-state-news gates at
+        # >= 0.85, and every news notification silently delivered nothing.
+        # Now routed through the free provider pool, so CI can run it.
+        continue-on-error: true
+        run: node scripts/enrich-news.mjs --limit 40
+
       - name: Summarize fresh articles (our AI synthesis)
         continue-on-error: true
         run: node scripts/summarize-news.mjs --limit 80

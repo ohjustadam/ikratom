@@ -226,4 +226,15 @@ export const REGISTRY = [
   // egress_watchdog. Registered from birth rather than retrofitted, which is
   // the entire point of the reverse guard that found the two above.
   { source: "netlify_credit_watchdog", interval_hours: 24, system: "github-actions", cadence: "daily" },
+
+  // push_national_news_digest — the country-wide counterpart to push_state_news
+  // (which only ever reaches in-state users). Daily; 48h interval so one missed
+  // run is not a page, but two days of silence is.
+  { source: "push_national_news_digest", interval_hours: 48, system: "github-actions", cadence: "daily" },
+
+  // enrich_news — replaces sync-news-rss's ai_relevance_score 0.5 placeholder
+  // with a real score. Registered the day it was first automated: it had run
+  // ONLY on the owner's PC, wrote no telemetry, and its absence silently gated
+  // every news notification to zero. 6h interval against an hourly cadence.
+  { source: "enrich_news", interval_hours: 6, system: "gh-hourly", cadence: "hourly" },
 ];
