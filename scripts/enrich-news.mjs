@@ -116,6 +116,14 @@ const { data: items } = await supabase
   .select("id, title, source_name, url, summary")
   .eq("active", true)
   .or("ai_relevance_score.eq.0.5,ai_relevance_score.is.null,summary.is.null")
+  // NEWEST FIRST, and this is load-bearing, not tidiness. Measured 2026-09-21:
+  // 14,142 items still carry the 0.5 placeholder. The hourly cron scores 40, so
+  // an unordered queue reaches today's news in about two weeks — and fresh
+  // articles keep landing behind the history. push-state-news only acts on items
+  // published in the last 12h, so without this ordering the notification path
+  // stays dead no matter how long the backfill runs. History still drains, just
+  // behind the news that can actually be acted on.
+  .order("published_at", { ascending: false })
   .limit(LIMIT);
 
 if (!items || items.length === 0) {
