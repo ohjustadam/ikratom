@@ -21,7 +21,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { aiRouter, listAvailableProviders, providerNote, logProviderSummary } from "./lib/ai-router.mjs";
+import { aiRouter, listAvailableProviders, providerNote, logProviderSummary, poolExhausted } from "./lib/ai-router.mjs";
 
 const args = process.argv.slice(2);
 const modelIdx = args.indexOf("--model");
@@ -137,6 +137,17 @@ console.log(`Found ${items.length} items to enrich…\n`);
 let done = 0, failed = 0;
 
 for (const item of items) {
+  // STOP WHEN THE POOL IS PROVEN DRY (2026-09-25). The 09-25 runs read
+  // "1 enriched · 39 failed": the first item discovered every provider was gone
+  // or throttled, and the remaining 39 re-proved it one at a time. That burns
+  // the job's wall clock, hammers providers that are already rate-limiting us,
+  // and buries the real signal under 39 identical failures. One pass is enough
+  // evidence; the next hourly run re-probes from scratch.
+  if (poolExhausted()) {
+    console.log(`\n  ⚠ every configured AI provider is gone or unreachable — stopping after ${done + failed} item(s).`);
+    console.log(`    The remaining ${items.length - done - failed} stay queued for the next run.`);
+    break;
+  }
   process.stdout.write(`  [${done + 1}/${items.length}] ${item.title.slice(0, 60)}… `);
   try {
     const enrichment = await enrichOne(item);
