@@ -16,9 +16,13 @@
  * billing month (a reset shows up as reading < previous → treat the new
  * reading itself as the delta).
  *
- * Billing month anchor: the org was created 2026-07-16, so the cycle resets
- * the 16th of each month (adjust EGRESS_CYCLE_ANCHOR_DAY if Supabase billing
- * says otherwise).
+ * Billing month anchor: the 18th — read off the dashboard, not inferred. See
+ * EGRESS_CYCLE_ANCHOR_DAY below for why that distinction cost us a false alarm.
+ *
+ * This ALSO watches database size, which egress alone never covered. Egress
+ * resets every cycle; the database only grows, so it is the ceiling that
+ * actually arrives. On 2026-09-24 it sat at 0.32 of 0.5 GB (65%) with nothing
+ * in the repo watching it.
  *
  * Runs daily via cron-daily.yml. Telemetry source: egress_watchdog (the notes
  * field carries the month-to-date estimate so /admin/automation shows it).
@@ -71,7 +75,20 @@ const BUDGET_GB = 5;
 // work for no reason.
 const BILLABLE_RATIO = 0.497;
 const THRESHOLDS = [0.5, 0.75, 0.9]; // page at 50%, 75%, 90%
-const EGRESS_CYCLE_ANCHOR_DAY = 16;  // org created 2026-07-16
+/**
+ * VERIFIED AGAINST THE DASHBOARD 2026-09-24, which read "18 Sep 2026 - 18 Oct
+ * 2026". This was 16, inferred from the org's creation date rather than from
+ * billing, and being two days early made every month-to-date sum count two
+ * extra days of traffic. The damage was not academic: on 2026-09-24 this script
+ * reported 1.477 GB (29.5%) and projected a breach on ~Oct 11, while the
+ * dashboard showed 1.023 GB (20%) with no risk at all. Summing only from the
+ * 18th lands at ~1.13 GB — about 10% high, which is the deliberate over-report
+ * margin BILLABLE_RATIO already carries.
+ *
+ * So: the anchor was the defect, NOT the ratio. Do not "fix" the ratio to chase
+ * the remaining gap without re-measuring against the dashboard first.
+ */
+const EGRESS_CYCLE_ANCHOR_DAY = 18;
 
 // Current billing-cycle start (the most recent anchor day, UTC).
 function cycleStart(now = new Date()) {
@@ -102,6 +119,35 @@ for (const line of text.split("\n")) {
   }
 }
 console.log(`current transmit counter: ${(currentBytes / 1e9).toFixed(3)} GB (since instance start)`);
+
+/**
+ * DATABASE SIZE — the ceiling that does not reset.
+ *
+ * Egress is forgiven every billing cycle; disk is not. The free tier allows
+ * 0.5 GB and hitting it stops writes, which takes the pipelines down without
+ * any of the egress warnings ever firing. Nothing in this repo watched it until
+ * 2026-09-24, when a dashboard check found it at 65% — the closest ceiling we
+ * had, and completely unmonitored. The same metrics payload we already fetched
+ * carries it, so this costs nothing extra.
+ */
+const DB_BUDGET_BYTES = 0.5e9;
+let dbBytes = 0;
+for (const line of text.split("\n")) {
+  if (line.startsWith("pg_database_size_bytes") && line.includes('datname="postgres"')) {
+    dbBytes = parseFloat(line.trim().split(/\s+/).pop()) || 0;
+    break;
+  }
+}
+const dbPct = dbBytes / DB_BUDGET_BYTES;
+const dbNote = dbBytes > 0 ? ` · db ${(dbBytes / 1e9).toFixed(3)}/0.5GB (${(dbPct * 100).toFixed(0)}%)` : "";
+if (dbBytes > 0) {
+  console.log(`database size: ${(dbBytes / 1e9).toFixed(3)} GB of 0.5 GB (${(dbPct * 100).toFixed(1)}%)`);
+  if (dbPct >= 0.8) {
+    console.log(`⚠ DATABASE at ${(dbPct * 100).toFixed(0)}% of the free-tier cap. This does NOT reset`);
+    console.log(`  monthly like egress — at 100% writes stop. Biggest table is usually news_items;`);
+    console.log(`  prune old rows or archive before it lands.`);
+  }
+}
 
 // 2. Month-to-date = sum of positive deltas across this cycle's daily readings.
 const { data: prior } = await sb
@@ -260,7 +306,7 @@ if (!DRY) {
       started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
       status: pct >= 0.9 ? "error" : "success",
       rows_updated: Math.round(currentBytes / 1e6),
-      notes: `MTD ~${(billableBytes / 1e9).toFixed(2)}GB/${BUDGET_GB}GB (${(pct * 100).toFixed(1)}%)${baselineNote}${pagedNote}`,
+      notes: `MTD ~${(billableBytes / 1e9).toFixed(2)}GB/${BUDGET_GB}GB (${(pct * 100).toFixed(1)}%)${dbNote}${baselineNote}${pagedNote}`,
     });
   } catch { /* best-effort */ }
 }
