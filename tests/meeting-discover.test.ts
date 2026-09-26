@@ -1449,3 +1449,42 @@ describe("run-scoped dedupe must not fold separate tenants together", () => {
     }
   });
 });
+
+/**
+ * From cliftonparkny.gov/public-hearings on 2026-09-26 — a real .gov notice
+ * listing real upcoming hearings. It yielded six correct dates with
+ * hasTime=false on every one, and isAgenda=false, which together cap a genuine
+ * meeting at 0.60 and block auto-publish forever.
+ */
+describe("real .gov agenda page: times and shape must be recognised", () => {
+  const NOW = new Date("2026-09-26T12:00:00Z");
+  const at = (text: string) => MD.extractDateCandidates(text, { now: NOW, state: "NY", windowDays: 60 });
+
+  it("reads a time separated by BOTH a comma and 'at'", () => {
+    const [c] = at("the Town will conduct a public hearing on Tuesday, October 6, 2026, at 7:05 PM");
+    expect(c.hasTime).toBe(true);
+    expect([c.hh, c.mm]).toEqual([19, 5]);
+  });
+
+  it("reads a 24-hour clock, which municipal calendars print", () => {
+    const [c] = at("Tree Committee Meeting Date Sep 28, 2026 06:00 Room C");
+    expect(c.hasTime).toBe(true);
+    expect([c.hh, c.mm]).toEqual([6, 0]);
+  });
+
+  it("does NOT read a bare trailing number as an hour", () => {
+    // The meridiem is optional now, so this is the case that guard exists for:
+    // a wrong hour would publish as fact, where no hour merely holds for review.
+    const [c] = at("Ordinance 2026-14 adopted October 6, 2026 7");
+    expect(c.hasTime).toBe(false);
+  });
+
+  it("recognises a public-hearings notice as an agenda page", () => {
+    const text = "Notice is hereby given that the Town Board will conduct a public hearing on Tuesday, October 6, 2026.";
+    expect(MD.checkPageIsAgenda({ url: "https://cliftonparkny.gov/public-hearings", text, title: "" }).isAgenda).toBe(true);
+  });
+
+  it("still refuses a page with no civic shape at all", () => {
+    expect(MD.checkPageIsAgenda({ url: "https://x.gov/contact", text: "Nothing civic here at all.", title: "Contact us" }).isAgenda).toBe(false);
+  });
+});
