@@ -257,7 +257,7 @@ jobs:
         # --limit 80: 200/hr front-loaded the free-tier daily quota; 80/hr
         # still drains any realistic backlog across ticks. Circuit breaker
         # (scripts/lib/batch-guard.mjs) stops early if providers die.
-        run: node scripts/classify-news-policy.mjs --limit 80
+        run: node scripts/classify-news-policy.mjs --limit 20
 
   news-enrich:
     # Same-tick in-app enrichment (#632 fast path): resolve → extract body+media
@@ -298,6 +298,20 @@ jobs:
         # body+media are extracted) opening fast + drain the extract backlog.
         continue-on-error: true
         run: node scripts/extract-news-content.mjs --limit 200
+      # ── FREE-POOL BUDGET (rebalanced 2026-09-26) ───────────────────────────
+      # These hourly limits were sized for draining BACKLOG, not for fresh
+      # volume, and collectively could demand ~8,400 AI calls a day
+      # (80+40+80+100+25+25 per hour). Free tiers are measured in hundreds. Each
+      # queue is deep enough to always find work, so the pool was drained
+      # continuously and the DAILY jobs — municipal discovery, BOP classification,
+      # state briefings — arrived at 15:00 UTC to find nothing left. That is why
+      # discovery reported "49/51 states BLOCKED · extract-provider-down": not a
+      # search failure, no reader.
+      #
+      # Measured fresh volume is ~72 news items/day. These limits now total
+      # ~2,088/day, still 4-7x headroom on fresh content, leaving the daily jobs
+      # a working pool. Backlog drains slower on purpose; enrich-news orders
+      # newest-first (#931), so fresh news is never behind history.
       - name: Score news relevance + topic via the free AI router
         # WHY THIS IS A CRON AT ALL (2026-09-21): it never ran in the cloud.
         # sync-news-rss inserts ai_relevance_score 0.5 as a placeholder and this
@@ -307,14 +321,14 @@ jobs:
         # >= 0.85, and every news notification silently delivered nothing.
         # Now routed through the free provider pool, so CI can run it.
         continue-on-error: true
-        run: node scripts/enrich-news.mjs --limit 40
+        run: node scripts/enrich-news.mjs --limit 12
 
       - name: Summarize fresh articles (our AI synthesis)
         continue-on-error: true
-        run: node scripts/summarize-news.mjs --limit 80
+        run: node scripts/summarize-news.mjs --limit 15
       - name: Generate full in-app digest for fresh articles
         continue-on-error: true
-        run: node scripts/generate-news-digest.mjs --limit 100 --concurrency 6
+        run: node scripts/generate-news-digest.mjs --limit 20 --concurrency 3
 
   news-actions:
     # Everything downstream of intake: push fresh alerts/news, auto-spawn and
@@ -378,10 +392,10 @@ jobs:
       - name: Extract officials from news alerts + make them actionable
         # A 429/parse failure here must not fail the whole leg (self-heals next hour).
         continue-on-error: true
-        run: node scripts/extract-news-officials.mjs --limit 25
+        run: node scripts/extract-news-officials.mjs --limit 10
       - name: Extract future civic events from news → calendar
         continue-on-error: true
-        run: node scripts/extract-news-events.mjs --limit 25
+        run: node scripts/extract-news-events.mjs --limit 10
       - name: Auto-approve high-confidence municipal meetings
         continue-on-error: true
         run: node scripts/auto-approve-meetings.mjs
