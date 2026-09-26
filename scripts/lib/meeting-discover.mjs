@@ -950,8 +950,36 @@ export async function discoverMeetings({
       return false;
     })
     .filter((u) => {
+      // DEDUPE ON THE FULL HOST AND THE QUERY (fixed 2026-09-25).
+      //
+      // This keyed on `registrableDomain + pathname`, and registrableDomain
+      // folds EVERY agenda-vendor tenant onto one name: a.legistar.com,
+      // b.legistar.com and c.legistar.com all become "legistar.com". The
+      // meeting id on those portals lives in the QUERY
+      // (/MeetingDetail.aspx?ID=1234), which the key threw away. So every
+      // Legistar meeting in the country collapsed to a single key and the run
+      // fetched ONE of them — the rest were dropped as duplicates before
+      // anything looked at them. Same for Granicus, iQM2 and PrimeGov.
+      //
+      // Caught by a test fixture that used three tenants and only saw two
+      // candidates verified. The vendor lane is the lane most likely to hold a
+      // real agenda, so this was silently discarding the best evidence we had.
+      //
+      // hostOf (not registrableDomain) still folds www., which is the variant
+      // that actually repeats across lanes.
+      // Which half of the host is safe to fold depends on WHO owns it:
+      //   a city's own domain — clerk.cityofx.gov and council.cityofx.gov are
+      //     one government's two doors to the same agenda, so fold to the
+      //     registrable domain (the original, correct intent).
+      //   a shared vendor — sarasota.legistar.com and tampa.legistar.com are
+      //     two different governments, so the subdomain IS the identity and
+      //     folding it destroys the lane.
       let key;
-      try { key = `${registrableDomain(u)}${new URL(u).pathname}`; } catch { return false; }
+      try {
+        const u2 = new URL(u);
+        const base = meetingTierOf(u) === "vendor" ? hostOf(u) : registrableDomain(u);
+        key = `${base}${u2.pathname}${u2.search}`;
+      } catch { return false; }
       if (counters.seenKeys.has(key)) return false;
       counters.seenKeys.add(key);
       return true;
@@ -972,7 +1000,21 @@ export async function discoverMeetings({
     if (r.isAgenda) agendaHits++;
     if (r.readerOk) bump(counters, "readerOk");
     if (r.status === "reader_failed") { readerFailed++; bump(counters, "readerFailed"); return; }
-    if (r.status !== "row") { if (r.status === "reject") rejected++; return; }
+    if (r.status !== "row") {
+      if (r.status === "reject") rejected++;
+      // WHICH GATE ATE IT (2026-09-25). Runs on 09-18 and 09-19 read
+      // "29 agenda hits · 0 new" and the telemetry stopped there, so
+      // "there are no kratom meetings this week" and "we are rejecting every
+      // page we fetch" produced an identical line. That is the same
+      // blocked-vs-empty confusion this pipeline was built to end, one level
+      // deeper in. The reason strings already exist on every reject — they were
+      // simply thrown away. Tallying them turns the next run into evidence
+      // about WHICH rule is too strict, instead of another silent zero.
+      counters.rejectReasons ??= {};
+      const key = String(r.reason ?? r.status).replace(/\(.*$/, "").trim().slice(0, 40);
+      counters.rejectReasons[key] = (counters.rejectReasons[key] ?? 0) + 1;
+      return;
+    }
 
     provider = r.row.engineProvider ?? provider;
     let score = { confidence: r.row.confidence, publishable: r.row.publishable, reason: r.row.reason };

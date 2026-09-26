@@ -232,13 +232,60 @@ function startCooldown(p, ms = 60_000) {
  * them straight back up. This makes a dead provider cheap, not permanent.
  */
 const HARD_FAIL_STATUS = new Set([402, 410]);
+
+/**
+ * Providers that CANNOT answer for the rest of this process.
+ *
+ * A cooldown was not enough, and the telemetry says so plainly. On 2026-09-25 a
+ * single enrich-news run logged `github 0/49, ollama 0/49` — 49 attempts each
+ * against GitHub Models, which is permanently 410 (retired), and against local
+ * Ollama, which no CI runner can ever reach. That is ~98 guaranteed-useless
+ * round-trips in one run, each one costing wall-clock inside a job timeout.
+ *
+ * The cause is the ordering below: in-cooldown providers are DEMOTED to the back
+ * of the chain, not removed from it. That is right for a 429 (it may recover in
+ * 60s, and trying it beats failing the call). It is wrong for "gone" — when the
+ * whole pool is throttled, every call still walks all the way to the back and
+ * pays the dead ones again.
+ *
+ * So hard failures now go in here and are excluded from the chain entirely for
+ * the life of the process. Still NOT removed from availableProviders(): the next
+ * process re-probes them, so a provider that comes back is picked up with no
+ * deploy. Dead stays cheap, not permanent.
+ */
+const deadForProcess = new Map(); // provider -> reason
+
 function noteHardFailure(p, status, body = "") {
   if (!HARD_FAIL_STATUS.has(status)) return false;
-  // 6h, not forever: long enough that a cron run pays the round-trip once
-  // instead of hundreds of times, short enough that recovery is automatic.
   startCooldown(p, 6 * 3600_000);
-  console.log(`    ⓘ ${p} hard-failed (${status}) — skipping it for 6h: ${body.slice(0, 80)}`);
+  if (!deadForProcess.has(p)) {
+    deadForProcess.set(p, `${status}`);
+    console.log(`    ⓘ ${p} is gone (${status}) — dropped from this run: ${body.slice(0, 70)}`);
+  }
   return true;
+}
+
+/**
+ * Same treatment for a provider whose HOST is unreachable.
+ *
+ * Ollama is the case that matters: it lives on the owner's PC at
+ * localhost:11434, so in GitHub Actions the connection is refused every single
+ * time. One refusal is proof enough for the rest of the process — the box is not
+ * going to appear mid-run.
+ */
+function noteUnreachable(p, err) {
+  const msg = String(err?.message ?? err);
+  if (!/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|other side closed/i.test(msg)) return false;
+  if (!deadForProcess.has(p)) {
+    deadForProcess.set(p, "unreachable");
+    console.log(`    ⓘ ${p} unreachable — dropped from this run: ${msg.slice(0, 60)}`);
+  }
+  return true;
+}
+
+/** True when every configured provider has proven it cannot answer. */
+export function poolExhausted() {
+  return availableProviders().every((p) => deadForProcess.has(p));
 }
 
 /**
@@ -604,8 +651,13 @@ export async function aiRouter({
   const start = pickStart(providerOverride);
   // Cooldown-aware order: try start first, then everyone else, but
   // demote in-cooldown providers to the back.
-  const fresh = [start, ...list.filter((p) => p !== start && !inCooldown(p))];
-  const cold = list.filter((p) => p !== start && inCooldown(p));
+  // Providers proven gone/unreachable this process are excluded OUTRIGHT, not
+  // demoted — see deadForProcess above for the 98-wasted-calls measurement.
+  const live = list.filter((p) => !deadForProcess.has(p));
+  const chain = live.length ? live : list;   // all dead? try anyway rather than fail blind
+  const s = chain.includes(start) ? start : chain[0];
+  const fresh = [s, ...chain.filter((p) => p !== s && !inCooldown(p))];
+  const cold = chain.filter((p) => p !== s && inCooldown(p));
   const order = [...fresh, ...cold];
 
   const t0 = Date.now();
@@ -633,11 +685,17 @@ export async function aiRouter({
       h.fail++;
       h.lastError = String(e.message ?? e).slice(0, 160);
       lastErr = e;
+      // A refused connection is proof for the whole process, not just this call.
+      // Ollama in CI is the standing example: localhost:11434 is never going to
+      // answer on a GitHub runner, and it was being retried 49 times per run.
+      const gone = noteUnreachable(p, e);
       if (verbose) {
         console.log(`    ⚠ ${p} failed: ${h.lastError.slice(0, 140)}`);
       }
-      // Brief gap before next provider
-      await new Promise((r) => setTimeout(r, 800));
+      // No point pausing politely for a provider we just struck off — the 800ms
+      // gap exists to let a throttle breathe, and 49 of them is 39 seconds of a
+      // job timeout spent waiting on hosts that cannot reply.
+      if (!gone) await new Promise((r) => setTimeout(r, 800));
     }
   }
   // Distinguish "the pool is empty" from "the pool answered badly". The first is

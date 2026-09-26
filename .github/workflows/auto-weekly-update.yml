@@ -66,8 +66,22 @@ jobs:
           git add "${{ steps.gen.outputs.patch_file }}"
           git commit -m "docs(weekly): ${{ steps.gen.outputs.patch_title }} (auto-draft)"
           git push -u origin "$BR"
+          # A LABEL MUST NOT BE ABLE TO KILL THIS JOB (2026-09-24).
+          # `gh pr create --label` fails outright when a label does not exist in
+          # the repo, and "weekly-digest" never did. So every weekly run wrote
+          # the patch note, committed it and pushed the branch — and then died on
+          # `could not add label: 'weekly-digest' not found` with exit 1. The PR
+          # was NEVER created. That read as a noisy failure email for weeks while
+          # the actual breakage was silent: no weekly digest ever reached review.
+          # Ensure the labels exist first (idempotent), then never let labelling
+          # fail the step that does the real work.
+          gh label create patch-notes   --color 1D76DB --description "Auto-drafted patch note" 2>/dev/null || true
+          gh label create weekly-digest --color 0E8A16 --description "Auto-drafted weekly update digest (curate before merge)" 2>/dev/null || true
           gh pr create \
             --title "docs(weekly): ${{ steps.gen.outputs.patch_title }} (curate before broadcast)" \
             --body "Weekly digest auto-draft (last 7 days), markdown-only. **Curate the headlines by user impact, then merge.** After it deploys, fire the push manually: \`node --env-file=.env.local scripts/broadcast-whats-new.mjs --slug <slug> --all-users\` (dry-run first). This workflow sends nothing on its own. 🤖 .github/workflows/auto-weekly-update.yml" \
-            --label "patch-notes,weekly-digest"
+            --label "patch-notes,weekly-digest" \
+            || gh pr create \
+              --title "docs(weekly): ${{ steps.gen.outputs.patch_title }} (curate before broadcast)" \
+              --body "Weekly digest auto-draft (last 7 days), markdown-only. Curate before merge. (Labels could not be applied.) 🤖 .github/workflows/auto-weekly-update.yml"
           echo "PR opened — left for owner review (not auto-merged)."

@@ -1381,3 +1381,71 @@ describe("first-live-run regression — non-authoritative pages never become mee
     expect(full.in_person_address).toBe("1565 First Street, Sarasota, FL 34236");
   });
 });
+
+describe("reject reasons are counted, so a dry run is distinguishable from an over-strict one", () => {
+  it("tallies which gate rejected each candidate", async () => {
+    const prev = process.env.SEARXNG_URL;
+    process.env.SEARXNG_URL = "http://localhost:8080";
+    try {
+      const hit = (u: string) => ({ url: u, title: "kratom agenda city council", content: "kratom agenda", engine: "stub" });
+      const results = [
+        hit("https://a.legistar.com/MeetingDetail.aspx?ID=1"),
+        hit("https://b.legistar.com/MeetingDetail.aspx?ID=2"),
+        hit("https://cityofx.gov/agenda/one"),
+        hit("https://cityofy.gov/agenda/two"),
+      ];
+      // Two different gates fire, so the tally has to separate them rather than
+      // collapsing to a single "rejected: 4".
+      const reasons = ["no-in-window-date", "no-in-window-date", "archive", "quote-not-on-page"];
+      let i = 0;
+      const counters: Record<string, unknown> = {};
+      await MD.discoverMeetings({
+        scopeState: "FL", stateName: "Florida", maxFetches: 4, dryRun: true, counters,
+        probeResult: { ok: true }, localityLane: false,
+        search: (async () => ({ ok: true, status: 200, reason: "ok", results })) as never,
+        verify: (async () => ({ status: "reject", reason: reasons[i++], readerOk: true, isAgenda: true })) as never,
+      } as never);
+      expect(counters.rejectReasons).toEqual({
+        "no-in-window-date": 2,
+        "archive": 1,
+        "quote-not-on-page": 1,
+      });
+    } finally {
+      if (prev === undefined) delete process.env.SEARXNG_URL; else process.env.SEARXNG_URL = prev;
+    }
+  });
+});
+
+describe("run-scoped dedupe must not fold separate tenants together", () => {
+  it("REGRESSION 2026-09-25: three vendor tenants are three candidates, not one", async () => {
+    const prev = process.env.SEARXNG_URL;
+    process.env.SEARXNG_URL = "http://localhost:8080";
+    try {
+      const hit = (u: string) => ({ url: u, title: "kratom agenda city council", content: "kratom agenda", engine: "stub" });
+      // registrableDomain() folds all three onto "legistar.com", and the meeting
+      // id is in the QUERY — so the old key fetched exactly one of them.
+      const results = [
+        // Same PATH, no distinguishing query — so only the subdomain separates
+        // these three governments. registrableDomain folds all of them onto
+        // "granicus.com" and the run fetched exactly one.
+        hit("https://sarasota.granicus.com/ViewPublisher.php"),
+        hit("https://naples.granicus.com/ViewPublisher.php"),
+        hit("https://tampa.granicus.com/ViewPublisher.php"),
+        // The same tenant surfaced twice with a www. variant SHOULD still collapse.
+        hit("https://www.tampa.granicus.com/ViewPublisher.php"),
+      ];
+      const seen: string[] = [];
+      const counters: Record<string, unknown> = {};
+      await MD.discoverMeetings({
+        scopeState: "FL", stateName: "Florida", maxFetches: 8, dryRun: true, counters,
+        probeResult: { ok: true }, localityLane: false,
+        search: (async () => ({ ok: true, status: 200, reason: "ok", results })) as never,
+        verify: (async ({ url }: { url: string }) => { seen.push(url); return { status: "reject", reason: "stub", readerOk: true, isAgenda: false }; }) as never,
+      } as never);
+      expect(seen).toHaveLength(3);
+      expect(new Set(seen).size).toBe(3);
+    } finally {
+      if (prev === undefined) delete process.env.SEARXNG_URL; else process.env.SEARXNG_URL = prev;
+    }
+  });
+});

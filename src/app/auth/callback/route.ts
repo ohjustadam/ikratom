@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -16,6 +17,10 @@ export async function GET(request: NextRequest) {
   const next = url.searchParams.get("next") ?? "/dashboard";
   const error = url.searchParams.get("error");
   const errorDescription = url.searchParams.get("error_description");
+  // The OTP shape. Supabase does not always come back with ?code=, and this
+  // route used to treat every other shape as a hard failure — see failTo() below.
+  const tokenHash = url.searchParams.get("token_hash");
+  const type = url.searchParams.get("type") as EmailOtpType | null;
 
   // Validate the next path — only allow same-origin relative paths. The old
   // check (startsWith("/") && !startsWith("//")) was bypassable: the WHATWG URL
@@ -31,22 +36,54 @@ export async function GET(request: NextRequest) {
       ? next
       : "/dashboard";
 
-  if (error) {
-    return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(errorDescription ?? error)}`, request.url),
+  /**
+   * A failed PASSWORD RESET must not dead-end on /login.
+   *
+   * Every failure below used to redirect to /login?error=…, which is what the
+   * owner reported on 2026-09-24: "the reset link simply takes the user back to
+   * the login page". A login form does not tell someone their link expired, and
+   * it does not offer them a new one — so the account stays locked and the
+   * platform looks broken. A recovery attempt belongs back at /forgot, which
+   * says so and can re-send.
+   */
+  const isRecovery = safeNext === "/reset-password" || type === "recovery";
+  const failTo = (reason: string) =>
+    NextResponse.redirect(
+      new URL(
+        isRecovery ? "/forgot?expired=1" : `/login?error=${encodeURIComponent(reason)}`,
+        request.url,
+      ),
     );
-  }
 
-  if (!code) {
-    return NextResponse.redirect(new URL("/login?error=missing_code", request.url));
-  }
+  if (error) return failTo(errorDescription ?? error);
 
   const supabase = await createClient();
-  const { error: exchErr } = await supabase.auth.exchangeCodeForSession(code);
-  if (exchErr) {
-    return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(exchErr.message)}`, request.url),
-    );
+
+  /**
+   * TOKEN-HASH FALLBACK (2026-09-24). This route only ever accepted ?code=, the
+   * PKCE shape, which needs the code_verifier cookie that was set in the SAME
+   * browser that requested the reset. That assumption breaks in two ordinary
+   * cases, and both land the user on /login:
+   *
+   *   - CROSS-DEVICE. Request the reset on a laptop, open the mail on a phone.
+   *     No verifier cookie there, so exchangeCodeForSession always fails.
+   *   - MAIL SCANNERS. Outlook and many corporate gateways pre-fetch links, and
+   *     these tokens are single-use, so the human's click arrives already spent
+   *     as ?error=access_denied&error_code=otp_expired.
+   *
+   * verifyOtp({ type, token_hash }) needs no verifier, so it survives both. We
+   * cannot instead fix this in the email body: the dashboard requires custom
+   * SMTP to edit templates and this project has none, so Supabase's default
+   * template is what ships. src/app/auth/confirm/route.ts already proves this
+   * exact pattern for admin-generated links.
+   */
+  if (!code) {
+    if (!tokenHash || !type) return failTo("missing_code");
+    const { error: otpErr } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+    if (otpErr) return failTo(otpErr.message);
+  } else {
+    const { error: exchErr } = await supabase.auth.exchangeCodeForSession(code);
+    if (exchErr) return failTo(exchErr.message);
   }
 
   // First-time signup confirmation? Route through /onboarding instead of next.
