@@ -266,8 +266,26 @@ function tzOffsetMinutes(utcDate, timeZone) {
 
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 const MONTH_SRC = "(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
-// Optional trailing clock: "6:00 PM", "6 p.m.", "at 6:30pm".
-const TIME_SRC = "(?:\\s*(?:,|at|@|-|\u2013)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*([ap])\\.?\\s*m\\.?)?";
+/**
+ * Optional trailing clock: "6:00 PM", "6 p.m.", "at 6:30pm", ", at 7:05 PM",
+ * and 24-hour "06:00".
+ *
+ * WIDENED 2026-09-26, from a real page. cliftonparkny.gov/public-hearings
+ * yielded six correct dates and hasTime=false on EVERY one, which caps a
+ * genuine meeting at 0.60 and blocks auto-publish \u2014 `hasStatedTime` is required
+ * for the 0.90 tier. Two separate misses:
+ *
+ *   ", at 7:05 PM"  \u2014 the separator was a single alternation `(?:,|at|@|-|\u2013)`,
+ *                     so a comma AND the word "at" could not both appear.
+ *   "Sep 28, 2026 06:00" \u2014 the meridiem was MANDATORY, so a 24-hour clock (what
+ *                     municipal calendars commonly print) never matched.
+ *
+ * The meridiem is now optional, which would otherwise let a bare trailing
+ * number ("October 6, 2026 7") read as an hour \u2014 so the callers require either
+ * a meridiem or explicit minutes before trusting it as a time. A wrong hour is
+ * worse than no hour: no hour merely holds the row for review.
+ */
+const TIME_SRC = "(?:\\s*,?\\s*(?:at|@|-|\u2013)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*([ap])?\\.?\\s*m?\\.?)?";
 
 const LONG_DATE_RX = new RegExp(`\\b(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\\s+)?${MONTH_SRC}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(20\\d{2})${TIME_SRC}`, "gi");
 const NUMERIC_DATE_RX = new RegExp(`\\b(\\d{1,2})/(\\d{1,2})/(20\\d{2})\\b${TIME_SRC}`, "gi");
@@ -331,14 +349,21 @@ export function extractDateCandidates(text, { now = new Date(), state = null, wi
     byKey.set(key, { raw: raw.trim().slice(0, 80), index, y, m, d, hh, mm, hasTime, labeled });
   };
 
+  // A trailing number is only a TIME when it carries a meridiem or explicit
+  // minutes. Without that guard the now-optional meridiem would read "October 6,
+  // 2026 7" — a list index, a suite number, anything — as 7am, and a wrong hour
+  // published as fact is far worse than no hour, which merely holds for review.
+  const clockOf = (hRaw, minRaw, mer) =>
+    (hRaw && (mer || minRaw != null)) ? hourFrom(hRaw, mer) : null;
+
   for (const m of src.matchAll(LONG_DATE_RX)) {
     const month = MONTHS[m[1].slice(0, 3).toLowerCase()];
-    const hh = m[4] ? hourFrom(m[4], m[6]) : null;
-    push(m.index ?? 0, m[0], Number(m[3]), month, Number(m[2]), hh ?? 0, m[5] ? Number(m[5]) : 0, hh !== null);
+    const hh = clockOf(m[4], m[5], m[6]);
+    push(m.index ?? 0, m[0], Number(m[3]), month, Number(m[2]), hh ?? 0, hh !== null && m[5] ? Number(m[5]) : 0, hh !== null);
   }
   for (const m of src.matchAll(NUMERIC_DATE_RX)) {
-    const hh = m[4] ? hourFrom(m[4], m[6]) : null;
-    push(m.index ?? 0, m[0], Number(m[3]), Number(m[1]), Number(m[2]), hh ?? 0, m[5] ? Number(m[5]) : 0, hh !== null);
+    const hh = clockOf(m[4], m[5], m[6]);
+    push(m.index ?? 0, m[0], Number(m[3]), Number(m[1]), Number(m[2]), hh ?? 0, hh !== null && m[5] ? Number(m[5]) : 0, hh !== null);
   }
   for (const m of src.matchAll(ISO_DATE_RX)) {
     const hasTime = m[4] != null;
@@ -414,7 +439,13 @@ export function classifyItemContext(pageText, quote) {
 // 3.7 Page shape + contacts — lifted by code, never model fields
 // ---------------------------------------------------------------------------
 
-const AGENDA_SHAPE_RX = /\b(agenda|notice of (?:a |the )?(?:regular|special|public|emergency) meeting|meeting notice|order of business|call to order|consent calendar)\b/i;
+// "public hearing" and "meeting date" added 2026-09-26: cliftonparkny.gov's
+// public-hearings page — a real .gov notice listing a real upcoming hearing —
+// scored isAgenda:false, which caps it at 0.60 no matter how well everything
+// else verifies. These phrases are safe to add HERE specifically because gate 0
+// already restricts this code path to official and agenda-vendor hosts, so the
+// news prose that also uses them never reaches this function.
+const AGENDA_SHAPE_RX = /\b(agenda|notice of (?:a |the )?(?:regular|special|public|emergency) meeting|meeting notice|public hearings?|meeting date|order of business|call to order|consent calendar)\b/i;
 // Path/title only. "Minutes" in the BODY is normal on a live agenda — "approval
 // of the minutes of the previous meeting" is a standing first item — so body
 // text must never mark a page as an archive.
