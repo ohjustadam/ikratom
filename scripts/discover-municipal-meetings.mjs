@@ -553,6 +553,7 @@ if (unbucketed.length && Date.now() <= deadline && counters.fetched < MAX_FETCHE
 
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
 console.log(`\nDone in ${elapsed} min — ${counters.searched} searches (${counters.searchFailed} failed) · ${counters.fetched} fetched · ${agendaHits} agenda hits · ${counters.skippedNonAuthoritative ?? 0} non-official skipped · ${counters.readerFailed} reader failures`);
+if (topRejects(counters.rejectReasons)) console.log(`  rejected by gate: ${topRejects(counters.rejectReasons, 8)}`);
 console.log(`  ${rowsNew} new · ${rowsEnriched} enriched · ${counters.autoPublished} auto-publishable${DRY_RUN ? " [DRY RUN — nothing written]" : ""}`);
 if (blocked > 0) {
   console.log(`⛔ ${blocked}/${done} states could NOT be searched or read (${firstBlockReason}).`);
@@ -578,12 +579,27 @@ try {
     notes: `${targets.length} states · ${counters.searched} searches (${counters.searchFailed} failed) · ${counters.fetched} fetched`
       + ` · ${agendaHits} agenda hits · ${counters.skippedNonAuthoritative ?? 0} non-official skipped · ${counters.readerFailed} reader failures · ${rowsNew} new · ${rowsEnriched} enriched`
       + ` · ${counters.autoPublished} auto-publishable`
+      + (topRejects(counters.rejectReasons) ? ` · rejected: ${topRejects(counters.rejectReasons)}` : "")
       + (blocked ? ` · ${blocked} BLOCKED (could not search)` : "")
       + (writeErrors ? ` · ${writeErrors} WRITE ERRORS` : "")
       + (budgetStopped ? ` · budget stop after ${done}/${targets.length}` : "")
       + (DRY_RUN ? " [dry-run]" : ""),
   });
 } catch { /* best-effort */ }
+
+/**
+ * The reject tally, most common first — e.g. "no-in-window-date 14, archive 6".
+ *
+ * Runs on 09-18 and 09-19 read "29 agenda hits · 0 new" and stopped there, so
+ * "there are no kratom meetings this week" and "we reject every page we fetch"
+ * produced an identical line. The reason strings already existed on every
+ * reject; they were simply thrown away. Capped so the notes column stays
+ * readable.
+ */
+function topRejects(reasons, max = 4) {
+  const rows = Object.entries(reasons ?? {}).sort((a, b) => b[1] - a[1]).slice(0, max);
+  return rows.length ? rows.map(([r, n]) => `${r} ${n}`).join(", ") : "";
+}
 
 // Unconditional: the watchlist re-check is a later step in the SAME CI job, and
 // a non-zero exit here would skip it. scraper_runs.status is the monitored
