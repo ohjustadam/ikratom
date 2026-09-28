@@ -176,6 +176,30 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/push-national-news-digest.mjs
 
+  pending-meeting-alert:
+    # NOT gated by the egress budget, on purpose. This is an owner page about a
+    # hearing with a date on it — an alert that load-sheds goes quiet exactly
+    # when the platform is busiest, and a missed ban hearing cannot be caught up
+    # later. Same reasoning as the watchdog job below.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Page the owner about meetings awaiting review
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node scripts/alert-pending-meetings.mjs
+
   egress-watchdog:
     # The "never restricted again" failsafe (2026-07-16 incident): reads the
     # project's Prometheus metrics endpoint and pages the owner at 50/75/90%

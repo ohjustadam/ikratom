@@ -232,6 +232,12 @@ export const REGISTRY = [
   // run is not a page, but two days of silence is.
   { source: "push_national_news_digest", interval_hours: 48, system: "github-actions", cadence: "daily" },
 
+  // alert_pending_meetings — the human half of the provenance gate. Discovery
+  // deliberately holds a meeting it cannot fully prove, so a real ban hearing
+  // sits in pending_review; without this nothing says so and the hearing passes.
+  // Silence here is the failure mode, which is exactly what makes it worth paging on.
+  { source: "alert_pending_meetings", interval_hours: 48, system: "github-actions", cadence: "daily" },
+
   // enrich_news — replaces sync-news-rss's ai_relevance_score 0.5 placeholder
   // with a real score. Registered the day it was first automated: it had run
   // ONLY on the owner's PC, wrote no telemetry, and its absence silently gated
