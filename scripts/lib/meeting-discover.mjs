@@ -381,6 +381,108 @@ export function extractDateCandidates(text, { now = new Date(), state = null, wi
 /** Code's own choice when the model declines to pick one. `ambiguous` is the
  *  tell that you are on a calendar-INDEX page listing many meetings rather than
  *  one agenda — the main stitching attack — and it blocks auto-publish. */
+/**
+ * Where the verified quote sits in the RAW page text.
+ *
+ * quoteOffset() works in normalised coordinates, which is right for context
+ * classification but useless for comparing against a date candidate's `index`
+ * — those are raw offsets. This finds the same span in the raw text by matching
+ * the quote with every run of whitespace allowed to differ, which is the only
+ * way the two differ once the model has copied a span verbatim.
+ *
+ * @returns {number} raw index, or -1
+ */
+export function quoteRawOffset(quote, text) {
+  const q = String(quote ?? "").trim();
+  if (q.length < 12) return -1;
+  const rx = new RegExp(q.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "i");
+  return String(text ?? "").search(rx);
+}
+
+/**
+ * BIND THE DATE TO THE ITEM, not merely to the page.
+ *
+ * The gap this closes (2026-09-28): a page that lists several hearings gives
+ * several in-window dates, so every pick was marked `dateAmbiguous` and capped
+ * at 0.75 — held forever, even when the kratom notice plainly carried its own
+ * date. Three real ban hearings sat unreviewed because of it, and one passed.
+ *
+ * "Ambiguous" was the wrong question. The right one is whether the chosen date
+ * BELONGS to the item the quote came from, and the page itself answers that in
+ * two ways, strongest first:
+ *
+ *   1. A LABELLED date ("Meeting Date/Time: …") is the document telling you
+ *      which date is the meeting's. Nothing beats being told.
+ *   2. Otherwise, PROXIMITY: on a notice board each hearing's date sits beside
+ *      its own text. A date within PROXIMITY_CHARS of the verified quote, with
+ *      no rival equally close, is that item's date.
+ *
+ * This is STRICTER than what it replaces, not looser: a date far from the quote
+ * now fails to bind and stays held, where before the model's index alone could
+ * carry it to 0.75. And an unbound date still cannot publish.
+ *
+ * @returns {{chosen:object|null, bound:boolean, why:string}}
+ */
+export const PROXIMITY_CHARS = 1200;
+
+export function bindDateToQuote(cands, text, quote, { proximityChars = PROXIMITY_CHARS } = {}) {
+  const list = cands ?? [];
+  if (list.length === 0) return { chosen: null, bound: false, why: "no-candidates" };
+
+  // A LONE date is not automatically the meeting's date. It binds when the
+  // document says so ("Meeting Date: …") or when it sits beside the quote;
+  // a single unlabelled date thousands of characters away is just a date on a
+  // page — a posting stamp, a filing deadline — and must not publish.
+  if (list.length === 1) {
+    const only = list[0];
+    if (only.labeled) return { chosen: only, bound: true, why: "only-date-and-labelled" };
+    const at = quoteRawOffset(quote, text);
+    if (at >= 0 && Math.abs((only.index ?? 0) - at) <= proximityChars) {
+      return { chosen: only, bound: true, why: "only-date-and-beside-the-quote" };
+    }
+    return { chosen: only, bound: false, why: "only-date-but-far-from-the-quote" };
+  }
+
+  // NO "a labelled date wins" SHORTCUT — it was tried first and was wrong.
+  // On cliftonparkny.gov/public-hearings it bound the OCT 6 kratom hearing to a
+  // PLANNING BOARD meeting's "Meeting Date Sep 29", because that one carried the
+  // label. A control quote bound to the very same date, which proved the rule was
+  // ignoring the quote altogether. Publishing a hearing under another body's date
+  // is precisely the fabrication this pipeline exists to prevent, so the label is
+  // now only a tiebreak BETWEEN dates that are already near the quote.
+  const qAt = quoteRawOffset(quote, text);
+  if (qAt < 0) return { chosen: list[0], bound: false, why: "quote-not-locatable-in-raw-text" };
+
+  const near = list
+    .map((c) => ({ c, d: Math.abs((c.index ?? 0) - qAt) }))
+    .filter((x) => x.d <= proximityChars)
+    .sort((a, b) => a.d - b.d);
+
+  if (near.length === 0) return { chosen: list[0], bound: false, why: "no-date-near-the-quote" };
+
+  const [first, second] = near;
+  // A rival almost as close CAN mean the page does not separate the two items.
+  // Two things were learned testing this against the real Clifton Park notice:
+  //
+  //   - The tiebreak must look ONLY at the two tied entries. A first attempt
+  //     searched the whole near-list for a labelled date and promoted one 1002
+  //     chars away over the correct one 423 chars away.
+  //   - Two candidates on the SAME DAY are not an ambiguity at all. That page
+  //     prints the kratom hearing twice, 19:05 and 19:02, minutes apart. The
+  //     risk worth holding for is picking the wrong DAY, not the wrong minute.
+  if (second && second.d - first.d < 150) {
+    const sameDay = first.c.y === second.c.y && first.c.m === second.c.m && first.c.d === second.c.d;
+    if (!sameDay) {
+      if (first.c.labeled !== second.c.labeled) {
+        const pick = first.c.labeled ? first : second;
+        return { chosen: pick.c, bound: true, why: "labelled-one-of-two-tied-dates" };
+      }
+      return { chosen: first.c, bound: false, why: "two-different-days-equally-near-the-quote" };
+    }
+  }
+  return { chosen: first.c, bound: true, why: `nearest-date-${first.d}-chars-from-quote` };
+}
+
 export function pickMeetingDate(cands) {
   if (!cands?.length) return { chosen: null, ambiguous: false, inWindowCount: 0 };
   const labeled = cands.filter((c) => c.labeled);
@@ -779,16 +881,26 @@ export async function verifyCandidate({
   if (!quoteOnPage(quote, text)) return ok("quote-not-on-page");
   if (!KRATOM_KEYWORD_RX.test(quote)) return ok("quote-has-no-kratom-term");
 
-  // 11. Date selection: an INDEX into code's list, or code's own fallback.
-  let chosen = null;
-  let dateAmbiguous = true;
-  let dateSource = "code_fallback";
-  if (Number.isInteger(p.date_choice) && cands[p.date_choice]) {
+  // 11. Date selection. CODE binds the date to the item the quote came from;
+  //     the model's index is only a tiebreak when the page gives code nothing
+  //     to bind on. See bindDateToQuote — this is the gate that decides whether
+  //     a verified meeting can publish or sits held forever.
+  const bind = bindDateToQuote(cands, text, quote);
+  let chosen = bind.chosen;
+  let dateAmbiguous = !bind.bound;
+  let dateSource = `bound:${bind.why}`;
+
+  if (!bind.bound && Number.isInteger(p.date_choice) && cands[p.date_choice]) {
+    // Unbound: the page did not tie any date to this item. The model's pick is
+    // better than code's positional fallback, but it stays AMBIGUOUS — a guess
+    // is allowed to fill the row, never to publish it.
     chosen = cands[p.date_choice];
-    dateAmbiguous = cands.length > 1 && !chosen.labeled;
-    dateSource = `reader_choice[${p.date_choice}]`;
-  } else {
-    chosen = pickMeetingDate(cands).chosen;
+    dateSource = `reader_choice[${p.date_choice}]·unbound(${bind.why})`;
+  } else if (bind.bound && Number.isInteger(p.date_choice) && cands[p.date_choice] && cands[p.date_choice] !== chosen) {
+    // Code and the model disagree while the page DID bind one. Code wins —
+    // that is the standing rule here — but record it, because a pattern of
+    // disagreement is how we would learn the binding is wrong.
+    dateSource += `·overrode-reader[${p.date_choice}]`;
   }
   if (!chosen) return ok("no-date-choice");
 

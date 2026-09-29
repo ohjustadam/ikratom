@@ -381,7 +381,11 @@ describe("MANDATORY 3 — code supplies the date, the URL, the address, the numb
     expect(row.meetingAtIso).toBe(toUtcIso(cands[0], "FL"));
     expect(row.meetingAtIso).toBe("2026-10-06T22:00:00.000Z");
     // An unusable index falls back to code's own pick and says so.
-    expect(row.dateSource).toBe("code_fallback");
+    // An unusable index no longer decides anything: CODE binds the date to the
+    // quote's position, and the model's index is only a tiebreak when nothing
+    // binds. What must stay true is that the date came from code's candidate
+    // list — asserted above — and that provenance records which rule chose it.
+    expect(row.dateSource).toMatch(/^bound:/);
   });
 
   it("no fabricated value reaches the row — checked across the whole object", async () => {
@@ -670,7 +674,7 @@ describe("verifyCandidate — one verified vendor page publishes at 0.90", () =>
       format: "in_person",
       tier: "vendor",
       itemContext: "agenda_item",
-      dateSource: "reader_choice[0]",
+      dateSource: expect.stringMatching(/^bound:/),
       dateAmbiguous: false,
       confidence: 0.9,
       publishable: true,
@@ -1486,5 +1490,85 @@ describe("real .gov agenda page: times and shape must be recognised", () => {
 
   it("still refuses a page with no civic shape at all", () => {
     expect(MD.checkPageIsAgenda({ url: "https://x.gov/contact", text: "Nothing civic here at all.", title: "Contact us" }).isAgenda).toBe(false);
+  });
+});
+
+/**
+ * Binding the date to the ITEM, not merely to the page (2026-09-28).
+ *
+ * Pages that list several hearings gave several in-window dates, so every pick
+ * was marked ambiguous and capped at 0.75 — three real ban hearings sat
+ * unreviewed and one passed. These cases are the evidence rules that replaced
+ * that, INCLUDING the two wrong versions caught against the live Clifton Park
+ * notice, which are the ones most worth keeping red.
+ */
+describe("bindDateToQuote", () => {
+  const NOW = new Date("2026-09-28T12:00:00Z");
+  const bind = (text: string, quote: string) =>
+    MD.bindDateToQuote(MD.extractDateCandidates(text, { now: NOW, state: "NY", windowDays: 60 }), text, quote);
+  const KRATOM = "Item 12 discussion of kratom retail licensing";
+
+  it("WRONG RULE 1: a labelled date elsewhere on the page must not win", () => {
+    // First attempt returned "a labelled date wins" and bound an OCT 6 kratom
+    // hearing to a PLANNING BOARD's "Meeting Date Sep 29". Publishing a hearing
+    // under another body's date is the fabrication this pipeline exists to stop.
+    const text = `Notice of public hearing Tuesday, October 6, 2026, at 7:05 PM. ${KRATOM}`
+      + " filler".repeat(60) + " Planning Board Meeting Date Sep 29, 2026 07:00";
+    const b = bind(text, KRATOM);
+    expect(b.bound).toBe(true);
+    expect([b.chosen.m, b.chosen.d]).toEqual([10, 6]);
+  });
+
+  it("WRONG RULE 2: the tiebreak looks only at the two tied dates", () => {
+    // The second attempt searched the whole near-list for a labelled date and
+    // promoted one 1002 chars away over the correct one 423 chars away.
+    const text = `Hearing October 6, 2026 at 7:05 PM ${KRATOM}` + " filler".repeat(120) + " Meeting Date Sep 29, 2026 07:00";
+    const b = bind(text, KRATOM);
+    expect([b.chosen.m, b.chosen.d]).toEqual([10, 6]);
+  });
+
+  it("two entries on the SAME DAY are not an ambiguity", () => {
+    // The real page prints the kratom hearing twice, 19:05 and 19:02. The risk
+    // worth holding for is the wrong DAY, never the wrong minute.
+    const text = `Hearing October 6, 2026 at 7:05 PM, see also October 6, 2026 at 7:02 PM. ${KRATOM}`;
+    const b = bind(text, KRATOM);
+    expect(b.bound).toBe(true);
+    expect([b.chosen.m, b.chosen.d]).toEqual([10, 6]);
+  });
+
+  it("two DIFFERENT days equally near the quote stays unbound", () => {
+    const b = bind(`Hearing October 6, 2026 7:00 PM and also November 3, 2026 6:00 PM ${KRATOM}`, KRATOM);
+    expect(b.bound).toBe(false);
+  });
+
+  it("a lone UNLABELLED date far from the quote does not bind", () => {
+    const b = bind("Posted October 6, 2026 7:00 PM" + " filler".repeat(600) + KRATOM, KRATOM);
+    expect(b.bound).toBe(false);
+  });
+
+  it("SEVERAL dates, all far from the quote, stay unbound", () => {
+    // The near-set is empty here. Without this case the "no date near the quote"
+    // branch is untested — neutering it to bound:true left every test green,
+    // which is how a guard becomes decoration.
+    const text = "Hearing October 6, 2026 7:00 PM. Also November 3, 2026 6:00 PM."
+      + " filler".repeat(600) + KRATOM;
+    const b = bind(text, KRATOM);
+    expect(b.bound).toBe(false);
+    expect(b.why).toBe("no-date-near-the-quote");
+  });
+
+  it("a lone LABELLED meeting date binds even from a page header", () => {
+    const b = bind("Meeting Date: October 6, 2026 7:00 PM" + " filler".repeat(600) + KRATOM, KRATOM);
+    expect(b.bound).toBe(true);
+  });
+
+  it("a quote that is not on the page cannot bind", () => {
+    const b = bind("Hearing October 6, 2026 7:00 PM and November 3, 2026 6:00 PM about something", "a quote that does not appear at all here");
+    expect(b.bound).toBe(false);
+  });
+
+  it("finds the quote in RAW text despite whitespace differences", () => {
+    expect(MD.quoteRawOffset("kratom retail   licensing", "item 12 kratom retail\n  licensing here")).toBeGreaterThanOrEqual(0);
+    expect(MD.quoteRawOffset("short", "short")).toBe(-1); // too short to be evidence
   });
 });
