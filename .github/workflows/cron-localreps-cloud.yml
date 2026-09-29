@@ -133,18 +133,15 @@ jobs:
         # Uses the version-matched local playwright-chromium CLI (prod dep).
         run: npx playwright install --with-deps chromium
 
-      - name: Start in-job SearXNG container
-        run: |
-          docker run -d --name searxng -p 8080:8080 \
-            -e SEARXNG_SECRET="$(openssl rand -hex 32)" \
-            -v "${{ github.workspace }}/scripts/searxng/settings.yml:/etc/searxng/settings.yml:ro" \
-            searxng/searxng:latest
-          echo "waiting for searxng JSON API..."
-          for i in $(seq 1 45); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/search?q=test&format=json" || true)
-            if [ "$code" = "200" ]; then echo "ready after ${i}s"; break; fi
-            sleep 2
-          done
+      # THE ORIGINAL INLINE BOOTSTRAP FELL THROUGH WITHOUT FAILING.
+      # Its wait loop ran 45 times and then simply carried on, so when SearXNG
+      # never came up the job continued, every lookup got [] from a search
+      # backend that was not there, every request was re-queued as "could not
+      # find", and the run went GREEN having accomplished nothing. That is the
+      # same shape as the pipelines that reported "0 found" for four days while
+      # their provider was dead. The composite action exists precisely because
+      # of this and hard-fails instead — a job with no grounding must go red.
+      - uses: ./.github/actions/searxng
 
       - name: Drain pending local-rep requests
         # `limit` read via env: indirection (not inline ${{ }} in run:) + integer

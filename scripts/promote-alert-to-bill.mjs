@@ -112,15 +112,24 @@ async function processAlert(alert) {
   const session = String(new Date().getFullYear());
 
   // Idempotent — match by (state, bill_number, scope, locality).
-  const { data: existing } = await sb
+  //
+  // The lookup has to match what the INSERT below actually writes. It asked for
+  // `locality ?? ""` while the insert stores `locality` unchanged, so a null
+  // locality searched for an empty string and could never find the row it had
+  // written as NULL — minting a duplicate municipal bill on every run.
+  //
+  // Latent rather than live: all 51 municipal bills currently carry a non-empty
+  // locality, so the `?? ""` branch has never actually fired. Fixed because the
+  // day it does fire, the symptom is duplicate bills on a public page, and
+  // nothing would explain why.
+  let existingQ = sb
     .from("bills")
     .select("id")
     .eq("state", resolvedState)
     .eq("bill_number", billNumber)
-    .eq("scope", "municipal")
-    .eq("locality", locality ?? "")
-    .limit(1)
-    .maybeSingle();
+    .eq("scope", "municipal");
+  existingQ = locality ? existingQ.eq("locality", locality) : existingQ.is("locality", null);
+  const { data: existing } = await existingQ.limit(1).maybeSingle();
 
   let billId = existing?.id;
   if (billId) {
