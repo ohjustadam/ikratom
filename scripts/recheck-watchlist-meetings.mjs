@@ -216,10 +216,44 @@ logProviderSummary("AI providers (ungrounded fallback tier)");
 // The step is `continue-on-error: true`, so this can never fail the daily run —
 // but a run that checked NOTHING because grounding was unavailable must not read
 // as a clean pass in the log. Say it in one unmissable line.
-if (ungrounded > 0 && ok === 0 && miss === 0) {
+const blocked = ungrounded > 0 && ok === 0 && miss === 0;
+if (blocked) {
   console.log(
     `\n⚠ Watchlist re-check did NO work: all ${ungrounded} bodies were skipped for lack of a ` +
     `working grounded-search key. Add a free Gemini key (GEMINI_API_KEY, or GEMINI_API_KEY_2..9 ` +
     `for extra quota) — see docs/AI_PROVIDERS.md.`,
   );
 }
+
+/**
+ * TELEMETRY — added 2026-09-30. This script wrote NONE.
+ *
+ * It already says the right thing when a run is hollow, but it says it to the
+ * console, and the console is only read by someone who opens the Actions run.
+ * Nothing reached /admin/automation, nothing was queryable, and the staleness
+ * pager had no source to watch — so combined with `continue-on-error: true`,
+ * this job could do nothing for weeks and look fine from every surface the
+ * owner actually uses. That is exactly how enrich-news stayed invisible while
+ * every news notification silently sent nothing.
+ *
+ * "error" when grounding was unavailable is deliberate: a blocked run is NOT an
+ * empty one, and that distinction is the whole reason this pipeline reports the
+ * way it does.
+ */
+// A DRY RUN MUST NOT WRITE TELEMETRY. A row here marks the source as "seen" by
+// the staleness pager, so a local rehearsal would quietly buy the real cron
+// another 48 hours of silence before anyone was told it had stopped.
+try {
+  if (DRY_RUN) throw new Error("dry-run: telemetry skipped");
+  await sb.from("scraper_runs").insert({
+    source: "recheck_watchlist_meetings",
+    started_at: new Date(t0).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: blocked ? "error" : (newMeetings > 0 || ok > 0 ? "success" : "empty"),
+    rows_added: newMeetings,
+    rows_updated: ok + miss,
+    error_message: blocked ? `no grounded-search provider answered; ${ungrounded} bodies skipped` : null,
+    notes: `ok=${ok} miss=${miss} fail=${fail} ungrounded=${ungrounded} new=${newMeetings}`
+      + (DRY_RUN ? " [dry-run]" : ""),
+  });
+} catch { /* best-effort: telemetry must never be the thing that breaks a run */ }
