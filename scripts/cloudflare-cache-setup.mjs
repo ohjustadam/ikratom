@@ -82,7 +82,7 @@ const AUTH_COOKIE = SUPABASE_REF ? `sb-${SUPABASE_REF}-auth-token` : null;
  * service-role client with an explicit public projection). Edge-caching them
  * would AMPLIFY it, so they are excluded until that is fixed.
  *
- * Never here: / · /bills · /campaigns · /calendar · /legislators (the one audited
+ * Never here: / · /bills · /campaigns · /legislators (the one audited
  * exception is /legislators/:id/briefing, see LONG_TTL_PATTERNS) · /forum/* ·
  * /account/* · /admin/* · /api/* · /search · /research* · /pulse · /deadlines
  */
@@ -98,6 +98,13 @@ export const CACHEABLE_PATTERNS = [
   'http.request.uri.path eq "/banned"',
   'http.request.uri.path eq "/briefings"',
   'http.request.uri.path eq "/videos"',
+  // AUDITED 2026-10-03: page.tsx reads only a service-role unstable_cache
+  // snapshot and renders CalendarView (client); filters/geofence run in the
+  // browser via useSearchParams + /api/me. The root layout is barred from
+  // cookies()/headers(). It was the #1 target of the 2026-10-03 distributed
+  // crawl (6,898 hits from thousands of IPs) — per-IP limits can't stop that,
+  // a cache can. Exact match: /calendar/feed.ics stays uncached (see above).
+  'http.request.uri.path eq "/calendar"',
   'http.request.uri.path in {"/donate" "/ethics" "/support"}',
   // Fully static content pages (no data fetch at all)
   'starts_with(http.request.uri.path, "/install")',
