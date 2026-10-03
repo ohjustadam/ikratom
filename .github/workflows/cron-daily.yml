@@ -1143,6 +1143,12 @@ jobs:
         # hearing alert can name who votes. Idempotent; no model call here.
         continue-on-error: true
         run: node scripts/seed-hotzone-officials.mjs
+      - name: Re-check rosters that may be out of date
+        # Ended terms, 150+ day-old checks, or a hearing within 30 days: re-queue
+        # the locality so the same pipeline re-confirms members and retires
+        # departed ones on strong evidence only. 8 per run.
+        continue-on-error: true
+        run: node scripts/refresh-local-rosters.mjs
       # Diagnostics only, never a failure signal. On a datacenter IP this log
       # is always noisy — ahmia/torch engine-load errors, the missing
       # limiter.toml, "X-Forwarded-For nor X-Real-IP", per-engine

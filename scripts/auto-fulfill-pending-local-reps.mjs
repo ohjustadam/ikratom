@@ -145,8 +145,32 @@ for (const req of pending ?? []) {
   const fromLegistar = res.source === "legistar";
   console.log(`  ${fromLegistar ? "Legistar (clerk)" : res.source}: ${res.officials.length} official(s)`);
 
-  const { data: existing } = await sb.from("legislators").select("full_name").eq("level", req.level).eq("locality", req.locality).eq("active", true);
+  const { data: existing } = await sb.from("legislators").select("id, full_name, term_end_date").eq("level", req.level).eq("locality", req.locality).eq("active", true);
   const existingNames = new Set((existing ?? []).map((r) => r.full_name.toLowerCase()));
+
+  // REFRESH (2026-10-03): a locality re-queued by refresh-local-rosters.mjs
+  // already has officials. Members still on the fresh roster get their check
+  // date bumped (the meeting page shows it). A member missing from it is
+  // retired only on strong evidence — the clerk's own system (Legistar) no
+  // longer lists them, or their recorded term has ended — and never when the
+  // fresh roster looks partial (an AI extract that found 3 of 9 members).
+  const freshNames = new Set(res.officials.map((o) => o.full_name.toLowerCase()));
+  const stillThere = (existing ?? []).filter((r) => freshNames.has(r.full_name.toLowerCase()));
+  if (stillThere.length) {
+    await sb.from("legislators").update({ last_synced_at: new Date().toISOString() }).in("id", stillThere.map((r) => r.id));
+    console.log(`  ↻ re-confirmed ${stillThere.length} existing official(s)`);
+  }
+  const gone = (existing ?? []).filter((r) => !freshNames.has(r.full_name.toLowerCase()));
+  const looksComplete = res.officials.length >= Math.ceil((existing ?? []).length * 0.6);
+  for (const r of gone) {
+    const termEnded = r.term_end_date && Date.parse(r.term_end_date) < Date.now();
+    if (looksComplete && (fromLegistar || termEnded)) {
+      await sb.from("legislators").update({ active: false, last_synced_at: new Date().toISOString() }).eq("id", r.id);
+      console.log(`    − ${r.full_name}: retired (${fromLegistar ? "not on the clerk roster" : "term ended"})`);
+    } else {
+      console.log(`    ? ${r.full_name}: not re-confirmed — kept (${looksComplete ? "no strong evidence" : "fresh roster looks partial"})`);
+    }
+  }
 
   const rows = [];
   for (const o of res.officials) {
