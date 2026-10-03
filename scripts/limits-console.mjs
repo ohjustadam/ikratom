@@ -71,21 +71,35 @@ function meter(m) {
 const collectors = {
   async netlify() {
     const out = [];
+    const est = await estimateNetlifyCredits({ token: E.NETLIFY_AUTH_TOKEN, accountSlug: NETLIFY_SLUG, siteId: E.NETLIFY_SITE_ID });
+    if (est.ok && est.source === "true-meter") {
+      // Netlify's own meter, read live (netlify-credits.mjs readTrueCredits). No typing needed.
+      const top = Object.entries(est.byMeter).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(" · ");
+      out.push(meter({
+        name: "Credits used (TRUE meter, live)", value: est.projectedUsed.toFixed(1), limit: est.planCredits, unit: "credits",
+        pct: est.pct, warn: 50, crit: 75, link: NETLIFY_DASH, note: top,
+        consequence: "Netlify DISABLES the whole site at 100% until the period resets.",
+      }));
+      out.push(meter({
+        name: "Daily burn (spike detector)", value: est.daily.slice(-1)[0]?.total.toFixed(1) ?? "?", unit: `credits on ${est.daily.slice(-1)[0]?.date ?? "?"} · ${est.burnPerDay.toFixed(1)}/day typical`,
+        status: est.spike ? "crit" : "ok", note: est.spike ? est.spikeDetail : "Alarm fires when a day burns 5x its trailing median (the 2026-10-02 flood shape).",
+      }));
+    } else {
     const man = readManual().netlify;
     out.push(meter(man?.used != null ? {
       name: "Credits used (TRUE meter, typed in)", value: man.used, limit: man.cap, unit: "credits",
       pct: (man.used / man.cap) * 100, kind: "manual", warn: 50, crit: 75,
       note: `Read ${ago(man.at).toFixed(1)}h ago.${ago(man.at) > 24 ? " STALE: re-read the dashboard." : ""} No API exposes this number.`,
       link: NETLIFY_DASH, consequence: "Netlify DISABLES the whole site at 100% until the period resets.",
-    } : { name: "Credits used (TRUE meter)", status: "unknown", kind: "manual", note: "Type the dashboard number in below.", link: NETLIFY_DASH }));
-    const est = await estimateNetlifyCredits({ token: E.NETLIFY_AUTH_TOKEN, accountSlug: NETLIFY_SLUG, siteId: E.NETLIFY_SITE_ID });
+    } : { name: "Credits used (TRUE meter)", status: "unknown", kind: "manual", note: "Live meter unavailable; type the dashboard number in below.", link: NETLIFY_DASH }));
+    }
     if (est.ok) {
       out.push(meter({
         name: "Site status", kind: "measured", status: est.exceeded ? "crit" : "ok",
         value: est.exceeded ? `DISABLED since ${String(est.exceededAt).slice(0, 16)}Z` : "serving",
         consequence: "Every page returns 503 while disabled.",
       }));
-      out.push(meter({
+      if (est.source !== "true-meter") out.push(meter({
         name: "Credit model (baseline only)", value: Math.round(est.projectedUsed), limit: est.planCredits, unit: "credits",
         pct: est.pct, kind: "estimate", note: "Models compute from bandwidth. Accurate for drift, BLIND to bursts (missed 2026-10-02).",
       }));
