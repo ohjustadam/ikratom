@@ -229,6 +229,25 @@ async function loadWarmSeeds() {
     if (!byKey.has(key)) byKey.set(key, { state: st, locality: loc });
   };
 
+  // FIRST, so WARM_SEED_LIMIT can never squeeze them out: towns named by a
+  // future meeting that is still pending_review. Those rows usually came from a
+  // news article, whose model-authored confidence can never auto-publish
+  // (meeting-autoapprove.mjs). Searching the town here is the independent half
+  // of the check: this lane is told only the PLACE, never the article's claim,
+  // and a hit must still pass the full fetch-read-quote-date pipeline. When it
+  // verifies, resolve-pending-meetings.mjs retires the news row as superseded.
+  try {
+    const { data } = await sb.from("municipal_meetings")
+      .select("state, locality")
+      .eq("moderation_status", "pending_review")
+      .gte("meeting_at", new Date().toISOString())
+      .not("locality", "is", null)
+      .limit(30);
+    // Same "<Place>, ST" form the confirmed-body lane below passes, so one town
+    // dedupes to one seed instead of being searched twice.
+    for (const r of data ?? []) add(r.state, r.locality);
+  } catch { /* an optional lane must never sink the run */ }
+
   try {
     const { data } = await sb.from("locality_intel")
       .select("state, locality, legal_status, pending_count, swept_at")

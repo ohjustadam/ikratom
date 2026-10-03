@@ -238,15 +238,30 @@ export const REGISTRY = [
   // Silence here is the failure mode, which is exactly what makes it worth paging on.
   { source: "alert_pending_meetings", interval_hours: 48, system: "github-actions", cadence: "daily" },
 
-  // recheck_watchlist_meetings — the higher-precision half of meeting discovery:
-  // it re-checks bodies that have ALREADY hosted a kratom item. It wrote no
-  // telemetry at all until 2026-09-30 and runs under continue-on-error, so it
-  // could do nothing for weeks and look fine from every surface the owner uses.
-  { source: "recheck_watchlist_meetings", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  // resolve_pending_meetings — clears the review queue by rule (superseded by a
+  // verified row, a law's effective date, not kratom-related) so the owner is
+  // paged only about real candidates. Replaced recheck_watchlist_meetings on
+  // 2026-10-03, which searched only through Gemini grounding and duplicated the
+  // discovery job's SearXNG warm lane.
+  { source: "resolve_pending_meetings", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  // seed_hotzone_officials — files council/county roster requests for every
+  // meeting town with no officials on file (2026-10-03: all recent ones had 0).
+  // Runs in the budget-gated discovery job, so 72h tolerates one skipped day.
+  { source: "seed_hotzone_officials", interval_hours: 72, system: "github-actions", cadence: "daily" },
 
   // enrich_news — replaces sync-news-rss's ai_relevance_score 0.5 placeholder
   // with a real score. Registered the day it was first automated: it had run
   // ONLY on the owner's PC, wrote no telemetry, and its absence silently gated
   // every news notification to zero. 6h interval against an hourly cadence.
   { source: "enrich_news", interval_hours: 6, system: "gh-hourly", cadence: "hourly" },
+
+  // The email channel (2026-10-03). Until then the platform sent ZERO
+  // notification emails, and push reaches ~15% of members, so silence here means
+  // most members hear nothing at all. Both write telemetry on every run, even
+  // when there is nothing to send, so a dead job reads as stale, not quiet.
+  { source: "email_digest", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  { source: "email_meeting_alerts", interval_hours: 12, system: "gh-hourly", cadence: "hourly" },
+  // Push delivery from Actions, independent of Netlify (2026-10-03). Before
+  // this, a disabled site meant zero push and nothing paged about it.
+  { source: "push_fanout_actions", interval_hours: 12, system: "gh-hourly", cadence: "hourly" },
 ];

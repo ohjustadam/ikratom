@@ -176,6 +176,40 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/push-national-news-digest.mjs
 
+  email-digest:
+    # The daily email: everything since the last digest, upcoming hearings first.
+    # Runs AFTER the national digest so today's country-wide items are included,
+    # and on `always()` so a failed digest step never silences email.
+    #
+    # NOT gated by the egress budget: it reads a few hundred notification rows,
+    # and email is the only channel that reaches most members (push reaches
+    # ~15%). Runs here, not on Netlify, so it keeps working when the site is down.
+    #
+    # Needs repo secrets RESEND_API_KEY + RESEND_FROM_EMAIL + RESEND_FROM_NAME
+    # (optional BREVO_API_KEY adds 300/day). Without them it fails loudly.
+    needs: national-news-digest
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Send the daily email digest
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_APP_URL: https://www.ikratom.org
+        run: node scripts/send-email-notifications.mjs --mode digest
+
   pending-meeting-alert:
     # NOT gated by the egress budget, on purpose. This is an owner page about a
     # hearing with a date on it — an alert that load-sheds goes quiet exactly
@@ -190,6 +224,14 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Resolve the pending queue first (superseded, not-a-meeting)
+        # Also here because this job is NOT budget-gated: on days discovery is
+        # skipped, the owner should still only be paged about real candidates.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/resolve-pending-meetings.mjs
       - name: Page the owner about meetings awaiting review
         continue-on-error: true
         env:
@@ -1087,21 +1129,20 @@ jobs:
       - uses: ./.github/actions/searxng
       - name: Discover municipal meetings across ALL 51 states
         run: node scripts/discover-municipal-meetings.mjs --all-states --max-minutes 40
-      - name: Re-check watchlist bodies for upcoming kratom agenda items
-        # Targeted re-check of legislative bodies that have previously
-        # hosted a kratom item. Derived from municipal_meetings rows
-        # where kratom_relevance='confirmed'. Closes the "tabled
-        # resolution" loop — when Suffolk County Legislature recesses
-        # I.R. 1279-2026 to the next General Meeting, we'll catch the
-        # next agenda by name rather than relying on generic state-
-        # wide news search. continue-on-error so a Gemini quota event
-        # doesn't kill the daily run.
+      # The watchlist re-check (recheck-watchlist-meetings.mjs) was retired on
+      # 2026-10-03: it only ever searched through Gemini grounding, failed every
+      # run once the Gemini credits ran out, and duplicated the warm lane above,
+      # which already re-checks every confirmed-kratom body through SearXNG.
+      - name: Resolve the pending queue (superseded, not-a-meeting)
+        # Runs right after discovery so a meeting verified THIS run retires its
+        # news-derived twin before anyone is paged about it. Rules only, no model.
+        run: node scripts/resolve-pending-meetings.mjs
+      - name: Map who decides in every hot-zone town
+        # A town with kratom on its agenda gets its council (and county board)
+        # queued for roster resolution by cron-localreps-cloud.yml, so a
+        # hearing alert can name who votes. Idempotent; no model call here.
         continue-on-error: true
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/recheck-watchlist-meetings.mjs --limit 25
+        run: node scripts/seed-hotzone-officials.mjs
       # Diagnostics only, never a failure signal. On a datacenter IP this log
       # is always noisy — ahmia/torch engine-load errors, the missing
       # limiter.toml, "X-Forwarded-For nor X-Real-IP", per-engine
