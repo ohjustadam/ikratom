@@ -29,6 +29,10 @@ on:
         description: "Max localities to process this run"
         required: false
         default: "40"
+      probe:
+        description: 'Read-only test of ONE locality, e.g. "Clifton Park, NY" (no writes; skips the drain)'
+        required: false
+        default: ""
 
 concurrency:
   group: localreps-cloud
@@ -143,7 +147,18 @@ jobs:
       # of this and hard-fails instead — a job with no grounding must go red.
       - uses: ./.github/actions/searxng
 
+      - name: Probe one locality (read-only)
+        if: github.event.inputs.probe != ''
+        # Same env-indirection rule as below; the value is also shape-checked so
+        # only "Name, ST" ever reaches the script.
+        env:
+          PROBE: ${{ github.event.inputs.probe }}
+        run: |
+          if ! printf '%s' "$PROBE" | grep -Eq '^[A-Za-z .'"'"'-]{2,60}, [A-Z]{2}$'; then echo "bad probe value"; exit 2; fi
+          node scripts/auto-fulfill-pending-local-reps.mjs --probe "$PROBE"
+
       - name: Drain pending local-rep requests
+        if: github.event.inputs.probe == ''
         # `limit` read via env: indirection (not inline ${{ }} in run:) + integer
         # clamp, so a malicious dispatch value can't inject shell. Security audit 2026-07-06.
         env:
