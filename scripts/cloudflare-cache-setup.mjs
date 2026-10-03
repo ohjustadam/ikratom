@@ -134,6 +134,12 @@ export const CACHEABLE_PATTERNS = [
  */
 export const LONG_TTL_PATTERNS = [
   '(starts_with(http.request.uri.path, "/legislators/") and ends_with(http.request.uri.path, "/briefing"))',
+  // /legislators/:id — AUDITED 2026-10-03. ISR (revalidate 3600): every read is
+  // createAnonClient() inside unstable_cache; MemberGates, ShareButtons,
+  // OfficialAvatar and EmailOfficialButton are client components; no
+  // cookies()/headers()/searchParams. It was 7,507 of the Oct 3 distributed
+  // crawl's requests (1,001 ids, robots.txt ignored). An hour matches its ISR.
+  '(starts_with(http.request.uri.path, "/legislators/") and not ends_with(http.request.uri.path, "/briefing"))',
 ];
 
 // Static build output is immutable and safe to cache hard, regardless of auth.
