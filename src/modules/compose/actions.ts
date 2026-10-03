@@ -88,6 +88,9 @@ export async function getComposePrefill(input: {
   body: string;
   signedIn: boolean;
   hasStory: boolean;
+  /** The viewer's own details, for filling template {{placeholders}} client-side.
+   *  Private to the viewer (it is their own profile); never rendered to others. */
+  sender: { name: string | null; city: string | null; state: string | null };
 }> {
   try {
     const sb = await createClient();
@@ -121,7 +124,10 @@ export async function getComposePrefill(input: {
         ask: clean(input.ask, 300),
       },
     });
-    return { ...letter, signedIn: !!user, hasStory };
+    return {
+      ...letter, signedIn: !!user, hasStory,
+      sender: { name: sender.fullName ?? null, city: sender.city ?? null, state: sender.state ?? null },
+    };
   } catch {
     // Never throw to the route error boundary — hand back a generic letter,
     // preserving the recipient's role/title/state so the greeting stays
@@ -138,7 +144,7 @@ export async function getComposePrefill(input: {
         ? { kind: input.kind, stance: input.stance ?? null, ask: clean(input.ask, 300) }
         : null,
     });
-    return { ...letter, signedIn: false, hasStory: false };
+    return { ...letter, signedIn: false, hasStory: false, sender: { name: null, city: null, state: null } };
   }
 }
 

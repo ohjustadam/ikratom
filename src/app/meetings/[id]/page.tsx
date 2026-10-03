@@ -278,6 +278,9 @@ export default async function MeetingDetailPage({ params }: Props) {
         locality={m.locality}
         subject={`Kratom item, ${m.body_name ?? "meeting"} on ${when.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })}`}
         pageUrl={`${SITE}/meetings/${m.id}`}
+        meetingId={m.id}
+        bodyName={m.body_name}
+        meetingDate={when.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "long", day: "numeric" })}
       />
 
       {/* Cross-actions */}

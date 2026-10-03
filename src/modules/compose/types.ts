@@ -20,7 +20,7 @@ export type ComposeOfficial = {
  * contacted one at a time via the single-official contact-form flow.
  */
 export type ComposeGroup = {
-  key: "representatives" | "senators" | "executives" | "my_delegation";
+  key: "representatives" | "senators" | "executives" | "my_delegation" | "council";
   label: string;
   /** Salutation for the batch letter, e.g. "Members of the Michigan House". */
   greeting: string;

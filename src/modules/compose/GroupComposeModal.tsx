@@ -10,6 +10,8 @@ import {
   mailtoWithinLimit,
 } from "./send-links";
 import { EmailOfficialButton } from "./EmailOfficialButton";
+import { RecipientPicker } from "./RecipientPicker";
+import { TemplateFiller } from "./TemplateFiller";
 import type { ComposeGroup } from "./types";
 
 /**
@@ -30,17 +32,28 @@ export function GroupComposeModal({
   open,
   onClose,
   group,
-  billId,
+  billId = null,
   stance,
   source,
+  kind = "bill",
+  ask = null,
+  templateContext = {},
 }: {
   open: boolean;
   onClose: () => void;
   group: ComposeGroup;
-  billId: string;
+  /** Required for bill sends; null for a council/board (kind="local"). */
+  billId?: string | null;
   stance?: "oppose" | "support" | "improve" | "neutral" | null;
   source: string;
+  kind?: "bill" | "local";
+  /** One-line instruction woven into the default letter and the AI prompt. */
+  ask?: string | null;
+  /** Known values for template placeholders, e.g. body_name, locality, meeting_date. */
+  templateContext?: Record<string, string>;
 }) {
+  const [sender, setSender] = useState<{ name: string | null; city: string | null; state: string | null }>({ name: null, city: null, state: null });
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(group.emailable.map((o) => o.email!).filter(Boolean)));
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -65,7 +78,8 @@ export function GroupComposeModal({
     state: group.emailable[0]?.state ?? group.formOnly[0]?.state ?? null,
   };
 
-  const emails = group.emailable.map((o) => o.email!).filter(Boolean);
+  // Only the people the sender chose, in the group's own order.
+  const emails = group.emailable.map((o) => o.email!).filter((e) => e && selected.has(e));
   const to = emails[0] ?? "";
   const bcc = emails.slice(1).join(",");
 
@@ -77,20 +91,22 @@ export function GroupComposeModal({
         const r = await getComposePrefill({
           official: groupOfficial,
           billId,
-          kind: "bill",
+          kind,
           stance: stance ?? null,
+          ask,
         });
         if (cancelled) return;
         setSubject(r.subject);
         setBody(r.body);
         setSignedIn(r.signedIn);
         setHasStory(r.hasStory);
+        setSender(r.sender);
       } catch {
         if (cancelled) return;
         const fb = buildDefaultLetter({
           official: { full_name: group.greeting, role: null, title: null, state: groupOfficial.state },
           sender: {},
-          context: { kind: "bill", stance: stance ?? null },
+          context: { kind, stance: stance ?? null, ask },
         });
         setSubject(fb.subject);
         setBody(fb.body);
@@ -117,7 +133,7 @@ export function GroupComposeModal({
     (async () => {
       try {
         const r = await draftOfficialEmail({
-          official: groupOfficial, billId, kind: "bill", stance: stance ?? null, tone,
+          official: groupOfficial, billId, kind, stance: stance ?? null, ask, tone,
         });
         if (!r.ok) setError(r.error);
         else {
@@ -171,7 +187,7 @@ export function GroupComposeModal({
             <h2 className="text-base font-bold text-zinc-100">{group.label}</h2>
             <p className="mt-0.5 text-[11px] text-zinc-400">
               {group.emailable.length > 0 ? (
-                <>Emailing <span className="text-emerald-300">{group.emailable.length}</span> of {total}
+                <>Emailing <span className="text-emerald-300">{selected.size}</span> of {total}
                 {group.formOnly.length > 0 && <> — {group.formOnly.length} take web forms only (below)</>}.</>
               ) : (
                 <>These {total} office{total === 1 ? "" : "s"} only take web messages — send individually below.</>
@@ -216,8 +232,18 @@ export function GroupComposeModal({
             {draftNote && <p className="mt-2 rounded-md border border-emerald-700/40 bg-emerald-950/10 p-2 text-xs text-emerald-300">{draftNote}</p>}
             {error && <p className="mt-2 rounded-md border border-amber-700/40 bg-amber-950/10 p-2 text-xs text-amber-300">{error}</p>}
 
-            {group.emailable.length > 0 && (
-              <>
+            {/* The letter itself is ALWAYS shown. Until 2026-10-03 it was hidden
+                when a group had no public inboxes, while the web-form panel below
+                told people to "draft above, copy" — with nothing above. */}
+            <TemplateFiller
+              kind={kind}
+              known={{
+                my_name: sender.name, my_city: sender.city, my_state: sender.state,
+                official_greeting: group.greeting, ...templateContext,
+              }}
+              onApply={(s, b) => { setSubject(s); setBody(b); setDraftNote("Template filled in. Edit anything before sending."); }}
+            />
+            <>
                 <div className="mt-3 space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-zinc-400">Subject</label>
@@ -242,9 +268,26 @@ export function GroupComposeModal({
                     </p>
                   </div>
                 </div>
+            </>
+
+            {group.emailable.length === 0 && (
+              <button
+                onClick={copyAll}
+                className="mt-3 w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-4 py-2 text-sm text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+              >
+                {copied ? "✓ Copied — now paste it into each office's form below" : "Copy the message for the web forms below"}
+              </button>
+            )}
+
+            {group.emailable.length > 0 && (
+              <>
+                <RecipientPicker officials={group.emailable} selected={selected} onChange={setSelected} />
+                {selected.size === 0 && (
+                  <p className="mt-2 text-center text-[11px] text-amber-300">Pick at least one recipient above.</p>
+                )}
 
                 {/* Delivery — Gmail/Outlook primary (handle long recipient lists) */}
-                <div className="mt-4">
+                <div className={`mt-4 ${selected.size === 0 ? "pointer-events-none opacity-40" : ""}`}>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <SendLink href={buildGmailComposeUrl(to, subject, body, bcc)} label="Open in Gmail" sub="Web compose" onClick={() => logSend("gmail")} done={sentVia === "gmail"} />
                     <SendLink href={buildOutlookComposeUrl(to, subject, body, bcc)} label="Open in Outlook" sub="Web compose" onClick={() => logSend("outlook")} done={sentVia === "outlook"} />
@@ -292,10 +335,10 @@ export function GroupComposeModal({
                 <ul className="mt-2 space-y-1.5">
                   {group.formOnly.map((o) => (
                     <li key={o.id ?? o.name} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-1.5">
-                      <span className="text-xs text-zinc-200">{o.title ?? o.name}</span>
+                      <span className="text-xs text-zinc-200">{o.name}{o.title ? <span className="text-zinc-500"> · {o.title}</span> : null}</span>
                       <EmailOfficialButton
                         official={o}
-                        context={{ kind: "bill", billId, stance: stance ?? null }}
+                        context={{ kind, billId, stance: stance ?? null, ask }}
                         source={`${source}_form`}
                         variant="inline"
                       />

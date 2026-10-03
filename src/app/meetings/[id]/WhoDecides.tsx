@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { EmailCouncilButton } from "@/modules/compose/EmailCouncilButton";
 
 type Official = {
   id: string; full_name: string; role: string | null; title: string | null; body: string | null;
@@ -31,24 +32,30 @@ const getOfficials = unstable_cache(
 
 const STALE_DAYS = 180;
 
-export async function WhoDecides({ state, locality, subject, pageUrl }: { state: string; locality: string | null; subject: string; pageUrl: string }) {
+export async function WhoDecides({
+  state, locality, subject, pageUrl, meetingId, bodyName, meetingDate,
+}: {
+  state: string; locality: string | null; subject: string; pageUrl: string;
+  meetingId: string; bodyName: string | null; meetingDate: string;
+}) {
   if (!locality) return null;
   const people = await getOfficials(state, locality);
-  const emails = people.map((p) => p.email).filter((e): e is string => !!e);
   const checked = people.map((p) => p.last_synced_at ?? p.created_at).filter(Boolean).sort().at(-1) ?? null;
   const ageDays = checked ? Math.floor((Date.now() - Date.parse(checked)) / 86_400_000) : null;
-  const body = `I'm writing about the kratom item on your upcoming agenda.\n\n[Say who you are and why kratom matters to you.]\n\nMeeting details: ${pageUrl}`;
-  const mailAll = emails.length ? `mailto:${emails.join(",")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` : null;
 
   return (
     <section className="mb-6 rounded-md border border-zinc-800 bg-zinc-950/40 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">Who decides</h2>
-        {mailAll && (
-          <a href={mailAll} className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500">
-            ✉️ Email all {emails.length}
-          </a>
-        )}
+        {/* Full composer: templates with fill-ins, choose recipients, AI draft. */}
+        <EmailCouncilButton
+          officials={people.map((p) => ({ id: p.id, name: p.full_name, title: p.title ?? p.role, state, email: p.email, website: p.website }))}
+          bodyName={bodyName ?? (/county|parish/i.test(locality) ? "County Board" : "Council")}
+          locality={locality}
+          meetingDate={meetingDate}
+          meetingUrl={pageUrl}
+          meetingId={meetingId}
+        />
       </div>
       {people.length === 0 ? (
         <p className="mt-2 text-sm text-zinc-400">
