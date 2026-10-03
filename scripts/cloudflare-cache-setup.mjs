@@ -84,7 +84,7 @@ const AUTH_COOKIE = SUPABASE_REF ? `sb-${SUPABASE_REF}-auth-token` : null;
  *
  * Never here: / · /bills · /campaigns · /legislators (the one audited
  * exception is /legislators/:id/briefing, see LONG_TTL_PATTERNS) · /forum/* ·
- * /account/* · /admin/* · /api/* · /search · /research* · /pulse · /deadlines
+ * /account/* · /admin/* · /api/* · /search · /research/* · /pulse · /deadlines
  */
 export const CACHEABLE_PATTERNS = [
   // Viewer-independent DB reads (service-role + unstable_cache), high crawl value
@@ -105,6 +105,11 @@ export const CACHEABLE_PATTERNS = [
   // crawl (6,898 hits from thousands of IPs) — per-IP limits can't stop that,
   // a cache can. Exact match: /calendar/feed.ics stays uncached (see above).
   'http.request.uri.path eq "/calendar"',
+  // AUDITED 2026-10-03: service-role unstable_cache snapshot; filters are
+  // searchParams (part of the cache key); ResearchBrowser and ResearchSubmitCta
+  // are client components (the CTA was a cookie-reading server component until
+  // today). Exact match only — /research/:id is NOT audited.
+  'http.request.uri.path eq "/research"',
   'http.request.uri.path in {"/donate" "/ethics" "/support"}',
   // Fully static content pages (no data fetch at all)
   'starts_with(http.request.uri.path, "/install")',
