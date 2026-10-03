@@ -86,7 +86,10 @@ describe("every writer is classified — a new one cannot slip through unreviewe
   }
 
   it("finds the writers at all (guards against a scan that silently matches nothing)", () => {
-    expect(found.size).toBeGreaterThanOrEqual(8);
+    // 7 since 2026-10-03: recheck-watchlist-meetings.mjs (the only writer of
+    // gemini_grounded_watchlist_recheck) was retired. Its policy entry stays,
+    // because historical rows still carry that provenance.
+    expect(found.size).toBeGreaterThanOrEqual(7);
     expect(found.has("news_article")).toBe(true);
     expect(found.has("legistar_fetch")).toBe(true);
   });
