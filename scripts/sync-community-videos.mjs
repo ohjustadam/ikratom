@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * sync-community-videos.mjs — mirror kratom orgs' and creators' YouTube uploads
  * into community_videos for /videos (migration 0260).
