@@ -94,6 +94,7 @@ export const CATEGORIES: Category[] = [
       { href: "/coalitions", label: "🤝 Coalitions", description: "Multi-advocate teams with invite codes. Private by default — coordinate around a state or bill." },
       { href: "/forum", label: "Forum", description: "State-by-state advocate discussion + topic groups (vets, shop owners, caregivers)." },
       { href: "/communities", label: "Communities", description: "Directory of kratom communities across the web — Facebook groups, subreddits, Discords." },
+      { href: "/videos", label: "▶ Videos", description: "The newest videos from kratom advocacy orgs and creators, playable right here." },
       { href: "/stories", label: "📖 Story bank", description: "Real kratom-advocate stories. The most persuasive thing legislators read." },
       { href: "/spread", label: "📣 Spread the word", description: "Share kits, QR codes, and embeds for shops + socials." },
     ],

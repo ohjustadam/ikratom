@@ -74,6 +74,8 @@ export const REGISTRY = [
       "locality_state_audit",
       "review_lapsed_items",
       "sync_legislative_sessions",
+      // /videos (mig 0260): orgs' + creators' YouTube uploads and upcoming lives.
+      "sync_community_videos",
       // Fact-integrity watchdog (added after the 2026-08-28 false-ban incident):
       // cross-checks published federal scheduling claims against the Federal
       // Register. Silent = nothing is checking our facts but our readers.

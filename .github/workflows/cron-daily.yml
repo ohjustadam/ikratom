@@ -688,6 +688,27 @@ jobs:
           REGULATIONS_GOV_API_KEY: ${{ secrets.REGULATIONS_GOV_API_KEY }}
         run: node scripts/sync-regulations-gov-kratom.mjs --max-pages 5
 
+  sync-community-videos:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    # /videos: newest uploads + upcoming lives from the kratom orgs' and
+    # creators' YouTube channels (external_communities, category youtube).
+    # Keyless RSS, ~1 request per channel; video bytes never touch us.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Sync community YouTube channels
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/sync-community-videos.mjs
+
   sync-courtlistener-kratom:
     needs: budget
     if: needs.budget.outputs.run == 'true'

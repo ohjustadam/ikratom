@@ -97,6 +97,7 @@ export const CACHEABLE_PATTERNS = [
   'http.request.uri.path eq "/status"',
   'http.request.uri.path eq "/banned"',
   'http.request.uri.path eq "/briefings"',
+  'http.request.uri.path eq "/videos"',
   'http.request.uri.path in {"/donate" "/ethics" "/support"}',
   // Fully static content pages (no data fetch at all)
   'starts_with(http.request.uri.path, "/install")',
