@@ -6,6 +6,7 @@ import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { RemindMeButton } from "@/components/RemindMeButton";
+import { WhoDecides } from "./WhoDecides";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -270,6 +271,14 @@ export default async function MeetingDetailPage({ params }: Props) {
           </p>
         </section>
       )}
+
+      {/* Who votes, how to reach them, and how fresh that is. */}
+      <WhoDecides
+        state={m.state}
+        locality={m.locality}
+        subject={`Kratom item, ${m.body_name ?? "meeting"} on ${when.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })}`}
+        pageUrl={`${SITE}/meetings/${m.id}`}
+      />
 
       {/* Cross-actions */}
       <section className="mb-6 rounded-md border border-emerald-700/30 bg-emerald-950/10 p-4">
