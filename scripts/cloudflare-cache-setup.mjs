@@ -82,7 +82,8 @@ const AUTH_COOKIE = SUPABASE_REF ? `sb-${SUPABASE_REF}-auth-token` : null;
  * service-role client with an explicit public projection). Edge-caching them
  * would AMPLIFY it, so they are excluded until that is fixed.
  *
- * Never here: / · /bills · /campaigns · /calendar · /legislators · /forum/* ·
+ * Never here: / · /bills · /campaigns · /calendar · /legislators (the one audited
+ * exception is /legislators/:id/briefing, see LONG_TTL_PATTERNS) · /forum/* ·
  * /account/* · /admin/* · /api/* · /search · /research* · /pulse · /deadlines
  */
 export const CACHEABLE_PATTERNS = [
@@ -104,16 +105,39 @@ export const CACHEABLE_PATTERNS = [
   'http.request.uri.path in {"/action" "/community" "/knowledge" "/legislative"}',
 ];
 
+/**
+ * Paths that are EXPENSIVE to render and identical for every ANONYMOUS visitor,
+ * cached for an hour instead of five minutes. Added 2026-10-03 after the
+ * 2026-10-02 flood: ONE IP replayed ~440 real URLs ~28 times each and 4,000+ of
+ * those renders (~6.5s apiece, 10 queries each) burned ~635 credits in 25
+ * minutes. With this rule a repeated URL costs one render per hour, however many
+ * times it is requested, so the worst case is bounded by the number of distinct
+ * URLs, not the number of requests.
+ *
+ *  /legislators/:id/briefing — AUDITED 2026-10-03. Its only viewer dependence is
+ *    `sb.auth.getUser()` + `getAdminContext()` (both read the Supabase auth
+ *    cookie, which guard 1 already bypasses) and the viewer's own profile via
+ *    getUserLegislators(), which is skipped when there is no user. Every child
+ *    component it renders (EmailOfficialButton, RemindMeButton, OfficialAvatar)
+ *    is a client component. It reads no cookies()/headers()/searchParams. If it
+ *    ever does, REMOVE IT FROM THIS LIST FIRST — a wrong entry is a data leak.
+ *    The page is `noindex` and advocate-facing, so an hour of staleness costs
+ *    nothing a reader would notice.
+ */
+export const LONG_TTL_PATTERNS = [
+  '(starts_with(http.request.uri.path, "/legislators/") and ends_with(http.request.uri.path, "/briefing"))',
+];
+
 // Static build output is immutable and safe to cache hard, regardless of auth.
 const STATIC_EXPR = 'starts_with(http.request.uri.path, "/_next/static/") or starts_with(http.request.uri.path, "/icons/")';
 
-function cacheableExpression() {
+function cacheableExpression(patterns = CACHEABLE_PATTERNS) {
   if (!AUTH_COOKIE) throw new Error("NEXT_PUBLIC_SUPABASE_URL missing — refusing to build a rule without the auth-cookie bypass");
   return [
     '(http.request.method eq "GET")',
     `(not http.cookie contains "${AUTH_COOKIE}")`,       // guard 1
     '(not any(http.request.headers["rsc"][*] == "1"))',   // guard 2
-    `(${CACHEABLE_PATTERNS.join(" or ")})`,               // guard 3
+    `(${patterns.join(" or ")})`,                         // guard 3
   ].join(" and ");
 }
 
@@ -136,6 +160,16 @@ const rules = () => [
       cache: true,
       // guard 4 — origin says no-cache; override at the edge only.
       edge_ttl: { mode: "override_origin", default: 300 },
+      browser_ttl: { mode: "override_origin", default: 0 },
+    },
+  },
+  {
+    description: "ikratom: cache anonymous expensive pages for 1h (bound flood cost)",
+    expression: cacheableExpression(LONG_TTL_PATTERNS),
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 3600 },
       browser_ttl: { mode: "override_origin", default: 0 },
     },
   },

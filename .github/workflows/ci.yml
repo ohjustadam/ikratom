@@ -185,4 +185,20 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_ACCOUNT_SLUG: ${{ secrets.NETLIFY_ACCOUNT_SLUG }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-        run: node scripts/netlify-credit-gate.mjs
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # A diff that netlify.toml's `ignore` rule would cancel cannot start a
+        # production build, so it cannot spend deploy credits. Braking it anyway
+        # blocks exactly the free fixes needed while the account is over its
+        # limit (2026-10-02: every PR went red, including script-only safety
+        # fixes). Such diffs still print the full budget, they just do not fail.
+        # KEEP THE EXCLUDE LIST IDENTICAL TO netlify.toml's `ignore` command.
+        # If they drift, a diff that DOES build could slip through unbraked.
+        run: |
+          git fetch -q --depth=1 origin "$BASE_SHA" 2>/dev/null || true
+          if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
+             && git diff --quiet "$BASE_SHA" HEAD -- . ':(exclude,glob)*.md' ':(exclude)docs/**' ':(exclude).github/**' ':(exclude)tests/**' ':(exclude)supabase/**' ':(exclude)scripts/**' ':(exclude)private/**'; then
+            echo "Diff touches only build-ignored paths: merging cannot trigger a Netlify build. Reporting, not braking."
+            node scripts/netlify-credit-gate.mjs --warn-only
+          else
+            node scripts/netlify-credit-gate.mjs
+          fi
