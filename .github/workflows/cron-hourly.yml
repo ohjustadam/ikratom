@@ -537,6 +537,8 @@ jobs:
           # Owner phone + inbox (scripts/lib/owner-alert.mjs). All optional:
           # an unset secret is "" and that channel is simply skipped.
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          # Flood detector (Cloudflare analytics, last hour). Skipped if unset.
+          CLOUDFLARE_CACHE_TOKEN: ${{ secrets.CLOUDFLARE_CACHE_TOKEN }}
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           OWNER_SMS_EMAIL: ${{ secrets.OWNER_SMS_EMAIL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

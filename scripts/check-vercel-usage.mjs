@@ -220,6 +220,48 @@ if (!NETLIFY_TOKEN) {
   } catch (e) { console.log(`netlify credit check failed: ${e.message}`); }
 }
 
+// ── 2c. FLOOD detector (2026-10-03) ─────────────────────────────────────────
+// Credits lag; traffic does not. On 2026-10-02 ONE IP sent ~12,000 requests in
+// 25 minutes and the credit meter only told anyone after the site was dead.
+// Cloudflare's analytics show it within minutes, so this checks the last hour
+// for (a) one IP far above any human or known crawler, and (b) total origin
+// time far above a normal hour (~180 origin-seconds). Either is a page.
+// Needs CLOUDFLARE_CACHE_TOKEN (Zone Analytics:Read); skipped if unset.
+let floodSummary = "";
+if (process.env.CLOUDFLARE_CACHE_TOKEN) {
+  try {
+    const zone = process.env.CLOUDFLARE_ZONE_ID || "6f054a2b237f9b7ec10d525ec7e99d05";
+    // WATCHDOG_AS_OF replays a past hour (testing only), e.g. the 2026-10-02 flood.
+    const to = process.env.WATCHDOG_AS_OF ? new Date(process.env.WATCHDOG_AS_OF) : new Date(), from = new Date(to - 3600e3);
+    const win = `datetime_geq:"${from.toISOString()}",datetime_leq:"${to.toISOString()}"`;
+    const r = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_CACHE_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ query: `{viewer{zones(filter:{zoneTag:"${zone}"}){
+        ip:httpRequestsAdaptiveGroups(limit:1,orderBy:[count_DESC],filter:{${win}}){count dimensions{clientIP userAgent}}
+        org:httpRequestsAdaptiveGroups(limit:20,filter:{${win}}){count avg{originResponseDurationMs}}}}}` }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const j = await r.json();
+    if (j.errors) throw new Error(j.errors[0].message);
+    const z = j.data.viewer.zones[0];
+    const top = z.ip[0];
+    const originSec = z.org.reduce((s, g) => s + (g.count * Math.max(0, g.avg.originResponseDurationMs ?? 0)) / 1000, 0);
+    const IP_MAX = Number(process.env.FLOOD_IP_PER_HOUR || 1200);
+    const ORIGIN_MAX = Number(process.env.FLOOD_ORIGIN_SEC_PER_HOUR || 1800);
+    floodSummary = ` · top IP ${top?.count ?? 0}/h · origin ${Math.round(originSec)}s/h`;
+    console.log(`cloudflare last hour: busiest IP ${top?.count ?? 0} req (${top?.dimensions?.clientIP ?? "-"}), origin time ${Math.round(originSec)}s`);
+    if ((top?.count ?? 0) > IP_MAX) {
+      problems.push(`FLOOD: one IP (${top.dimensions.clientIP}) made ${top.count} requests in the last hour — block it in Cloudflare → Security → WAF. UA: ${String(top.dimensions.userAgent).slice(0, 80)}`);
+    }
+    if (originSec > ORIGIN_MAX) {
+      problems.push(`ORIGIN LOAD: ${Math.round(originSec)} origin-seconds in the last hour (normal ~180). Run scripts/cf-origin-report.mjs to see who.`);
+    }
+  } catch (e) { console.log(`cloudflare flood check failed: ${e.message}`); }
+} else {
+  console.log("cloudflare flood check skipped: CLOUDFLARE_CACHE_TOKEN not set");
+}
+
 // ── 3. Synthetic site check — the cause-agnostic one ─────────────────────────
 let siteStatus = 0;
 let siteErr = "";
@@ -347,7 +389,7 @@ if (!DRY) {
       // would otherwise skip the credit estimator entirely while this row still
       // says "success" — a green watchdog with no eyes, which is the precise
       // shape of the 2026-07-30 failure. Mirrors the vercelChecked marker.
-      notes: `site ${siteStatus || "ERR"}${vercelChecked ? "" : " (vercel api unchecked)"}${creditsChecked ? creditSummary : " (netlify credits UNCHECKED)"}${problems.length ? ` · ${problems.length} problem(s)` : ""}${pagedNote}`.slice(0, 500),
+      notes: `site ${siteStatus || "ERR"}${vercelChecked ? "" : " (vercel api unchecked)"}${creditsChecked ? creditSummary : " (netlify credits UNCHECKED)"}${floodSummary}${problems.length ? ` · ${problems.length} problem(s)` : ""}${pagedNote}`.slice(0, 500),
     });
   } catch { /* best-effort */ }
 }
