@@ -33,26 +33,47 @@ if (!supabaseUrl || !serviceKey) { console.error("Missing Supabase env"); proces
 const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ---- OpenStates request budget (2026-10-03) ---------------------------------
+// The key allows ~250 requests/DAY and is shared with the committee, vote and
+// journey syncs. This sweep alone needs 4 keywords x 51 states = 204+ requests,
+// so it reported "0/51 states synced" as an ERROR for 7 straight days while it
+// was really just out of quota. Now: a per-run request cap (states rotate daily,
+// so every state is covered every few days), and a persistent 429 is read as
+// "today's quota is gone" — stop at once and report partial, not error.
+class QuotaExhausted extends Error {}
+const MAX_REQUESTS = Number(process.env.OPENSTATES_MAX_REQUESTS || (() => { const i = process.argv.indexOf("--max-requests"); return i >= 0 ? process.argv[i + 1] : 60; })());
+let requestsMade = 0;
+
 async function fetchPage(state, query, page = 1, attempt = 0) {
+  if (requestsMade >= MAX_REQUESTS) throw new QuotaExhausted(`per-run budget of ${MAX_REQUESTS} requests reached`);
+  requestsMade++;
   const url = new URL("https://v3.openstates.org/bills");
   url.searchParams.set("jurisdiction", state.toLowerCase());
   url.searchParams.set("q", query);
   url.searchParams.set("page", String(page));
   url.searchParams.set("per_page", "20");
   url.searchParams.set("sort", "updated_desc");
-  url.searchParams.set("include", "abstracts,sources");
+  // REPEATED params, not a comma list. OpenStates v3 validates each `include`
+  // against an enum, so "abstracts,sources" is one invalid member and EVERY
+  // request returned 422 — the real reason this sweep failed all 51 states
+  // daily (found 2026-10-03; the telemetry blamed the rate limit).
+  url.searchParams.append("include", "abstracts");
+  url.searchParams.append("include", "sources");
 
   const res = await fetch(url.toString(), {
     headers: { "X-API-Key": apiKey },
     signal: AbortSignal.timeout(30_000),
   });
 
-  if (res.status === 429 && attempt < 3) {
-    const wait = (attempt + 1) * 30_000;
-    console.log(`\n    rate limited — waiting ${wait / 1000}s`);
-    await sleep(wait);
+  // One short retry rides out a burst limit. A second 429 means the DAILY quota
+  // is spent; waiting 30/60/90s per request (the old behaviour) only burned the
+  // job's time budget to learn the same thing 200 times.
+  if (res.status === 429 && attempt < 1) {
+    console.log(`\n    rate limited — waiting 30s once`);
+    await sleep(30_000);
     return fetchPage(state, query, page, attempt + 1);
   }
+  if (res.status === 429) throw new QuotaExhausted("OpenStates daily quota exhausted (429 after retry)");
   if (!res.ok) throw new Error(`OpenStates ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res.json();
 }
@@ -94,6 +115,10 @@ async function syncState(state) {
       try {
         data = await fetchPage(state, kw, page);
       } catch (e) {
+        // Quota/budget is not this state's failure: stop the whole run, and let
+        // tomorrow's rotation start here. Partial results for this state are
+        // dropped rather than half-written.
+        if (e instanceof QuotaExhausted) { console.log(`stopped — ${e.message}`); return { state, count: 0, quota: e.message }; }
         console.log(`FAILED — ${e.message}`);
         return { state, count: 0, error: e.message };
       }
@@ -231,7 +256,10 @@ const rawArgs = process.argv.slice(2);
 const mmIdx = rawArgs.indexOf("--max-minutes");
 const MAX_MINUTES = mmIdx >= 0 ? parseInt(rawArgs[mmIdx + 1] ?? "0") : 0;
 const MAX_RUN_MS = MAX_MINUTES > 0 ? MAX_MINUTES * 60_000 : Infinity;
-const positional = rawArgs.filter((a, i) => a !== "--max-minutes" && i !== mmIdx + 1);
+// The value-skip must only apply when the flag is present: with mmIdx = -1 the
+// old `i !== mmIdx + 1` silently dropped argv[0], so `sync-bills.mjs OK` ran all 51.
+const rqIdx = rawArgs.indexOf("--max-requests");
+const positional = rawArgs.filter((a, i) => !a.startsWith("--") && (mmIdx < 0 || i !== mmIdx + 1) && (rqIdx < 0 || i !== rqIdx + 1));
 const onlyState = positional[0]?.toUpperCase();
 let targets = onlyState
   ? STATES.includes(onlyState) ? [onlyState] : (() => { console.error(`Unknown state ${onlyState}`); process.exit(1); })()
@@ -239,7 +267,9 @@ let targets = onlyState
 // Rotate the start state by day-of-year: with a wall-clock budget an early
 // stop would otherwise starve the SAME alphabetical tail (WV/WI/WY) forever.
 // Rotation guarantees every state leads the queue within a ~51-day window.
-if (!onlyState && MAX_MINUTES > 0) {
+// Unconditional now that a request budget (not just a time budget) can end the
+// run early: without rotation the same alphabetical head would use the quota every day.
+if (!onlyState) {
   const dayOfYear = Math.floor((Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 0)) / 86_400_000);
   const off = dayOfYear % targets.length;
   targets = [...targets.slice(off), ...targets.slice(0, off)];
@@ -250,12 +280,14 @@ console.log(`Keywords: ${KEYWORDS.join(", ")}\n`);
 
 const t0 = Date.now();
 const summary = [];
+let quotaStop = null;
 for (const state of targets) {
   if (Date.now() - t0 > MAX_RUN_MS) {
     console.log(`\n⏱ Reached ${MAX_MINUTES}-min wall-clock budget after ${summary.length}/${targets.length} states — stopping early (states rotate; tomorrow's run covers the rest).`);
     break;
   }
   const r = await syncState(state);
+  if (r.quota) { quotaStop = r.quota; break; }
   summary.push(r);
   await sleep(1500);
 }
@@ -277,9 +309,13 @@ try {
     source: "openstates_bill_sweep",
     started_at: new Date(t0).toISOString(),
     finished_at: new Date().toISOString(),
-    status: failed.length === targets.length ? "error" : total > 0 ? "success" : "empty",
+    // A quota stop is "partial", never "error": the sweep did what the day's
+    // quota allowed and the rotation resumes tomorrow. Only real failures are errors.
+    status: failed.length && failed.length === summary.length ? "error" : quotaStop ? "partial" : total > 0 ? "success" : "empty",
     rows_updated: total,
-    notes: `${found.length}/${summary.length} states synced (${targets.length} targeted)${failed.length ? ` · failed: ${failed.map((f) => f.state).join(",").slice(0, 120)}` : ""}`,
+    notes: `${summary.length}/${targets.length} states checked · ${found.length} with bills · ${requestsMade} requests`
+      + `${quotaStop ? ` · stopped: ${quotaStop} (rotation resumes tomorrow)` : ""}`
+      + `${failed.length ? ` · failed: ${failed.map((f) => f.state).join(",").slice(0, 120)}` : ""}`,
   });
 } catch { /* best-effort */ }
 process.exit(0);
