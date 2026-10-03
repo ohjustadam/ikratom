@@ -1137,6 +1137,12 @@ jobs:
         # Runs right after discovery so a meeting verified THIS run retires its
         # news-derived twin before anyone is paged about it. Rules only, no model.
         run: node scripts/resolve-pending-meetings.mjs
+      - name: Map who decides in every hot-zone town
+        # A town with kratom on its agenda gets its council (and county board)
+        # queued for roster resolution by cron-localreps-cloud.yml, so a
+        # hearing alert can name who votes. Idempotent; no model call here.
+        continue-on-error: true
+        run: node scripts/seed-hotzone-officials.mjs
       # Diagnostics only, never a failure signal. On a datacenter IP this log
       # is always noisy — ahmia/torch engine-load errors, the missing
       # limiter.toml, "X-Forwarded-For nor X-Real-IP", per-engine
