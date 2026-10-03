@@ -148,6 +148,15 @@ export const LONG_TTL_PATTERNS = [
   // cookies()/headers()/searchParams. It was 7,507 of the Oct 3 distributed
   // crawl's requests (1,001 ids, robots.txt ignored). An hour matches its ISR.
   '(starts_with(http.request.uri.path, "/legislators/") and not ends_with(http.request.uri.path, "/briefing"))',
+  // /bills/:id — AUDITED 2026-10-03 to the same standard as the briefing entry:
+  // the public read-set is a service-role unstable_cache snapshot; per-viewer
+  // reads moved to /api/bills/[id]/viewer (client). Two server children still
+  // touch the auth cookie and nothing else: YourRepDecidingThisBill returns
+  // null without a session, BillTimeline reads public bill_actions. Guard 1
+  // bypasses every request carrying the auth cookie. /bills/:id/dossier reads
+  // the cookie-bound client and is NOT audited — excluded. 1,200 hits in the
+  // Oct 3 crawl; the platform's most valuable search content.
+  '(starts_with(http.request.uri.path, "/bills/") and not ends_with(http.request.uri.path, "/dossier"))',
 ];
 
 // Static build output is immutable and safe to cache hard, regardless of auth.
