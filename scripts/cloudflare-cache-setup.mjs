@@ -115,6 +115,9 @@ export const CACHEABLE_PATTERNS = [
   'starts_with(http.request.uri.path, "/install")',
   'http.request.uri.path in {"/glossary" "/membership" "/roles"}',
   'http.request.uri.path in {"/cookies" "/privacy" "/terms"}',
+  // Crawler plumbing: identical for everyone (robots.ts is ISR 3600, no data).
+  // 415 robots.txt fetches in the Oct 3 crawl alone.
+  'http.request.uri.path in {"/robots.txt" "/sitemap.xml"}',
   'http.request.uri.path in {"/action" "/community" "/knowledge" "/legislative"}',
 ];
 
