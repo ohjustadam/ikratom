@@ -25,6 +25,8 @@ const ANON: ChromeMe = {
   avatarUrl: null,
   fullName: null,
   state: null,
+  // Anonymous visitors are never prompted for a state.
+  stateAnswered: true,
   emailConnected: false,
   locale: "en",
   isAdmin: false,

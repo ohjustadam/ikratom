@@ -26,6 +26,7 @@ import { SignInProvider } from "@/components/auth/SignInContext";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
 import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
 import { ChromeProvider } from "@/components/chrome/ChromeProvider";
+import { StateQuestionGate } from "@/components/chrome/StateQuestionGate";
 import { AttributionCapture } from "@/components/chrome/AttributionCapture";
 import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGate } from "@/components/chrome/ChromeGates";
 import "./globals.css";
@@ -152,6 +153,7 @@ export default function RootLayout({
             /api/me now — the leader flags used to come from a server-side
             profile read in this layout, which forced every route dynamic. */}
         <LeaderTourGate />
+        <StateQuestionGate />
 
         {/* Site-wide soft announcement (editable from /admin/content) — renders
             only when admin sets global.announcement content. */}

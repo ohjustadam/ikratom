@@ -280,8 +280,9 @@ export function OnboardingWizard({
           <Field name="street" label="Street" defaultValue={initialProfile.street} placeholder="123 Main St" />
           <div className="grid gap-3 sm:grid-cols-3">
             <Field name="city" label="City" defaultValue={initialProfile.city} />
-            <Select name="state" label="State" defaultValue={initialProfile.state}>
-              <option value="">—</option>
+            <Select name="state" label="State (required)" defaultValue={initialProfile.state} required>
+              <option value="" disabled>Choose…</option>
+              <option value="NONE">Prefer not to say</option>
               {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
             </Select>
             <Field name="zip" label="ZIP" defaultValue={initialProfile.zip} placeholder="12345" />
@@ -495,14 +496,15 @@ function Field({
 }
 
 function Select({
-  name, label, defaultValue, children,
-}: { name: string; label: string; defaultValue?: string; children: React.ReactNode }) {
+  name, label, defaultValue, children, required,
+}: { name: string; label: string; defaultValue?: string; children: React.ReactNode; required?: boolean }) {
   return (
     <div>
       <label className="block text-xs font-medium text-zinc-400">{label}</label>
       <select
         name={name}
         defaultValue={defaultValue}
+        required={required}
         className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
       >
         {children}
