@@ -35,7 +35,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Participates in the egress gate like every scheduled workflow
+  # (tests/egress-gate-wiring.test.ts), at the ESSENTIAL tier: the gate never
+  # sheds it, because a skipped backup cannot be caught up later. The weekly
+  # full dump asks the gate again at the BULK tier inside db-backup.mjs and
+  # defers itself when the month is tight.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      pct: ${{ steps.gate.outputs.pct }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier essential
+
   backup:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
