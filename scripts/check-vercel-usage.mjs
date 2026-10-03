@@ -203,6 +203,14 @@ if (!NETLIFY_TOKEN) {
       } else if (sev === "warn") {
         problems.push(`Netlify credits ${line} — batch your remaining deploys`);
       }
+      // The burst alarm (true meter only, 2026-10-03). A day burning 5x its
+      // trailing median is a flood or a runaway at ANY level — on 2026-10-01 the
+      // level read 58% and the next day 625 credits went in 25 minutes. Paging
+      // on the shape, hourly, is what would have woken someone in time.
+      if (est.spike) {
+        problems.push(`Netlify BURN SPIKE — ${est.spikeDetail}. Check scripts/cf-origin-report.mjs for the source; block it at Cloudflare.`);
+      }
+      if (est.source) console.log(`netlify credit source: ${est.source}${est.trueMeterError ? ` (${est.trueMeterError})` : ""}`);
       if (est.graceTopupAt) {
         console.log(`netlify grace top-up granted ${est.graceTopupAt} — budget already ran out once this period`);
       }
@@ -303,9 +311,22 @@ if (problems.length > 0) {
         }
         console.log(`paged owner across ${subs.length} subscription(s)`);
       } else {
-        console.log("no push subscriptions / VAPID keys — cannot page");
+        console.log("no push subscriptions / VAPID keys — cannot web-push");
       }
     }
+    // Phone + inbox, independent of the PWA (2026-10-03). On 2026-10-02 the
+    // only page went to a browser subscription, and the owner learned 14h late.
+    const { alertOwner } = await import("./lib/owner-alert.mjs");
+    const down = !(siteStatus && siteStatus < 400);
+    const sent = await alertOwner({
+      sb,
+      title: down ? "iKratom is DOWN" : "iKratom hosting warning",
+      body: problems.join("\n"),
+      priority: down || problems.some((p) => p.includes("SPIKE")) ? "urgent" : "high",
+      link: "https://app.netlify.com/teams/ohjustadam/billing/general",
+      tags: [down ? "rotating_light" : "warning"],
+    });
+    console.log(`owner alert channels: ${JSON.stringify(sent)}`);
   } else {
     pagedNote = " [dry-run: would page]";
   }
