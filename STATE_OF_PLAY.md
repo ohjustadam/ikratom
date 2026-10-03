@@ -126,6 +126,25 @@ telling anyone they are near a ceiling**: `npm run credits`, or the CI
 Supabase egress has its own load-shedding gate (`scripts/egress-gate.mjs`),
 which defers deferrable cron jobs rather than failing them.
 
+**2026-10-02: the credit gate was right and the site still went down.** One
+rented server replayed ~440 server-rendered URLs about 28 times each for 25
+minutes. Those renders (~6.5s each, 30s on timeout) burned ~635 credits, the
+account hit its cap three days before reset, and Netlify disabled the site. The
+gate's estimate was accurate for the baseline. It cannot see a burst: it models
+compute from bandwidth (which stayed flat) and is sampled once a day by a
+GitHub schedule that runs hours late. Three things follow, and none of them are
+fixed by a better estimate:
+
+- **Netlify publishes no usage API.** The true credit meter exists only in the
+  dashboard. Its automatic emails at 50/75/100% are not configurable.
+- **The evidence lives in Cloudflare.** `scripts/cf-origin-report.mjs` ranks
+  who is spending origin time; Netlify's function logs keep 24h and will not
+  load while the site is paused.
+- **Prevention has to happen before the origin.** A per-IP rate limit at
+  Cloudflare would have stopped this outright, and caching a page for anonymous
+  visitors bounds a replay to one render per URL per TTL
+  (`scripts/cloudflare-cache-setup.mjs`, `LONG_TTL_PATTERNS`).
+
 ---
 
 ## How the platform watches itself
