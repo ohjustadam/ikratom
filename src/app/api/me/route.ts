@@ -34,6 +34,10 @@ export type ChromeMe = {
   avatarUrl: string | null;
   fullName: string | null;
   state: string | null;
+  // False only when the member has never answered the state question (0259).
+  // Undefined column (pre-migration) or a set state both count as answered,
+  // so the required prompt can never appear before the database supports it.
+  stateAnswered: boolean;
   emailConnected: boolean;
   locale: string;
   isAdmin: boolean;
@@ -57,6 +61,8 @@ const ANON: ChromeMe = {
   avatarUrl: null,
   fullName: null,
   state: null,
+  // Anonymous visitors are never prompted for a state.
+  stateAnswered: true,
   emailConnected: false,
   locale: "en",
   isAdmin: false,
@@ -123,6 +129,9 @@ export async function GET() {
       avatarUrl: profile.avatar_url ?? null,
       fullName: profile.full_name ?? null,
       state: profile.state ?? null,
+      // `!== null` on purpose: undefined (column not migrated yet) counts as
+      // answered, so the prompt can never fire before 0259 is applied.
+      stateAnswered: !!profile.state || profile.state_answered_at !== null,
       emailConnected: !!integ?.account_email,
       locale,
       isAdmin,

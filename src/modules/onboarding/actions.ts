@@ -4,8 +4,39 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getDistrictsForAddress } from "@/lib/civic";
 import { autoRequestLocalCoverageIfMissing } from "@/lib/local-reps-auto-request";
+import { parseStateAnswer } from "@/lib/us-states";
 
 const cap = (s: string, n: number) => s.slice(0, n).trim() || null;
+
+type Sb = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Stamp profiles.state_answered_at (migration 0259). Best-effort and kept OUT
+ * of the main profile update on purpose: if the site deploys before the
+ * migration, the column does not exist yet, and folding it into that update
+ * would make every onboarding save fail.
+ */
+async function markStateAnswered(supabase: Sb, userId: string) {
+  await supabase.from("profiles").update({ state_answered_at: new Date().toISOString() }).eq("id", userId);
+}
+
+/**
+ * The one required question for members who never answered it (shown by
+ * StateQuestionGate site-wide). "Prefer not to say" stores NULL + the stamp,
+ * which routes the member to the national digest (everything, ranked).
+ */
+export async function answerStateQuestion(formData: FormData): Promise<{ ok: true } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const answer = parseStateAnswer(formData.get("state"));
+  if ("error" in answer) return { error: answer.error };
+  const { error } = await supabase
+    .from("profiles")
+    .update({ state: answer.state, state_answered_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", user.id);
+  return error ? { error: error.message } : { ok: true };
+}
 
 /**
  * Save address step — runs Census lookup to get districts + city/county.
@@ -19,11 +50,13 @@ export async function saveAddressStep(formData: FormData) {
   const fullName = cap(String(formData.get("full_name") ?? ""), 120);
   const street = cap(String(formData.get("street") ?? ""), 200);
   const city = cap(String(formData.get("city") ?? ""), 80);
-  const stateRaw = String(formData.get("state") ?? "").trim().toUpperCase().slice(0, 2);
   const zip = cap(String(formData.get("zip") ?? ""), 10);
 
-  const state = /^[A-Z]{2}$/.test(stateRaw) ? stateRaw : null;
-  if (stateRaw && !state) return { error: "State must be a 2-letter code." };
+  // REQUIRED (owner decision 2026-10-03), with "Prefer not to say" as a real
+  // answer: 18 of 46 members had no state and so never got home-state alerts.
+  const answer = parseStateAnswer(formData.get("state"));
+  if ("error" in answer) return { error: answer.error };
+  const state = answer.state;
   if (zip && !/^\d{5}(-\d{4})?$/.test(zip)) return { error: "ZIP must be 5 or 9 digits." };
 
   let districts = {
@@ -54,6 +87,7 @@ export async function saveAddressStep(formData: FormData) {
     .eq("id", user.id);
 
   if (error) return { error: error.message };
+  await markStateAnswered(supabase, user.id);
 
   // Fire-and-forget: queue local-rep coverage requests for the user's
   // city/county if they're not already covered. Admin sees the queue
