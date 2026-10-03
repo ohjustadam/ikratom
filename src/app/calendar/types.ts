@@ -18,7 +18,8 @@ export type EventKind =
   | "townhall"
   | "bill_effective"
   | "bill_sunset"
-  | "local_vote";
+  | "local_vote"
+  | "live";
 
 export type CalendarEvent = {
   kind: EventKind;
@@ -50,6 +51,7 @@ export const KIND_BADGE: Record<string, { emoji: string; label: string; cls: str
   townhall: { emoji: "🎤", label: "Town hall", cls: "bg-teal-950/30 text-teal-300 border-teal-700/40" },
   bill_effective: { emoji: "⚖️", label: "Takes effect", cls: "bg-rose-950/30 text-rose-300 border-rose-700/40" },
   bill_sunset: { emoji: "⏳", label: "Expires", cls: "bg-orange-950/30 text-orange-300 border-orange-700/40" },
+  live: { emoji: "🔴", label: "Live stream", cls: "bg-red-950/30 text-red-300 border-red-700/40" },
   local_vote: { emoji: "🗳️", label: "Local vote", cls: "bg-cyan-950/30 text-cyan-300 border-cyan-700/40" },
 };
 
@@ -162,6 +164,14 @@ export type LocalVoteRow = {
   policy_alert_id: string | null;
 };
 
+/** Upcoming YouTube live stream / premiere from a mirrored channel (/videos, mig 0260). */
+export type LiveRow = {
+  video_id: string;
+  title: string;
+  scheduled_start_at: string;
+  channel: { name: string } | null;
+};
+
 export type CalendarSnapshot = {
   meetings: MeetingRow[];
   alerts: AlertRow[];
@@ -172,4 +182,5 @@ export type CalendarSnapshot = {
   billsEffective: BillDateRow[];
   billsSunset: BillDateRow[];
   localVotes: LocalVoteRow[];
+  lives: LiveRow[];
 };
