@@ -176,6 +176,40 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/push-national-news-digest.mjs
 
+  email-digest:
+    # The daily email: everything since the last digest, upcoming hearings first.
+    # Runs AFTER the national digest so today's country-wide items are included,
+    # and on `always()` so a failed digest step never silences email.
+    #
+    # NOT gated by the egress budget: it reads a few hundred notification rows,
+    # and email is the only channel that reaches most members (push reaches
+    # ~15%). Runs here, not on Netlify, so it keeps working when the site is down.
+    #
+    # Needs repo secrets RESEND_API_KEY + RESEND_FROM_EMAIL + RESEND_FROM_NAME
+    # (optional BREVO_API_KEY adds 300/day). Without them it fails loudly.
+    needs: national-news-digest
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Send the daily email digest
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_APP_URL: https://www.ikratom.org
+        run: node scripts/send-email-notifications.mjs --mode digest
+
   pending-meeting-alert:
     # NOT gated by the egress budget, on purpose. This is an owner page about a
     # hearing with a date on it — an alert that load-sheds goes quiet exactly
