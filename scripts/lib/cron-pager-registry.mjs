@@ -238,11 +238,12 @@ export const REGISTRY = [
   // Silence here is the failure mode, which is exactly what makes it worth paging on.
   { source: "alert_pending_meetings", interval_hours: 48, system: "github-actions", cadence: "daily" },
 
-  // recheck_watchlist_meetings — the higher-precision half of meeting discovery:
-  // it re-checks bodies that have ALREADY hosted a kratom item. It wrote no
-  // telemetry at all until 2026-09-30 and runs under continue-on-error, so it
-  // could do nothing for weeks and look fine from every surface the owner uses.
-  { source: "recheck_watchlist_meetings", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  // resolve_pending_meetings — clears the review queue by rule (superseded by a
+  // verified row, a law's effective date, not kratom-related) so the owner is
+  // paged only about real candidates. Replaced recheck_watchlist_meetings on
+  // 2026-10-03, which searched only through Gemini grounding and duplicated the
+  // discovery job's SearXNG warm lane.
+  { source: "resolve_pending_meetings", interval_hours: 48, system: "github-actions", cadence: "daily" },
 
   // enrich_news — replaces sync-news-rss's ai_relevance_score 0.5 placeholder
   // with a real score. Registered the day it was first automated: it had run
