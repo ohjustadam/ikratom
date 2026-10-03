@@ -224,8 +224,11 @@ if (!NETLIFY_TOKEN) {
 // Credits lag; traffic does not. On 2026-10-02 ONE IP sent ~12,000 requests in
 // 25 minutes and the credit meter only told anyone after the site was dead.
 // Cloudflare's analytics show it within minutes, so this checks the last hour
-// for (a) one IP far above any human or known crawler, and (b) total origin
-// time far above a normal hour (~180 origin-seconds). Either is a page.
+// for (a) one IP far above any human or known crawler, (b) total origin
+// time far above a normal hour (~180 origin-seconds), and (c) a DISTRIBUTED
+// surge: on 2026-10-03 ~45,000 requests came from 10,000+ IPs (median ONE
+// request each, busiest 246 in 14h), which (a) can never see and no per-IP
+// rate limit can stop. Any of them is a page.
 // Needs CLOUDFLARE_CACHE_TOKEN (Zone Analytics:Read); skipped if unset.
 let floodSummary = "";
 if (process.env.CLOUDFLARE_CACHE_TOKEN) {
@@ -239,7 +242,9 @@ if (process.env.CLOUDFLARE_CACHE_TOKEN) {
       headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_CACHE_TOKEN}`, "content-type": "application/json" },
       body: JSON.stringify({ query: `{viewer{zones(filter:{zoneTag:"${zone}"}){
         ip:httpRequestsAdaptiveGroups(limit:1,orderBy:[count_DESC],filter:{${win}}){count dimensions{clientIP userAgent}}
-        org:httpRequestsAdaptiveGroups(limit:20,filter:{${win}}){count avg{originResponseDurationMs}}}}}` }),
+        org:httpRequestsAdaptiveGroups(limit:20,filter:{${win}}){count avg{originResponseDurationMs}}
+        hit:httpRequestsAdaptiveGroups(limit:1,filter:{${win},originResponseDurationMs_gt:0}){count}
+        ips:httpRequestsAdaptiveGroups(limit:1000,orderBy:[count_DESC],filter:{${win},originResponseDurationMs_gt:0}){count dimensions{clientIP}}}}}` }),
       signal: AbortSignal.timeout(20_000),
     });
     const j = await r.json();
@@ -249,13 +254,20 @@ if (process.env.CLOUDFLARE_CACHE_TOKEN) {
     const originSec = z.org.reduce((s, g) => s + (g.count * Math.max(0, g.avg.originResponseDurationMs ?? 0)) / 1000, 0);
     const IP_MAX = Number(process.env.FLOOD_IP_PER_HOUR || 1200);
     const ORIGIN_MAX = Number(process.env.FLOOD_ORIGIN_SEC_PER_HOUR || 1800);
-    floodSummary = ` · top IP ${top?.count ?? 0}/h · origin ${Math.round(originSec)}s/h`;
+    // Normal hour: ~200-350 requests reach the origin. 1,500 is ~5x that.
+    const SURGE_MAX = Number(process.env.FLOOD_ORIGIN_REQ_PER_HOUR || 1500);
+    const originReqs = z.hit[0]?.count ?? 0;
+    const ipCount = z.ips.length; // capped at 1000 by the query
+    floodSummary = ` · top IP ${top?.count ?? 0}/h · origin ${Math.round(originSec)}s/h · ${originReqs} origin req/h from ${ipCount >= 1000 ? "1000+" : ipCount} IPs`;
     console.log(`cloudflare last hour: busiest IP ${top?.count ?? 0} req (${top?.dimensions?.clientIP ?? "-"}), origin time ${Math.round(originSec)}s`);
     if ((top?.count ?? 0) > IP_MAX) {
       problems.push(`FLOOD: one IP (${top.dimensions.clientIP}) made ${top.count} requests in the last hour — block it in Cloudflare → Security → WAF. UA: ${String(top.dimensions.userAgent).slice(0, 80)}`);
     }
     if (originSec > ORIGIN_MAX) {
       problems.push(`ORIGIN LOAD: ${Math.round(originSec)} origin-seconds in the last hour (normal ~180). Run scripts/cf-origin-report.mjs to see who.`);
+    }
+    if (originReqs > SURGE_MAX && (top?.count ?? 0) < originReqs / 10) {
+      problems.push(`DISTRIBUTED CRAWL: ${originReqs} requests reached the server in the last hour from ${ipCount >= 1000 ? "1,000+" : ipCount} different IPs (busiest only ${top?.count ?? 0}) — per-IP limits can't stop this. Cloudflare → Security → Settings → turn on "I'm Under Attack" for a few hours.`);
     }
   } catch (e) { console.log(`cloudflare flood check failed: ${e.message}`); }
 } else {
@@ -364,7 +376,7 @@ if (problems.length > 0) {
       sb,
       title: down ? "iKratom is DOWN" : "iKratom hosting warning",
       body: problems.join("\n"),
-      priority: down || problems.some((p) => p.includes("SPIKE")) ? "urgent" : "high",
+      priority: down || problems.some((p) => /SPIKE|FLOOD|DISTRIBUTED|ORIGIN LOAD/.test(p)) ? "urgent" : "high",
       link: "https://app.netlify.com/teams/ohjustadam/billing/general",
       tags: [down ? "rotating_light" : "warning"],
     });
