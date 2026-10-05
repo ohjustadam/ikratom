@@ -264,4 +264,6 @@ export const REGISTRY = [
   // backup job is a silent loss of every account the day the project goes.
   { source: "db_backup_core", interval_hours: 48, system: "github-actions", cadence: "daily" },
   { source: "db_backup_full", interval_hours: 192, system: "github-actions", cadence: "weekly" },
+  // Password-free snapshot (Management API) — works before SUPABASE_DB_URL exists.
+  { source: "db_snapshot_api", interval_hours: 48, system: "github-actions", cadence: "daily" },
 ];

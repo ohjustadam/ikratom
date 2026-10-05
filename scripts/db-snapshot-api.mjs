@@ -107,3 +107,14 @@ const t0 = Date.now();
 const bytes = await encryptStream(Readable.from(rows(tables, stats)), file, fs.readFileSync(path.join(here, "backup-public-key.pem"), "utf8"));
 console.log(`✓ ${file} · ${(bytes / 1e6).toFixed(2)} MB encrypted · ${tables.length} tables · ${Math.round((Date.now() - t0) / 1000)}s`);
 console.log(`  ${stats.filter((s) => !s.endsWith("=0")).join(" ")}`);
+
+// Telemetry for the staleness pager (source db_snapshot_api), when run with the
+// service-role env (CI). A silent backup job is a silent loss of every account.
+if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.NEXT_PUBLIC_SUPABASE_URL) {
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const rowsTotal = stats.reduce((a, x) => a + Number(x.split("=")[1] || 0), 0);
+    await sb.from("scraper_runs").insert({ source: "db_snapshot_api", started_at: new Date(t0).toISOString(), finished_at: new Date().toISOString(), status: "success", rows_updated: rowsTotal, notes: `${path.basename(file)} ${(bytes / 1e6).toFixed(2)}MB · ${tables.length} tables · ${rowsTotal} rows` });
+  } catch { /* best-effort */ }
+}
