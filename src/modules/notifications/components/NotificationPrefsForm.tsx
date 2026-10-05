@@ -85,8 +85,10 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
           <Check name="in_app" defaultChecked={initial?.in_app ?? true}>
             In-app (bell icon + /notifications)
           </Check>
-          <Check name="email" defaultChecked={initial?.email ?? false} disabled>
-            Email <span className="ml-1 text-xs text-zinc-500">(coming with email integration)</span>
+          {/* Never `disabled`: a disabled checkbox is left out of FormData, so
+              every save would silently turn email off (0258 defaults it on). */}
+          <Check name="email" defaultChecked={initial?.email ?? true}>
+            ✉️ Email <span className="ml-1 text-xs text-zinc-500">(one update a day when something changed, plus instant hearing alerts — Weekly cadence below sends it Mondays only)</span>
           </Check>
           <Check name="daily_brief_push" defaultChecked={initial?.daily_brief_push ?? false}>
             ☕ Daily brief push <span className="ml-1 text-xs text-zinc-500">(once-a-day summary, requires push enabled in browser)</span>
@@ -139,8 +141,8 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
         >
           <option value="instant">Instant — notify the moment something matches</option>
           <option value="daily">Daily digest — one coalesced push around 9am your time</option>
-          <option value="weekly">Weekly digest — one coalesced push Monday ~9am your time</option>
-          <option value="off">Off — turn off all notifications</option>
+          <option value="weekly">Weekly digest — one coalesced push Monday ~9am your time; email Mondays only</option>
+          <option value="off">Off — turn off all notifications, email included</option>
         </select>
       </div>
 

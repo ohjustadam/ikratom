@@ -34,6 +34,7 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail, remainingToday, providerSummary, unsubscribeUrl } from "./lib/email-send.mjs";
 import { renderDigest, renderMeetingAlert, renderAnnouncement } from "./lib/email-render.mjs";
+import { isDeliverable, digestHearings } from "./lib/email-select.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
@@ -87,6 +88,7 @@ async function members(audience) {
   if (ONLY) return profiles.filter((p) => p.id === ONLY).map((p) => ({ ...p, weekly: false }));
   const monday = new Date().getUTCDay() === 1;
   return profiles.filter((p) => {
+    if (!isDeliverable(p.email)) return false; // test addresses: a 422 that still costs quota
     const pr = byUser.get(p.id);
     if (pr?.digest === "off") return false; // a global "off" always wins, even for announcements
     if (audience === "all") return true;
@@ -120,15 +122,23 @@ async function runDigest() {
   // A dry run may preview what EVERY member would get (--audience all); a real send never widens the audience.
   const users = await members(DRY ? arg("audience", "opted-in") : "opted-in");
   const now = Date.now();
-  const sinceDaily = (await lastSuccess(SOURCE)) ?? new Date(now - 24 * 3600e3).toISOString();
+  const last = await lastSuccess(SOURCE);
+  // One digest a day, whoever starts it. GitHub ran the 10:17 UTC schedule nine
+  // hours late on 2026-10-05 and a manual run four minutes after it sent most
+  // members the same email twice. --force overrides.
+  if (!DRY && !ONLY && last && now - Date.parse(last) < 12 * 3600e3 && !argv.includes("--force")) {
+    console.log(`digest already sent at ${last} — skipping (one per day; --force to override)`);
+    process.exit(0);
+  }
+  const sinceDaily = last ?? new Date(now - 24 * 3600e3).toISOString();
   // Never reach further back than 72h: a long outage must not produce a wall of stale items.
   const floor = new Date(now - 72 * 3600e3).toISOString();
   const since = sinceDaily < floor ? floor : sinceDaily;
   const weekAgo = new Date(now - 7 * 86400e3).toISOString();
 
-  const { data: meetings } = await sb.from("municipal_meetings").select(MEETING_COLS).eq("moderation_status", "approved")
+  const { data: meetings } = await sb.from("municipal_meetings").select(`${MEETING_COLS}, moderation_reviewed_at`).eq("moderation_status", "approved")
     .gte("meeting_at", new Date(now).toISOString()).lte("meeting_at", new Date(now + 21 * 86400e3).toISOString())
-    .order("meeting_at").limit(5);
+    .order("meeting_at").limit(50);
 
   const ids = users.map((u) => u.id);
   const notes = new Map();
@@ -139,18 +149,25 @@ async function runDigest() {
     for (const n of data) (notes.get(n.user_id) ?? notes.set(n.user_id, []).get(n.user_id)).push(n);
   }
 
+  // A what's-new post that already went out as its own announcement email must
+  // not come back as a digest line the next morning.
+  const { data: announced } = await sb.from("scraper_runs").select("notes").eq("source", "email_announcement")
+    .eq("status", "success").gte("started_at", weekAgo).limit(50);
+  const emailedLinks = new Set((announced ?? []).map((a) => `/whats-new/${String(a.notes).split(" ")[0]}`));
+
   const queue = [];
   for (const u of users) {
     const from = u.weekly ? weekAgo : since;
-    const mine = (notes.get(u.id) ?? []).filter((n) => n.created_at > from);
-    const sections = [{ title: "Hearings and meetings (every state)", meetings: meetings ?? [] },
+    const mine = (notes.get(u.id) ?? []).filter((n) => n.created_at > from && !(n.kind === "whats_new" && emailedLinks.has(n.link)));
+    const sections = [{ title: "Hearings and meetings (every state)", meetings: digestHearings(meetings, from, now) },
       ...SECTIONS.map((s) => ({ title: s.title, items: dedupe(mine.filter((n) => s.kinds.includes(n.kind))) }))];
     const msg = renderDigest({ username: u.username, sections, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), briefLink: "/brief" });
     if (msg.count === 0) continue; // nothing new: send nothing
     queue.push({ user: u, msg: { ...msg, tag: "digest", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } });
   }
   // Members with a hearing in their digest go first if the day's quota is tight.
-  queue.sort((a, b) => Number(b.msg.subject.startsWith("Hearing")) - Number(a.msg.subject.startsWith("Hearing")));
+  const hasHearing = (q) => Number(/hearing/i.test(q.msg.subject));
+  queue.sort((a, b) => hasHearing(b) - hasHearing(a));
   const r = await deliver(queue);
   return { ...r, eligible: users.length, withContent: queue.length, since };
 }
