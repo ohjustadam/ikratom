@@ -41,6 +41,7 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
   SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
   NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+  AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
   CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
   CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1097,6 +1098,7 @@ jobs:
       SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
       GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
       # The composite action below does NOT export this — it has no $GITHUB_ENV
       # write and no outputs:. Drop this line and you get a healthy container, a
@@ -1137,6 +1139,18 @@ jobs:
         # Runs right after discovery so a meeting verified THIS run retires its
         # news-derived twin before anyone is paged about it. Rules only, no model.
         run: node scripts/resolve-pending-meetings.mjs
+      - name: Map who decides in every hot-zone town
+        # A town with kratom on its agenda gets its council (and county board)
+        # queued for roster resolution by cron-localreps-cloud.yml, so a
+        # hearing alert can name who votes. Idempotent; no model call here.
+        continue-on-error: true
+        run: node scripts/seed-hotzone-officials.mjs
+      - name: Re-check rosters that may be out of date
+        # Ended terms, 150+ day-old checks, or a hearing within 30 days: re-queue
+        # the locality so the same pipeline re-confirms members and retires
+        # departed ones on strong evidence only. 8 per run.
+        continue-on-error: true
+        run: node scripts/refresh-local-rosters.mjs
       # Diagnostics only, never a failure signal. On a datacenter IP this log
       # is always noisy — ahmia/torch engine-load errors, the missing
       # limiter.toml, "X-Forwarded-For nor X-Real-IP", per-engine

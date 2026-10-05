@@ -50,6 +50,8 @@ export const REGISTRY = [
       "generate_state_briefing",
       "sync_committees_openstates","draft_legislator_stance",
       "discover_municipal_meetings","fire_meeting_reminders","fire_voting_reminders",
+      // Keeps "who decides" true after elections (ended terms, stale checks).
+      "refresh_local_rosters",
       "scan_legistar_tenants","scan_granicus_tenants","sync_research_pubmed",
       "align_bills_to_research",
       "openstates","detect_bill_clusters",
@@ -244,6 +246,10 @@ export const REGISTRY = [
   // 2026-10-03, which searched only through Gemini grounding and duplicated the
   // discovery job's SearXNG warm lane.
   { source: "resolve_pending_meetings", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  // seed_hotzone_officials — files council/county roster requests for every
+  // meeting town with no officials on file (2026-10-03: all recent ones had 0).
+  // Runs in the budget-gated discovery job, so 72h tolerates one skipped day.
+  { source: "seed_hotzone_officials", interval_hours: 72, system: "github-actions", cadence: "daily" },
 
   // enrich_news — replaces sync-news-rss's ai_relevance_score 0.5 placeholder
   // with a real score. Registered the day it was first automated: it had run
@@ -264,4 +270,6 @@ export const REGISTRY = [
   // backup job is a silent loss of every account the day the project goes.
   { source: "db_backup_core", interval_hours: 48, system: "github-actions", cadence: "daily" },
   { source: "db_backup_full", interval_hours: 192, system: "github-actions", cadence: "weekly" },
+  // Password-free snapshot (Management API) — works before SUPABASE_DB_URL exists.
+  { source: "db_snapshot_api", interval_hours: 48, system: "github-actions", cadence: "daily" },
 ];

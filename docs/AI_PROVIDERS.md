@@ -35,15 +35,17 @@ Ranked by what is worth your five minutes first.
 
 | # | Provider | Secret name | Free tier | Get a key at |
 |---|---|---|---|---|
-| 1 | **Gemini** | `GEMINI_API_KEY` | 1,500 req/day, **plus** the only free grounded web search | https://aistudio.google.com/apikey |
-| 2 | **Groq** | `GROQ_API_KEY` | Generous req/day, fastest in the pool | https://console.groq.com/keys |
-| 3 | **Mistral** | `MISTRAL_API_KEY` | Free "Experiment" tier | https://console.mistral.ai/api-keys |
-| 4 | **OpenRouter** | `OPENROUTER_API_KEY` | Routes to whatever is free right now | https://openrouter.ai/keys |
+| 1 | **Gemini** | `GEMINI_API_KEY` | Flash / Flash-Lite free, plus the only free grounded web search. **The key's Google project must have NO billing linked** — since 2026-04 a project with prepaid billing answers 402 "prepayment credits are depleted" instead of using the free tier. Create the key in a NEW project. | https://aistudio.google.com/apikey |
+| 2 | **Groq** | `GROQ_API_KEY` | ~30 req/min, daily token caps; fastest in the pool | https://console.groq.com/keys |
+| 3 | **Mistral** | `MISTRAL_API_KEY` | Free plan: $10/month of API credit, no card | https://console.mistral.ai/api-keys |
+| 4 | **OpenRouter** | `OPENROUTER_API_KEY` | ~20 req/min, 50 req/day on free models | https://openrouter.ai/keys |
 | 5 | **Cloudflare** | `CLOUDFLARE_AI_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` | 10k neurons/day | https://dash.cloudflare.com → AI → Workers AI |
-| 6 | **SambaNova** | `SAMBANOVA_API_KEY` | Free tier, very fast Llama 3.3 | https://cloud.sambanova.ai/apis |
-| 7 | **NVIDIA NIM** | `NVIDIA_API_KEY` | Free starter credits | https://build.nvidia.com |
+| 6 | **NVIDIA NIM** | `NVIDIA_API_KEY` | ~40 req/min, 100+ models, no card | https://build.nvidia.com |
+| 7 | **Vercel AI Gateway** | `AI_GATEWAY_API_KEY` | $5 credit every 30 days, no card, never bills unless you buy credits. Last in the chain on purpose (a reserve). | https://vercel.com/dashboard → AI Gateway → API Keys |
+| 8 | **SambaNova** | `SAMBANOVA_API_KEY` | Fast Llama; current key is REJECTED (401) — replace it only if signup is still free without a card | https://cloud.sambanova.ai/apis |
 | — | Cerebras | `CEREBRAS_API_KEY` | **Left the free tier** (answers 402). Kept wired in case it returns. | https://cloud.cerebras.ai |
-| — | GitHub Models | `GH_MODELS_TOKEN` | **Being retired** (answers 410). Kept wired in case the brownout lifts. | https://github.com/settings/tokens |
+| — | GitHub Models | `GH_MODELS_TOKEN` | **Being retired** (answers plain "OK", not JSON). Kept wired in case it returns. | https://github.com/settings/tokens |
+| — | Cohere | — | **Not used:** trial keys are free but their terms forbid production use. | — |
 | — | Ollama | `OLLAMA_URL` | Local only — unreachable from CI by design | your own machine |
 
 > **`GH_MODELS_TOKEN`, not `GITHUB_MODELS_TOKEN`.** GitHub Actions refuses to

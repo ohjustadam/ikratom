@@ -15,6 +15,7 @@ import {
   HUMAN_REVIEW_VIA,
   VERIFIED_VIA_LIST,
   isAutoApprovable,
+  stateConflict,
 } from "../scripts/lib/meeting-autoapprove.mjs";
 
 const NOW = new Date("2026-09-17T12:00:00Z");
@@ -60,6 +61,23 @@ describe("isAutoApprovable — provenance before confidence", () => {
     expect(isAutoApprovable(row({ source_url: "" }), { ...POLICY, requireSource: false }).ok).toBe(true);
     expect(isAutoApprovable(row({ meeting_at: "2026-09-01T00:00:00Z" }), POLICY).ok).toBe(false);
     expect(isAutoApprovable(row({ meeting_at: "not a date" }), POLICY).ok).toBe(false);
+  });
+
+  it("REGRESSION 2026-10-03: holds a row whose body names a different state", () => {
+    // Live rows: state TX, body "North Dakota State Board of Pharmacy".
+    const r = isAutoApprovable(row({ state: "TX", body_name: "North Dakota State Board of Pharmacy" }), POLICY);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/wrong state/);
+    expect(stateConflict({ state: "TX", locality: "Bismarck, ND" })).toMatch(/locality says ND/);
+  });
+
+  it("does not trip on counties named after states, or on a matching state", () => {
+    expect(stateConflict({ state: "NY", locality: "Washington County, NY", body_name: "Washington County Board of Supervisors" })).toBeNull();
+    expect(stateConflict({ state: "OH", locality: "Delaware County, OH", body_name: null })).toBeNull();
+    expect(stateConflict({ state: "ND", locality: null, body_name: "North Dakota Legislative Assembly" })).toBeNull();
+    expect(stateConflict({ state: "NY", locality: "Clifton Park, NY", body_name: "Town Board" })).toBeNull();
+    expect(stateConflict({ state: "WV", locality: null, body_name: "West Virginia House of Delegates" })).toBeNull();
+    expect(stateConflict({ state: null, locality: "Corinth, TX" })).toBeNull();
   });
 
   it("keeps the two maps disjoint and the list in step with the map", () => {
