@@ -76,6 +76,7 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
   SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
   NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+  AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
   CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
   CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -433,6 +434,58 @@ jobs:
         continue-on-error: true
         run: node scripts/dedupe-news-by-title.mjs
 
+  email-meeting-alerts:
+    # Hearings are the top-priority notification: a meeting approved since the
+    # last tick is emailed to EVERY opted-in member, whatever their state, with
+    # Zoom / sign-up-to-speak / agenda / who-decides links. Independent job and
+    # not budget-gated: a hearing has a date on it and cannot be caught up later.
+    # Runs in Actions, not Netlify, so it works while the site is down.
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Email newly approved meetings
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_APP_URL: https://www.ikratom.org
+        run: node scripts/send-email-notifications.mjs --mode meetings
+
+  push-fanout:
+    # Delivers pending notifications as web push from HERE, not only from the
+    # Netlify fire-waves route. 2026-10-02: Netlify was disabled and every push
+    # stopped, while the crons kept writing notifications that went stale after
+    # 24h. Same module as the site (loaded via jiti), so no duplicated rules; a
+    # delivered row is stamped pushed_at, so running both paths is safe.
+    # Full `npm ci`: jiti comes with the build toolchain, not the runtime deps.
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - name: Fan out pending notifications as push
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node scripts/run-push-fanout.mjs
+
   watchdog:
     # Self-monitoring observability. MUST run every hour and MUST run last so
     # its staleness check sees this tick's fresh telemetry. `if: always()` runs
@@ -482,6 +535,16 @@ jobs:
           NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          # Owner phone + inbox (scripts/lib/owner-alert.mjs). All optional:
+          # an unset secret is "" and that channel is simply skipped.
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          # Flood detector (Cloudflare analytics, last hour). Skipped if unset.
+          CLOUDFLARE_CACHE_TOKEN: ${{ secrets.CLOUDFLARE_CACHE_TOKEN }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          OWNER_SMS_EMAIL: ${{ secrets.OWNER_SMS_EMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
         run: node scripts/check-vercel-usage.mjs
 
       # Egress reading, HOURLY (moved from the daily cron 2026-09-08).

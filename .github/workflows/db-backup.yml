@@ -1,0 +1,138 @@
+name: Database backup
+
+# Supabase Free keeps NO backups. This writes an encrypted dump every day
+# (core: what people made or curated) and a fuller one every Sunday, and keeps
+# them as artifacts. Every file is sealed with scripts/backup-public-key.pem;
+# only the owner's offline private key opens it, so the artifact being on a
+# public repo exposes nothing. scripts/pull-backups.mjs mirrors them to the
+# owner's own disk (no Supabase egress — they download from GitHub).
+#
+# Egress: core is a few MB/day. Full is ~200 MB and asks the egress gate
+# first; when the month is tight it defers to the next run instead of costing
+# the site its database (2026-07-16).
+#
+# Two independent backups:
+#   snapshot — scripts/db-snapshot-api.mjs via the Management API. Needs only
+#              SUPABASE_ACCESS_TOKEN, which is already a repo secret, so it works
+#              from the first run. Every human-made row + logins.
+#   backup   — scripts/db-backup.mjs (pg_dump: schema + data). Needs
+#              SUPABASE_DB_URL; until that secret exists the step logs an error
+#              (a nudge) but does not fail the run, so pull-backups.mjs (which
+#              only reads successful runs) still mirrors the snapshot.
+#
+# SUPABASE_DB_URL — the SESSION pooler URL, port 5432:
+#   postgresql://postgres.<ref>:<db-password>@aws-1-us-west-2.pooler.supabase.com:5432/postgres
+# GitHub runners have no IPv6 and the direct db.<ref>.supabase.co host is
+# IPv6-only on Free, so the pooler is the only reachable route.
+
+on:
+  schedule:
+    - cron: "40 8 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "core (daily set) or full (everything except logs)"
+        default: core
+        type: choice
+        options: [core, full]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  # Participates in the egress gate like every scheduled workflow
+  # (tests/egress-gate-wiring.test.ts), at the ESSENTIAL tier: the gate never
+  # sheds it, because a skipped backup cannot be caught up later. The weekly
+  # full dump asks the gate again at the BULK tier inside db-backup.mjs and
+  # defers itself when the month is tight.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      pct: ${{ steps.gate.outputs.pct }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/egress-gate.mjs --tier essential
+
+  backup:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Install pg_dump 17 (must be >= the server's major version)
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Pick the mode
+        id: mode
+        run: |
+          if [ -n "${{ inputs.mode }}" ]; then echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT";
+          elif [ "$(date -u +%u)" = "7" ]; then echo "mode=full" >> "$GITHUB_OUTPUT";
+          else echo "mode=core" >> "$GITHUB_OUTPUT"; fi
+      - name: Dump, compress, encrypt
+        # Not fatal while SUPABASE_DB_URL is unset — see the header.
+        continue-on-error: true
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/db-backup.mjs --mode ${{ steps.mode.outputs.mode }} --out backup-out
+      - name: Keep the encrypted files
+        if: hashFiles('backup-out/*.enc') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ikratom-db-${{ steps.mode.outputs.mode }}-${{ github.run_id }}
+          path: backup-out/*.enc
+          retention-days: ${{ steps.mode.outputs.mode == 'full' && 35 || 14 }}
+          if-no-files-found: error
+
+  snapshot:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Snapshot every human-made row, sealed
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/db-snapshot-api.mjs --out snapshot-out
+      - name: Keep the encrypted snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: ikratom-db-snapshot-${{ github.run_id }}
+          path: snapshot-out/*.enc
+          retention-days: 14
+          if-no-files-found: error

@@ -25,7 +25,15 @@
  * trustworthy. tests/meeting-autoapprove.test.ts scans every discovered_via
  * literal in scripts/ and fails if one is in neither map, so that decision
  * cannot be skipped by accident.
+ *
+ * STATE CONSISTENCY (2026-10-03): two approved rows were filed under TX while
+ * their body was "North Dakota State Board of Pharmacy" / "North Dakota
+ * Legislature Special Session" — Texas members got alerts for a Bismarck
+ * meeting. stateConflict() holds any row whose body or locality NAMES another
+ * state. Full names only, and "<Name> County/Parish/Township" is ignored first,
+ * so Washington County NY or Delaware County OH never trip it.
  */
+import { mentionedStates } from "./us-states.mjs";
 
 /** Writers whose ai_confidence is assigned by code, not by a model. */
 export const VERIFIED_VIA = Object.freeze({
@@ -54,8 +62,24 @@ export const HUMAN_REVIEW_VIA = Object.freeze({
 
 export const VERIFIED_VIA_LIST = Object.freeze(Object.keys(VERIFIED_VIA));
 
+const PLACE_NAMED_AFTER_STATE = /\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)?\s+(?:County|Parish|Township|Borough)\b/g;
+
 /**
- * @param {{discovered_via?:string|null, ai_confidence?:number|null, source_url?:string|null, meeting_at?:string|null}} m
+ * Reason string when the row's own words put it in a different state, else null.
+ * @param {{state?:string|null, locality?:string|null, body_name?:string|null}} m
+ */
+export function stateConflict(m) {
+  const st = String(m?.state ?? "").toUpperCase();
+  if (!st) return null;
+  const suffix = /,\s*([A-Z]{2})\s*$/.exec(String(m?.locality ?? ""));
+  if (suffix && suffix[1] !== st) return `locality says ${suffix[1]}, row says ${st}`;
+  const named = mentionedStates(`${m?.body_name ?? ""} ${m?.locality ?? ""}`.replace(PLACE_NAMED_AFTER_STATE, " "));
+  if (named.size > 0 && !named.has(st)) return `body names ${[...named].join("/")}, row says ${st}`;
+  return null;
+}
+
+/**
+ * @param {{discovered_via?:string|null, ai_confidence?:number|null, source_url?:string|null, meeting_at?:string|null, state?:string|null, locality?:string|null, body_name?:string|null}} m
  * @param {{minConf:number, requireSource:boolean, now?:Date}} policy
  * @returns {{ok:boolean, reason:string}}
  */
@@ -72,5 +96,7 @@ export function isAutoApprovable(m, { minConf, requireSource, now = new Date() }
   }
   const at = Date.parse(String(m?.meeting_at ?? ""));
   if (!Number.isFinite(at) || at < now.getTime()) return { ok: false, reason: "not future-dated" };
+  const conflict = stateConflict(m);
+  if (conflict) return { ok: false, reason: `wrong state? ${conflict} — human review` };
   return { ok: true, reason: VERIFIED_VIA[via] };
 }

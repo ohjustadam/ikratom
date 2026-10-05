@@ -106,9 +106,12 @@ async function fireWindow(win) {
     }
 
     const title = `🗳️ ${whenLabel}: ${e.title}`;
+    // No deadline on file (state deadlines vary and are written as rules, so we
+    // never guess a date): point to the official federal lookup instead of
+    // saying nothing — registering is the step that can no longer wait.
     const regBit = e.registration_deadline
       ? ` Register to vote by ${new Date(`${e.registration_deadline}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric" })}.`
-      : "";
+      : " Not sure you're registered? Check your status and your state's deadline at vote.gov.";
     const body = `${TYPE_LABEL[e.election_type] ?? "Election"} is ${whenLabel.toLowerCase()}. Make a plan to vote.${regBit}`;
     const link = e.scope === "national" ? "/calendar" : `/calendar?state=${e.state}`;
 

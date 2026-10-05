@@ -1,168 +1,156 @@
 #!/usr/bin/env node
 /**
- * AI provider smoke test.
+ * AI provider smoke test — "which of the free providers actually answers?"
  *
- * Pings each available provider with a tiny prompt + a tiny structured
- * prompt, prints latency + output. Use this to verify env keys + Ollama
- * server before relying on the router in production code.
+ *   npm run ai:smoke                 # probe every configured provider
+ *   node --env-file=.env.local scripts/test-ai-providers.mjs --json
  *
- *   npm run ai:smoke
+ * Exit code is 0 only if at least one provider answered. Non-zero means the
+ * router has nothing to work with, which is the state in which every
+ * AI-dependent cron logs `ai NONE-ANSWERED` and reports a hollow success.
  *
- * Add OLLAMA_HOST / GEMINI_API_KEY / GROQ_API_KEY in .env.local to enable
- * each. Missing keys → that provider is skipped (not an error).
+ * ---------------------------------------------------------------------------
+ * REWRITTEN 2026-09-30, because the previous version could not fail.
+ *
+ * It printed a hardcoded "✓" on the same line as the output, with the output
+ * falling back to the string "(no output)" — so a provider that returned
+ * nothing rendered as `✓ plain 198ms (no output)…` and the script still exited
+ * 0. Observed that day: ollama reported `✓ plain 7ms undefined…` (a 7 ms LLM
+ * call) and gemini and groq both reported `✓` with `(no output)`, while the
+ * crons were simultaneously logging `0 enriched · 12 failed · ai
+ * NONE-ANSWERED: github 0/17, sambanova 0/17, groq 0/7`. The one tool for
+ * answering "what is broken in the router" was saying everything was fine.
+ *
+ * It also only knew about three providers (ollama, gemini, groq) out of the
+ * nine the router uses, so SambaNova's invalid key, GitHub Models' 410 and
+ * Cerebras' 402 were invisible to it — and it re-implemented each provider's
+ * HTTP shape by hand, so it could agree with itself while disagreeing with the
+ * router. The comment justifying that duplication said the router could not be
+ * imported "without a build step"; that stopped being true when the router
+ * became scripts/lib/ai-router.mjs.
+ *
+ * Now: it asks the router itself, one provider at a time, and asserts.
+ * ---------------------------------------------------------------------------
  */
 
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
+import { listAvailableProviders, callOneProvider } from "./lib/ai-router.mjs";
 
-// We can't import the .ts router from node directly without a build step,
-// so this script duplicates the minimal client logic. (Each provider's
-// HTTP shape is small; cost of duplication is acceptable for a smoke test.)
+const JSON_OUT = process.argv.includes("--json");
 
-const TIMEOUT = 30000;
-
-const OLLAMA_HOST = process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_DEFAULT_MODEL ?? "llama3.1:8b";
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_DEFAULT_MODEL ?? "gemini-2.5-flash";
-const GROQ_KEY = process.env.GROQ_API_KEY;
-const GROQ_MODEL = process.env.GROQ_DEFAULT_MODEL ?? "llama-3.3-70b-versatile";
-
-const PROMPT = "In one sentence, what is kratom? Be neutral.";
-const STRUCTURED_PROMPT = "Classify this message as 'spam' or 'ham': 'CLICK HERE TO WIN A FREE IPHONE NOW!!!'";
-const STRUCTURED_SCHEMA = {
-  type: "object",
-  properties: {
-    label: { type: "string", enum: ["spam", "ham"] },
-    confidence: { type: "number" },
-  },
-  required: ["label"],
+/** Every provider the router knows, with the env var that enables it. */
+const ENV_FOR = {
+  groq: "GROQ_API_KEY",
+  gemini: "GEMINI_API_KEY (or GEMINI_API_KEY_2..9)",
+  cerebras: "CEREBRAS_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+  cloudflare: "CLOUDFLARE_AI_TOKEN + CLOUDFLARE_ACCOUNT_ID",
+  github: "GH_MODELS_TOKEN",
+  sambanova: "SAMBANOVA_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  nvidia: "NVIDIA_API_KEY",
+  ollama: "OLLAMA_HOST (owner's box only — never reachable from CI)",
 };
+const ALL = Object.keys(ENV_FOR);
 
-function pad(s, n) { return (s + " ".repeat(n)).slice(0, n); }
+// The router is JSON-only (response_format: json_object on every provider), so
+// a probe must ask for JSON and the verdict is "did we get a usable object".
+const SYS = "You answer only with JSON. No prose, no markdown fences.";
+const USER =
+  'Classify this message as "spam" or "ham": "CLICK HERE TO WIN A FREE IPHONE NOW!!!". ' +
+  'Reply with exactly {"label":"spam"} or {"label":"ham"}.';
 
-async function withTimeout(p, ms, who) {
-  return Promise.race([
-    p,
-    new Promise((_, rej) => setTimeout(() => rej(new Error(`${who} timeout after ${ms}ms`)), ms)),
-  ]);
-}
-
-async function testOllama() {
-  console.log("\n── ollama ──");
-  try {
-    const ok = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: AbortSignal.timeout(2000) });
-    if (!ok.ok) {
-      console.log("  ✗ /api/tags returned " + ok.status);
-      return;
-    }
-  } catch (e) {
-    console.log("  ✗ not reachable at " + OLLAMA_HOST + " (" + e.message + ")");
-    return;
+/**
+ * A provider passes only if it returns a non-empty object with a usable field.
+ * An empty object is the signature of a provider that returned 200 with no
+ * content, or whose body failed to parse — precisely what the old script
+ * reported as success.
+ */
+function judge(value) {
+  if (value == null) return { ok: false, why: "returned null/undefined" };
+  if (typeof value !== "object") return { ok: false, why: `returned ${typeof value}, not an object` };
+  const keys = Object.keys(value);
+  if (keys.length === 0) return { ok: false, why: "returned an empty object (no content / unparseable body)" };
+  const label = typeof value.label === "string" ? value.label.toLowerCase() : null;
+  if (label && !["spam", "ham"].includes(label)) {
+    // Still a live provider — it answered with structure, just not the enum.
+    return { ok: true, why: `answered, off-enum label "${value.label}"`, soft: true };
   }
-  // plain
-  const t1 = Date.now();
-  const r1 = await withTimeout(
-    fetch(`${OLLAMA_HOST}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: OLLAMA_MODEL, prompt: PROMPT, stream: false, options: { num_thread: OLLAMA_NUM_THREAD } }),
-    }).then((r) => r.json()),
-    TIMEOUT, "ollama plain"
-  );
-  console.log(`  ✓ plain     ${Date.now() - t1}ms  ${r1.response?.slice(0, 90).replace(/\s+/g, " ")}…`);
-  // structured
-  const t2 = Date.now();
-  const r2 = await withTimeout(
-    fetch(`${OLLAMA_HOST}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt: STRUCTURED_PROMPT,
-        system: `Respond ONLY with JSON matching this schema: ${JSON.stringify(STRUCTURED_SCHEMA)}.`,
-        stream: false,
-        format: "json",
-        options: { num_thread: OLLAMA_NUM_THREAD },
-      }),
-    }).then((r) => r.json()),
-    TIMEOUT, "ollama structured"
-  );
-  console.log(`  ✓ structured ${Date.now() - t2}ms  ${r2.response}`);
+  return { ok: true, why: label ? `label=${label}` : `keys=${keys.slice(0, 3).join(",")}` };
 }
 
-async function testGemini() {
-  console.log("\n── gemini ──");
-  if (!GEMINI_KEY) { console.log("  – skipped (GEMINI_API_KEY not set)"); return; }
-  const t1 = Date.now();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
-  const r1 = await withTimeout(
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: PROMPT }] }] }),
-    }).then((r) => r.json()),
-    TIMEOUT, "gemini plain"
-  );
-  const text1 = r1.candidates?.[0]?.content?.parts?.[0]?.text ?? "(no output)";
-  console.log(`  ✓ plain     ${Date.now() - t1}ms  ${text1.slice(0, 90).replace(/\s+/g, " ")}…`);
-  // structured
-  const t2 = Date.now();
-  const r2 = await withTimeout(
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: STRUCTURED_PROMPT }] }],
-        generationConfig: { responseMimeType: "application/json", responseSchema: STRUCTURED_SCHEMA },
-      }),
-    }).then((r) => r.json()),
-    TIMEOUT, "gemini structured"
-  );
-  const text2 = r2.candidates?.[0]?.content?.parts?.[0]?.text ?? "(no output)";
-  console.log(`  ✓ structured ${Date.now() - t2}ms  ${text2}`);
+const configured = new Set(listAvailableProviders());
+const results = [];
+
+for (const p of ALL) {
+  if (!configured.has(p)) {
+    results.push({ provider: p, state: "unconfigured", ms: 0, detail: `no key — set ${ENV_FOR[p]}` });
+    continue;
+  }
+  const t = Date.now();
+  try {
+    const value = await callOneProvider(p, SYS, USER, 128);
+    const ms = Date.now() - t;
+    const v = judge(value);
+    results.push({
+      provider: p,
+      state: v.ok ? (v.soft ? "pass*" : "pass") : "fail",
+      ms,
+      detail: v.why,
+    });
+  } catch (err) {
+    const msg = String(err?.message ?? err).replace(/\s+/g, " ");
+    // Surface the status code prominently — 401 vs 402 vs 429 is the whole
+    // difference between "fix the key", "provider went paid", and "wait".
+    const status = msg.match(/\b(4\d\d|5\d\d)\b/)?.[1] ?? null;
+    results.push({
+      provider: p,
+      state: "fail",
+      ms: Date.now() - t,
+      detail: (status ? `HTTP ${status} — ` : "") + msg.slice(0, 150),
+    });
+  }
 }
 
-async function testGroq() {
-  console.log("\n── groq ──");
-  if (!GROQ_KEY) { console.log("  – skipped (GROQ_API_KEY not set)"); return; }
-  const t1 = Date.now();
-  const r1 = await withTimeout(
-    fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: GROQ_MODEL, messages: [{ role: "user", content: PROMPT }] }),
-    }).then((r) => r.json()),
-    TIMEOUT, "groq plain"
+const live = results.filter((r) => r.state.startsWith("pass"));
+const failed = results.filter((r) => r.state === "fail");
+const unconfigured = results.filter((r) => r.state === "unconfigured");
+
+if (JSON_OUT) {
+  console.log(JSON.stringify({ live: live.map((r) => r.provider), results }, null, 2));
+} else {
+  const w = Math.max(...ALL.map((p) => p.length));
+  console.log("AI provider smoke test — one call per provider, no fallback\n");
+  console.log(`${"provider".padEnd(w)}  state        time  detail`);
+  console.log("─".repeat(100));
+  for (const r of results) {
+    const mark = r.state === "pass" ? "✓ pass " : r.state === "pass*" ? "✓ pass*" : r.state === "fail" ? "✗ FAIL " : "– unset";
+    console.log(`${r.provider.padEnd(w)}  ${mark}  ${String(r.ms).padStart(5)}ms  ${r.detail}`);
+  }
+  console.log("─".repeat(100));
+  console.log(
+    `${live.length} answering · ${failed.length} failing · ${unconfigured.length} not configured ` +
+    `(of ${ALL.length} the router knows)`,
   );
-  const text1 = r1.choices?.[0]?.message?.content ?? "(no output)";
-  console.log(`  ✓ plain     ${Date.now() - t1}ms  ${text1.slice(0, 90).replace(/\s+/g, " ")}…`);
-  // structured
-  const t2 = Date.now();
-  const r2 = await withTimeout(
-    fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        messages: [
-          { role: "system", content: `Respond ONLY with JSON matching: ${JSON.stringify(STRUCTURED_SCHEMA)}.` },
-          { role: "user", content: STRUCTURED_PROMPT },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    }).then((r) => r.json()),
-    TIMEOUT, "groq structured"
-  );
-  const text2 = r2.choices?.[0]?.message?.content ?? "(no output)";
-  console.log(`  ✓ structured ${Date.now() - t2}ms  ${text2}`);
+
+  if (failed.length > 0) {
+    console.log("\nFailing providers — what each status means:");
+    console.log("  401  the key is wrong or revoked. Replace the secret; the router now drops");
+    console.log("       a 401 provider for the rest of the process instead of retrying it.");
+    console.log("  402  the provider moved off its free tier. Remove the key or accept the loss.");
+    console.log("  410  the provider is retired (GitHub Models). Not coming back.");
+    console.log("  429  throttled — this one is temporary, try later.");
+    console.log("  ECONNREFUSED  the host is unreachable. Expected for ollama outside the owner's box.");
+  }
+  if (live.length === 0) {
+    console.log(
+      "\n⚠ NO PROVIDER ANSWERED. Every AI-dependent cron (enrich-news, " +
+      "extract-news-events, extract-news-officials, the campaign and intel " +
+      "classifiers) will report `ai NONE-ANSWERED` until at least one is fixed. " +
+      "See docs/AI_PROVIDERS.md for where to get each key.",
+    );
+  }
 }
 
-console.log("AI provider smoke test\n");
-console.log(pad("provider", 10), "  status / output");
-console.log("─".repeat(70));
-await testOllama();
-await testGemini();
-await testGroq();
-console.log("\n(Done. If a provider failed, check env keys / server reachability.)");
+// A smoke test that cannot fail is decoration. This one exits non-zero when the
+// pool is empty, so it can be wired into a workflow or the staleness pager.
+process.exit(live.length > 0 ? 0 : 1);

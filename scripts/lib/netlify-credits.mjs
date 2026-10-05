@@ -110,6 +110,90 @@ async function countProductionDeploys(siteId, token, since) {
  * }>}
  */
 export async function estimateNetlifyCredits({ token, accountSlug, siteId }) {
+  const model = await estimateModel({ token, accountSlug, siteId });
+  if (!model.ok) return model;
+  return applyTrueMeter(model, await readTrueCredits({ token, accountSlug }));
+}
+
+/**
+ * ── THE TRUE METER (discovered 2026-10-03) ───────────────────────────────────
+ * Everything below this file's header comment says Netlify exposes no usage
+ * API. That was wrong. The dashboard's own JS client (the `lib` bundle:
+ * accountCreditUsage / accountCredits / accountCreditUsageInsights) calls three
+ * endpoints at the API ROOT — no /accounts/ prefix — and a personal access token
+ * can read all three:
+ *
+ *   /{slug}/billing/credits         plan total / used / available (used caps at the plan)
+ *   /{slug}/billing/credit_usage    exact credits per meter this period (sums past the cap)
+ *   /{slug}/credit_usage_insights   per-DAY, per-meter credit cost, 90 days (UTC days)
+ *
+ * They are undocumented. If Netlify moves them this returns { ok:false } and
+ * every caller silently keeps the bandwidth model below — never worse than before.
+ *
+ * Verified against the dashboard to the decimal: 1,184.6 consumed on
+ * 2026-10-03, of which functions_compute 837.12 (623.41 of it on 2026-10-02,
+ * the flood day). The model said 597.
+ */
+export async function readTrueCredits({ token, accountSlug }) {
+  try {
+    const [credits, usage, insights] = await Promise.all([
+      nf(`/${accountSlug}/billing/credits`, token),
+      nf(`/${accountSlug}/billing/credit_usage`, token),
+      nf(`/${accountSlug}/credit_usage_insights`, token),
+    ]);
+    const total = (Number(credits?.plan_credits?.total) || 0) + (Number(credits?.credit_addons?.total) || 0);
+    const byMeter = Object.fromEntries(Object.entries(usage ?? {}).map(([k, v]) => [k, Number(v?.credits_used) || 0]));
+    const used = Object.values(byMeter).reduce((a, b) => a + b, 0);
+    const daily = (Array.isArray(insights) ? insights : []).map((d) => {
+      const all = (d.usage ?? []).reduce((a, u) => a + (Number(u.credit_cost) || 0), 0);
+      const deploys = (d.usage ?? []).filter((u) => u.metric_id === "production_deploys").reduce((a, u) => a + (Number(u.credit_cost) || 0), 0);
+      return { date: d.date, total: all, passive: all - deploys };
+    });
+    if (!total) return { ok: false, reason: "credit endpoints returned no plan total" };
+    return { ok: true, total, used, byMeter, daily };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+/** Overlay the true meter on the model's estimate, keeping every field callers read. */
+export function applyTrueMeter(model, truth) {
+  if (!truth?.ok) return { ...model, source: "model", trueMeterError: truth?.reason ?? null };
+  const start = String(model.periodStart).slice(0, 10);
+  const inPeriod = truth.daily.filter((d) => d.date >= start);
+  // The last day is partial; rate from the last 3 COMPLETE days of passive burn
+  // (deploys excluded: a deploy is a decision, not a leak — same rule as the model).
+  const complete = inPeriod.slice(0, -1).slice(-3);
+  const burnPerDay = complete.length ? complete.reduce((a, d) => a + d.passive, 0) / complete.length : model.burnPerDay;
+  const daysToCap = burnPerDay > 0 ? (truth.total - truth.used) / burnPerDay : Infinity;
+  const projectedAtReset = model.daysRemaining === null ? null : truth.used + burnPerDay * model.daysRemaining;
+  // SPIKE: the failure the model could never see. A day whose passive burn is
+  // far above the trailing median is a flood or a runaway, whatever the level.
+  const prior = truth.daily.slice(-16, -2).map((d) => d.passive).sort((a, b) => a - b);
+  const median = prior.length ? prior[Math.floor(prior.length / 2)] : 0;
+  const recent = truth.daily.slice(-2);
+  const worst = recent.reduce((m, d) => (d.passive > m.passive ? d : m), { passive: 0, date: null });
+  const spike = worst.passive > Math.max(25, 5 * median);
+  return {
+    ...model,
+    source: "true-meter",
+    planCredits: truth.total,
+    projectedUsed: truth.used,
+    usedFloor: truth.used,
+    pct: (truth.used / truth.total) * 100,
+    floorPct: (truth.used / truth.total) * 100,
+    burnPerDay,
+    daysToCap,
+    projectedAtReset,
+    willExceedBeforeReset: model.daysRemaining !== null && daysToCap < model.daysRemaining,
+    byMeter: truth.byMeter,
+    daily: inPeriod,
+    spike,
+    spikeDetail: spike ? `${worst.date}: ${worst.passive.toFixed(1)} credits of passive burn vs a ${median.toFixed(1)}/day median` : null,
+  };
+}
+
+async function estimateModel({ token, accountSlug, siteId }) {
   if (!token) return { ok: false, reason: "NETLIFY_AUTH_TOKEN not set" };
 
   const acct = await nf(`/accounts/${accountSlug}`, token);

@@ -67,25 +67,41 @@ if (!est.ok) {
 const sev = creditSeverity(est.pct);
 console.log("── Netlify credit budget ────────────────────────────────");
 console.log(`  period       ${String(est.periodStart).slice(0, 10)} → ${String(est.periodEnd).slice(0, 10)}`);
-console.log(`  deploys      ${est.deploys} × ${15} = ${est.deployCredits} credits`);
-console.log(`  bandwidth    ${est.bandwidthGb.toFixed(2)} GB × 20 = ${est.bandwidthCredits.toFixed(0)} credits`);
-console.log(`  measured     ${est.usedFloor.toFixed(0)} credits (deploys + bandwidth only)`);
-console.log(`  requests+compute (not exposed by Netlify) ≈ ${est.blindCredits.toFixed(0)} projected`);
-console.log(`  PROJECTED    ${est.projectedUsed.toFixed(0)} / ${est.planCredits}  (${est.pct.toFixed(1)}%)`);
+if (est.source === "true-meter") {
+  // Netlify's own meter (scripts/lib/netlify-credits.mjs readTrueCredits). Exact.
+  const meters = Object.entries(est.byMeter).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  console.log(`  TRUE METER   ${est.projectedUsed.toFixed(1)} / ${est.planCredits} credits (${est.pct.toFixed(1)}%) — read from Netlify, not modelled`);
+  for (const [k, v] of meters) console.log(`    ${k.padEnd(20)} ${v.toFixed(1)}`);
+  console.log(`  last days    ${est.daily.slice(-5).map((d) => `${d.date.slice(5)} ${d.total.toFixed(0)}`).join(" · ")}`);
+  console.log(`  burn rate    ${est.burnPerDay.toFixed(1)} credits/day passive (last 3 complete days)`);
+  if (est.spike) console.log(`  ⚠ SPIKE      ${est.spikeDetail}`);
+} else {
+  console.log(`  (true meter unavailable: ${est.trueMeterError ?? "unknown"} — falling back to the model)`);
+}
+const MODEL = est.source !== "true-meter";
+if (MODEL) {
+  console.log(`  deploys      ${est.deploys} × ${15} = ${est.deployCredits} credits`);
+  console.log(`  bandwidth    ${est.bandwidthGb.toFixed(2)} GB × 20 = ${est.bandwidthCredits.toFixed(0)} credits`);
+  console.log(`  measured     ${est.usedFloor.toFixed(0)} credits (deploys + bandwidth only)`);
+  console.log(`  requests+compute (modelled) ≈ ${est.blindCredits.toFixed(0)} projected`);
+  console.log(`  PROJECTED    ${est.projectedUsed.toFixed(0)} / ${est.planCredits}  (${est.pct.toFixed(1)}%)`);
+}
 console.log(`  severity     ${sev}   (brake at ${THRESHOLD}%)`);
 console.log(`  burn rate    ${est.burnPerDay.toFixed(1)} credits/day over ${est.daysElapsed.toFixed(1)}d elapsed`);
 if (est.daysRemaining !== null) {
   console.log(`  RUNWAY       cap in ${est.daysToCap.toFixed(1)}d · reset in ${est.daysRemaining.toFixed(1)}d`
     + ` · on track for ${est.projectedAtReset.toFixed(0)}/${est.planCredits} by reset`);
 }
+if (MODEL) {
 console.log("  Deploys + bandwidth are EXACT (counted from the API).");
-console.log(`  Compute + requests are NOT exposed by Netlify on any plan, so they are`);
+console.log(`  Compute + requests were not readable this run, so they are`);
 console.log(`  modelled at ${(est.blindCredits / Math.max(est.bandwidthCredits, 0.001)).toFixed(1)}x bandwidth from the ${est.calibration.period}`);
 console.log(`  dashboard reading (${est.calibration.ageDays}d old, ${est.calibration.note}).`);
 console.log(`  The measurable part alone reads ${est.floorPct.toFixed(1)}% — do NOT quote that as the state of play.`);
 console.log("  Ground truth: app.netlify.com -> Usage & billing -> Account usage insights.");
 if (est.calibration.ageDays > 45) {
   console.log("  ⚠ CALIBRATION STALE (>45d) — re-read the dashboard and add a CALIBRATION row.");
+}
 }
 console.log("─────────────────────────────────────────────────────────");
 
@@ -184,7 +200,9 @@ if (argv.includes("--watchdog")) {
   // Page on the same trajectory conditions the gate brakes on, plus the level
   // threshold. willExceedBeforeReset is the one that matters most: it fires
   // while there is still time to act, instead of at the cap.
-  const shouldPage = est.exceeded || est.willExceedBeforeReset || sev === "critical" || sev === "warn";
+  // est.spike: a day burning far above its trailing median (true meter only).
+  // That is the 2026-10-02 shape — the level was fine the day before.
+  const shouldPage = est.exceeded || est.willExceedBeforeReset || est.spike || sev === "critical" || sev === "warn";
   let pagedNote = "";
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
