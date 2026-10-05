@@ -55,31 +55,6 @@ async function verify(fullName, sourceUrl) {
   return { ok: false, reason: "name-not-found" };
 }
 
-// --probe "Clifton Park, NY" [--level county]: READ-ONLY end-to-end check of
-// the resolver (Legistar → SearXNG → free-AI extract → page verification) for
-// one locality. Prints what WOULD be inserted and exits; writes nothing. Lets
-// the pipeline be proven before a batch of new requests depends on it.
-const probeAt = args.indexOf("--probe");
-if (probeAt >= 0) {
-  const locality = String(args[probeAt + 1] ?? "").trim();
-  const m = /^(.+),\s*([A-Z]{2})$/.exec(locality);
-  if (!m) { console.error('--probe needs "Town, ST"'); process.exit(2); }
-  const lvlAt = args.indexOf("--level");
-  const level = lvlAt >= 0 ? args[lvlAt + 1] : /\b(county|parish|borough)\b/i.test(locality) ? "county" : "municipal";
-  console.log(`PROBE ${locality} (${level}) — read-only`);
-  const res = await findAndExtractOfficials({ sb, city: m[1], state: m[2], locality, level, caller: "auto-fulfill-probe" });
-  if (!res.ok) { console.log(`  result: ${res.queued ? `queued (${res.reason})` : `error (${res.error ?? "0 officials"})`}`); process.exit(res.queued ? 0 : 1); }
-  console.log(`  source: ${res.source} · ${res.officials.length} official(s)`);
-  let verified = 0;
-  for (const o of res.officials) {
-    const v = res.source === "legistar" ? { ok: true } : await verify(o.full_name, o.source_url);
-    if (v.ok) verified++;
-    console.log(`  ${v.ok ? "✓" : "✗"} ${o.full_name} · ${o.title ?? o.role ?? "?"} · email:${o.email ? "yes" : "no"} phone:${o.phone ? "yes" : "no"}${v.ok ? "" : ` (${v.reason})`}`);
-  }
-  console.log(`  would insert ${verified} of ${res.officials.length}`);
-  process.exit(verified > 0 ? 0 : 1);
-}
-
 let pq = sb
   .from("local_rep_requests")
   .select("id, state, locality, level")
