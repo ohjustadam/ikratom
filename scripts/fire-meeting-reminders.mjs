@@ -74,16 +74,14 @@ async function fireWindow(win) {
 
   let totalRecipients = 0;
   for (const m of meetings) {
-    // Find in-state users
-    const { data: users } = await sb
-      .from("profiles")
-      .select("id")
-      .eq("state", m.state)
-      .limit(50_000);
-    const userIds = (users ?? []).map((u) => u.id);
+    // EVERY member, whatever their state (owner decision 2026-10-03): meetings
+    // are the top-priority notification. A ban hearing in one town is the
+    // template for the next town, and out-of-state advocates can still watch,
+    // submit written comment and email the council.
+    const userIds = await allUserIds();
 
     if (userIds.length === 0) {
-      console.log(`    · ${m.locality ?? m.state} (no in-state users) — stamping anyway`);
+      console.log(`    · ${m.locality ?? m.state} (no users) — stamping anyway`);
       if (!DRY_RUN) {
         await sb.from("municipal_meetings").update({ [win.col]: new Date().toISOString() }).eq("id", m.id);
       }
@@ -128,10 +126,48 @@ async function fireWindow(win) {
   return { window: win.label, sent: meetings.length, recipients: totalRecipients };
 }
 
+let _allIds = null;
+async function allUserIds() {
+  if (_allIds) return _allIds;
+  const { data } = await sb.from("profiles").select("id").limit(50_000);
+  _allIds = (data ?? []).map((u) => u.id);
+  return _allIds;
+}
+
+/**
+ * "New hearing" notice, the moment a meeting is approved — not only at the
+ * 7/3/1-day windows. Idempotent: a meeting that already has meeting_new rows is
+ * skipped, so re-runs and overlapping schedules never double-notify.
+ */
+async function announceNewMeetings() {
+  const { data: meetings } = await sb.from("municipal_meetings")
+    .select("id, state, locality, body_name, meeting_at")
+    .eq("moderation_status", "approved").is("broadcast_at", null)
+    .gte("meeting_at", new Date().toISOString()).order("meeting_at").limit(50);
+  let announced = 0, recipients = 0;
+  for (const m of meetings ?? []) {
+    const link = `/meetings/${m.id}`;
+    const { count } = await sb.from("notifications").select("id", { count: "exact", head: true }).eq("kind", "meeting_new").eq("link", link);
+    if ((count ?? 0) > 0) continue;
+    const ids = await allUserIds();
+    const when = new Date(m.meeting_at).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+    const title = `🏛️ Kratom hearing: ${m.locality ?? m.state}, ${when}`;
+    const body = `${m.body_name ?? "Officials"} will take up kratom. Watch, sign up to speak, or email the people who vote.`;
+    if (DRY_RUN) { console.log(`  [dry] new-meeting notice "${title}" -> ${ids.length} users`); continue; }
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error } = await sb.from("notifications").insert(ids.slice(i, i + 200).map((uid) => ({ user_id: uid, kind: "meeting_new", title, body, link })));
+      if (error) console.log(`  ✗ notif chunk: ${error.message?.slice(0, 80)}`);
+    }
+    announced++; recipients += ids.length;
+    console.log(`  ✓ new-meeting notice: ${m.locality ?? m.state} -> ${ids.length} users`);
+  }
+  return { window: "new", sent: announced, recipients };
+}
+
 // ---------- main ----------
 console.log(`Firing meeting reminders${DRY_RUN ? " [DRY RUN]" : ""}…\n`);
 const t0 = Date.now();
-const results = [];
+const results = [await announceNewMeetings()];
 for (const win of WINDOWS) {
   console.log(`Window: ${win.label}`);
   const r = await fireWindow(win);
