@@ -252,7 +252,10 @@ type IntelLegislator = { id: string; state: string; role: string };
 export async function getLegislatorIntel(sb: SB, leg: IntelLegislator): Promise<LegislatorIntel> {
   const isFederal = leg.role === "us_senate" || leg.role === "us_house";
 
-  const [stanceRes, sponsoredRes, committeesRes, donorRes, tradesRes] = await Promise.all([
+  // One round (2026-10-04): the state's committee-bound bills used to be a
+  // second, sequential read after committees came back. It only needs
+  // leg.state, so it rides along; rows are used only if committees exist.
+  const [stanceRes, sponsoredRes, committeesRes, donorRes, tradesRes, stateBillsRes] = await Promise.all([
     sb.from("legislator_stance").select("stance").eq("legislator_id", leg.id).eq("topic", "kratom").maybeSingle(),
     sb.from("bill_sponsors")
       .select("bill_id, classification, bills(bill_number, title, kratom_relevance, targets_natural_leaf, status, last_action_at, state)")
@@ -267,6 +270,15 @@ export async function getLegislatorIntel(sb: SB, leg: IntelLegislator): Promise<
     isFederal
       ? sb.from("federal_personal_trades").select("id", { count: "exact", head: true }).eq("legislator_id", leg.id).eq("is_kratom_adjacent", true)
       : Promise.resolve({ count: 0 }),
+    leg.state
+      ? sb.from("bills")
+          .select("id, state, bill_number, title, kratom_relevance, current_committee_name, last_action_at")
+          .eq("state", leg.state)
+          .eq("active", true)
+          .not("current_committee_name", "is", null)
+          .order("last_action_at", { ascending: false, nullsFirst: false })
+          .limit(200)
+      : Promise.resolve({ data: null }),
   ]);
 
   const stance = (((stanceRes.data as { stance?: string } | null)?.stance) ?? "unknown") as Stance;
@@ -317,14 +329,7 @@ export async function getLegislatorIntel(sb: SB, leg: IntelLegislator): Promise<
   let currentlyDeciding: IntelDecidingBill[] = [];
   try {
     if (committees.length > 0) {
-      const { data: stateBills } = await sb
-        .from("bills")
-        .select("id, state, bill_number, title, kratom_relevance, current_committee_name, last_action_at")
-        .eq("state", leg.state)
-        .eq("active", true)
-        .not("current_committee_name", "is", null)
-        .order("last_action_at", { ascending: false, nullsFirst: false })
-        .limit(200);
+      const stateBills = stateBillsRes.data;
       for (const b of (stateBills ?? []) as Array<{ id: string; state: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null }>) {
         if (!b.current_committee_name) continue;
         const matched = committees.find((c) => committeesMatch(b.current_committee_name!, c.committee_name));
