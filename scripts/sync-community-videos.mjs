@@ -78,15 +78,26 @@ async function main() {
         await sb.from("external_communities").update({ youtube_channel_id: channelId }).eq("id", ch.id);
       }
       const videos = parseFeed(await get(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`));
-      const { data: known } = await sb.from("community_videos").select("video_id, is_upcoming")
+      const { data: known } = await sb.from("community_videos").select("video_id, is_upcoming, scheduled_start_at")
         .in("video_id", videos.map((v) => v.video_id));
       const knownMap = new Map((known ?? []).map((k) => [k.video_id, k]));
 
       const rows = [];
       for (const v of videos) {
         const prev = knownMap.get(v.video_id);
-        const row = { ...v, community_id: ch.id, updated_at: new Date().toISOString() };
-        if ((!prev || prev.is_upcoming) && watchFetches < MAX_WATCH_FETCHES) {
+        // Every row carries is_upcoming + scheduled_start_at: in a batch upsert
+        // PostgREST fills a column missing from SOME rows with NULL, and
+        // is_upcoming is NOT NULL (first live run, 2026-10-05: one channel's
+        // whole batch rejected). Unchecked rows keep their stored value.
+        const row = {
+          ...v, community_id: ch.id, updated_at: new Date().toISOString(),
+          is_upcoming: prev?.is_upcoming ?? false,
+          scheduled_start_at: prev?.scheduled_start_at ?? null,
+        };
+        // Only recent uploads can be an upcoming stream/premiere — checking a
+        // 2018 video spends the per-run budget for nothing.
+        const recent = Date.parse(v.published_at) > Date.now() - 30 * 86_400_000;
+        if ((!prev || prev.is_upcoming) && recent && watchFetches < MAX_WATCH_FETCHES) {
           watchFetches++;
           const live = await liveStatus(v.video_id);
           if (live) Object.assign(row, live);
