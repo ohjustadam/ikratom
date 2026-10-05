@@ -152,6 +152,13 @@ async function syncState(stateCode) {
   }
 
   let upserts = 0, kratomCommittees = 0, unmatched = 0;
+  // BATCHED (2026-10-05). This used to upsert ONE membership per request: the
+  // 2026-10-04 full run made 28,765 requests on its own, three-quarters of the
+  // day's API traffic. Rows are collected per state, de-duplicated on the
+  // table's unique key (a batch may not touch the same row twice), and written
+  // in chunks of 500 — ~60 requests for the whole country. Same rows, same
+  // onConflict, same session_id.
+  const rows = new Map();
   for (const cm of committees) {
     const name = cm.name;
     const isRelevant = isKratomRelevant(name);
@@ -170,32 +177,32 @@ async function syncState(stateCode) {
         unmatched++;
         continue;
       }
-      const role = normalizeRole(m.role);
-      if (DRY_RUN) {
-        upserts++;
-        continue;
-      }
-      // Unique constraint on (legislator_id, committee_name, session_id)
-      // — use a stable session_id so re-runs upsert cleanly. Errors
-      // are logged so silent-failure (the bug from the first run that
-      // showed '0 memberships') can't happen again.
-      const { error } = await sb.from("legislator_committees").upsert(
-        {
-          legislator_id: legId,
-          committee_name: name.slice(0, 200),
-          chamber,
-          role,
-          is_kratom_relevant: isRelevant,
-          session_id: "openstates-current",
-        },
-        { onConflict: "legislator_id,committee_name,session_id" },
-      );
-      if (error) {
-        // Surface every first error to make debugging future syncs sane
-        if (upserts === 0) console.log(`    ✗ upsert: ${error.message?.slice(0, 120)}`);
-      } else {
-        upserts++;
-      }
+      const committee_name = name.slice(0, 200);
+      // Unique constraint on (legislator_id, committee_name, session_id) — a
+      // stable session_id so re-runs upsert cleanly.
+      rows.set(`${legId}|${committee_name}`, {
+        legislator_id: legId,
+        committee_name,
+        chamber,
+        role: normalizeRole(m.role),
+        is_kratom_relevant: isRelevant,
+        session_id: "openstates-current",
+      });
+    }
+  }
+  const batch = [...rows.values()];
+  if (DRY_RUN) {
+    upserts = batch.length;
+  } else {
+    for (let i = 0; i < batch.length; i += 500) {
+      const chunk = batch.slice(i, i + 500);
+      const { error } = await sb.from("legislator_committees").upsert(chunk, {
+        onConflict: "legislator_id,committee_name,session_id",
+      });
+      // Errors are logged so silent failure (the first run's '0 memberships')
+      // can't happen again.
+      if (error) console.log(`    ✗ upsert chunk ${i / 500 + 1}: ${error.message?.slice(0, 120)}`);
+      else upserts += chunk.length;
     }
   }
   console.log(`✓ ${committees.length} committees (${kratomCommittees} kratom-relevant), ${upserts} memberships, ${unmatched} unmatched`);

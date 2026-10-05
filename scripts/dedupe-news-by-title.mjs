@@ -62,6 +62,11 @@ if (!DRY) {
       .select("id, source_name, duplicate_of")
       .not("duplicate_of", "is", null)
       .eq("active", true)
+      // Same window as the dedupe pass below (2026-10-05). Unbounded, this
+      // repair re-read every duplicate ever recorded (4,585 rows + their
+      // canonicals, ~28 requests) on every hourly run, to recheck merges made
+      // months ago that the repair already fixed on its first pass.
+      .gte("scraped_at", since)
       .range(offset, offset + 999);
     if (!data?.length) break;
     allDupes.push(...data);
@@ -96,14 +101,25 @@ if (!DRY) {
 
 // Pull canonicals in batches — at 50k news items per year, the 30d
 // window should be well under 10k. Pull all in one query.
-const { data: rows, error } = await sb
-  .from("news_items")
-  .select("id, title, source_name, state, published_at, scraped_at")
-  .eq("active", true)
-  .is("duplicate_of", null)
-  .gte("scraped_at", since)
-  .order("scraped_at", { ascending: true })
-  .limit(20_000);
+// PAGED (2026-10-05). This was one .limit(20_000) query, but PostgREST caps
+// every response at 1,000 rows — and the order is OLDEST first — so only the
+// oldest 1,000 canonicals in the window were ever compared and the newest
+// ~1,700 (the ones most likely to be fresh duplicates) never were.
+const rows = [];
+let error = null;
+for (let off = 0; off < 20_000; off += 1000) {
+  const page = await sb
+    .from("news_items")
+    .select("id, title, source_name, state, published_at, scraped_at")
+    .eq("active", true)
+    .is("duplicate_of", null)
+    .gte("scraped_at", since)
+    .order("scraped_at", { ascending: true })
+    .range(off, off + 999);
+  if (page.error) { error = page.error; break; }
+  rows.push(...(page.data ?? []));
+  if ((page.data ?? []).length < 1000) break;
+}
 
 if (error) {
   console.error("query failed:", error.message);
