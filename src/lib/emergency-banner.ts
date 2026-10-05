@@ -23,11 +23,19 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
  * mutation guards, not banner text, and must keep using the request-bound
  * admin path in `emergency-actions.ts`.
  *
- * Admin toggles land within REVALIDATE_SECONDS. Kept short because an
- * emergency banner that lags is worse than useless.
+ * Admin toggles land INSTANTLY: updateEmergencyConfig() calls
+ * updateTag("emergency-banner"). The TTL below is only the fallback for an
+ * edit made outside that action (e.g. raw SQL in /admin/console).
+ *
+ * Why the TTL is not short (2026-10-04): this banner renders in the ROOT
+ * layout, and Next gives a page the shortest revalidate of everything in its
+ * tree. At 60 s, EVERY static page in the build table read "Revalidate 1m"
+ * (47 of 47 layout pages; only robots.txt, outside the layout, read 1h), so
+ * /calendar regenerated up to 60x an hour instead of 4x. 15 minutes matches
+ * the pages' own windows.
  */
 
-const REVALIDATE_SECONDS = 60;
+const REVALIDATE_SECONDS = 900;
 
 export type PublicEmergencyBanner = {
   emergencyMode: boolean;

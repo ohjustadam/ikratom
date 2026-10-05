@@ -1,16 +1,21 @@
+"use client";
+
 import Link from "next/link";
-import { getCachedAuthProfile } from "@/lib/supabase/server";
+import { useChromeMe } from "@/components/chrome/ChromeProvider";
 
 /**
  * "Add a paper" CTA on /research. Renders only for advocate leaders +
  * admins. Anonymous users see nothing (keeps the page calm).
+ *
+ * Client component on purpose (2026-10-03): as a server component it read the
+ * auth cookie, which made /research viewer-dependent and impossible to cache
+ * at the edge — and /research was hit 1,125 times in the Oct 3 distributed
+ * crawl. The role now comes from the one /api/me fetch real browsers already
+ * make (isLeader = leader, admin or owner).
  */
-export async function ResearchSubmitCta() {
-  // Reuses the chrome's single cached auth+profile read — no extra auth
-  // round-trip, no extra profiles select.
-  const { profile } = await getCachedAuthProfile();
-  const isPrivileged = !!(profile?.is_admin || profile?.is_owner || profile?.is_advocate_leader);
-  if (!isPrivileged) return null;
+export function ResearchSubmitCta() {
+  const { isLeader } = useChromeMe();
+  if (!isLeader) return null;
 
   return (
     <Link

@@ -51,7 +51,7 @@ const getCalendarData = unstable_cache(
     const electionHorizon = new Date(now.getTime() + 365 * 86_400_000);
 
     // Pull from multiple sources in parallel
-    const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective, billsSunset, localVotes] = await Promise.all([
+    const [meetings, alerts, billActions, sessions, elections, townhalls, billsEffective, billsSunset, localVotes, lives] = await Promise.all([
       supabase.from("municipal_meetings")
         .select("id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, agenda_text, in_person_address, public_comment_signup_url, source_url")
         .eq("moderation_status", "approved")
@@ -118,6 +118,19 @@ const getCalendarData = unstable_cache(
         .gte("vote_date", new Date(now.getTime() - 180 * 86_400_000).toISOString().slice(0, 10))
         .order("vote_date", { ascending: false })
         .limit(200),
+      // Upcoming YouTube lives / premieres from the channels mirrored on
+      // /videos (0260). Service role bypasses RLS, so the public filters are
+      // re-applied: not hidden, channel active. Errors (table not migrated yet)
+      // fall through to an empty list like every other source here.
+      supabase.from("community_videos")
+        .select("video_id, title, scheduled_start_at, channel:external_communities!inner(name, is_active)")
+        .eq("is_upcoming", true)
+        .eq("hidden", false)
+        .eq("channel.is_active", true)
+        .gte("scheduled_start_at", now.toISOString())
+        .lte("scheduled_start_at", horizon.toISOString())
+        .order("scheduled_start_at", { ascending: true })
+        .limit(50),
     ]);
 
     // Supabase's generated types lag several of these migrations, so the row
@@ -132,6 +145,7 @@ const getCalendarData = unstable_cache(
       billsEffective: (billsEffective.data ?? []) as unknown as CalendarSnapshot["billsEffective"],
       billsSunset: (billsSunset.data ?? []) as unknown as CalendarSnapshot["billsSunset"],
       localVotes: (localVotes.data ?? []) as unknown as CalendarSnapshot["localVotes"],
+      lives: (lives.data ?? []) as unknown as CalendarSnapshot["lives"],
     };
   },
   ["calendar-events"],

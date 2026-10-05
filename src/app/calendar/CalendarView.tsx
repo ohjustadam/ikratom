@@ -14,7 +14,7 @@ import { etYmd, type CalendarEvent, type CalendarSnapshot, type MkHrefOpts } fro
 
 const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
 const KINDS = ["election", "townhall", "municipal", "alert", "bill_action",
-  "bill_effective", "bill_sunset", "local_vote", "state_session"] as const;
+  "bill_effective", "bill_sunset", "local_vote", "state_session", "live"] as const;
 
 /**
  * Everything about /calendar that varies per viewer or per URL.

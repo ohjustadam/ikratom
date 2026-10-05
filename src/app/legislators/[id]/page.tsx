@@ -122,18 +122,19 @@ const getLegislatorPublicSnapshot = unstable_cache(
     if (!legRaw) return null;
     const leg = legRaw as unknown as Legislator;
 
-    const [{ data: explicitCampaigns }, { data: roleCampaigns }, { data: voteRowsRaw }] = await Promise.all([
+    // Campaigns, votes and intel all need only the legislator row, so they run
+    // together (2026-10-04; was campaigns, THEN intel, THEN intel's own second
+    // read). Intel uses the SAME anonymous client, so the snapshot holds exactly
+    // the public view. `legislator_stance` is invisible to anon under RLS
+    // (migration 0221), so no withheld stance can reach this cache.
+    const [[{ data: explicitCampaigns }, { data: roleCampaigns }, { data: voteRowsRaw }], intel] = await Promise.all([Promise.all([
       sb.from("campaigns").select("id, slug, title, state, blurb").eq("active", true).contains("target_legislator_ids", [id]),
       sb.from("campaigns").select("id, slug, title, state, blurb").eq("active", true).eq("state", leg.state).contains("target_roles", [leg.role]),
       sb.from("bill_vote_members")
         .select("vote_text, vote_value, bill_votes!inner(id, vote_date, chamber, motion, passed, bills!inner(id, state, bill_number, title, kratom_relevance))")
         .eq("legislator_id", id)
         .limit(500),
-    ]);
-    // Intel is computed with the SAME anonymous client, so the snapshot holds
-    // exactly the public view. `legislator_stance` is invisible to anon under
-    // RLS (migration 0221), so no withheld stance can reach this cache.
-    const intel = await getLegislatorIntel(sb, leg as never);
+    ]), getLegislatorIntel(sb, leg as never)]);
     return { leg, explicitCampaigns, roleCampaigns, voteRowsRaw, intel };
   },
   ["legislator-public"],

@@ -10,6 +10,7 @@ const GROUP_ICON: Record<ComposeGroup["key"], string> = {
   senators: "🏛",
   executives: "🖊",
   my_delegation: "🏛",
+  council: "🏘",
 };
 
 /**

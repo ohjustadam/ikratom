@@ -93,6 +93,9 @@ export type CachedAuthProfile = {
   // just to highlight "your state" — that one read was forcing /news (and
   // others) to re-query Supabase on every crawler hit.
   state: string | null;
+  // When the member answered "which state?" (0259). Undefined until that
+  // migration is applied; NULL with state NULL means never asked.
+  state_answered_at?: string | null;
 };
 
 /**
@@ -119,6 +122,16 @@ export const getCachedAuthProfile = cache(
     // been applied yet, selecting the ui_* columns errors and returns null —
     // fall back to the CORE columns so the always-rendered chrome (admin /
     // leader checks) never breaks in the deploy-before-db:push window.
+    // Newest tier first: state_answered_at (migration 0259) drives the
+    // required "which state?" prompt. Same deploy-before-db:push rule as the
+    // ui_* tier below: if the column is missing this returns null and we fall
+    // through, so the chrome never breaks — the prompt just stays hidden.
+    const { data: newest } = await supabase
+      .from("profiles")
+      .select(`${CORE}, ui_theme, ui_accent, ui_accent_hex, ui_mode, state_answered_at`)
+      .eq("id", userId)
+      .single();
+    if (newest) return { userId, profile: newest as CachedAuthProfile };
     const { data: extended } = await supabase
       .from("profiles")
       .select(`${CORE}, ui_theme, ui_accent, ui_accent_hex, ui_mode`)

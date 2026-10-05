@@ -82,9 +82,9 @@ const AUTH_COOKIE = SUPABASE_REF ? `sb-${SUPABASE_REF}-auth-token` : null;
  * service-role client with an explicit public projection). Edge-caching them
  * would AMPLIFY it, so they are excluded until that is fixed.
  *
- * Never here: / · /bills · /campaigns · /calendar · /legislators (the one audited
+ * Never here: / · /bills · /campaigns · /legislators (the one audited
  * exception is /legislators/:id/briefing, see LONG_TTL_PATTERNS) · /forum/* ·
- * /account/* · /admin/* · /api/* · /search · /research* · /pulse · /deadlines
+ * /account/* · /admin/* · /api/* · /search · /research/* · /pulse · /deadlines
  */
 export const CACHEABLE_PATTERNS = [
   // Viewer-independent DB reads (service-role + unstable_cache), high crawl value
@@ -97,11 +97,31 @@ export const CACHEABLE_PATTERNS = [
   'http.request.uri.path eq "/status"',
   'http.request.uri.path eq "/banned"',
   'http.request.uri.path eq "/briefings"',
+  'http.request.uri.path eq "/videos"',
+  // AUDITED 2026-10-03: page.tsx reads only a service-role unstable_cache
+  // snapshot and renders CalendarView (client); filters/geofence run in the
+  // browser via useSearchParams + /api/me. The root layout is barred from
+  // cookies()/headers(). It was the #1 target of the 2026-10-03 distributed
+  // crawl (6,898 hits from thousands of IPs) — per-IP limits can't stop that,
+  // a cache can. Exact match: /calendar/feed.ics stays uncached (see above).
+  'http.request.uri.path eq "/calendar"',
+  // AUDITED 2026-10-03: service-role unstable_cache snapshot; filters are
+  // searchParams (part of the cache key); ResearchBrowser and ResearchSubmitCta
+  // are client components (the CTA was a cookie-reading server component until
+  // today). Exact match only — /research/:id is NOT audited.
+  'http.request.uri.path eq "/research"',
   'http.request.uri.path in {"/donate" "/ethics" "/support"}',
   // Fully static content pages (no data fetch at all)
   'starts_with(http.request.uri.path, "/install")',
   'http.request.uri.path in {"/glossary" "/membership" "/roles"}',
   'http.request.uri.path in {"/cookies" "/privacy" "/terms"}',
+  // Crawler plumbing: identical for everyone (robots.ts is ISR 3600, no data).
+  // 415 robots.txt fetches in the Oct 3 crawl alone.
+  'http.request.uri.path in {"/robots.txt" "/sitemap.xml"}',
+  // The PWA's offline fallback: a client component with no data at all, yet
+  // 207 origin renders in three days — the service worker refetches it on
+  // every install/update.
+  'http.request.uri.path eq "/offline"',
   'http.request.uri.path in {"/action" "/community" "/knowledge" "/legislative"}',
 ];
 
@@ -126,7 +146,35 @@ export const CACHEABLE_PATTERNS = [
  */
 export const LONG_TTL_PATTERNS = [
   '(starts_with(http.request.uri.path, "/legislators/") and ends_with(http.request.uri.path, "/briefing"))',
+  // /legislators/:id — AUDITED 2026-10-03. ISR (revalidate 3600): every read is
+  // createAnonClient() inside unstable_cache; MemberGates, ShareButtons,
+  // OfficialAvatar and EmailOfficialButton are client components; no
+  // cookies()/headers()/searchParams. It was 7,507 of the Oct 3 distributed
+  // crawl's requests (1,001 ids, robots.txt ignored). An hour matches its ISR.
+  '(starts_with(http.request.uri.path, "/legislators/") and not ends_with(http.request.uri.path, "/briefing"))',
+  // /bills/:id — AUDITED 2026-10-03 to the same standard as the briefing entry:
+  // the public read-set is a service-role unstable_cache snapshot; per-viewer
+  // reads moved to /api/bills/[id]/viewer (client). Two server children still
+  // touch the auth cookie and nothing else: YourRepDecidingThisBill returns
+  // null without a session, BillTimeline reads public bill_actions. Guard 1
+  // bypasses every request carrying the auth cookie. /bills/:id/dossier reads
+  // the cookie-bound client and is NOT audited — excluded. 1,200 hits in the
+  // Oct 3 crawl; the platform's most valuable search content.
+  '(starts_with(http.request.uri.path, "/bills/") and not ends_with(http.request.uri.path, "/dossier"))',
 ];
+
+/**
+ * The home page — AUDITED 2026-10-04. Its only per-visitor inputs are the auth
+ * cookie (guard 1) and the LANGUAGE cookie: readLocale() renders the hero in
+ * the visitor's locale. So this rule adds guard 5, skipping any request that
+ * carries `locale=`. Everyone else (anonymous, default English — nearly all
+ * traffic) gets one shared copy. Data is a 5-min service-role snapshot; the
+ * two server children (HomeLivePulse, StateLegalMap) read public tables only.
+ * Home was 402 origin renders in three ordinary days (~1 s each, 6% of
+ * compute); a single URL is exactly what a cache is good at.
+ */
+const HOME_EXPR = 'http.request.uri.path eq "/"';
+const LOCALE_COOKIE_GUARD = '(not http.cookie contains "locale=")'; // guard 5 (src/modules/auth/actions-locale.ts)
 
 // Static build output is immutable and safe to cache hard, regardless of auth.
 const STATIC_EXPR = 'starts_with(http.request.uri.path, "/_next/static/") or starts_with(http.request.uri.path, "/icons/")';
@@ -160,6 +208,16 @@ const rules = () => [
       cache: true,
       // guard 4 — origin says no-cache; override at the edge only.
       edge_ttl: { mode: "override_origin", default: 300 },
+      browser_ttl: { mode: "override_origin", default: 0 },
+    },
+  },
+  {
+    description: "ikratom: cache the anonymous English home page for 30 min",
+    expression: `${cacheableExpression([HOME_EXPR])} and ${LOCALE_COOKIE_GUARD}`,
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 1800 },
       browser_ttl: { mode: "override_origin", default: 0 },
     },
   },

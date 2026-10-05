@@ -158,70 +158,102 @@ const getBillPublicSnapshot = unstable_cache(
   async (id: string) => {
     const sb = createServiceRoleClient();
 
-    const { data: billRaw } = await sb
-      .from("bills")
-      .select(
-        "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
-        "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
-        "source_url, official_url, session_id, scope, locality, active, " +
-        "enriched_at, last_synced_at, " +
-        "journey_narrative, amendments_count, journey_analyzed_at, " +
-        "substance_targeting, substance_targeting_analyzed_at, " +
-        "summary_long, bill_text_versions, text_synced_at, " +
-        "local_meta, local_meta_extracted_at, " +
-        "opposition_summary_md, repeal_plan_md, " +
-        "forum_thread_id",
-      )
-      .eq("id", id)
-      .single();
+    // TWO ROUNDS, not sixteen (2026-10-04). This loader awaited ~16 queries
+    // one after another and bill pages averaged ~3 s per origin render (7% of
+    // all compute; sweeps hit them once per URL, where no cache helps). Ten of
+    // the reads need only the id, so they run WITH the bill row; the six that
+    // need bill fields or round-one results run together after it. Supabase
+    // builders only start on await, so each round is a single Promise.all.
+    // Every filter that replicates public RLS is unchanged.
+    const [
+      { data: billRaw },
+      extraRes,
+      stakeholdersRes,
+      similarBills,
+      { data: campaignsRaw },
+      { data: billAlertsRaw },
+      { data: linkedAlerts },
+      { data: sponsorsRaw },
+      membershipsRes,
+      alignmentRes,
+    ] = await Promise.all([
+      sb
+        .from("bills")
+        .select(
+          "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
+          "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
+          "source_url, official_url, session_id, scope, locality, active, " +
+          "enriched_at, last_synced_at, " +
+          "journey_narrative, amendments_count, journey_analyzed_at, " +
+          "substance_targeting, substance_targeting_analyzed_at, " +
+          "summary_long, bill_text_versions, text_synced_at, " +
+          "local_meta, local_meta_extracted_at, " +
+          "opposition_summary_md, repeal_plan_md, " +
+          "forum_thread_id",
+        )
+        .eq("id", id)
+        .single(),
+      // current_committee_* is a separate read so environments without
+      // migration 0123 degrade gracefully (error -> null, no throw).
+      sb.from("bills").select("current_committee_name").eq("id", id).single(),
+      // Bill stakeholders: public records (RLS using(true)); pre-migration -> empty.
+      sb
+        .from("bill_stakeholders")
+        .select("id, name, title, organization, role_type, reasoning, leaf_stance, seven_oh_stance, leaf_evidence_url, seven_oh_evidence_url, stance_summary, email, phone, website, twitter_handle, linkedin_url")
+        .eq("bill_id", id)
+        .order("role_type", { ascending: true }),
+      // Phase 3 D6 cross-state similarity: self-cached (own unstable_cache, 24h).
+      findSimilarBillsCached(id, { limit: 5, minSimilarity: 0.6 }).catch(
+        () => [] as Awaited<ReturnType<typeof findSimilarBillsCached>>,
+      ),
+      // Linked campaigns: active-only replicates the campaigns public RLS.
+      // (The admin-only inactive list is never rendered on the cached page.)
+      sb
+        .from("campaigns")
+        .select("id, slug, title, active, auto_generated, created_at")
+        .eq("bill_id", id)
+        .eq("active", true)
+        .order("created_at", { ascending: false }),
+      // Alerts linked to this bill: approved-only replicates public RLS.
+      sb
+        .from("policy_alerts")
+        .select("id, title, severity, kind, source_url, occurs_at, created_at")
+        .eq("bill_id", id)
+        .eq("moderation_status", "approved")
+        .order("created_at", { ascending: false })
+        .limit(3),
+      // Ids of every approved alert on this bill, for the news union below.
+      sb.from("policy_alerts").select("id").eq("bill_id", id).eq("moderation_status", "approved"),
+      // Sponsors (synced into bill_sponsors, public read).
+      sb
+        .from("bill_sponsors")
+        .select("legislator_id, name, classification, party, district, legislators(full_name, portrait_url, role, party)")
+        .eq("bill_id", id)
+        .order("classification", { ascending: true }),
+      // Coordinated-operation patterns this bill matches (pre-0151 -> error -> empty).
+      sb
+        .from("bill_cluster_members")
+        .select("cluster_id, confidence, match_reason, bill_clusters!inner(slug, name, posture, bill_count, state_count)")
+        .eq("bill_id", id),
+      // Scientific basis: research_papers.is_active=true replicates public RLS.
+      sb
+        .from("bill_research_alignment")
+        .select("paper_id, relevance_score, match_reason, alignment, research_papers!inner(title, journal, publication_year, pubmed_id, doi, ai_evidence_strength, ai_key_findings_md, is_active)")
+        .eq("bill_id", id)
+        .eq("research_papers.is_active", true)
+        .order("relevance_score", { ascending: false })
+        .limit(6),
+    ]);
 
     if (!billRaw) return null;
     const bill = billRaw as unknown as BillRow;
 
-    // Separate fetch for the current_committee_* columns. Done as a
-    // discrete query so the page degrades gracefully on environments
-    // where migration 0123 hasn't been applied yet.
-    let currentCommitteeName: string | null = null;
-    try {
-      const { data: extra } = await sb
-        .from("bills")
-        .select("current_committee_name")
-        .eq("id", id)
-        .single();
-      if (extra && typeof (extra as { current_committee_name?: unknown }).current_committee_name === "string") {
-        currentCommitteeName = (extra as { current_committee_name: string }).current_committee_name;
-      }
-    } catch {
-      // Column doesn't exist yet — silent no-op.
-    }
+    const extra = extraRes.data as { current_committee_name?: unknown } | null;
+    const currentCommitteeName: string | null =
+      extra && typeof extra.current_committee_name === "string" ? extra.current_committee_name : null;
 
-    // Bill stakeholders — people of interest beyond gov officials (public
-    // records; RLS "Public read bill stakeholders" = using(true)). Defensive
-    // so a pre-migration deploy falls through to empty. StakeholderRow is
-    // module-scoped (shared with the render).
-    let stakeholders: StakeholderRow[] = [];
-    try {
-      const { data } = await sb
-        .from("bill_stakeholders")
-        .select("id, name, title, organization, role_type, reasoning, leaf_stance, seven_oh_stance, leaf_evidence_url, seven_oh_evidence_url, stance_summary, email, phone, website, twitter_handle, linkedin_url")
-        .eq("bill_id", id)
-        .order("role_type", { ascending: true });
-      stakeholders = (data ?? []) as StakeholderRow[];
-    } catch {
-      // Pre-migration deploy — silent.
-    }
+    const stakeholders = (stakeholdersRes.data ?? []) as StakeholderRow[];
 
-    // Phase 3 D6: cross-state bill similarity — already self-cached
-    // (findSimilarBillsCached: own unstable_cache + service-role, 24h).
-    let similarBills: Awaited<ReturnType<typeof findSimilarBillsCached>> = [];
-    try {
-      similarBills = await findSimilarBillsCached(id, { limit: 5, minSimilarity: 0.6 });
-    } catch {
-      // Pre-migration deploy or query error — silent fallback.
-    }
-
-    // Forum thread — approved-only replicates the forum_threads public RLS
-    // (moderation_status='approved') the cookie client relied on.
     type ForumThreadSummary = {
       id: string;
       state: string | null;
@@ -229,27 +261,7 @@ const getBillPublicSnapshot = unstable_cache(
       post_count: number;
       last_activity_at: string | null;
     };
-    let forumThread: ForumThreadSummary | null = null;
-    if (bill.forum_thread_id) {
-      const { data } = await sb
-        .from("forum_threads")
-        .select("id, state, title, post_count, last_activity_at")
-        .eq("id", bill.forum_thread_id)
-        .eq("moderation_status", "approved")
-        .maybeSingle();
-      if (data) forumThread = data as unknown as ForumThreadSummary;
-    }
 
-    // Linked campaigns — active-only replicates the campaigns public RLS
-    // (active=true) the cookie client relied on. (The admin-only "past
-    // campaigns (inactive)" list is gated by admin/creator RLS and never
-    // rendered for public viewers; it does not appear on the cached page.)
-    const { data: campaignsRaw } = await sb
-      .from("campaigns")
-      .select("id, slug, title, active, auto_generated, created_at")
-      .eq("bill_id", bill.id)
-      .eq("active", true)
-      .order("created_at", { ascending: false });
     const campaigns = (campaignsRaw ?? []) as Array<{
       id: string;
       slug: string;
@@ -259,30 +271,9 @@ const getBillPublicSnapshot = unstable_cache(
       created_at: string;
     }>;
 
-    // For municipal/county bills: fetch the full slate of local officials.
     const isLocalScope = bill.scope === "municipal" || bill.scope === "county";
-    let localOfficials: LocalOfficial[] = [];
-    if (isLocalScope && bill.locality) {
-      const { data: legs } = await sb
-        .from("legislators")
-        .select("id, full_name, role, title, district, party, email, phone, website")
-        .eq("state", bill.state)
-        .eq("locality", bill.locality)
-        .in("role", ["city_council", "mayor", "county_executive", "county_commissioner"])
-        .eq("active", true)
-        .order("role", { ascending: true });
-      localOfficials = (legs ?? []) as LocalOfficial[];
-    }
+    const isFederalBill = bill.scope === "federal" || bill.state === "US";
 
-    // Alerts linked to this bill — approved-only replicates policy_alerts
-    // public RLS.
-    const { data: billAlertsRaw } = await sb
-      .from("policy_alerts")
-      .select("id, title, severity, kind, source_url, occurs_at, created_at")
-      .eq("bill_id", bill.id)
-      .eq("moderation_status", "approved")
-      .order("created_at", { ascending: false })
-      .limit(3);
     const billAlerts = (billAlertsRaw ?? []) as Array<{
       id: string; title: string; severity: string; kind: string;
       source_url: string | null; occurs_at: string | null; created_at: string;
@@ -291,37 +282,6 @@ const getBillPublicSnapshot = unstable_cache(
       ? (billAlerts[0]?.source_url ?? null)
       : null;
 
-    // News coverage — union of direct bill_id linkage + policy_alert_id chain.
-    // Both alert-id lookup (approved) and news (active) replicate public RLS.
-    let newsCoverage: NewsItem[] = [];
-    {
-      const { data: linkedAlerts } = await sb
-        .from("policy_alerts")
-        .select("id")
-        .eq("bill_id", bill.id)
-        .eq("moderation_status", "approved");
-      const linkedAlertIds = (linkedAlerts ?? []).map((a: { id: string }) => a.id);
-
-      const orClauses = [`bill_id.eq.${bill.id}`];
-      if (linkedAlertIds.length > 0) {
-        orClauses.push(`policy_alert_id.in.(${linkedAlertIds.join(",")})`);
-      }
-      const { data: news } = await sb
-        .from("news_items")
-        .select("id, title, source_name, url, published_at, summary")
-        .or(orClauses.join(","))
-        .eq("active", true)
-        .order("published_at", { ascending: false })
-        .limit(80);
-      newsCoverage = dedupNews((news ?? []) as NewsItem[], 12);
-    }
-
-    // Sponsors (synced into bill_sponsors, public read).
-    const { data: sponsorsRaw } = await sb
-      .from("bill_sponsors")
-      .select("legislator_id, name, classification, party, district, legislators(full_name, portrait_url, role, party)")
-      .eq("bill_id", bill.id)
-      .order("classification", { ascending: true });
     type SponsorLeg = { full_name: string | null; portrait_url: string | null; role: string | null; party: string | null };
     const sponsors = (sponsorsRaw ?? []).map((s) => {
       const r = s as typeof s & { legislators: SponsorLeg | SponsorLeg[] | null };
@@ -334,9 +294,85 @@ const getBillPublicSnapshot = unstable_cache(
       district: string | null;
       legislator: SponsorLeg | null;
     }>;
+    const sponsorLegIds = sponsors
+      .map((s) => s.legislator_id)
+      .filter((legId): legId is string => !!legId);
 
-    // Aggregate donor industries across this bill's sponsors (legislator_donors
-    // public read). Federal only in practice — state legislators lack donor data.
+    // News coverage: union of direct bill_id linkage + the policy_alert_id
+    // chain. Alert ids (approved) and news (active) replicate public RLS.
+    const linkedAlertIds = (linkedAlerts ?? []).map((a: { id: string }) => a.id);
+    const orClauses = [`bill_id.eq.${bill.id}`];
+    if (linkedAlertIds.length > 0) {
+      orClauses.push(`policy_alert_id.in.(${linkedAlertIds.join(",")})`);
+    }
+
+    // Similar bills: same stance + active + last 365 days, excluding this bill.
+    // The 365-day window anchors to snapshot-fill time (<=15-min drift).
+    const since = new Date(Date.now() - 365 * 86400_000).toISOString().slice(0, 10);
+    const none = Promise.resolve({ data: null });
+
+    // Round two: the reads that needed the bill row or round-one results.
+    const [forumRes, legsRes, newsRes, donorRes, similarRes, officialGroups] = await Promise.all([
+      // Forum thread: approved-only replicates the forum_threads public RLS.
+      bill.forum_thread_id
+        ? sb
+            .from("forum_threads")
+            .select("id, state, title, post_count, last_activity_at")
+            .eq("id", bill.forum_thread_id)
+            .eq("moderation_status", "approved")
+            .maybeSingle()
+        : none,
+      // For municipal/county bills: the full slate of local officials.
+      isLocalScope && bill.locality
+        ? sb
+            .from("legislators")
+            .select("id, full_name, role, title, district, party, email, phone, website")
+            .eq("state", bill.state)
+            .eq("locality", bill.locality)
+            .in("role", ["city_council", "mayor", "county_executive", "county_commissioner"])
+            .eq("active", true)
+            .order("role", { ascending: true })
+        : none,
+      sb
+        .from("news_items")
+        .select("id, title, source_name, url, published_at, summary")
+        .or(orClauses.join(","))
+        .eq("active", true)
+        .order("published_at", { ascending: false })
+        .limit(80),
+      // Donor industries across this bill's sponsors (legislator_donors public
+      // read). Federal only in practice: state legislators lack donor data.
+      sponsorLegIds.length > 0
+        ? sb
+            .from("legislator_donors")
+            .select("legislator_id, top_industries, resolved_status")
+            .in("legislator_id", sponsorLegIds)
+            .eq("resolved_status", "matched")
+        : none,
+      bill.kratom_relevance
+        ? sb
+            .from("bills")
+            .select("id, state, bill_number, title, status, last_action_at, scope")
+            .eq("kratom_relevance", bill.kratom_relevance)
+            .eq("active", true)
+            .neq("id", bill.id)
+            .gte("last_action_at", since)
+            .order("last_action_at", { ascending: false })
+            .limit(8)
+        : none,
+      // Bill-level "email your officials" targeting is viewer-INDEPENDENT for
+      // state/exec bills, so it's snapshotted here. Federal bills need the
+      // viewer's delegation (request-bound in the page body); local scope uses
+      // BillLocalActionCard -> null here.
+      !isLocalScope && !isFederalBill
+        ? getBillOfficialGroups(sb, { state: bill.state, scope: bill.scope }, null)
+        : Promise.resolve(null as BillOfficialGroups | null),
+    ]);
+
+    const forumThread = (forumRes.data as unknown as ForumThreadSummary | null) ?? null;
+    const localOfficials = (legsRes.data ?? []) as LocalOfficial[];
+    const newsCoverage: NewsItem[] = dedupNews((newsRes.data ?? []) as NewsItem[], 12);
+
     type AggregatedIndustry = {
       industry: string;
       label: string;
@@ -347,16 +383,8 @@ const getBillPublicSnapshot = unstable_cache(
     let sponsorIndustryAgg: AggregatedIndustry[] = [];
     let sponsorsWithDonorData = 0;
     {
-      const sponsorLegIds = sponsors
-        .map((s) => s.legislator_id)
-        .filter((legId): legId is string => !!legId);
+      const donorRows = donorRes.data;
       if (sponsorLegIds.length > 0) {
-        const { data: donorRows } = await sb
-          .from("legislator_donors")
-          .select("legislator_id, top_industries, resolved_status")
-          .in("legislator_id", sponsorLegIds)
-          .eq("resolved_status", "matched");
-
         type IndustryRow = {
           industry: string;
           label?: string;
@@ -401,7 +429,7 @@ const getBillPublicSnapshot = unstable_cache(
     // viewers, so a service-role read would leak stance-derived per-person
     // tiers to anon/unverified. See the page body below.
 
-    // ── Cluster memberships — coordinated-operation patterns this bill matches.
+    // Cluster memberships: coordinated-operation patterns this bill matches.
     type ClusterMembership = {
       cluster_id: string;
       confidence: number;
@@ -412,19 +440,15 @@ const getBillPublicSnapshot = unstable_cache(
       bill_count: number;
       state_count: number;
     };
-    let billClusterMemberships: ClusterMembership[] = [];
-    try {
-      const { data: memberships } = await sb
-        .from("bill_cluster_members")
-        .select("cluster_id, confidence, match_reason, bill_clusters!inner(slug, name, posture, bill_count, state_count)")
-        .eq("bill_id", bill.id);
+    const billClusterMemberships: ClusterMembership[] = [];
+    {
       type M = {
         cluster_id: string; confidence: number; match_reason: string | null;
         bill_clusters: { slug: string; name: string; posture: string; bill_count: number; state_count: number }
                      | Array<{ slug: string; name: string; posture: string; bill_count: number; state_count: number }>
                      | null;
       };
-      for (const m of (memberships ?? []) as M[]) {
+      for (const m of (membershipsRes.data ?? []) as M[]) {
         const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
         if (!c) continue;
         billClusterMemberships.push({
@@ -439,13 +463,8 @@ const getBillPublicSnapshot = unstable_cache(
         });
       }
       billClusterMemberships.sort((a, b) => b.confidence - a.confidence);
-    } catch {
-      // Pre-migration deploy (before 0151) — silent empty.
-      billClusterMemberships = [];
     }
 
-    // Scientific basis — research_papers.is_active=true replicates the
-    // "Public read active research" RLS (service-role bypasses it otherwise).
     type ResearchAlignment = {
       paper_id: string;
       relevance_score: number;
@@ -459,15 +478,8 @@ const getBillPublicSnapshot = unstable_cache(
       ai_evidence_strength: string | null;
       ai_key_findings_md: string | null;
     };
-    let researchAlignments: ResearchAlignment[] = [];
-    try {
-      const { data: alignmentRows } = await sb
-        .from("bill_research_alignment")
-        .select("paper_id, relevance_score, match_reason, alignment, research_papers!inner(title, journal, publication_year, pubmed_id, doi, ai_evidence_strength, ai_key_findings_md, is_active)")
-        .eq("bill_id", bill.id)
-        .eq("research_papers.is_active", true)
-        .order("relevance_score", { ascending: false })
-        .limit(6);
+    const researchAlignments: ResearchAlignment[] = [];
+    {
       type Row = {
         paper_id: string; relevance_score: number; match_reason: string;
         alignment: "aligned" | "contradictory" | "context";
@@ -475,7 +487,7 @@ const getBillPublicSnapshot = unstable_cache(
                        | Array<{ title: string; journal: string | null; publication_year: number | null; pubmed_id: string | null; doi: string | null; ai_evidence_strength: string | null; ai_key_findings_md: string | null }>
                        | null;
       };
-      for (const r of (alignmentRows ?? []) as Row[]) {
+      for (const r of (alignmentRes.data ?? []) as Row[]) {
         const p = Array.isArray(r.research_papers) ? r.research_papers[0] : r.research_papers;
         if (!p) continue;
         researchAlignments.push({
@@ -492,12 +504,9 @@ const getBillPublicSnapshot = unstable_cache(
           ai_key_findings_md: p.ai_key_findings_md,
         });
       }
-    } catch {
-      // Pre-migration (before 0154) — silent empty.
-      researchAlignments = [];
     }
 
-    // Momentum — pure heuristic over the snapshot's own aggregates.
+    // Momentum: pure heuristic over the snapshot's own aggregates.
     const momentum = computeBillMomentum({
       last_action_at: bill.last_action_at ?? null,
       status: bill.status ?? null,
@@ -508,35 +517,10 @@ const getBillPublicSnapshot = unstable_cache(
       active: bill.active !== false,
     });
 
-    // Similar bills: same stance + active + last 365 days, excluding this bill.
-    // The 365-day window anchors to snapshot-fill time (≤15-min drift).
-    const since = new Date(Date.now() - 365 * 86400_000).toISOString().slice(0, 10);
-    const { data: similarRaw } = bill.kratom_relevance
-      ? await sb
-          .from("bills")
-          .select("id, state, bill_number, title, status, last_action_at, scope")
-          .eq("kratom_relevance", bill.kratom_relevance)
-          .eq("active", true)
-          .neq("id", bill.id)
-          .gte("last_action_at", since)
-          .order("last_action_at", { ascending: false })
-          .limit(8)
-      : { data: [] };
-    const similar = (similarRaw ?? []) as Array<{
+    const similar = (similarRes.data ?? []) as Array<{
       id: string; state: string; bill_number: string; title: string | null;
       status: string | null; last_action_at: string | null; scope: string | null;
     }>;
-
-    // Bill-level "email your officials" targeting is viewer-INDEPENDENT for
-    // state/exec bills (whole-chamber + executive trio → public legislators),
-    // so it's snapshotted here. Federal bills need the viewer's delegation, so
-    // that branch stays request-bound in the page body (viewerCivic). Local
-    // scope uses BillLocalActionCard instead → null here.
-    const isFederalBill = bill.scope === "federal" || bill.state === "US";
-    let officialGroups: BillOfficialGroups | null = null;
-    if (!isLocalScope && !isFederalBill) {
-      officialGroups = await getBillOfficialGroups(sb, { state: bill.state, scope: bill.scope }, null);
-    }
 
     return {
       bill,

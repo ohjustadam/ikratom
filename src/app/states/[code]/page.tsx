@@ -114,40 +114,12 @@ const getStateHub = unstable_cache(
   async (codeUpper: string) => {
     const supabase = createServiceRoleClient();
 
-    // Canonical status (Mission Control). Resilient: maybeSingle() → null when
-    // no row, and a missing table (migration 0173 not applied) sets `error`
-    // (not a throw) so this stays null and the header simply doesn't render.
-    let stateStatus: StateStatusData | null = null;
-    {
-      const { data } = await supabase
-        .from("state_status")
-        .select(
-          "derived_leaf_status, derived_7oh_status, basis, admin_leaf_status, admin_7oh_status, admin_note, confirmed_at, leaf_evidence_bill, sevenoh_evidence_bill",
-        )
-        .eq("state", codeUpper)
-        .maybeSingle();
-      stateStatus = (data as StateStatusData | null) ?? null;
-    }
-    // Inlined resolveBillHrefs (src/modules/state-status/evidence.ts) — that
-    // helper builds the cookie-bound request client, which can't run inside
-    // unstable_cache. Same query, same output shape.
-    const statusBillHrefs: Record<string, string> = {};
-    if (stateStatus) {
-      const nums = Array.from(
-        new Set([stateStatus.leaf_evidence_bill, stateStatus.sevenoh_evidence_bill].filter(Boolean)),
-      ) as string[];
-      if (nums.length > 0) {
-        const { data } = await supabase
-          .from("bills")
-          .select("id, bill_number")
-          .eq("state", codeUpper)
-          .in("bill_number", nums);
-        for (const b of (data as { id: string; bill_number: string | null }[] | null) ?? []) {
-          if (b.bill_number && !statusBillHrefs[b.bill_number]) statusBillHrefs[b.bill_number] = `/bills/${b.id}`;
-        }
-      }
-    }
-
+    // TWO ROUNDS, not seven (2026-10-04). This loader used to await ~7
+    // sequential round trips and averaged 6.5 s per render — 23% of ALL
+    // Netlify compute on a normal day (Cloudflare origin timing, Sep 29-Oct 1).
+    // Round one now fires every independent read at once (Supabase builders
+    // only start on await, so they must sit in the same Promise.all); round
+    // two runs the few reads that need round-one results, also in parallel.
     const now = new Date();
     const since30d = new Date(now.getTime() - 30 * 86_400_000).toISOString();
     const horizon = new Date(now.getTime() + 90 * 86_400_000).toISOString();
@@ -169,7 +141,7 @@ const getStateHub = unstable_cache(
     // Y flippable targets" so users landing here see exactly how much
     // work is to be done. Uses the same composite scorer as
     // /intel/threat-matrix; data pulled in the parallel block below.
-    const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw, takebackBill, stateLegs, stateStances, stateSponsors, stateKratomCommittees] = await Promise.all([
+    const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw, takebackBill, stateLegs, stateStances, stateSponsors, stateKratomCommittees, statusRes, clustersRes, opBillsRes] = await Promise.all([
       supabase
         .from("bills")
         .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at, scope, locality")
@@ -208,7 +180,10 @@ const getStateHub = unstable_cache(
       supabase
         .from("policy_alerts")
         .select("id, kind, severity, title, body, locality, created_at, occurs_at, bill_id, source_url")
-        .or(`locality.eq.${codeUpper},locality.ilike.%, ${codeUpper}`)
+        // The value MUST be double-quoted: its comma otherwise splits the or()
+        // list and PostgREST rejects the whole filter. Unquoted, this query had
+        // failed on every render and every state page showed zero alerts.
+        .or(`locality.eq.${codeUpper},locality.ilike."%, ${codeUpper}"`)
         .eq("moderation_status", "approved")
         .in("severity", ["critical", "alert"])
         .gte("created_at", since30d)
@@ -270,12 +245,84 @@ const getStateHub = unstable_cache(
         .eq("bills.state", codeUpper)
         .eq("bills.active", true)
         .in("bills.kratom_relevance", ["anti", "pro"]),
+      // Scoped to this state via the FK join. Unscoped, it pulled 1,000 of the
+      // 5,909 kratom-relevant rows (PostgREST cap) for EVERY state, so most
+      // states' chairs were missing from the threat tiers.
       supabase
         .from("legislator_committees")
-        .select("legislator_id, role")
+        .select("legislator_id, role, legislators!inner(state)")
         .eq("is_kratom_relevant", true)
-        .limit(2000),
+        .eq("legislators.state", codeUpper),
+      // Canonical status (Mission Control). maybeSingle() → null when no row; a
+      // missing table sets `error` (not a throw), so the header just hides.
+      supabase
+        .from("state_status")
+        .select(
+          "derived_leaf_status, derived_7oh_status, basis, admin_leaf_status, admin_7oh_status, admin_note, confirmed_at, leaf_evidence_bill, sevenoh_evidence_bill",
+        )
+        .eq("state", codeUpper)
+        .maybeSingle(),
+      // Active coordinated operations: cluster memberships of this state's bills.
+      supabase
+        .from("bill_cluster_members")
+        .select("bill_clusters!inner(slug, name, posture), bills!inner(state, active)")
+        .eq("bills.state", codeUpper)
+        .eq("bills.active", true),
+      // Operator inputs: this state's active bill ids (capped at 500, well under
+      // the .in() limit and above any realistic per-state count).
+      supabase
+        .from("bills")
+        .select("id")
+        .eq("state", codeUpper)
+        .eq("active", true)
+        .limit(500),
     ]);
+
+    const stateStatus = (statusRes.data as StateStatusData | null) ?? null;
+    const statusNums = stateStatus
+      ? (Array.from(new Set([stateStatus.leaf_evidence_bill, stateStatus.sevenoh_evidence_bill].filter(Boolean))) as string[])
+      : [];
+    const opBillIds = ((opBillsRes.data ?? []) as Array<{ id: string }>).map((b) => b.id);
+    const rawAlerts = (alerts.data ?? []) as Array<{
+      id: string; kind: string; severity: string; title: string; body: string | null;
+      locality: string; created_at: string; occurs_at: string | null;
+      bill_id: string | null; source_url: string | null;
+    }>;
+    const alertIds = rawAlerts.map((a) => a.id);
+    const alertBillIds = rawAlerts.map((a) => a.bill_id).filter(Boolean) as string[];
+    const none = Promise.resolve({ data: null });
+
+    // Round two: everything that needed round one, in parallel.
+    const [hrefRes, sponsorsRes, membersRes, newsLinksRes, alertBillsRes] = await Promise.all([
+      // Inlined resolveBillHrefs (src/modules/state-status/evidence.ts) — that
+      // helper builds the cookie-bound request client, which can't run inside
+      // unstable_cache. Same query, same output shape.
+      statusNums.length
+        ? supabase.from("bills").select("id, bill_number").eq("state", codeUpper).in("bill_number", statusNums)
+        : none,
+      opBillIds.length
+        ? supabase
+            .from("bill_sponsors")
+            .select("legislator_id, bill_id, classification, legislators!inner(id, full_name, role, party, active)")
+            .in("bill_id", opBillIds)
+            .eq("classification", "primary")
+            .eq("legislators.active", true)
+        : none,
+      opBillIds.length
+        ? supabase.from("bill_cluster_members").select("bill_id, bill_clusters!inner(slug)").in("bill_id", opBillIds)
+        : none,
+      alertIds.length
+        ? supabase.from("news_items").select("policy_alert_id, published_at").in("policy_alert_id", alertIds)
+        : none,
+      alertBillIds.length
+        ? supabase.from("bills").select("id, last_action_at").in("id", alertBillIds)
+        : none,
+    ]);
+
+    const statusBillHrefs: Record<string, string> = {};
+    for (const b of (hrefRes.data as { id: string; bill_number: string | null }[] | null) ?? []) {
+      if (b.bill_number && !statusBillHrefs[b.bill_number]) statusBillHrefs[b.bill_number] = `/bills/${b.id}`;
+    }
 
     // ── Threat-tier counts using the composite scorer
     const threatStats = { active_opponent: 0, hostile_decision_maker: 0, flippable_target: 0, champion: 0, sympathetic_ally: 0, education_target: 0, low_priority: 0 };
@@ -335,11 +382,7 @@ const getStateHub = unstable_cache(
     // join through bill_cluster_members → bills(state).
     let stateClusters: StateClusterRow[] = [];
     try {
-      const { data: cm } = await supabase
-        .from("bill_cluster_members")
-        .select("bill_clusters!inner(slug, name, posture), bills!inner(state, active)")
-        .eq("bills.state", codeUpper)
-        .eq("bills.active", true);
+      const cm = clustersRes.data;
       const counts = new Map<string, StateClusterRow>();
       type CMRow = {
         bill_clusters: { slug: string; name: string; posture: string }
@@ -362,29 +405,8 @@ const getStateHub = unstable_cache(
     // tear down the state page.
     let stateOperators: StateOperator[] = [];
     try {
-      // Cap to 500 — well under Supabase's .in() limit, well above any
-      // realistic per-state active kratom-bill count. Defensive against
-      // future data growth and pathological backfill bugs.
-      const { data: stateBillsForOps } = await supabase
-        .from("bills")
-        .select("id")
-        .eq("state", codeUpper)
-        .eq("active", true)
-        .limit(500);
-      const billIds = (stateBillsForOps ?? []).map((b) => b.id as string);
-      if (billIds.length > 0) {
-        const [sponsorsRes, membersRes] = await Promise.all([
-          supabase
-            .from("bill_sponsors")
-            .select("legislator_id, bill_id, classification, legislators!inner(id, full_name, role, party, active)")
-            .in("bill_id", billIds)
-            .eq("classification", "primary")
-            .eq("legislators.active", true),
-          supabase
-            .from("bill_cluster_members")
-            .select("bill_id, bill_clusters!inner(slug)")
-            .in("bill_id", billIds),
-        ]);
+      // Inputs fetched in rounds one (bill ids) and two (sponsors + members).
+      if (opBillIds.length > 0) {
         type BillCluster = { slug: string };
         const billToSlugs = new Map<string, Set<string>>();
         for (const m of (membersRes.data ?? []) as Array<{
@@ -437,34 +459,16 @@ const getStateHub = unstable_cache(
     // classified today. The DB lookups (linked news publish date, bill
     // last action) happen here in the snapshot; the freshness cut itself
     // runs per-request in the page against live now().
-    const rawAlerts = (alerts.data ?? []) as Array<{
-      id: string; kind: string; severity: string; title: string; body: string | null;
-      locality: string; created_at: string; occurs_at: string | null;
-      bill_id: string | null; source_url: string | null;
-    }>;
-    const alertIds = rawAlerts.map((a) => a.id);
+    // (rawAlerts and the linked-news / bill lookups came from rounds one and two.)
     const newsByAlertId = new Map<string, string>();
-    if (alertIds.length > 0) {
-      const { data: newsLinks } = await supabase
-        .from("news_items")
-        .select("policy_alert_id, published_at")
-        .in("policy_alert_id", alertIds);
-      for (const n of (newsLinks ?? []) as Array<{ policy_alert_id: string; published_at: string }>) {
-        if (n.policy_alert_id && !newsByAlertId.has(n.policy_alert_id)) {
-          newsByAlertId.set(n.policy_alert_id, n.published_at);
-        }
+    for (const n of (newsLinksRes.data ?? []) as Array<{ policy_alert_id: string; published_at: string }>) {
+      if (n.policy_alert_id && !newsByAlertId.has(n.policy_alert_id)) {
+        newsByAlertId.set(n.policy_alert_id, n.published_at);
       }
     }
-    const billIds = rawAlerts.map((a) => a.bill_id).filter(Boolean) as string[];
     const billLastActionByBillId = new Map<string, string>();
-    if (billIds.length > 0) {
-      const { data: bs } = await supabase
-        .from("bills")
-        .select("id, last_action_at")
-        .in("id", billIds);
-      for (const b of (bs ?? []) as Array<{ id: string; last_action_at: string | null }>) {
-        if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
-      }
+    for (const b of (alertBillsRes.data ?? []) as Array<{ id: string; last_action_at: string | null }>) {
+      if (b.last_action_at) billLastActionByBillId.set(b.id, b.last_action_at);
     }
     const alertsWithEvent: AlertRow[] = rawAlerts.map((a) => {
       let eventDate: Date | null = a.occurs_at ? new Date(a.occurs_at) : null;

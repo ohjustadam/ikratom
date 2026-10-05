@@ -1,8 +1,10 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { createClient, getCachedClaims } from "@/lib/supabase/server";
-import { getUserLegislators } from "@/lib/legislators";
-import { committeesMatch } from "@/lib/bill-committee";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { useChromeMe } from "@/components/chrome/ChromeProvider";
+import type { YourRepData } from "./your-rep-data";
 
 /**
  * "YOUR rep is deciding this bill" — district-level urgency callout.
@@ -30,101 +32,35 @@ import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
  * Free-tier rule: uses mailto: + tel: links, no transactional email
  * or paid SMS.
  */
-export async function YourRepDecidingThisBill({
+/*
+ * Client component (2026-10-05). It used to read cookies inside the cached
+ * bill page, which production Next refuses (DYNAMIC_SERVER_USAGE): every bill
+ * page 500'd. The viewer's data now comes from /api/bills/[id]/your-rep, fetched
+ * only for signed-in members; anonymous visitors and crawlers never call it.
+ */
+export function YourRepDecidingThisBill({
   billId,
-  billState,
   currentCommitteeName,
 }: {
   billId: string;
-  billState: string;
+  billState?: string;
   currentCommitteeName: string | null;
 }) {
-  if (!currentCommitteeName) return null;
+  const { userId } = useChromeMe();
+  const [data, setData] = useState<YourRepData | null>(null);
 
-  // Presence + id via getCachedClaims (no auth round-trip; warm from chrome).
-  const claims = await getCachedClaims();
-  const userId = typeof claims?.sub === "string" ? claims.sub : null;
-  if (!userId) return null;
+  useEffect(() => {
+    if (!userId || !currentCommitteeName) return;
+    let live = true;
+    fetch(`/api/bills/${billId}/your-rep`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { data: YourRepData | null } | null) => { if (live) setData(j?.data ?? null); })
+      .catch(() => { /* the callout is optional; stay silent */ });
+    return () => { live = false; };
+  }, [userId, billId, currentCommitteeName]);
 
-  const sb = await createClient();
-  // Pull profile for reps lookup
-  const { data: profile } = await sb
-    .from("profiles")
-    .select("state, congressional_district, state_senate_district, state_house_district, city, county")
-    .eq("id", userId)
-    .single();
-  if (!profile?.state) return null;
-
-  // Only meaningful if the bill is in the user's state (or federal,
-  // which we treat as nationwide). For now this feature scopes to
-  // same-state bills — federal kratom action mostly happens via DEA/FDA
-  // not via congressional committee yet.
-  if (billState !== profile.state) return null;
-
-  const reps = await getUserLegislators(sb, profile);
-  if (reps.length === 0) return null;
-
-  // Fetch every committee assignment for each of the user's reps.
-  const repIds = reps.map((r) => r.id);
-  const { data: assignments } = await sb
-    .from("legislator_committees")
-    .select("legislator_id, committee_name, role, chamber, is_kratom_relevant")
-    .in("legislator_id", repIds);
-
-  type RepMatch = {
-    rep: typeof reps[number];
-    role: string;
-    committeeName: string;
-    isKratomRelevant: boolean;
-  };
-  const matches: RepMatch[] = [];
-  for (const a of assignments ?? []) {
-    if (!committeesMatch(currentCommitteeName, a.committee_name)) continue;
-    const rep = reps.find((r) => r.id === a.legislator_id);
-    if (!rep) continue;
-    matches.push({
-      rep,
-      role: a.role,
-      committeeName: a.committee_name,
-      isKratomRelevant: !!a.is_kratom_relevant,
-    });
-  }
-  // Any match flagged kratom-relevant boosts the whole section's
-  // urgency framing. is_kratom_relevant is admin-curated: 1,600+ rows
-  // marked across Health / Judiciary / Codes / Consumer / Drug Policy
-  // committees that historically handle kratom bills.
-  const isBattleground = matches.some((m) => m.isKratomRelevant);
-
-  // Chair / leadership lookup for the "no match" fallback so we can
-  // tell the user WHO is deciding their bill, not just that they
-  // don't have leverage.
-  let leadership: Array<{ full_name: string; role: string; party: string | null; district: string | null }> = [];
-  if (matches.length === 0) {
-    const { data: leaders } = await sb
-      .from("legislator_committees")
-      .select("legislator_id, role")
-      .ilike("committee_name", `%${currentCommitteeName.replace(/[%_]/g, " ").slice(0, 60)}%`)
-      .in("role", ["chair", "vice_chair", "ranking_member"])
-      .limit(5);
-    const leaderIds = (leaders ?? []).map((l) => l.legislator_id);
-    if (leaderIds.length > 0) {
-      const { data: leaderProfiles } = await sb
-        .from("legislators")
-        .select("id, full_name, party, district")
-        .in("id", leaderIds);
-      leadership = (leaders ?? [])
-        .map((l) => {
-          const lp = leaderProfiles?.find((p) => p.id === l.legislator_id);
-          if (!lp) return null;
-          return { full_name: lp.full_name, role: l.role, party: lp.party, district: lp.district };
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null)
-        .sort((a, b) => {
-          const rank: Record<string, number> = { chair: 0, vice_chair: 1, ranking_member: 2 };
-          return (rank[a.role] ?? 9) - (rank[b.role] ?? 9);
-        });
-    }
-  }
+  if (!currentCommitteeName || !data) return null;
+  const { matches, isBattleground, leadership } = data;
 
   // Render: matches case (highest urgency)
   if (matches.length > 0) {

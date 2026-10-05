@@ -141,6 +141,10 @@ export async function updateEmergencyConfig(input: {
     details: { title: input.title ?? null, severity: input.severity ?? "urgent" },
   });
 
+  // The public banner is an unstable_cache entry under this tag
+  // (lib/emergency-banner.ts); revalidatePath alone does NOT clear it, so the
+  // toggle used to wait out the cache's TTL. Clearing the tag makes it instant.
+  updateTag("emergency-banner");
   revalidatePath("/", "layout");
   return { ok: true };
 }

@@ -54,10 +54,27 @@ export function kokoroSupported(): boolean {
 // click can retry.
 let _ttsPromise: Promise<unknown> | null = null;
 
+type Splitter = { push: (...t: string[]) => void; close: () => void };
+let _Splitter: (new () => Splitter) | null = null;
+
+/**
+ * kokoro-js 1.2.1 stream(string) pushes the text into a sentence splitter and
+ * never closes it. The splitter holds the LAST sentence until close(), so it was
+ * never spoken and the generator never finished. Hand stream() a closed splitter.
+ */
+function closedInput(text: string): unknown {
+  if (!_Splitter) return text;
+  const s = new _Splitter();
+  s.push(text);
+  s.close();
+  return s;
+}
+
 async function getTTS(onProgress?: (fraction: number) => void): Promise<unknown> {
   if (_ttsPromise) return _ttsPromise;
   _ttsPromise = (async () => {
     const mod = await import("kokoro-js");
+    _Splitter = (mod as { TextSplitterStream?: new () => Splitter }).TextSplitterStream ?? null;
     const KokoroTTS = (mod as { KokoroTTS: { from_pretrained: (id: string, o: unknown) => Promise<unknown> } }).KokoroTTS;
     const progress_callback = (info: { status?: string; progress?: number }) => {
       if (onProgress && info?.status === "progress" && typeof info.progress === "number") {
@@ -85,7 +102,7 @@ async function getTTS(onProgress?: (fraction: number) => void): Promise<unknown>
 }
 
 type RawAudio = { audio: Float32Array; sampling_rate: number };
-type StreamingTTS = { stream: (text: string, opts: { voice: string; speed: number }) => AsyncGenerator<{ audio: RawAudio }> };
+type StreamingTTS = { stream: (input: unknown, opts: { voice: string; speed: number }) => AsyncGenerator<{ audio: RawAudio }> };
 
 /**
  * Streaming WebAudio player. One instance per AudioReader. Generates with
@@ -138,7 +155,7 @@ export class KokoroPlayer {
     this.ctx = new Ctx();
     this.origin = this.ctx.currentTime;
     this.onstate?.("playing");
-    for await (const chunk of tts.stream(text, { voice, speed })) {
+    for await (const chunk of tts.stream(closedInput(text), { voice, speed })) {
       if (this.aborted || !this.ctx) break;
       this.enqueue(chunk.audio.audio, chunk.audio.sampling_rate);
     }

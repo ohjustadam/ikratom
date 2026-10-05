@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
 import { getCachedAuthProfile } from "@/lib/supabase/server";
-import { getUnreadNotificationCount } from "@/modules/notifications/actions";
-import { getUnreadDmCount } from "@/modules/dm/actions";
-import { getMyInviteSummary } from "@/modules/invite/actions";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { readLocale } from "@/modules/auth/actions-locale";
 
@@ -34,6 +31,10 @@ export type ChromeMe = {
   avatarUrl: string | null;
   fullName: string | null;
   state: string | null;
+  // False only when the member has never answered the state question (0259).
+  // Undefined column (pre-migration) or a set state both count as answered,
+  // so the required prompt can never appear before the database supports it.
+  stateAnswered: boolean;
   emailConnected: boolean;
   locale: string;
   isAdmin: boolean;
@@ -57,6 +58,8 @@ const ANON: ChromeMe = {
   avatarUrl: null,
   fullName: null,
   state: null,
+  // Anonymous visitors are never prompted for a state.
+  stateAnswered: true,
   emailConnected: false,
   locale: "en",
   isAdmin: false,
@@ -78,20 +81,24 @@ export async function GET() {
     // tight limit would punish an office or campus before it stopped anyone.
     // Returns the ANON shape rather than an error so the site chrome still
     // renders; a rate-limited reader sees a signed-out header, not a broken page.
+    // Independent reads run together (2026-10-04): this route averaged ~3 s
+    // at the origin, the header skeleton for every signed-in page view.
     const ip = await getClientIp();
-    if (!(await checkRateLimit(`chrome-me:${ip}`, 300, 60))) {
+    const [allowed, locale, { userId, profile }] = await Promise.all([
+      checkRateLimit(`chrome-me:${ip}`, 300, 60),
+      // Locale is resolved for EVERYONE: an anonymous reader can still have a
+      // language cookie, and this route is the only place the site reads it
+      // (see components/TranslatedText.tsx).
+      readLocale().catch(() => "en"),
+      getCachedAuthProfile(),
+    ]);
+    if (!allowed) {
       return NextResponse.json(ANON, {
         status: 429,
         headers: { "Cache-Control": "no-store" },
       });
     }
 
-    // Locale is resolved for EVERYONE, before the signed-out early return: an
-    // anonymous reader can still have a language cookie, and this route is now
-    // the only place the site reads it (see components/TranslatedText.tsx).
-    const locale = await readLocale().catch(() => "en");
-
-    const { userId, profile } = await getCachedAuthProfile();
     if (!userId || !profile) {
       return NextResponse.json({ ...ANON, locale }, {
         headers: { "Cache-Control": "no-store" },
@@ -107,11 +114,22 @@ export async function GET() {
     // email_integrations is a light self-read (RLS allows own row) that drives
     // the "sync your email" nudge. It lives here rather than on /campaigns so
     // that page can be a cached static file — see src/app/campaigns/page.tsx.
+    //
+    // These read with the id from the VERIFIED JWT (getCachedAuthProfile) on
+    // the cookie-bound client, so RLS still pins every row to this user. The
+    // server actions they replace (getUnreadNotificationCount etc.) each made
+    // their own auth.getUser() network round trip first; they keep doing so,
+    // because a server action is callable from the browser and must not take
+    // a user id as an argument.
     const sb = await (await import("@/lib/supabase/server")).createClient();
     const [notifications, dms, invite, integ] = await Promise.all([
-      getUnreadNotificationCount().catch(() => 0),
-      getUnreadDmCount().catch(() => 0),
-      getMyInviteSummary().catch(() => null),
+      Promise.resolve(
+        sb.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", userId).is("read_at", null),
+      ).then((r) => r.count ?? 0).catch(() => 0),
+      unreadDmCount(sb, userId).catch(() => 0),
+      Promise.resolve(sb.rpc("get_my_invite_summary"))
+        .then((r) => ((Array.isArray(r.data) ? r.data[0] : r.data) as { invite_code?: string } | null) ?? null)
+        .catch(() => null),
       Promise.resolve(
         sb.from("email_integrations").select("account_email").eq("user_id", userId).maybeSingle(),
       ).then((r) => r.data).catch(() => null),
@@ -123,6 +141,9 @@ export async function GET() {
       avatarUrl: profile.avatar_url ?? null,
       fullName: profile.full_name ?? null,
       state: profile.state ?? null,
+      // `!== null` on purpose: undefined (column not migrated yet) counts as
+      // answered, so the prompt can never fire before 0259 is applied.
+      stateAnswered: !!profile.state || profile.state_answered_at !== null,
       emailConnected: !!integ?.account_email,
       locale,
       isAdmin,
@@ -146,4 +167,27 @@ export async function GET() {
     // down the page it renders on.
     return NextResponse.json(ANON, { headers: { "Cache-Control": "no-store" } });
   }
+}
+
+type ServerClient = Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
+
+/** Same count as getUnreadDmCount() in modules/dm/actions, minus its auth round trip. */
+async function unreadDmCount(sb: ServerClient, userId: string): Promise<number> {
+  const { data: parts } = await sb
+    .from("dm_participants")
+    .select("conversation_id, last_read_at")
+    .eq("user_id", userId);
+  if (!parts || parts.length === 0) return 0;
+  const counts = await Promise.all(
+    parts.map(async (p) => {
+      const { count } = await sb
+        .from("dm_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", p.conversation_id)
+        .neq("sender_id", userId)
+        .gt("created_at", p.last_read_at ?? "1970-01-01");
+      return count ?? 0;
+    }),
+  );
+  return counts.reduce((a, b) => a + b, 0);
 }

@@ -6,6 +6,7 @@ import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { RemindMeButton } from "@/components/RemindMeButton";
+import { WhoDecides } from "./WhoDecides";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -47,7 +48,17 @@ export async function generateMetadata({ params }: Props) {
     return { title: "Meeting · iKratom" };
   }
 
-  const title = `🚨 LIVE: ${m.locality ?? m.state} ${m.body_name ?? "meeting"} — kratom on agenda`;
+  // Timing-aware: this title is also the social-preview headline, and it said
+  // "LIVE" for every meeting, including ones a month in the past (2026-10-03).
+  const startMs = new Date(m.meeting_at).getTime();
+  const sinceStart = Date.now() - startMs;
+  const day = new Date(m.meeting_at).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+  const where = `${m.locality ?? m.state} ${m.body_name ?? "meeting"}`;
+  const title = sinceStart >= 0 && sinceStart < 6 * 3600_000
+    ? `🔴 LIVE: ${where} — kratom on the agenda`
+    : sinceStart < 0
+      ? `📅 ${day}: ${where} — kratom on the agenda`
+      : `${where} — kratom item (${day})`;
   const description = m.agenda_text
     ? `${m.agenda_text.slice(0, 200)}${m.agenda_text.length > 200 ? "…" : ""}`
     : `${m.locality ?? m.state} ${m.body_name ?? "officials"} are considering kratom policy. Watch live, sign up for public comment, or call your rep — links inside.`;
@@ -270,6 +281,17 @@ export default async function MeetingDetailPage({ params }: Props) {
           </p>
         </section>
       )}
+
+      {/* Who votes, how to reach them, and how fresh that is. */}
+      <WhoDecides
+        state={m.state}
+        locality={m.locality}
+        subject={`Kratom item, ${m.body_name ?? "meeting"} on ${when.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })}`}
+        pageUrl={`${SITE}/meetings/${m.id}`}
+        meetingId={m.id}
+        bodyName={m.body_name}
+        meetingDate={when.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "long", day: "numeric" })}
+      />
 
       {/* Cross-actions */}
       <section className="mb-6 rounded-md border border-emerald-700/30 bg-emerald-950/10 p-4">

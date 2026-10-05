@@ -2,7 +2,7 @@ import { EVENT_TYPE_LABELS } from "@/modules/events/labels";
 import type { CalendarEvent, CalendarSnapshot } from "./types";
 
 /**
- * Fold the nine public calendar sources into one flat event list.
+ * Fold the ten public calendar sources into one flat event list.
  *
  * Pure + viewer-parameterised on purpose: `viewerState` only geofences the
  * ELECTION rows (national-scope elections show to everyone; state elections
@@ -115,6 +115,22 @@ export function buildEvents(
       in_person_address: t.venue,
       source_url: t.source_url,
       detail_href: t.legislator_id ? `/legislators/${t.legislator_id}` : null,
+    });
+  }
+
+  // Live streams from the kratom orgs' and creators' channels (/videos).
+  // National by nature, so never geofenced.
+  for (const v of snap.lives ?? []) {
+    const watch = `https://www.youtube.com/watch?v=${v.video_id}`;
+    events.push({
+      kind: "live",
+      date: new Date(v.scheduled_start_at),
+      title: v.channel?.name ? `${v.channel.name}: ${v.title}` : v.title,
+      body: "YouTube live stream — watch on iKratom or on YouTube.",
+      state: null,
+      livestream_url: watch,
+      source_url: watch,
+      detail_href: "/videos",
     });
   }
 
