@@ -41,7 +41,7 @@ jobs:
       - name: Generate weekly digest draft (last 7 days)
         id: gen
         run: |
-          node scripts/generate-patch-note.mjs --since "7 days ago"
+          node --import=./scripts/lib/egress-meter.mjs scripts/generate-patch-note.mjs --since "7 days ago"
           NEW=$(git status --porcelain src/content/patch-notes/ | awk '/^\?\?/ {print $2}' | head -1)
           if [ -z "$NEW" ]; then
             echo "No new digest generated (no commits in last 7d, or file already exists)."
@@ -79,7 +79,7 @@ jobs:
           gh label create weekly-digest --color 0E8A16 --description "Auto-drafted weekly update digest (curate before merge)" 2>/dev/null || true
           gh pr create \
             --title "docs(weekly): ${{ steps.gen.outputs.patch_title }} (curate before broadcast)" \
-            --body "Weekly digest auto-draft (last 7 days), markdown-only. **Curate the headlines by user impact, then merge.** After it deploys, fire the push manually: \`node --env-file=.env.local scripts/broadcast-whats-new.mjs --slug <slug> --all-users\` (dry-run first). This workflow sends nothing on its own. 🤖 .github/workflows/auto-weekly-update.yml" \
+            --body "Weekly digest auto-draft (last 7 days), markdown-only. **Curate the headlines by user impact, then merge.** After it deploys, fire the push manually: \`node --import=./scripts/lib/egress-meter.mjs --env-file=.env.local scripts/broadcast-whats-new.mjs --slug <slug> --all-users\` (dry-run first). This workflow sends nothing on its own. 🤖 .github/workflows/auto-weekly-update.yml" \
             --label "patch-notes,weekly-digest" \
             || gh pr create \
               --title "docs(weekly): ${{ steps.gen.outputs.patch_title }} (curate before broadcast)" \

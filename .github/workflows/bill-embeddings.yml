@@ -59,7 +59,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/egress-gate.mjs --tier bulk
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier bulk
 
   embed:
     needs: budget
@@ -89,4 +89,4 @@ jobs:
           ARGS=""
           if [ "${{ github.event.inputs.refresh }}" = "true" ]; then ARGS="$ARGS --refresh"; fi
           if [ -n "${{ github.event.inputs.provider }}" ]; then ARGS="$ARGS --provider ${{ github.event.inputs.provider }}"; fi
-          node scripts/compute-bill-embeddings.mjs $ARGS
+          node --import=./scripts/lib/egress-meter.mjs scripts/compute-bill-embeddings.mjs $ARGS

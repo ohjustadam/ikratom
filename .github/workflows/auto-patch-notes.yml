@@ -57,7 +57,7 @@ jobs:
         # Seven days of changelog went missing that way and stayed missing for
         # three months. Still reporting-only (never fails the job) — a hole
         # lands in the run summary instead of nowhere.
-        run: node scripts/check-changelog-gaps.mjs --days 120
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-changelog-gaps.mjs --days 120
 
       - name: Write today's draft into patch_notes
         env:
@@ -67,4 +67,4 @@ jobs:
         # scripts/lib/cron-pager-registry.mjs — if this stops running, the
         # self-pager says so instead of the changelog quietly going stale
         # again.
-        run: node scripts/generate-patch-note.mjs --since "24 hours ago" --db
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/generate-patch-note.mjs --since "24 hours ago" --db
