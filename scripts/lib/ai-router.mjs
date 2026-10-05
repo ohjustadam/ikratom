@@ -47,12 +47,16 @@ const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 //   SAMBANOVA_API_KEY   — cloud.sambanova.ai (free tier, very fast Llama 3.3).
 //   OPENROUTER_API_KEY  — openrouter.ai (use ":free" models; US-hosted only).
 //   NVIDIA_API_KEY      — build.nvidia.com (free credits; Llama/Nemotron).
+//   AI_GATEWAY_API_KEY  — Vercel AI Gateway ($5 free credits / 30 days, no card;
+//                         never bills unless credits are bought). LAST in the chain
+//                         so the monthly credit is a reserve, not the default.
 // GitHub Actions FORBIDS secret names starting with GITHUB_, so the CI secret
 // must be named GH_MODELS_TOKEN; locally GITHUB_MODELS_TOKEN works too. Accept either.
 const GITHUB_MODELS_TOKEN = process.env.GITHUB_MODELS_TOKEN || process.env.GH_MODELS_TOKEN;
 const SAMBANOVA_API_KEY = process.env.SAMBANOVA_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
+const AI_GATEWAY_API_KEY = process.env.AI_GATEWAY_API_KEY;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
 // Cooldown tracking. When a provider returns 429 we set a deadline
@@ -174,6 +178,7 @@ function availableProviders() {
   if (SAMBANOVA_API_KEY) out.push("sambanova");
   if (OPENROUTER_API_KEY) out.push("openrouter");
   if (NVIDIA_API_KEY) out.push("nvidia");
+  if (AI_GATEWAY_API_KEY) out.push("vercel");
   // Ollama stays last by default: it only answers on the owner's box, so in the
   // cloud it is a guaranteed timeout, not a fallback. AI_PROVIDER_ORDER can
   // still promote it for local runs.
@@ -646,6 +651,16 @@ const callNvidia = (sys, user, maxTokens, modelOverride) => callOpenAICompat("nv
   model: process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct",
 }, sys, user, maxTokens, modelOverride);
 
+// Vercel AI Gateway: one OpenAI-compatible endpoint in front of many vendors.
+// Paid per token from a free $5/30-day credit; when it runs out the gateway
+// refuses (402) and the dead-provider rule drops it for the run. Pick a cheap
+// model so the credit lasts; VERCEL_AI_MODEL overrides.
+const callVercel = (sys, user, maxTokens, modelOverride) => callOpenAICompat("vercel", {
+  url: "https://ai-gateway.vercel.sh/v1/chat/completions",
+  key: AI_GATEWAY_API_KEY,
+  model: process.env.VERCEL_AI_MODEL || "openai/gpt-oss-120b",
+}, sys, user, maxTokens, modelOverride);
+
 async function callOllama(sys, user) {
   const r = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
@@ -696,6 +711,7 @@ async function callOne(p, sys, user, maxTokens, modelOverride) {
     case "sambanova": return callSambanova(sys, user, maxTokens, modelOverride);
     case "openrouter": return callOpenrouter(sys, user, maxTokens, modelOverride);
     case "nvidia": return callNvidia(sys, user, maxTokens, modelOverride);
+    case "vercel": return callVercel(sys, user, maxTokens, modelOverride);
     case "ollama": return callOllama(sys, user);
     default: throw new Error(`Unknown provider: ${p}`);
   }
@@ -778,7 +794,7 @@ export async function aiRouter({
     throw new Error(
       "NO_AI_PROVIDER: no free cloud AI key is configured for this run " +
       "(checked: GROQ_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY, OPENROUTER_API_KEY, " +
-      "CEREBRAS_API_KEY, SAMBANOVA_API_KEY, NVIDIA_API_KEY, CLOUDFLARE_AI_TOKEN, " +
+      "CEREBRAS_API_KEY, SAMBANOVA_API_KEY, NVIDIA_API_KEY, AI_GATEWAY_API_KEY, CLOUDFLARE_AI_TOKEN, " +
       "GH_MODELS_TOKEN). See docs/AI_PROVIDERS.md.",
     );
   }
