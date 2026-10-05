@@ -4,9 +4,22 @@
  *
  * Embeddings are jsonb 768-dim float arrays stored on the `bills` and
  * `state_briefings` tables. Computed locally via Ollama nomic-embed-text
- * (see scripts/compute-bill-embeddings.mjs). We deliberately avoided
- * pgvector to keep dependencies thin — at <500 active bills, cosine
- * similarity computed in application JS is fine (<50ms).
+ * (see scripts/compute-bill-embeddings.mjs).
+ *
+ * SCORING HAPPENS IN POSTGRES, not here (migrations 0254-0256). It used to
+ * happen here: this module pulled every candidate bill WITH its embedding and
+ * ran cosineSim() in Node. That was fine when it was written and stopped being
+ * fine as the corpus grew — measured before the change, one call shipped 263
+ * rows / 4 MB of jsonb out of the database to keep five of them, and it was the
+ * third most expensive statement in the whole database (1,812s over 4,928
+ * calls). The `similar_bills` RPC returns only the top N with their scores.
+ *
+ * Measured over 80 real comparisons, old path vs RPC: payload 284.40 MB ->
+ * 0.10 MB (-99.965%), latency 743ms -> 293ms per call, and 0 result
+ * mismatches — ids and similarity scores agree to 1e-9. That exactness is why
+ * `bills.embedding_f8` is a float8[] generated column rather than pgvector:
+ * pgvector stores float4 and would quietly disagree with cosineSim() in the
+ * last few digits.
  *
  * Usage on /bills/[id]:
  *   const similar = await findSimilarBills(supabase, billId, { limit: 5 });
@@ -35,9 +48,18 @@ export type SimilarBill = {
   similarity: number;
 };
 
+/** One row as public.similar_bills() returns it: the bill's public columns plus its score. */
+type SimilarBillRow = Omit<EmbeddedBillRow, "embedding"> & { similarity: number };
+
 /**
  * Cosine similarity between two equal-length number arrays.
  * Identical to scripts/dedupe-news.mjs::cosineSim — kept in sync.
+ *
+ * No longer on the /bills/[id] path (Postgres scores there now), but kept and
+ * still exported: it is the reference definition that public.float8_cosine_sim
+ * mirrors, scripts/dedupe-news.mjs uses the same math, and
+ * __tests__/bill-similarity.test.ts pins its behaviour. Delete it only
+ * alongside those.
  */
 export function cosineSim(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
@@ -64,53 +86,24 @@ export async function findSimilarBills(
   billId: string,
   opts: { limit?: number; minSimilarity?: number; includeSameState?: boolean } = {},
 ): Promise<SimilarBill[]> {
-  const limit = opts.limit ?? 5;
   // 0.6 default — empirically tuned for kratom bills via
   // nomic-embed-text. Cross-state KCPA matches land at 62-69%;
   // lowering further surfaces unrelated kratom bills.
-  const minSimilarity = opts.minSimilarity ?? 0.6;
-  const includeSameState = opts.includeSameState ?? false;
+  //
+  // The candidate filter (active, embedded, anti/pro only, not the target,
+  // and by default a different state) now lives in the RPC and is identical to
+  // the one this function used to apply client side. The old hard 2000-row cap
+  // is gone with it: it existed to bound the embedding payload after the
+  // 2026-06-08 OOM RCA, and nothing large crosses the wire any more.
+  const { data, error } = await supabase.rpc("similar_bills", {
+    p_bill_id: billId,
+    p_limit: opts.limit ?? 5,
+    p_min_similarity: opts.minSimilarity ?? 0.6,
+    p_include_same_state: opts.includeSameState ?? false,
+  });
+  if (error || !data) return [];
 
-  // Fetch the target bill's embedding + state
-  const { data: target, error: tErr } = await supabase
-    .from("bills")
-    .select("id, state, embedding")
-    .eq("id", billId)
-    .maybeSingle<{ id: string; state: string; embedding: number[] | null }>();
-  if (tErr || !target?.embedding || !Array.isArray(target.embedding)) return [];
-
-  // Pull other embedded active bills. Each row carries a 768-float jsonb
-  // embedding (~3KB detoasted), so the payload grows with the corpus. We
-  // bound it two ways (per this file's original TODO + the 2026-06-08 OOM
-  // RCA: on a cold cache this query detoasted the full embedding set on a
-  // ~400MB instance): (1) only anti/pro bills can be meaningful matches —
-  // neutral/unclassified bills never clear the 0.6 similarity floor for a
-  // kratom-policy bill anyway; (2) a hard 2000-row cap so worst-case query
-  // memory stays flat as the bill table grows.
-  let q = supabase
-    .from("bills")
-    .select("id, state, bill_number, title, kratom_relevance, status, last_action_at, embedding")
-    .eq("active", true)
-    .not("embedding", "is", null)
-    .in("kratom_relevance", ["anti", "pro"])
-    .neq("id", billId)
-    .limit(2000);
-  if (!includeSameState) q = q.neq("state", target.state);
-
-  const { data: candidates, error: cErr } = await q;
-  if (cErr || !candidates) return [];
-
-  const scored: SimilarBill[] = [];
-  for (const c of candidates as EmbeddedBillRow[]) {
-    if (!c.embedding || !Array.isArray(c.embedding)) continue;
-    const sim = cosineSim(target.embedding, c.embedding);
-    if (sim < minSimilarity) continue;
-    const { embedding: _e, ...rest } = c;
-    void _e;
-    scored.push({ bill: rest, similarity: sim });
-  }
-  scored.sort((a, b) => b.similarity - a.similarity);
-  return scored.slice(0, limit);
+  return (data as SimilarBillRow[]).map(({ similarity, ...bill }) => ({ bill, similarity }));
 }
 
 /**
@@ -118,12 +111,15 @@ export async function findSimilarBills(
  *
  * Similar-bills for a given bill only change when embeddings are recomputed
  * (rare, via scripts/compute-bill-embeddings.mjs), so we cache the small
- * top-N result across requests (revalidate 24h, tag-invalidatable) instead of
- * re-pulling the ~1.5 MB all-bills embedding payload + recomputing cosine
- * similarity on EVERY page view. Uses a service-role client (the bills it
- * reads are public) because unstable_cache can't use the cookie-bound request
- * client. The cached value is just the tiny SimilarBill[] result, never the
- * embeddings themselves.
+ * top-N result across requests (revalidate 24h, tag-invalidatable) rather than
+ * re-running the query on EVERY page view. Uses a service-role client (the
+ * bills it reads are public) because unstable_cache can't use the cookie-bound
+ * request client.
+ *
+ * This cache was load-bearing when a miss meant pulling the whole embedding
+ * corpus; since 0254-0256 a miss costs one RPC returning five rows, so it is
+ * now an ordinary latency cache rather than the thing standing between the
+ * page and a 4 MB read.
  */
 export function findSimilarBillsCached(
   billId: string,
