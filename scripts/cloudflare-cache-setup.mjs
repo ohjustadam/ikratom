@@ -118,6 +118,10 @@ export const CACHEABLE_PATTERNS = [
   // Crawler plumbing: identical for everyone (robots.ts is ISR 3600, no data).
   // 415 robots.txt fetches in the Oct 3 crawl alone.
   'http.request.uri.path in {"/robots.txt" "/sitemap.xml"}',
+  // The PWA's offline fallback: a client component with no data at all, yet
+  // 207 origin renders in three days — the service worker refetches it on
+  // every install/update.
+  'http.request.uri.path eq "/offline"',
   'http.request.uri.path in {"/action" "/community" "/knowledge" "/legislative"}',
 ];
 
