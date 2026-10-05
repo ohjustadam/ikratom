@@ -96,12 +96,22 @@ export function renderDigest({ username, sections, appUrl, unsubscribeUrl, brief
   }
   parts.push(`<p style="margin:18px 0 0;font-size:13px;color:${C.mute};">Every article opens in iKratom's reader: the full story, no publisher ads, and the actions you can take sit right next to it.</p>`);
   const reason = "You get this daily summary because email updates are on for your iKratom account.";
-  const subject = live.some((s) => s.meetings?.length)
-    ? `Hearing alert + ${count - live.reduce((n, s) => n + (s.meetings?.length ?? 0), 0)} kratom updates`
-    : `${count} kratom policy update${count === 1 ? "" : "s"} for you`;
+  // Never "+ 0 kratom updates" / "1 updates" (both reached a real inbox in the
+  // 2026-10-05 test send).
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const meetingCount = live.reduce((n, s) => n + (s.meetings?.length ?? 0), 0);
+  const otherCount = count - meetingCount;
+  const subject = meetingCount
+    ? (otherCount > 0
+        ? `${meetingCount === 1 ? "Hearing alert" : `${meetingCount} hearings`} + ${plural(otherCount, "kratom update")}`
+        : `${meetingCount === 1 ? "Kratom hearing coming up" : `${meetingCount} kratom hearings coming up`} — who decides inside`)
+    : `${plural(count, "kratom policy update")} for you`;
+  const preheader = meetingCount
+    ? `${plural(meetingCount, "hearing")}${otherCount ? ` and ${plural(otherCount, "update")}` : ""}, meetings first.`
+    : `${plural(count, "update")} since your last email.`;
   return {
     subject, count,
-    html: shell({ preheader: `${count} updates, meetings first.`, title: subject, bodyHtml: parts.join(""), footer: footerHtml({ appUrl, unsubscribeUrl, reason }) }),
+    html: shell({ preheader, title: subject, bodyHtml: parts.join(""), footer: footerHtml({ appUrl, unsubscribeUrl, reason }) }),
     text: txt.join("\n") + footerText({ appUrl, unsubscribeUrl, reason }),
   };
 }

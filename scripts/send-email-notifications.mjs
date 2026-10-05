@@ -19,7 +19,11 @@
  *                     one-off feature email. Dry-run unless --send.
  *
  * Common flags: --dry-run (render + count, send nothing), --limit N,
- *               --preview <dir> (write the first 3 rendered emails as .html).
+ *               --preview <dir> (write the first 3 rendered emails as .html),
+ *               --only <user-id> (TEST: send to that one member, ignoring their
+ *               email preference; records NOTHING — no telemetry, no "already
+ *               sent" mark, no digest/meeting watermark — so the real run after
+ *               it is unaffected).
  *
  * Budget: shares email_quota_log with the site's router and never touches the
  * per-provider reserve kept for auth + transactional mail. When the day's quota
@@ -37,6 +41,8 @@ const MODE = arg("mode", "digest");
 const DRY = argv.includes("--dry-run") || (MODE === "announce" && !argv.includes("--send"));
 const LIMIT = Number(arg("limit", 1e9));
 const PREVIEW = arg("preview", null);
+const ONLY = arg("only", null);
+if (ONLY && !/^[0-9a-f-]{36}$/i.test(ONLY)) { console.error("--only needs a user id"); process.exit(2); }
 // Email links must always point at the public site. .env.local sets APP_URL to
 // localhost for development, which would ship dead links to every inbox.
 const PROD_URL = "https://www.ikratom.org";
@@ -66,7 +72,7 @@ async function lastSuccess(source) {
 }
 
 async function record(status, rows, notes) {
-  if (DRY) return;
+  if (DRY || ONLY) return; // a test send must not move any watermark
   await sb.from("scraper_runs").insert({ source: SOURCE, started_at: startedAt, finished_at: new Date().toISOString(), status, rows_updated: rows, notes: notes.slice(0, 900) });
 }
 
@@ -78,6 +84,7 @@ async function members(audience) {
   ]);
   if (e1 || e2) throw new Error((e1 ?? e2).message);
   const byUser = new Map(prefs.map((p) => [p.user_id, p]));
+  if (ONLY) return profiles.filter((p) => p.id === ONLY).map((p) => ({ ...p, weekly: false }));
   const monday = new Date().getUTCDay() === 1;
   return profiles.filter((p) => {
     const pr = byUser.get(p.id);
@@ -170,7 +177,9 @@ function dedupe(items) {
 }
 
 async function runMeetings() {
-  const since = (await lastSuccess(SOURCE)) ?? new Date(Date.now() - 6 * 3600e3).toISOString();
+  // --since is honoured only with --only (a test send can look back further
+  // without moving the real watermark).
+  const since = (ONLY && arg("since", null)) || (await lastSuccess(SOURCE)) || new Date(Date.now() - 6 * 3600e3).toISOString();
   const { data: fresh, error } = await sb.from("municipal_meetings").select(MEETING_COLS).eq("moderation_status", "approved")
     .gte("meeting_at", new Date().toISOString()).gt("moderation_reviewed_at", since).order("meeting_at").limit(20);
   if (error) throw new Error(error.message);
@@ -187,7 +196,7 @@ async function runAnnounce() {
   const content = JSON.parse(fs.readFileSync(file, "utf8"));
   const audience = arg("audience", "all");
   const slug = content.slug || path.basename(file, ".json");
-  if (!DRY) {
+  if (!DRY && !ONLY) {
     const { data: prior } = await sb.from("scraper_runs").select("id").eq("source", SOURCE).eq("status", "success").ilike("notes", `${slug}%`).limit(1);
     if (prior?.length) throw new Error(`announcement "${slug}" was already sent — refusing to send twice`);
   }
@@ -198,7 +207,7 @@ async function runAnnounce() {
 }
 
 try {
-  console.log(`email ${MODE}${DRY ? " (DRY RUN — nothing sent)" : ""} · providers: ${providerSummary()} · app ${APP_URL}`);
+  console.log(`email ${MODE}${DRY ? " (DRY RUN — nothing sent)" : ""}${ONLY ? ` (TEST → ${ONLY.slice(0, 8)} only, nothing recorded)` : ""} · providers: ${providerSummary()} · app ${APP_URL}`);
   const r = MODE === "digest" ? await runDigest() : MODE === "meetings" ? await runMeetings() : await runAnnounce();
   const summary = `${r.slug ? `${r.slug} · ` : ""}sent ${r.sent} · failed ${r.failed} · deferred ${r.deferred} (quota) · eligible ${r.eligible}` +
     (r.withContent != null ? ` · with-content ${r.withContent}` : "") + (r.meetings != null ? ` · meetings ${r.meetings}` : "") +
