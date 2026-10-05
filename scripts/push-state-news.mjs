@@ -96,9 +96,12 @@ for (const item of items) {
   }
 
   const title = `📰 ${item.state}: ${item.title.slice(0, 100)}`;
-  const body = `${item.source_name ?? "Source"} · tap to read`;
-  // Link to the news source — that's where the actual content lives
-  const link = item.url;
+  const body = `${item.source_name ?? "Source"} · read it on iKratom`;
+  // Link to iKratom's reader, never the publisher. The query above already
+  // requires body_extracted_at, so the full article is on our page: no
+  // publisher ads, and the related bill/action sits beside it. (Until
+  // 2026-10-03 this pushed raw news.google.com redirect URLs.)
+  const link = `/news/${item.id}`;
 
   if (DRY_RUN) {
     console.log(`  [dry] ${item.state}: ${item.title.slice(0, 60)} → ${userIds.length} user(s)`);

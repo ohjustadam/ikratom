@@ -15,9 +15,9 @@
  *
  * Storage:
  *   bucket: daily-brief-audio (public-read)
- *   path:   {YYYY-MM-DD}/national.mp3   (mono MP3, 64kbps, 24kHz)
+ *   path:   {YYYY-MM-DD}/national.mp3   (mono MP3, 96kbps, 24kHz, peak-normalised)
  *
- * Note: the first run downloads the ~80MB q8 ONNX weights from HuggingFace;
+ * Note: the first run downloads the ~330MB fp32 ONNX weights from HuggingFace (KOKORO_DTYPE=q8 for a quick local test);
  * subsequent runs reuse the cache.
  *
  * Usage:
