@@ -67,11 +67,22 @@ const contentDir = BRIEFING ? "briefings" : "patch-notes";
 const filePath = join(process.cwd(), "src", "content", contentDir, `${SLUG}.md`);
 let title, summary;
 try {
-  const raw = readFileSync(filePath, "utf8");
-  const fm = matter(raw);
-  title = fm.data.title;
-  summary = fm.data.summary;
-  if (!title || !summary) throw new Error("front-matter missing title or summary");
+  let raw = null;
+  try { raw = readFileSync(filePath, "utf8"); } catch { /* not a committed file */ }
+  if (raw) {
+    const fm = matter(raw);
+    title = fm.data.title;
+    summary = fm.data.summary;
+  } else if (!BRIEFING) {
+    // Owner-written notes live in patch_notes (published from /admin/whats-new),
+    // not in the repo. Only a PUBLISHED row: never notify about a draft.
+    const { data, error } = await sb.from("patch_notes").select("title, summary")
+      .eq("slug", SLUG).eq("status", "published").maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("no committed file and no published patch_notes row");
+    ({ title, summary } = data);
+  }
+  if (!title || !summary) throw new Error("missing title or summary");
 } catch (e) {
   console.error(`Failed to read ${BRIEFING ? "briefing" : "patch note"} ${SLUG}: ${e.message}`);
   process.exit(1);
