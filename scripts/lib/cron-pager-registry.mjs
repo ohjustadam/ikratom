@@ -266,4 +266,10 @@ export const REGISTRY = [
   // Push delivery from Actions, independent of Netlify (2026-10-03). Before
   // this, a disabled site meant zero push and nothing paged about it.
   { source: "push_fanout_actions", interval_hours: 12, system: "gh-hourly", cadence: "hourly" },
+  // Database backups (2026-10-03). Supabase Free keeps none, so a silent
+  // backup job is a silent loss of every account the day the project goes.
+  { source: "db_backup_core", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  { source: "db_backup_full", interval_hours: 192, system: "github-actions", cadence: "weekly" },
+  // Password-free snapshot (Management API) — works before SUPABASE_DB_URL exists.
+  { source: "db_snapshot_api", interval_hours: 48, system: "github-actions", cadence: "daily" },
 ];
