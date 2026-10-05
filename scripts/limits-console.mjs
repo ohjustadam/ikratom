@@ -32,6 +32,7 @@ import { getEgressStatus, BUDGET_GB } from "./lib/egress-budget.mjs";
 const E = process.env;
 const PORT = Number(E.LIMITS_PORT || 4319);
 const MANUAL_FILE = path.resolve("private/limits-manual.json"); // gitignored
+const HISTORY_FILE = path.resolve("private/limits-history.json"); // gitignored; one DB-size reading per day
 const CF_ZONE = E.CLOUDFLARE_ZONE_ID || "6f054a2b237f9b7ec10d525ec7e99d05";
 const NETLIFY_SLUG = E.NETLIFY_ACCOUNT_SLUG || "ohjustadam";
 const NETLIFY_DASH = `https://app.netlify.com/teams/${NETLIFY_SLUG}/billing/general`;
@@ -71,21 +72,35 @@ function meter(m) {
 const collectors = {
   async netlify() {
     const out = [];
+    const est = await estimateNetlifyCredits({ token: E.NETLIFY_AUTH_TOKEN, accountSlug: NETLIFY_SLUG, siteId: E.NETLIFY_SITE_ID });
+    if (est.ok && est.source === "true-meter") {
+      // Netlify's own meter, read live (netlify-credits.mjs readTrueCredits). No typing needed.
+      const top = Object.entries(est.byMeter).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(" · ");
+      out.push(meter({
+        name: "Credits used (TRUE meter, live)", value: est.projectedUsed.toFixed(1), limit: est.planCredits, unit: "credits",
+        pct: est.pct, warn: 50, crit: 75, link: NETLIFY_DASH, note: top,
+        consequence: "Netlify DISABLES the whole site at 100% until the period resets.",
+      }));
+      out.push(meter({
+        name: "Daily burn (spike detector)", value: est.daily.slice(-1)[0]?.total.toFixed(1) ?? "?", unit: `credits on ${est.daily.slice(-1)[0]?.date ?? "?"} · ${est.burnPerDay.toFixed(1)}/day typical`,
+        status: est.spike ? "crit" : "ok", note: est.spike ? est.spikeDetail : "Alarm fires when a day burns 5x its trailing median (the 2026-10-02 flood shape).",
+      }));
+    } else {
     const man = readManual().netlify;
     out.push(meter(man?.used != null ? {
       name: "Credits used (TRUE meter, typed in)", value: man.used, limit: man.cap, unit: "credits",
       pct: (man.used / man.cap) * 100, kind: "manual", warn: 50, crit: 75,
       note: `Read ${ago(man.at).toFixed(1)}h ago.${ago(man.at) > 24 ? " STALE: re-read the dashboard." : ""} No API exposes this number.`,
       link: NETLIFY_DASH, consequence: "Netlify DISABLES the whole site at 100% until the period resets.",
-    } : { name: "Credits used (TRUE meter)", status: "unknown", kind: "manual", note: "Type the dashboard number in below.", link: NETLIFY_DASH }));
-    const est = await estimateNetlifyCredits({ token: E.NETLIFY_AUTH_TOKEN, accountSlug: NETLIFY_SLUG, siteId: E.NETLIFY_SITE_ID });
+    } : { name: "Credits used (TRUE meter)", status: "unknown", kind: "manual", note: "Live meter unavailable; type the dashboard number in below.", link: NETLIFY_DASH }));
+    }
     if (est.ok) {
       out.push(meter({
         name: "Site status", kind: "measured", status: est.exceeded ? "crit" : "ok",
         value: est.exceeded ? `DISABLED since ${String(est.exceededAt).slice(0, 16)}Z` : "serving",
         consequence: "Every page returns 503 while disabled.",
       }));
-      out.push(meter({
+      if (est.source !== "true-meter") out.push(meter({
         name: "Credit model (baseline only)", value: Math.round(est.projectedUsed), limit: est.planCredits, unit: "credits",
         pct: est.pct, kind: "estimate", note: "Models compute from bandwidth. Accurate for drift, BLIND to bursts (missed 2026-10-02).",
       }));
@@ -103,13 +118,17 @@ const collectors = {
     const z = await cf(`{viewer{zones(filter:{zoneTag:"${CF_ZONE}"}){
       d:httpRequestsAdaptiveGroups(limit:20,filter:{datetime_geq:"${day}",datetime_leq:"${now.toISOString()}"}){count dimensions{cacheStatus} avg{originResponseDurationMs}}
       h:httpRequestsAdaptiveGroups(limit:1,orderBy:[count_DESC],filter:{datetime_geq:"${hour}",datetime_leq:"${now.toISOString()}"}){count dimensions{clientIP}}
-      ht:httpRequestsAdaptiveGroups(limit:1,filter:{datetime_geq:"${hour}",datetime_leq:"${now.toISOString()}"}){count}}}}`);
+      ht:httpRequestsAdaptiveGroups(limit:1,filter:{datetime_geq:"${hour}",datetime_leq:"${now.toISOString()}"}){count}
+      ho:httpRequestsAdaptiveGroups(limit:1,filter:{datetime_geq:"${hour}",datetime_leq:"${now.toISOString()}",originResponseDurationMs_gt:0}){count}
+      hi:httpRequestsAdaptiveGroups(limit:1000,filter:{datetime_geq:"${hour}",datetime_leq:"${now.toISOString()}",originResponseDurationMs_gt:0}){count dimensions{clientIP}}}}}`);
     const total = z.d.reduce((s, r) => s + r.count, 0);
     const hits = z.d.filter((r) => r.dimensions.cacheStatus === "hit").reduce((s, r) => s + r.count, 0);
     const originSec = z.d.reduce((s, r) => s + (r.count * Math.max(0, r.avg.originResponseDurationMs ?? 0)) / 1000, 0);
     const credits = (originSec / 3600) * 10; // 1 GB function, 10 credits per GB-hour; lower bound
     const top = z.h[0], hourTotal = z.ht[0]?.count ?? 0;
     const hitPct = total ? (hits / total) * 100 : 0;
+    const originReqs = z.ho[0]?.count ?? 0, ipCount = z.hi.length;
+    const distributed = originReqs > 1500 && (top?.count ?? 0) < originReqs / 10;
     return [
       meter({
         name: "Origin compute, last 24h (lower bound)", value: Math.round(originSec), unit: `origin-seconds = ~${credits.toFixed(1)} credits`,
@@ -122,9 +141,14 @@ const collectors = {
         note: "Flood detector. The 2026-10-02 flood was ONE IP at ~12,000/hour. A per-IP rate-limit rule at Cloudflare stops this.",
       }),
       meter({
+        name: "Requests reaching the server, last 60 min", value: originReqs, unit: `from ${ipCount >= 1000 ? "1,000+" : ipCount} IPs (normal ~200-350)`,
+        status: distributed ? "crit" : originReqs > 800 ? "warn" : "ok",
+        note: "Distributed-crawl detector. 2026-10-03: ~45,000 requests from 10,000+ IPs at ONE request each — invisible to the busiest-IP check. If this goes red: Cloudflare → Security → Settings → I'm Under Attack.",
+      }),
+      meter({
         name: "Edge cache hit ratio, last 24h", value: `${hitPct.toFixed(1)}%`, unit: `${hits} of ${total} requests`,
         status: hitPct < 15 ? "crit" : hitPct < 40 ? "warn" : "ok",
-        note: "Higher is better: every cache hit costs Netlify nothing. Was 3% on 2026-10-01.",
+        note: "Higher is better: every cache hit costs Netlify nothing. Was 3% on 2026-10-01. At normal traffic most URLs are seen once per TTL, so this stays modest; the cache earns its keep during repeat floods.",
       }),
     ];
   },
@@ -140,11 +164,33 @@ const collectors = {
       getEgressStatus(sb).catch(() => ({})),
     ]);
     const builtInSmtp = !auth.smtp_host;
+    // DB growth: keep one size reading per day locally, project months to the
+    // 500 MB cap from the oldest reading >= 7 days back. Until a week of history
+    // exists, fall back to the news growth rate (the table that dominates growth).
+    let hist = [];
+    try { hist = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8")); } catch { /* first run */ }
+    const today = new Date().toISOString().slice(0, 10);
+    if (hist.at(-1)?.date !== today) {
+      hist.push({ date: today, mb: Number(Number(db.mb).toFixed(1)) });
+      try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(hist.slice(-400), null, 1)); } catch { /* read-only is fine */ }
+    }
+    const base = [...hist].reverse().find((h) => (Date.parse(today) - Date.parse(h.date)) / 864e5 >= 7);
+    let growthMb = null, growthKind = "measured";
+    if (base) growthMb = ((db.mb - base.mb) / ((Date.parse(today) - Date.parse(base.date)) / 864e5)) * 30;
+    else {
+      const [nr] = await sql("select count(*) filter (where scraped_at > now() - interval '30 days')::float * (pg_total_relation_size('news_items')::float / greatest(count(*),1)) / 1048576.0 mb from news_items");
+      growthMb = nr?.mb ?? null; growthKind = "estimate";
+    }
+    const monthsLeft = growthMb > 0 ? (500 - db.mb) / growthMb : null;
     return [
       meter({ name: "Project status", value: proj.status, status: proj.status === "ACTIVE_HEALTHY" ? "ok" : "crit",
         note: "Free projects PAUSE after 7 days with no API activity. Crons keep it awake only while they run." }),
       meter({ name: "Database size (never resets)", value: Number(db.mb).toFixed(0), limit: 500, unit: "MB", pct: (db.mb / 500) * 100, warn: 70, crit: 85,
         consequence: "Read-only mode at the cap: no new users, sends, news.", note: "Biggest table is news_items." }),
+      meter({ name: "Database: months until full", value: monthsLeft != null ? monthsLeft.toFixed(1) : "—",
+        unit: growthMb != null ? `at ~${growthMb.toFixed(0)} MB/month${growthKind === "estimate" ? " (news rate; real trend after 7 days of readings)" : ""}` : "",
+        kind: growthKind, status: monthsLeft == null ? "unknown" : monthsLeft < 2 ? "crit" : monthsLeft < 4 ? "warn" : "ok",
+        note: "Plan an archive of old off-topic/duplicate news before this drops under 3." }),
       meter({ name: "Egress this cycle", value: eg.usedMb != null ? (eg.usedMb / 1000).toFixed(2) : "?", limit: BUDGET_GB, unit: "GB",
         pct: eg.pct != null ? eg.pct * 100 : null, kind: "estimate", consequence: "Project RESTRICTED at the cap (2026-07-16 outage).",
         note: "Model from transmit counters x0.497. Ground truth: Supabase dashboard -> Usage." }),

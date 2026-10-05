@@ -203,6 +203,14 @@ if (!NETLIFY_TOKEN) {
       } else if (sev === "warn") {
         problems.push(`Netlify credits ${line} — batch your remaining deploys`);
       }
+      // The burst alarm (true meter only, 2026-10-03). A day burning 5x its
+      // trailing median is a flood or a runaway at ANY level — on 2026-10-01 the
+      // level read 58% and the next day 625 credits went in 25 minutes. Paging
+      // on the shape, hourly, is what would have woken someone in time.
+      if (est.spike) {
+        problems.push(`Netlify BURN SPIKE — ${est.spikeDetail}. Check scripts/cf-origin-report.mjs for the source; block it at Cloudflare.`);
+      }
+      if (est.source) console.log(`netlify credit source: ${est.source}${est.trueMeterError ? ` (${est.trueMeterError})` : ""}`);
       if (est.graceTopupAt) {
         console.log(`netlify grace top-up granted ${est.graceTopupAt} — budget already ran out once this period`);
       }
@@ -210,6 +218,60 @@ if (!NETLIFY_TOKEN) {
       console.log(`netlify credit check skipped: ${est.reason}`);
     }
   } catch (e) { console.log(`netlify credit check failed: ${e.message}`); }
+}
+
+// ── 2c. FLOOD detector (2026-10-03) ─────────────────────────────────────────
+// Credits lag; traffic does not. On 2026-10-02 ONE IP sent ~12,000 requests in
+// 25 minutes and the credit meter only told anyone after the site was dead.
+// Cloudflare's analytics show it within minutes, so this checks the last hour
+// for (a) one IP far above any human or known crawler, (b) total origin
+// time far above a normal hour (~180 origin-seconds), and (c) a DISTRIBUTED
+// surge: on 2026-10-03 ~45,000 requests came from 10,000+ IPs (median ONE
+// request each, busiest 246 in 14h), which (a) can never see and no per-IP
+// rate limit can stop. Any of them is a page.
+// Needs CLOUDFLARE_CACHE_TOKEN (Zone Analytics:Read); skipped if unset.
+let floodSummary = "";
+if (process.env.CLOUDFLARE_CACHE_TOKEN) {
+  try {
+    const zone = process.env.CLOUDFLARE_ZONE_ID || "6f054a2b237f9b7ec10d525ec7e99d05";
+    // WATCHDOG_AS_OF replays a past hour (testing only), e.g. the 2026-10-02 flood.
+    const to = process.env.WATCHDOG_AS_OF ? new Date(process.env.WATCHDOG_AS_OF) : new Date(), from = new Date(to - 3600e3);
+    const win = `datetime_geq:"${from.toISOString()}",datetime_leq:"${to.toISOString()}"`;
+    const r = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_CACHE_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ query: `{viewer{zones(filter:{zoneTag:"${zone}"}){
+        ip:httpRequestsAdaptiveGroups(limit:1,orderBy:[count_DESC],filter:{${win}}){count dimensions{clientIP userAgent}}
+        org:httpRequestsAdaptiveGroups(limit:20,filter:{${win}}){count avg{originResponseDurationMs}}
+        hit:httpRequestsAdaptiveGroups(limit:1,filter:{${win},originResponseDurationMs_gt:0}){count}
+        ips:httpRequestsAdaptiveGroups(limit:1000,orderBy:[count_DESC],filter:{${win},originResponseDurationMs_gt:0}){count dimensions{clientIP}}}}}` }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const j = await r.json();
+    if (j.errors) throw new Error(j.errors[0].message);
+    const z = j.data.viewer.zones[0];
+    const top = z.ip[0];
+    const originSec = z.org.reduce((s, g) => s + (g.count * Math.max(0, g.avg.originResponseDurationMs ?? 0)) / 1000, 0);
+    const IP_MAX = Number(process.env.FLOOD_IP_PER_HOUR || 1200);
+    const ORIGIN_MAX = Number(process.env.FLOOD_ORIGIN_SEC_PER_HOUR || 1800);
+    // Normal hour: ~200-350 requests reach the origin. 1,500 is ~5x that.
+    const SURGE_MAX = Number(process.env.FLOOD_ORIGIN_REQ_PER_HOUR || 1500);
+    const originReqs = z.hit[0]?.count ?? 0;
+    const ipCount = z.ips.length; // capped at 1000 by the query
+    floodSummary = ` · top IP ${top?.count ?? 0}/h · origin ${Math.round(originSec)}s/h · ${originReqs} origin req/h from ${ipCount >= 1000 ? "1000+" : ipCount} IPs`;
+    console.log(`cloudflare last hour: busiest IP ${top?.count ?? 0} req (${top?.dimensions?.clientIP ?? "-"}), origin time ${Math.round(originSec)}s`);
+    if ((top?.count ?? 0) > IP_MAX) {
+      problems.push(`FLOOD: one IP (${top.dimensions.clientIP}) made ${top.count} requests in the last hour — block it in Cloudflare → Security → WAF. UA: ${String(top.dimensions.userAgent).slice(0, 80)}`);
+    }
+    if (originSec > ORIGIN_MAX) {
+      problems.push(`ORIGIN LOAD: ${Math.round(originSec)} origin-seconds in the last hour (normal ~180). Run scripts/cf-origin-report.mjs to see who.`);
+    }
+    if (originReqs > SURGE_MAX && (top?.count ?? 0) < originReqs / 10) {
+      problems.push(`DISTRIBUTED CRAWL: ${originReqs} requests reached the server in the last hour from ${ipCount >= 1000 ? "1,000+" : ipCount} different IPs (busiest only ${top?.count ?? 0}) — per-IP limits can't stop this. Cloudflare → Security → Settings → turn on "I'm Under Attack" for a few hours.`);
+    }
+  } catch (e) { console.log(`cloudflare flood check failed: ${e.message}`); }
+} else {
+  console.log("cloudflare flood check skipped: CLOUDFLARE_CACHE_TOKEN not set");
 }
 
 // ── 3. Synthetic site check — the cause-agnostic one ─────────────────────────
@@ -303,9 +365,22 @@ if (problems.length > 0) {
         }
         console.log(`paged owner across ${subs.length} subscription(s)`);
       } else {
-        console.log("no push subscriptions / VAPID keys — cannot page");
+        console.log("no push subscriptions / VAPID keys — cannot web-push");
       }
     }
+    // Phone + inbox, independent of the PWA (2026-10-03). On 2026-10-02 the
+    // only page went to a browser subscription, and the owner learned 14h late.
+    const { alertOwner } = await import("./lib/owner-alert.mjs");
+    const down = !(siteStatus && siteStatus < 400);
+    const sent = await alertOwner({
+      sb,
+      title: down ? "iKratom is DOWN" : "iKratom hosting warning",
+      body: problems.join("\n"),
+      priority: down || problems.some((p) => /SPIKE|FLOOD|DISTRIBUTED|ORIGIN LOAD/.test(p)) ? "urgent" : "high",
+      link: "https://app.netlify.com/teams/ohjustadam/billing/general",
+      tags: [down ? "rotating_light" : "warning"],
+    });
+    console.log(`owner alert channels: ${JSON.stringify(sent)}`);
   } else {
     pagedNote = " [dry-run: would page]";
   }
@@ -326,7 +401,7 @@ if (!DRY) {
       // would otherwise skip the credit estimator entirely while this row still
       // says "success" — a green watchdog with no eyes, which is the precise
       // shape of the 2026-07-30 failure. Mirrors the vercelChecked marker.
-      notes: `site ${siteStatus || "ERR"}${vercelChecked ? "" : " (vercel api unchecked)"}${creditsChecked ? creditSummary : " (netlify credits UNCHECKED)"}${problems.length ? ` · ${problems.length} problem(s)` : ""}${pagedNote}`.slice(0, 500),
+      notes: `site ${siteStatus || "ERR"}${vercelChecked ? "" : " (vercel api unchecked)"}${creditsChecked ? creditSummary : " (netlify credits UNCHECKED)"}${floodSummary}${problems.length ? ` · ${problems.length} problem(s)` : ""}${pagedNote}`.slice(0, 500),
     });
   } catch { /* best-effort */ }
 }
