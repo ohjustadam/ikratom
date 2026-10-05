@@ -159,6 +159,19 @@ export const LONG_TTL_PATTERNS = [
   '(starts_with(http.request.uri.path, "/bills/") and not ends_with(http.request.uri.path, "/dossier"))',
 ];
 
+/**
+ * The home page — AUDITED 2026-10-04. Its only per-visitor inputs are the auth
+ * cookie (guard 1) and the LANGUAGE cookie: readLocale() renders the hero in
+ * the visitor's locale. So this rule adds guard 5, skipping any request that
+ * carries `locale=`. Everyone else (anonymous, default English — nearly all
+ * traffic) gets one shared copy. Data is a 5-min service-role snapshot; the
+ * two server children (HomeLivePulse, StateLegalMap) read public tables only.
+ * Home was 402 origin renders in three ordinary days (~1 s each, 6% of
+ * compute); a single URL is exactly what a cache is good at.
+ */
+const HOME_EXPR = 'http.request.uri.path eq "/"';
+const LOCALE_COOKIE_GUARD = '(not http.cookie contains "locale=")'; // guard 5 (src/modules/auth/actions-locale.ts)
+
 // Static build output is immutable and safe to cache hard, regardless of auth.
 const STATIC_EXPR = 'starts_with(http.request.uri.path, "/_next/static/") or starts_with(http.request.uri.path, "/icons/")';
 
@@ -191,6 +204,16 @@ const rules = () => [
       cache: true,
       // guard 4 — origin says no-cache; override at the edge only.
       edge_ttl: { mode: "override_origin", default: 300 },
+      browser_ttl: { mode: "override_origin", default: 0 },
+    },
+  },
+  {
+    description: "ikratom: cache the anonymous English home page for 30 min",
+    expression: `${cacheableExpression([HOME_EXPR])} and ${LOCALE_COOKIE_GUARD}`,
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 1800 },
       browser_ttl: { mode: "override_origin", default: 0 },
     },
   },
