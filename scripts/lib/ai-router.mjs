@@ -47,12 +47,16 @@ const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 //   SAMBANOVA_API_KEY   — cloud.sambanova.ai (free tier, very fast Llama 3.3).
 //   OPENROUTER_API_KEY  — openrouter.ai (use ":free" models; US-hosted only).
 //   NVIDIA_API_KEY      — build.nvidia.com (free credits; Llama/Nemotron).
+//   AI_GATEWAY_API_KEY  — Vercel AI Gateway ($5 free credits / 30 days, no card;
+//                         never bills unless credits are bought). LAST in the chain
+//                         so the monthly credit is a reserve, not the default.
 // GitHub Actions FORBIDS secret names starting with GITHUB_, so the CI secret
 // must be named GH_MODELS_TOKEN; locally GITHUB_MODELS_TOKEN works too. Accept either.
 const GITHUB_MODELS_TOKEN = process.env.GITHUB_MODELS_TOKEN || process.env.GH_MODELS_TOKEN;
 const SAMBANOVA_API_KEY = process.env.SAMBANOVA_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
+const AI_GATEWAY_API_KEY = process.env.AI_GATEWAY_API_KEY;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
 // Cooldown tracking. When a provider returns 429 we set a deadline
@@ -174,6 +178,7 @@ function availableProviders() {
   if (SAMBANOVA_API_KEY) out.push("sambanova");
   if (OPENROUTER_API_KEY) out.push("openrouter");
   if (NVIDIA_API_KEY) out.push("nvidia");
+  if (AI_GATEWAY_API_KEY) out.push("vercel");
   // Ollama stays last by default: it only answers on the owner's box, so in the
   // cloud it is a guaranteed timeout, not a fallback. AI_PROVIDER_ORDER can
   // still promote it for local runs.
@@ -214,10 +219,23 @@ function startCooldown(p, ms = 60_000) {
  * A 429 means "not right now" and a 60s cooldown is the right answer. Some
  * statuses mean "not ever", and retrying those on every call is pure waste:
  *
+ *   401 Unauthorized — the key is wrong, revoked, or was rotated without
+ *       updating the secret. A key does not become valid part-way through a
+ *       process, so one 401 is proof for the rest of it. Added 2026-09-30:
+ *       SambaNova had been recorded as "402, out of credit" when it was in fact
+ *       answering `401 {"code":"invalid_api_key"}` — "Incorrect API key
+ *       provided: 98896d*****c200". Because 401 was not a hard failure, the
+ *       router kept it in the chain and a single enrich-news run logged
+ *       `sambanova 0/17`: seventeen round-trips to a key that cannot work,
+ *       inside a job timeout, while the run reported `ai NONE-ANSWERED`.
  *   402 Payment Required — Cerebras moved off free tier. Every call to it has
  *       returned "Payment required to access this resource" since then.
  *   410 Gone — GitHub Models is mid-retirement ("github_models_retirement_
  *       brownout"). It is not coming back.
+ *
+ * 403 is deliberately NOT here. Unlike 401 it is ambiguous — it can mean "this
+ * key cannot use this model" rather than "this key is bad" — and no provider has
+ * been observed returning it, so treating it as permanent would be speculation.
  *
  * Measured on 2026-09-16: of nine configured providers only openrouter and
  * ollama answered, and every single AI call in every cron script was still
@@ -231,7 +249,7 @@ function startCooldown(p, ms = 60_000) {
  * reinstates a free tier or GitHub reverses course, the next process picks
  * them straight back up. This makes a dead provider cheap, not permanent.
  */
-const HARD_FAIL_STATUS = new Set([402, 410]);
+const HARD_FAIL_STATUS = new Set([401, 402, 410]);
 
 /**
  * Providers that CANNOT answer for the rest of this process.
@@ -273,6 +291,52 @@ function noteHardFailure(p, status, body = "") {
  * time. One refusal is proof enough for the rest of the process — the box is not
  * going to appear mid-run.
  */
+/**
+ * Same treatment for a provider that answers 2xx with a body that is not JSON.
+ *
+ * Added 2026-09-30. GitHub Models stopped returning 410 and began answering
+ * HTTP **200** with the literal body `OK ` — so the status checks all passed,
+ * `r.json()` threw `Unexpected token 'O', "OK " is not valid JSON`, and because
+ * that is an exception rather than a status, nothing classified it. The provider
+ * stayed in the chain and was re-tried on every single call, which is the exact
+ * waste the 401/402/410 handling exists to prevent.
+ *
+ * A 2xx whose envelope is not JSON is a broken provider, not a transient: it
+ * means the endpoint is no longer speaking the API. Dead for this process only,
+ * so the next process re-probes it and a provider that comes back needs no
+ * deploy — same contract as every other entry in deadForProcess.
+ */
+function noteUnusableBody(p, raw) {
+  startCooldown(p, 6 * 3600_000);
+  if (!deadForProcess.has(p)) {
+    deadForProcess.set(p, "non-JSON body");
+    const s = String(raw ?? "").replace(/\s+/g, " ").slice(0, 60);
+    console.log(`    ⓘ ${p} answered 2xx with a non-JSON body — dropped from this run: ${s}`);
+  }
+  return true;
+}
+
+/**
+ * Parse a 2xx response body as JSON, or classify the provider as unusable.
+ *
+ * Every provider caller used to do a bare `await r.json()`, which means SEVEN
+ * places where a 2xx non-JSON body escaped as an unclassified SyntaxError. The
+ * GitHub Models case proved that is not hypothetical. Fixing only the caller
+ * that happened to break would leave the other six waiting to do the same, so
+ * the check lives here and every caller goes through it.
+ */
+async function readJsonOrDie(name, r) {
+  const raw = await r.text();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    noteUnusableBody(name, raw);
+    throw new Error(
+      `${name} ${r.status} with non-JSON body: ${String(raw).replace(/\s+/g, " ").slice(0, 120)}`,
+    );
+  }
+}
+
 function noteUnreachable(p, err) {
   const msg = String(err?.message ?? err);
   if (!/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|other side closed/i.test(msg)) return false;
@@ -375,7 +439,7 @@ async function callGroq(sys, user, maxTokens, modelOverride) {
     noteHardFailure("groq", r.status, body);
     throw new Error(`Groq ${r.status}: ${body}`);
   }
-  const data = await r.json();
+  const data = await readJsonOrDie("groq", r);
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
 
@@ -410,7 +474,7 @@ async function callGemini(sys, user, maxTokens) {
     noteHardFailure("gemini", r.status, body);
     throw new Error(`Gemini ${r.status}: ${body}`);
   }
-  const d = await r.json();
+  const d = await readJsonOrDie("gemini", r);
   const text = d.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "{}";
   return parseLooseJson(text);
 }
@@ -446,7 +510,7 @@ async function callCerebras(sys, user, maxTokens) {
     noteHardFailure("cerebras", r.status, body);
     throw new Error(`Cerebras ${r.status}: ${body}`);
   }
-  const data = await r.json();
+  const data = await readJsonOrDie("cerebras", r);
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
 
@@ -475,7 +539,7 @@ async function callMistral(sys, user, maxTokens) {
     noteHardFailure("mistral", r.status, body);
     throw new Error(`Mistral ${r.status}: ${body}`);
   }
-  const data = await r.json();
+  const data = await readJsonOrDie("mistral", r);
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
 
@@ -506,7 +570,7 @@ async function callCloudflare(sys, user, maxTokens) {
     noteHardFailure("cloudflare", r.status, body);
     throw new Error(`Cloudflare ${r.status}: ${body}`);
   }
-  const data = await r.json();
+  const data = await readJsonOrDie("cloudflare", r);
   // Cloudflare wraps the OpenAI-compatible response in a result envelope:
   //   { result: { response: "...json..." }, success: true, errors: [] }
   // OR for some models:
@@ -549,7 +613,7 @@ async function callOpenAICompat(name, { url, key, model, extraHeaders = {} }, sy
     noteHardFailure(name, r.status, body);
     throw new Error(`${name} ${r.status}: ${body}`);
   }
-  const data = await r.json();
+  const data = await readJsonOrDie(name, r);
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
 
@@ -587,6 +651,16 @@ const callNvidia = (sys, user, maxTokens, modelOverride) => callOpenAICompat("nv
   model: process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct",
 }, sys, user, maxTokens, modelOverride);
 
+// Vercel AI Gateway: one OpenAI-compatible endpoint in front of many vendors.
+// Paid per token from a free $5/30-day credit; when it runs out the gateway
+// refuses (402) and the dead-provider rule drops it for the run. Pick a cheap
+// model so the credit lasts; VERCEL_AI_MODEL overrides.
+const callVercel = (sys, user, maxTokens, modelOverride) => callOpenAICompat("vercel", {
+  url: "https://ai-gateway.vercel.sh/v1/chat/completions",
+  key: AI_GATEWAY_API_KEY,
+  model: process.env.VERCEL_AI_MODEL || "openai/gpt-oss-120b",
+}, sys, user, maxTokens, modelOverride);
+
 async function callOllama(sys, user) {
   const r = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
@@ -608,8 +682,22 @@ async function callOllama(sys, user) {
     noteHardFailure("ollama", r.status, body);
     throw new Error(`Ollama ${r.status}: ${body}`);
   }
-  const data = await r.json();
+  const data = await readJsonOrDie("ollama", r);
   return parseLooseJson(data.message?.content ?? "{}");
+}
+
+/**
+ * Call exactly ONE provider, with no fallback.
+ *
+ * Exported for scripts/test-ai-providers.mjs. The smoke test has to be able to
+ * ask "does THIS provider answer?", and aiRouter() cannot tell it: a
+ * providerOverride only picks where the chain STARTS, so a dead provider
+ * silently falls through to a live one and reports success for the wrong
+ * provider. Nothing else should use this — production callers want the
+ * fallback.
+ */
+export async function callOneProvider(p, sys, user, maxTokens = 256, modelOverride = null) {
+  return callOne(p, sys, user, maxTokens, modelOverride);
 }
 
 async function callOne(p, sys, user, maxTokens, modelOverride) {
@@ -623,6 +711,7 @@ async function callOne(p, sys, user, maxTokens, modelOverride) {
     case "sambanova": return callSambanova(sys, user, maxTokens, modelOverride);
     case "openrouter": return callOpenrouter(sys, user, maxTokens, modelOverride);
     case "nvidia": return callNvidia(sys, user, maxTokens, modelOverride);
+    case "vercel": return callVercel(sys, user, maxTokens, modelOverride);
     case "ollama": return callOllama(sys, user);
     default: throw new Error(`Unknown provider: ${p}`);
   }
@@ -705,7 +794,7 @@ export async function aiRouter({
     throw new Error(
       "NO_AI_PROVIDER: no free cloud AI key is configured for this run " +
       "(checked: GROQ_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY, OPENROUTER_API_KEY, " +
-      "CEREBRAS_API_KEY, SAMBANOVA_API_KEY, NVIDIA_API_KEY, CLOUDFLARE_AI_TOKEN, " +
+      "CEREBRAS_API_KEY, SAMBANOVA_API_KEY, NVIDIA_API_KEY, AI_GATEWAY_API_KEY, CLOUDFLARE_AI_TOKEN, " +
       "GH_MODELS_TOKEN). See docs/AI_PROVIDERS.md.",
     );
   }
