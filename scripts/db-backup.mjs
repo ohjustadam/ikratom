@@ -82,7 +82,11 @@ async function record(status, notes) {
 
 const startedAt = new Date().toISOString();
 const url = process.env.SUPABASE_DB_URL;
-if (!url) { console.error("✗ SUPABASE_DB_URL is not set (session pooler URL, port 5432)"); await record("error", "SUPABASE_DB_URL not set"); process.exit(1); }
+// The full pg_dump is OPTIONAL: the daily API snapshot (db-snapshot-api.mjs,
+// db_snapshot_api) is the backup that always runs. Unconfigured is a choice,
+// not a failure — recording "error" every day kept a permanent red row on
+// /admin/automation that trained everyone to ignore backup errors.
+if (!url) { console.log("full pg_dump not configured (SUPABASE_DB_URL unset) — the daily snapshot covers the data"); await record("skipped", "optional full dump not configured (SUPABASE_DB_URL unset); db_snapshot_api is the backup"); process.exit(0); }
 
 const gate = await gateFull();
 if (gate.skip) { console.log(`full backup deferred: ${gate.reason}`); await record("partial", `deferred: ${gate.reason}`); process.exit(0); }
