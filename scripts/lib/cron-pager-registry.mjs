@@ -274,4 +274,8 @@ export const REGISTRY = [
   { source: "db_backup_full", interval_hours: 192, system: "github-actions", cadence: "weekly" },
   // Password-free snapshot (Management API) — works before SUPABASE_DB_URL exists.
   { source: "db_snapshot_api", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  // The database clock (migration 0263): each pg_cron dispatch reports the
+  // previous one's HTTP result. Silent = the clock is down and GitHub's late
+  // schedule has quietly taken over again.
+  { source: "dispatch_clock", interval_hours: 4, system: "supabase-pg-cron", cadence: "2h" },
 ];

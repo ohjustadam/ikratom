@@ -22,6 +22,7 @@ const EXTERNAL_OR_DYNAMIC: Record<string, string> = {
   // Owner-box nightly chassis writes these via scripts in this repo, but a
   // few build the source string dynamically — verified writers 2026-07-16:
   // (add entries here ONLY with a named writer + reason)
+  dispatch_clock: "written in SQL by public.dispatch_github_workflow() (supabase/migrations/0263_github_dispatch_clock.sql), run by pg_cron, not by a script",
 };
 
 function collectFiles(dir: string, exts: string[], out: string[] = []): string[] {
