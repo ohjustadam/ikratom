@@ -29,8 +29,12 @@ import { encryptStream, decryptFile } from "./lib/backup-crypto.mjs";
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
 const here = path.dirname(fileURLToPath(import.meta.url));
-const REF = process.env.SUPABASE_PROJECT_REF || (process.env.NEXT_PUBLIC_SUPABASE_URL || "").match(/https:\/\/([a-z0-9]+)\./)?.[1];
-const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
+// Secrets pasted through a Windows shell can arrive with a byte-order mark or a
+// trailing newline. Node rejects a BOM in a header ("Cannot convert argument to
+// a ByteString ... 65279"), which failed every cloud backup on 2026-10-05/06.
+const cleanSecret = (v) => (v ?? "").replace(/^﻿/, "").trim();
+const REF = cleanSecret(process.env.SUPABASE_PROJECT_REF) || (process.env.NEXT_PUBLIC_SUPABASE_URL || "").match(/https:\/\/([a-z0-9]+)\./)?.[1];
+const TOKEN = cleanSecret(process.env.SUPABASE_ACCESS_TOKEN);
 
 // Keep in step with db-backup.mjs: rebuilt from public sources, or logs/caches.
 const REBUILDABLE = [
