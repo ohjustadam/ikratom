@@ -86,6 +86,36 @@ env:
   AI_PROVIDER_ORDER: ${{ vars.AI_PROVIDER_ORDER }}
 
 jobs:
+  # ── CLOCK DEDUPE ────────────────────────────────────────────────────────
+  # GitHub runs scheduled workflows hours late or not at all (2026-10-06: 3
+  # of 12 every-2-hours runs happened). Supabase pg_cron now starts this
+  # workflow on time through workflow_dispatch (migration 0263); the schedule
+  # above stays as a FALLBACK for when that clock is down. A late scheduled
+  # run that lands after an on-time dispatched one cancels itself, so the
+  # work never runs twice. Only scheduled runs are checked.
+  clock:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel if the database clock already ran this every-2-hours workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOW_MIN: "110"
+        run: |
+          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow cron-hourly.yml --event workflow_dispatch -L 1 --json createdAt --jq '.[0].createdAt // empty')
+          if [ -z "$last" ]; then echo "no dispatched run yet: this scheduled run does the work"; exit 0; fi
+          age=$(( ( $(date -u +%s) - $(date -u -d "$last" +%s) ) / 60 ))
+          if [ "$age" -lt "$WINDOW_MIN" ]; then
+            echo "dispatched run started ${age} min ago: cancelling this late scheduled duplicate"
+            gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
+            sleep 60
+          else
+            echo "::warning::last dispatched run was ${age} min ago: the database clock may be down, so this scheduled run does the work"
+          fi
+
   # ── SUPABASE EGRESS GATE ────────────────────────────────────────────────
   #
   # Supabase's free plan does not BILL for egress overage, it RESTRICTS the
