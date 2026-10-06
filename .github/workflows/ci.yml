@@ -53,7 +53,7 @@ jobs:
         # than a point below tests/coverage-baseline.json -- see
         # scripts/report-coverage.mjs for why a new untested module is a
         # warning rather than a block.
-        run: node scripts/report-coverage.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/report-coverage.mjs
       - name: Report safety-suite coverage
         # `verify` is green even when the RLS and rate-limit suites never ran
         # (rls.test.ts is excluded; rate-limit self-skips without DB env, and
@@ -62,7 +62,7 @@ jobs:
         # never blocks, because the real fix is a dedicated Supabase test
         # project, not pointing prod credentials at a suite that creates users.
         if: always()
-        run: node scripts/report-safety-coverage.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/report-safety-coverage.mjs
 
   build:
     name: Next.js build
@@ -198,7 +198,7 @@ jobs:
           if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
              && git diff --quiet "$BASE_SHA" HEAD -- . ':(exclude,glob)*.md' ':(exclude)docs/**' ':(exclude).github/**' ':(exclude)tests/**' ':(exclude)supabase/**' ':(exclude)scripts/**' ':(exclude)private/**'; then
             echo "Diff touches only build-ignored paths: merging cannot trigger a Netlify build. Reporting, not braking."
-            node scripts/netlify-credit-gate.mjs --warn-only
+            node --import=./scripts/lib/egress-meter.mjs scripts/netlify-credit-gate.mjs --warn-only
           else
-            node scripts/netlify-credit-gate.mjs
+            node --import=./scripts/lib/egress-meter.mjs scripts/netlify-credit-gate.mjs
           fi

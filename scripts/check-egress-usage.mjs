@@ -298,7 +298,14 @@ if (toPage.length > 0) {
   }
 }
 
-// 4. Telemetry — the reading itself (MB in rows_updated) + MTD estimate in notes.
+// 4. Telemetry — the reading itself (MB in rows_updated) + MTD estimate in notes,
+// plus the three cron jobs that pulled the most in the last 24h (egress meter).
+let topJobsNote = "";
+try {
+  const { egressByJob, topLine } = await import("./lib/egress-by-job.mjs");
+  const jobs = await egressByJob(sb, { hours: 24 });
+  if (jobs.length) topJobsNote = ` · top 24h: ${topLine(jobs)}`;
+} catch { /* the ranking is a hint; never let it cost the reading */ }
 if (!DRY) {
   try {
     await sb.from("scraper_runs").insert({
@@ -306,7 +313,7 @@ if (!DRY) {
       started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
       status: pct >= 0.9 ? "error" : "success",
       rows_updated: Math.round(currentBytes / 1e6),
-      notes: `MTD ~${(billableBytes / 1e9).toFixed(2)}GB/${BUDGET_GB}GB (${(pct * 100).toFixed(1)}%)${dbNote}${baselineNote}${pagedNote}`,
+      notes: `MTD ~${(billableBytes / 1e9).toFixed(2)}GB/${BUDGET_GB}GB (${(pct * 100).toFixed(1)}%)${dbNote}${baselineNote}${pagedNote}${topJobsNote}`.slice(0, 1000),
     });
   } catch { /* best-effort */ }
 }

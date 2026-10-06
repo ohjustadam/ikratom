@@ -51,7 +51,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/egress-gate.mjs --tier bulk
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier bulk
   topic-bills:
     needs: budget
     if: needs.budget.outputs.run == 'true'
@@ -74,7 +74,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force }}" != "false" ]; then FORCE="--force"; fi
           echo "force=$FORCE" >> "$GITHUB_OUTPUT"
       - name: Tag existing bills by topic (keyless)
-        run: node scripts/classify-bill-topics.mjs ${{ steps.flags.outputs.force }} || true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-bill-topics.mjs ${{ steps.flags.outputs.force }} || true
 
       # Discovery runs AFTER the keyless pass so a LegiScan outage can never cost
       # us the classification work. The script self-gates to every 6 days off its
@@ -83,4 +83,4 @@ jobs:
       - name: Discover non-kratom topic bills (LegiScan getSearch)
         env:
           LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
-        run: node scripts/discover-topic-bills.mjs ${{ steps.flags.outputs.force }} || true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/discover-topic-bills.mjs ${{ steps.flags.outputs.force }} || true

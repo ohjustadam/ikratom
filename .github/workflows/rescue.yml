@@ -72,9 +72,9 @@ jobs:
         run: |
           set +e
           if [ "${{ inputs.json }}" = "true" ]; then
-            node scripts/rescue.mjs --diagnose --json | tee rescue-output.txt
+            node --import=./scripts/lib/egress-meter.mjs scripts/rescue.mjs --diagnose --json | tee rescue-output.txt
           else
-            node scripts/rescue.mjs --diagnose | tee rescue-output.txt
+            node --import=./scripts/lib/egress-meter.mjs scripts/rescue.mjs --diagnose | tee rescue-output.txt
           fi
           echo "exit=$?" >> "$GITHUB_OUTPUT"
 

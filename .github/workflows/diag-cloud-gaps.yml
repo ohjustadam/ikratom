@@ -36,4 +36,4 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/diagnose-cloud-gaps.mjs --burst=${{ github.event.inputs.burst || 0 }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/diagnose-cloud-gaps.mjs --burst=${{ github.event.inputs.burst || 0 }}

@@ -121,7 +121,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/egress-gate.mjs --tier normal
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier normal
 
   fire-waves:
     runs-on: ubuntu-latest
@@ -223,7 +223,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/render-daily-brief-audio.mjs --if-missing
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/render-daily-brief-audio.mjs --if-missing
 
   news-intake:
     needs: budget
@@ -253,12 +253,12 @@ jobs:
       - name: Sync Google News RSS across all states
         # ~14-min budget inside the 28-min news-intake step: a Google throttling
         # window can't push RSS past the cap and cascade-skip news-enrich/actions.
-        run: node scripts/sync-news-rss.mjs --max-minutes 14
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-news-rss.mjs --max-minutes 14
       - name: Classify newly-ingested news into policy_alerts
         # --limit 80: 200/hr front-loaded the free-tier daily quota; 80/hr
         # still drains any realistic backlog across ticks. Circuit breaker
         # (scripts/lib/batch-guard.mjs) stops early if providers die.
-        run: node scripts/classify-news-policy.mjs --limit 20
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-news-policy.mjs --limit 20
 
   news-enrich:
     # Same-tick in-app enrichment (#632 fast path): resolve → extract body+media
@@ -291,14 +291,14 @@ jobs:
         # Clean GHA IP — the owner box gets Google-throttled. Higher limit keeps
         # fresh items resolving fast AND drains the resolve backlog (newest-first).
         continue-on-error: true
-        run: node scripts/resolve-news-urls.mjs --limit 200
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/resolve-news-urls.mjs --limit 200
       - name: Extract article body + embedded media (fresh items)
         # HTTP fetch only; bounded retry (body_extract_attempts) self-heals walls.
         # Runs before the slow AI steps below, so it always gets its budget.
         # Limit raised to keep the content-ready gate (news only shows once
         # body+media are extracted) opening fast + drain the extract backlog.
         continue-on-error: true
-        run: node scripts/extract-news-content.mjs --limit 200
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-news-content.mjs --limit 200
       # ── FREE-POOL BUDGET (rebalanced 2026-09-26) ───────────────────────────
       # These hourly limits were sized for draining BACKLOG, not for fresh
       # volume, and collectively could demand ~8,400 AI calls a day
@@ -322,14 +322,14 @@ jobs:
         # >= 0.85, and every news notification silently delivered nothing.
         # Now routed through the free provider pool, so CI can run it.
         continue-on-error: true
-        run: node scripts/enrich-news.mjs --limit 12
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/enrich-news.mjs --limit 12
 
       - name: Summarize fresh articles (our AI synthesis)
         continue-on-error: true
-        run: node scripts/summarize-news.mjs --limit 15
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/summarize-news.mjs --limit 15
       - name: Generate full in-app digest for fresh articles
         continue-on-error: true
-        run: node scripts/generate-news-digest.mjs --limit 20 --concurrency 3
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/generate-news-digest.mjs --limit 20 --concurrency 3
 
   news-actions:
     # Everything downstream of intake: push fresh alerts/news, auto-spawn and
@@ -370,69 +370,69 @@ jobs:
       # check-cron-staleness — job-level green just means "the tick ran".
       - name: Auto-push approved critical alerts to in-state users
         continue-on-error: true
-        run: node scripts/push-critical-alerts.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/push-critical-alerts.mjs
       - name: Push bill_actions to users who took action on them
         continue-on-error: true
-        run: node scripts/push-bill-actions-to-actors.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/push-bill-actions-to-actors.mjs
       - name: Push high-relevance state news to in-state users
         continue-on-error: true
-        run: node scripts/push-state-news.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/push-state-news.mjs
       - name: Auto-create campaigns from new actionable alerts (safety net)
         # Real-time path is the 0068 Postgres trigger; this is the backstop.
         continue-on-error: true
-        run: node scripts/auto-campaign-from-alert.mjs --all-pending
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-campaign-from-alert.mjs --all-pending
       - name: Promote city-ordinance alerts into bills rows
         continue-on-error: true
-        run: node scripts/promote-alert-to-bill.mjs --all-bill-events
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/promote-alert-to-bill.mjs --all-bill-events
       - name: Extract structured local-event metadata from alerts
         continue-on-error: true
-        run: node scripts/extract-local-meta.mjs --all-municipal
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-local-meta.mjs --all-municipal
       - name: Seed full city-council slate for new municipal bills
         continue-on-error: true
-        run: node scripts/seed-bill-officials.mjs --all-municipal
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/seed-bill-officials.mjs --all-municipal
       - name: Extract officials from news alerts + make them actionable
         # A 429/parse failure here must not fail the whole leg (self-heals next hour).
         continue-on-error: true
-        run: node scripts/extract-news-officials.mjs --limit 10
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-news-officials.mjs --limit 10
       - name: Extract future civic events from news → calendar
         continue-on-error: true
-        run: node scripts/extract-news-events.mjs --limit 10
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-news-events.mjs --limit 10
       - name: Auto-approve high-confidence municipal meetings
         continue-on-error: true
-        run: node scripts/auto-approve-meetings.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-approve-meetings.mjs
       - name: Auto-approve high-confidence campaigns (shadow until owner promotes)
         continue-on-error: true
-        run: node scripts/auto-approve-campaigns.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-approve-campaigns.mjs
       - name: Auto-post active anti/pro bills to state forums
         continue-on-error: true
-        run: node scripts/auto-post-bills-to-forum.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-post-bills-to-forum.mjs
       - name: LegiScan primary sync for active anti bills (Layer 2)
         continue-on-error: true
-        run: node scripts/sync-bills-via-legiscan.mjs --priority
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bills-via-legiscan.mjs --priority
       - name: Post critical bill alerts to Discord channels
         continue-on-error: true
-        run: node scripts/post-bill-alerts-to-discord.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/post-bill-alerts-to-discord.mjs
       - name: Fan out bill subscription notifications
         continue-on-error: true
-        run: node scripts/fanout-bill-reminders.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/fanout-bill-reminders.mjs
       - name: Extract bill numbers from alerts + news (auto-promote to bills)
         # --limit 500: pulling 2000+2000 rows materialized a multi-MB working
         # set on the ~400MB instance hourly; 500 still drains across ticks.
         continue-on-error: true
-        run: node scripts/extract-bills-from-alerts.mjs --limit 500
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-bills-from-alerts.mjs --limit 500
       - name: Fire user-set custom reminders
         continue-on-error: true
-        run: node scripts/fire-custom-reminders.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/fire-custom-reminders.mjs
       - name: Scrape protectkratom.org state alert pages
         # AKA posts time-sensitive state alerts hours-to-days ahead of news.
         continue-on-error: true
-        run: node scripts/scrape-protectkratom-org.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/scrape-protectkratom-org.mjs
       - name: Correlate news_items to bills (regex pass)
         continue-on-error: true
-        run: node scripts/correlate-news-to-bills.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/correlate-news-to-bills.mjs
       - name: Dedupe news by title (exact-syndication case)
         continue-on-error: true
-        run: node scripts/dedupe-news-by-title.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/dedupe-news-by-title.mjs
 
   email-meeting-alerts:
     # Hearings are the top-priority notification: a meeting approved since the
@@ -459,7 +459,7 @@ jobs:
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           EMAIL_APP_URL: https://www.ikratom.org
-        run: node scripts/send-email-notifications.mjs --mode meetings
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/send-email-notifications.mjs --mode meetings
 
   push-fanout:
     # Delivers pending notifications as web push from HERE, not only from the
@@ -484,7 +484,7 @@ jobs:
           NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
-        run: node scripts/run-push-fanout.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/run-push-fanout.mjs
 
   watchdog:
     # Self-monitoring observability. MUST run every hour and MUST run last so
@@ -545,7 +545,7 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
           RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
-        run: node scripts/check-vercel-usage.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-vercel-usage.mjs
 
       # Egress reading, HOURLY (moved from the daily cron 2026-09-08).
       #
@@ -564,7 +564,7 @@ jobs:
           NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
-        run: node scripts/check-egress-usage.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-egress-usage.mjs
 
       - name: Check cron staleness (self-monitoring)
         # Compares cron-registry expected cadences against scraper_runs.finished_at;
@@ -579,7 +579,7 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
-        run: node scripts/check-cron-staleness.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-cron-staleness.mjs
 
   drain-send-batches:
     # Drains the durable campaign send queue (migration 0248).

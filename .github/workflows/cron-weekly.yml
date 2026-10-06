@@ -84,7 +84,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/egress-gate.mjs --tier bulk
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier bulk
 
   backfill-term-dates:
     needs: budget
@@ -115,7 +115,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/backfill-term-dates.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-term-dates.mjs
 
       # State tier (7.5k rows, 98% joinable). This one fills term_START_date
       # almost everywhere and leaves term_end_date alone: openstates/people
@@ -128,7 +128,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/backfill-state-term-dates.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-state-term-dates.mjs
 
   sync-committees-all-states:
     needs: budget
@@ -151,7 +151,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
-        run: node scripts/sync-committees-openstates.mjs --max-minutes 80
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-committees-openstates.mjs --max-minutes 80
 
   sync-nonprofit-990s:
     needs: budget
@@ -171,7 +171,7 @@ jobs:
       - env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/sync-nonprofit-990s.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-nonprofit-990s.mjs
 
   weekly-patch-digest-broadcast:
     # Sunday morning weekly digest. Broadcasts a web-push notification to
@@ -214,7 +214,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/broadcast-whats-new.mjs --slug ${{ steps.latest.outputs.slug }} --all-users
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/broadcast-whats-new.mjs --slug ${{ steps.latest.outputs.slug }} --all-users
 
   weekly-self-review:
     # The PROPOSE arm. Reads a week of scraper_runs, a week of admin_audit_log
@@ -255,7 +255,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/weekly-self-review.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/weekly-self-review.mjs
 
   draft-legislator-stance-all:
     # Run the AI stance drafter for every state — skips already-stanced
@@ -284,4 +284,4 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/draft-legislator-stance.mjs --all-states --max-minutes 100
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/draft-legislator-stance.mjs --all-states --max-minutes 100

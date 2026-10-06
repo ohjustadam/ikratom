@@ -100,7 +100,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/egress-gate.mjs --tier bulk
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier bulk
 
   # The queue the owner actually looks at: news-derived campaigns and intel
   # alerts that the hourly engine escalated rather than decided. Grounds each
@@ -136,7 +136,7 @@ jobs:
       - run: npm ci --omit=dev --ignore-scripts
       - uses: ./.github/actions/searxng
       - name: Clear the review queues (ground, approve, reject-with-reason)
-        run: node scripts/clear-review-queues.mjs --ai --apply --approve
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/clear-review-queues.mjs --ai --apply --approve
       - name: SearXNG logs (always)
         if: always()
         run: docker logs searxng 2>&1 | tail -40 || true
@@ -182,7 +182,7 @@ jobs:
           DISPATCH_LIMIT: ${{ github.event.inputs.limit || '40' }}
         run: |
           lim=$(printf '%d' "${DISPATCH_LIMIT:-40}" 2>/dev/null || echo 40)
-          node scripts/verify-local-bans.mjs --limit "$lim" --max-minutes 32
+          node --import=./scripts/lib/egress-meter.mjs scripts/verify-local-bans.mjs --limit "$lim" --max-minutes 32
       - name: SearXNG logs (always)
         if: always()
         run: docker logs searxng 2>&1 | tail -40 || true
@@ -225,7 +225,7 @@ jobs:
           DISPATCH_LIMIT: ${{ github.event.inputs.limit || '20' }}
         run: |
           lim=$(printf '%d' "${DISPATCH_LIMIT:-20}" 2>/dev/null || echo 20)
-          node scripts/sweep-locality-intel.mjs --limit "$lim" --max-minutes 28
+          node --import=./scripts/lib/egress-meter.mjs scripts/sweep-locality-intel.mjs --limit "$lim" --max-minutes 28
       - name: SearXNG logs (always)
         if: always()
         run: docker logs searxng 2>&1 | tail -40 || true

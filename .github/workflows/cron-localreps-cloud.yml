@@ -92,7 +92,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/egress-gate.mjs --tier normal
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier normal
 
   resolve:
     needs: budget
@@ -157,7 +157,7 @@ jobs:
           PROBE: ${{ github.event.inputs.probe }}
         run: |
           if ! printf '%s' "$PROBE" | grep -Eq '^[A-Za-z .'"'"'-]{2,60}, [A-Z]{2}$'; then echo "bad probe value"; exit 2; fi
-          node scripts/auto-fulfill-pending-local-reps.mjs --probe "$PROBE"
+          node --import=./scripts/lib/egress-meter.mjs scripts/auto-fulfill-pending-local-reps.mjs --probe "$PROBE"
 
       - name: Drain pending local-rep requests
         if: github.event.inputs.probe == ''
@@ -167,7 +167,7 @@ jobs:
           DISPATCH_LIMIT: ${{ github.event.inputs.limit || '40' }}
         run: |
           lim=$(printf '%d' "${DISPATCH_LIMIT:-40}" 2>/dev/null || echo 40)
-          node scripts/auto-fulfill-pending-local-reps.mjs --limit "$lim" --max-minutes 22
+          node --import=./scripts/lib/egress-meter.mjs scripts/auto-fulfill-pending-local-reps.mjs --limit "$lim" --max-minutes 22
 
       - name: SearXNG container logs (always)
         if: always()

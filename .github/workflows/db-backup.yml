@@ -66,7 +66,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/egress-gate.mjs --tier essential
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier essential
 
   backup:
     needs: budget
@@ -100,7 +100,7 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/db-backup.mjs --mode ${{ steps.mode.outputs.mode }} --out backup-out
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/db-backup.mjs --mode ${{ steps.mode.outputs.mode }} --out backup-out
       - name: Keep the encrypted files
         if: hashFiles('backup-out/*.enc') != ''
         uses: actions/upload-artifact@v4
@@ -128,7 +128,7 @@ jobs:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/db-snapshot-api.mjs --out snapshot-out
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/db-snapshot-api.mjs --out snapshot-out
       - name: Keep the encrypted snapshot
         uses: actions/upload-artifact@v4
         with:
