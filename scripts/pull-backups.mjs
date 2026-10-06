@@ -60,8 +60,18 @@ console.log(`backups in ${DIR}: +${fetched} new, ${pruned} pruned (> ${KEEP_DAYS
 
 if (argv.includes("--verify-latest")) {
   const keyPath = path.join(repoRoot, "private", "backup-private-key.pem");
-  const latest = fs.readdirSync(DIR).filter((n) => n.endsWith("-public.sql.gz.enc")).sort().at(-1);
+  // Two kinds land here: the full pg_dump (…-public.sql.gz.enc, needs the
+  // optional SUPABASE_DB_URL) and the daily API snapshot (…-snapshot-….jsonl.gz.enc,
+  // always on). Newest by the timestamp in the name, whichever kind it is.
+  const stamp = (n) => n.match(/\d{4}-\d{2}-\d{2}(?:-\d{2}-\d{2})?/)?.[0] ?? "";
+  const latest = fs.readdirSync(DIR)
+    .filter((n) => n.endsWith("-public.sql.gz.enc") || /-snapshot-.*\.jsonl\.gz\.enc$/.test(n))
+    .sort((a, b) => stamp(a).localeCompare(stamp(b))).at(-1);
   if (!latest) { console.log("nothing to verify yet"); process.exit(0); }
+  if (latest.endsWith(".jsonl.gz.enc")) {
+    execFileSync(process.execPath, [path.join(repoRoot, "scripts", "db-snapshot-api.mjs"), "--verify", path.join(DIR, latest), "--key", keyPath], { stdio: "inherit" });
+    process.exit(0);
+  }
   const out = path.join(os.tmpdir(), latest.replace(/\.gz\.enc$/, ""));
   const bytes = decryptFile(path.join(DIR, latest), out, fs.readFileSync(keyPath, "utf8"));
   console.log(`✓ ${latest} decrypts to ${(bytes / 1e6).toFixed(1)} MB of SQL (${out}) — delete it when done`);
