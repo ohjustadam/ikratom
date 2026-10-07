@@ -1,21 +1,44 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { requestPasswordReset } from "@/modules/auth/actions";
+import { isStaleDeployError, reloadOnceForNewVersion } from "@/lib/stale-deploy";
+
+// A request that hit a page from before a deploy is resent once after the
+// reload, so the member still only clicks once (src/lib/stale-deploy.ts).
+const RESEND_KEY = "ikr-forgot-resend";
 
 export function ForgotForm() {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [pending, startTransition] = useTransition();
+  const formRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    let email: string | null = null;
+    try { email = sessionStorage.getItem(RESEND_KEY); sessionStorage.removeItem(RESEND_KEY); } catch { /* storage blocked */ }
+    const form = formRef.current;
+    if (!email || !form) return;
+    (form.elements.namedItem("email") as HTMLInputElement).value = email;
+    form.requestSubmit();
+  }, []);
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     const fd = new FormData(e.currentTarget);
     startTransition(async () => {
-      const result = await requestPasswordReset(fd);
-      if (result?.error) setError(result.error);
-      else setSent(true);
+      try {
+        const result = await requestPasswordReset(fd);
+        if (result?.error) setError(result.error);
+        else setSent(true);
+      } catch (err) {
+        if (isStaleDeployError(err)) {
+          try { sessionStorage.setItem(RESEND_KEY, String(fd.get("email") ?? "")); } catch { /* storage blocked */ }
+          if (reloadOnceForNewVersion()) return;
+        }
+        setError("We couldn't send the link just now. Please reload the page and try again.");
+      }
     });
   }
 
@@ -39,7 +62,7 @@ export function ForgotForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form ref={formRef} onSubmit={onSubmit} className="space-y-4">
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-zinc-300">
           Email
