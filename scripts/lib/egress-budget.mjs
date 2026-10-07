@@ -33,7 +33,20 @@
  */
 import { createClient } from "@supabase/supabase-js";
 
+import { readFileSync } from "node:fs";
+
 export const BUDGET_GB = 5;
+
+/**
+ * The raw NIC counter over-counts billable egress by an amount that drifts with
+ * traffic (replication + infra chatter is a bigger share when the site is
+ * quiet). So the ratio is not a constant in code any more: it is measured
+ * against the Supabase dashboard and kept in egress-calibration.json, shared by
+ * this gate and check-egress-usage.mjs. 2026-10-07: at 0.497 the gate read
+ * 74.5% while the dashboard read 55% and the brake had paused 32 daily jobs for
+ * no reason. Recalibrate with scripts/egress-calibrate.mjs.
+ */
+export const CALIBRATION = JSON.parse(readFileSync(new URL("./egress-calibration.json", import.meta.url), "utf8"));
 /**
  * Raw NIC counter -> billable. Re-calibrated 2026-09-10 from 0.54: at that
  * value the watchdog read 102.3% while the dashboard read 94.2%, i.e. it was
@@ -41,13 +54,15 @@ export const BUDGET_GB = 5;
  * check-egress-usage.mjs — the gate below sheds real work based on it, so
  * reading high defers jobs for no reason and reading low would miss the wall.
  */
-export const BILLABLE_RATIO = 0.497;
-export const EGRESS_CYCLE_ANCHOR_DAY = 16;
+export const BILLABLE_RATIO = CALIBRATION.ratio;
+export const EGRESS_CYCLE_ANCHOR_DAY = CALIBRATION.cycleAnchorDay;
 
 /** Fraction of the cap at which each tier stops running. */
 export const TIER_LIMITS = {
-  bulk: 0.70,
-  normal: 0.85,
+  // Raised 2026-10-07 once the reading matched the dashboard (it carries a 10%
+  // over-report margin). A brake that trips at a phantom 70% pauses real work.
+  bulk: 0.80,
+  normal: 0.92,
   essential: Infinity,
 };
 
