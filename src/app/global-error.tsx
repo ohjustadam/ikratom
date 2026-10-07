@@ -2,6 +2,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
+import { isStaleDeployError, reloadOnceForNewVersion } from "@/lib/stale-deploy";
 
 /**
  * Global error boundary — catches errors in the root layout itself.
@@ -20,6 +21,8 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
+    // Page from before a deploy: reload onto the new version (src/lib/stale-deploy.ts).
+    if (isStaleDeployError(error) && reloadOnceForNewVersion()) return;
     Sentry.captureException(error);
   }, [error]);
 
