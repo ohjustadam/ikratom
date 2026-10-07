@@ -32,7 +32,9 @@ type Initial = {
   party?: string | null;
 };
 
-export function LocalOfficialForm({ initial }: { initial?: Initial }) {
+/** addAnother: after saving, come back to this form (same place prefilled)
+ *  instead of the officials list — for entering a whole council by hand. */
+export function LocalOfficialForm({ initial, addAnother = false }: { initial?: Initial; addAnother?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -50,6 +52,7 @@ export function LocalOfficialForm({ initial }: { initial?: Initial }) {
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
+      {addAnother && <input type="hidden" name="add_another" value="1" />}
       <Section title="Identity">
         <Field name="full_name" label="Full name" required defaultValue={initial?.full_name} />
         <div className="grid gap-3 sm:grid-cols-2">

@@ -107,13 +107,25 @@ export async function fetchPdfText(url, { timeoutMs = 30_000, maxChars = 24_000 
   }
 }
 
-async function plainFetchText(url, { timeoutMs, maxChars }) {
+// Statuses a WAF / bot manager answers with. A 404 or 500 is a broken page,
+// not a block, so it's deliberately not here.
+const BLOCK_STATUSES = new Set([401, 403, 429]);
+
+async function plainFetchText(url, { timeoutMs, maxChars, diag }) {
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
       headers: { "User-Agent": "iKratom Civic Data (contact@ikratom.org)" },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (diag) {
+        // Cloudflare's managed challenge answers 403 + `cf-mitigated: challenge`
+        // (elkgrove.gov, 2026-10-07) — a real browser passes it, we never do.
+        if (res.headers.get("cf-mitigated") === "challenge") diag.blocked = "challenge";
+        else if (BLOCK_STATUSES.has(res.status)) diag.blocked = `http-${res.status}`;
+      }
+      return null;
+    }
     const ct = res.headers.get("content-type") || "";
     if (ct.includes("pdf")) return "PDF"; // sentinel: no text, don't render either
     const html = (await res.text()).slice(0, 600_000);
@@ -123,7 +135,22 @@ async function plainFetchText(url, { timeoutMs, maxChars }) {
   }
 }
 
-export async function fetchPageText(url, { timeoutMs = 15_000, maxChars = 24_000, render = true, pdf = false } = {}) {
+/**
+ * @param {string} url
+ * @param {{ timeoutMs?: number, maxChars?: number, render?: boolean, pdf?: boolean, diag?: { blocked?: string } | null }} [opts]
+ *   diag: optional out-param. When the page could NOT be
+ *   read because a WAF / bot check refused us, `diag.blocked` is set to
+ *   "challenge" or "http-<status>"; it's cleared whenever usable text comes
+ *   back. Lets a caller tell "this site blocks robots" (a human must step in)
+ *   apart from "nothing useful on the page" without changing the return type.
+ */
+export async function fetchPageText(url, { timeoutMs = 15_000, maxChars = 24_000, render = true, pdf = false, diag = null } = {}) {
+  const out = await fetchPageTextInner(url, { timeoutMs, maxChars, render, pdf, diag });
+  if (diag && out) delete diag.blocked;
+  return out;
+}
+
+async function fetchPageTextInner(url, { timeoutMs, maxChars, render, pdf, diag }) {
   // PDF-first when the URL's own path says .pdf: municipal agenda servers
   // routinely mislabel packets as octet-stream or text/html, and stripHtml() on
   // PDF bytes does not fail — it yields plausible-looking garbage. For a
@@ -138,7 +165,7 @@ export async function fetchPageText(url, { timeoutMs = 15_000, maxChars = 24_000
     // HTML landing page are common; the content-type check below settles it.
   }
 
-  const plain = await plainFetchText(url, { timeoutMs, maxChars });
+  const plain = await plainFetchText(url, { timeoutMs, maxChars, diag });
   if (plain === "PDF") {
     // DEVIATION from spec §2, deliberate: the spec retries fetchPdfText here
     // unconditionally, which re-downloads the same file we just failed on in the
@@ -155,7 +182,8 @@ export async function fetchPageText(url, { timeoutMs = 15_000, maxChars = 24_000
   if (!r) return plain;
   const text = r.text.replace(/\s+/g, " ").trim().slice(0, maxChars);
   // A WAF interstitial isn't content — junk text must not beat null.
-  if (text.length < 1200 && /access denied|enable javascript|verify you are human|are you a robot|captcha|attention required/i.test(text)) {
+  if (text.length < 1200 && /access denied|enable javascript|verify you are human|are you a robot|captcha|attention required|just a moment/i.test(text)) {
+    if (diag && !plain) diag.blocked = "challenge";
     return plain;
   }
   return text.length > (plain?.length ?? 0) ? text : plain;

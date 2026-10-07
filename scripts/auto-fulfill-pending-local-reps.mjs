@@ -68,7 +68,7 @@ if (probeAt >= 0) {
   const level = lvlAt >= 0 ? args[lvlAt + 1] : /\b(county|parish|borough)\b/i.test(locality) ? "county" : "municipal";
   console.log(`PROBE ${locality} (${level}) — read-only`);
   const res = await findAndExtractOfficials({ sb, city: m[1], state: m[2], locality, level, caller: "auto-fulfill-probe" });
-  if (!res.ok) { console.log(`  result: ${res.queued ? `queued (${res.reason})` : `error (${res.error ?? "0 officials"})`}`); process.exit(res.queued ? 0 : 1); }
+  if (!res.ok) { console.log(`  result: ${res.queued ? `queued (${res.reason}${res.detail ? `: ${res.detail}` : ""})` : `error (${res.error ?? "0 officials"})`}`); process.exit(res.queued ? 0 : 1); }
   console.log(`  source: ${res.source} · ${res.officials.length} official(s)`);
   let verified = 0;
   for (const o of res.officials) {
@@ -99,6 +99,21 @@ if (pendErr) {
   console.error(pendErr.message); process.exit(1);
 }
 console.log(`pending: ${pending?.length ?? 0}${LIMIT ? ` (capped at ${LIMIT})` : ""}`);
+
+// Write the outcome onto the request so /admin/local-rep-requests can say WHY
+// it's still pending (src/lib/local-rep-attempt.ts renders the code). Without
+// this the admin only ever saw "check back shortly" — even for a city site
+// behind a bot check that no retry will ever get past. Best-effort.
+async function recordAttempt(req, reason, detail) {
+  const { error } = await sb.from("local_rep_requests")
+    .update({
+      last_attempt_at: new Date().toISOString(),
+      last_attempt_reason: String(reason).slice(0, 40),
+      last_attempt_detail: detail ? String(detail).slice(0, 200) : null,
+    })
+    .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");
+  if (error) console.log(`  ⚠ couldn't record attempt: ${error.message?.slice(0, 80)}`);
+}
 
 const seen = new Set();
 let totalInserted = 0;
@@ -148,7 +163,8 @@ for (const req of pending ?? []) {
         .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");
       continue;
     }
-    console.log(`  ⏳ queued (${res.reason}) — left pending`);
+    console.log(`  ⏳ queued (${res.reason}${res.detail ? `: ${res.detail}` : ""}) — left pending`);
+    await recordAttempt(req, res.reason, res.detail);
     // Only infra-flavored reasons feed the breaker; content misses fall through.
     if (res.reason === "no-extract" || res.reason === "searxng-empty") {
       consecutiveInfraMiss++;
@@ -163,6 +179,7 @@ for (const req of pending ?? []) {
     // Content miss (e.g. WAF-blocked roster) — leave pending, retried next
     // run, but DO NOT strand the rest of the queue behind it.
     console.log(`  ✗ no officials: ${res.error ?? "0 returned"} — left pending (queue continues)`);
+    await recordAttempt(req, "no-officials", null);
     continue;
   }
   consecutiveInfraMiss = 0;

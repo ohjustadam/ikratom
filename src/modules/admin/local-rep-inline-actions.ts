@@ -53,7 +53,8 @@ export type PreviewSuggestionsResult =
       officials: SuggestionWithTier[];
       sources: string[];
     }
-  | { ok: false; error: string };
+  /** info = an explanation, not a failure (rendered as a neutral note). */
+  | { ok: false; error: string; info?: boolean };
 
 export async function previewSuggestions(input: {
   state: string;
@@ -82,9 +83,15 @@ export async function previewSuggestions(input: {
       };
     }
     // De-Gemini'd: a Legistar miss returns a transient "queued for batch"
-    // result. Surface it as an informational note, not a red error box.
+    // result. Surface it as an informational note, not a red error box. The
+    // row's LastAttemptNote says what the batch's last try actually hit — this
+    // used to promise "check back shortly" even for sites no retry can read.
     if (suggestion.transient) {
-      return { ok: false, error: "🕒 Not on Legistar — queued for the next batch (SearXNG + Ollama) resolution run. Check back shortly." };
+      return {
+        ok: false,
+        info: true,
+        error: "🕒 This city isn't on Legistar, so there's no instant lookup. The cloud batch (web search + free AI) works it every ~6 hours — see its last try above. If it says retrying won't help, use “Add by hand”.",
+      };
     }
     return { ok: false, error: friendlyGroundingError(suggestion.error) };
   }

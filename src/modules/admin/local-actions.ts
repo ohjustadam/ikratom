@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { normalizeLocality } from "@/lib/locality";
 import { recordAdminAction } from "@/lib/audit";
 import { getCreatorContext } from "./actions";
@@ -75,14 +76,63 @@ export async function createLocalOfficial(formData: FormData) {
     .single();
   if (error) return { error: error.message };
 
+  const closed = await fulfillPendingRequests(ctx.userId, data.state, data.locality, data.level);
+
   await recordAdminAction({
     action: "local_official_created",
     targetType: "legislator",
     targetId: row?.id,
-    details: { full_name: data.full_name, locality: data.locality, role: data.role },
+    details: { full_name: data.full_name, locality: data.locality, role: data.role, requests_closed: closed },
   });
 
+  if (formData.get("add_another") === "1") {
+    const q = new URLSearchParams({
+      state: data.state,
+      locality: data.locality,
+      role: data.role,
+      added: data.full_name,
+      ...(closed > 0 ? { closed: "1" } : {}),
+    });
+    redirect(`/admin/locals/new?${q.toString()}`);
+  }
   redirect("/admin/locals");
+}
+
+/**
+ * Hand-adding an official for a place someone asked about closes that request
+ * — before 2026-10-07 it didn't, so a request stayed "1 user waiting" even
+ * after its officials were entered, and the requester was never told.
+ * Same close + notify as the inline-accept and batch paths. Service role:
+ * advocate leaders can add officials but have no UPDATE on local_rep_requests,
+ * and an RLS-denied update would silently no-op. Best-effort — the official is
+ * already saved.
+ */
+async function fulfillPendingRequests(userId: string, state: string, locality: string, level: string): Promise<number> {
+  try {
+    const db = createServiceRoleClient();
+    const { data: closed, error } = await db
+      .from("local_rep_requests")
+      .update({ status: "fulfilled", resolved_at: new Date().toISOString(), resolved_by: userId })
+      .eq("state", state)
+      .eq("locality", locality)
+      .eq("level", level)
+      .eq("status", "pending")
+      .select("id");
+    if (error || !closed?.length) return 0;
+    // Only on the add that closes it: the RPC dedups per user per locality
+    // anyway, and null names gives the generic "your officials are loaded"
+    // body rather than naming just the first of a council.
+    const { error: notifyErr } = await db.rpc("notify_locality_residents", {
+      p_state: state,
+      p_locality: locality,
+      p_official_names: null,
+    });
+    if (notifyErr) console.warn("[local-official-create] notify RPC failed:", notifyErr.message);
+    return closed.length;
+  } catch (e) {
+    console.warn("[local-official-create] fulfill failed:", e instanceof Error ? e.message : e);
+    return 0;
+  }
 }
 
 export async function updateLocalOfficial(id: string, formData: FormData) {
