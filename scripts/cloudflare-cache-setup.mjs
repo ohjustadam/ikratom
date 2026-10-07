@@ -43,6 +43,9 @@
 
 const APPLY = process.argv.includes("--apply");
 const PURGE = process.argv.includes("--purge");
+// The calendar rule needs a custom cache key; if the plan refuses it, apply
+// the rest with --no-calendar-key.
+const NO_CALENDAR_KEY = process.argv.includes("--no-calendar-key");
 
 const ZONE = process.env.CLOUDFLARE_ZONE_ID || "6f054a2b237f9b7ec10d525ec7e99d05"; // ikratom.org
 const TOKEN = process.env.CLOUDFLARE_CACHE_TOKEN || process.env.CLOUDFLARE_API_TOKEN;
@@ -207,23 +210,17 @@ const rules = () => [
     action_parameters: {
       cache: true,
       // guard 4 — origin says no-cache; override at the edge only.
-      edge_ttl: { mode: "override_origin", default: 300 },
-      browser_ttl: { mode: "override_origin", default: 0 },
-    },
-  },
-  {
-    description: "ikratom: cache the anonymous English home page for 30 min",
-    expression: `${cacheableExpression([HOME_EXPR])} and ${LOCALE_COOKIE_GUARD}`,
-    action: "set_cache_settings",
-    action_parameters: {
-      cache: true,
+      // 5 min -> 30 min (2026-10-07, 300-credit plan): every origin hit costs
+      // Netlify compute + Supabase egress. Deploys purge Cloudflare
+      // (.github/workflows/cloudflare-purge-after-deploy.yml), so code changes
+      // still show at once; only data can lag, by at most 30 min.
       edge_ttl: { mode: "override_origin", default: 1800 },
       browser_ttl: { mode: "override_origin", default: 0 },
     },
   },
   {
-    description: "ikratom: cache anonymous expensive pages for 1h (bound flood cost)",
-    expression: cacheableExpression(LONG_TTL_PATTERNS),
+    description: "ikratom: cache the anonymous English home page for 1h",
+    expression: `${cacheableExpression([HOME_EXPR])} and ${LOCALE_COOKIE_GUARD}`,
     action: "set_cache_settings",
     action_parameters: {
       cache: true,
@@ -231,6 +228,34 @@ const rules = () => [
       browser_ttl: { mode: "override_origin", default: 0 },
     },
   },
+  {
+    description: "ikratom: cache anonymous expensive pages for 3h (bound flood cost)",
+    expression: cacheableExpression(LONG_TTL_PATTERNS),
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      // 1h -> 3h (2026-10-07): bill and legislator pages change slowly and are
+      // the crawlers' favourite targets; deploys purge.
+      edge_ttl: { mode: "override_origin", default: 10800 },
+      browser_ttl: { mode: "override_origin", default: 0 },
+    },
+  },
+  ...(NO_CALENDAR_KEY ? [] : [{
+    // /calendar renders identically for every query string: its filters run in
+    // the browser (useSearchParams). Bing crawls endless filter variants, so on
+    // 2026-10-06 /calendar had 2,676 cache MISSES and 1 hit in a day. One cache
+    // entry for all variants. (The browser URL keeps its query; only the cache
+    // key drops it.)
+    description: "ikratom: one cache entry for every /calendar query string",
+    expression: cacheableExpression(['http.request.uri.path eq "/calendar"']),
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 1800 },
+      browser_ttl: { mode: "override_origin", default: 0 },
+      cache_key: { custom_key: { query_string: { exclude: { all: true } } } },
+    },
+  }]),
 ];
 
 async function cf(path, init = {}) {
