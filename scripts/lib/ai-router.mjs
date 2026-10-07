@@ -29,7 +29,7 @@
  */
 
 import { OLLAMA_NUM_THREAD } from "./ollama-options.mjs";
-import { pickGeminiKey, markGeminiKeyCooldown, geminiKeyCount } from "./gemini-keys.mjs";
+import { pickGeminiKey, markGeminiKeyCooldown, markGeminiKeyDead, liveGeminiKeyCount, geminiKeyCount } from "./gemini-keys.mjs";
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
 // Gemini is the one provider with a multi-key pool (one free key per GCP
@@ -443,10 +443,30 @@ async function callGroq(sys, user, maxTokens, modelOverride) {
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
 
+// Statuses that condemn ONE key (invalid key, no billing/credit on its project,
+// model not offered to that project), not Gemini itself.
+const GEMINI_KEY_REFUSED = new Set([400, 401, 402, 403, 404]);
+
 async function callGemini(sys, user, maxTokens) {
+  let lastErr = null;
+  for (let tries = Math.max(1, liveGeminiKeyCount()); tries > 0; tries--) {
+    try {
+      return await callGeminiOnce(sys, user, maxTokens);
+    } catch (e) {
+      lastErr = e;
+      if (!e.keyRefused || liveGeminiKeyCount() === 0) break;
+    }
+  }
+  throw lastErr ?? new Error("Gemini: no key configured");
+}
+
+async function callGeminiOnce(sys, user, maxTokens) {
   const key = pickGeminiKey();
-  if (!key) throw new Error("Gemini: no key configured");
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  if (!key) throw new Error("Gemini: no usable key");
+  // The alias follows Google's current Flash-Lite model (0.9s vs 22s for full
+  // Flash, which spends the token budget thinking). Pinned names get retired
+  // ("gemini-2.5-flash is no longer available to new users", 2026-10).
+  const model = process.env.GEMINI_MODEL || "gemini-flash-lite-latest";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const r = await fetch(url, {
     method: "POST",
@@ -471,6 +491,12 @@ async function callGemini(sys, user, maxTokens) {
   }
   if (!r.ok) {
     const body = (await r.text()).slice(0, 200);
+    if (GEMINI_KEY_REFUSED.has(r.status)) {
+      markGeminiKeyDead(key);
+      if (liveGeminiKeyCount() > 0) {
+        throw Object.assign(new Error(`Gemini ${r.status} on one key — trying the next: ${body.slice(0, 80)}`), { keyRefused: true });
+      }
+    }
     noteHardFailure("gemini", r.status, body);
     throw new Error(`Gemini ${r.status}: ${body}`);
   }
@@ -648,7 +674,8 @@ const callOpenrouter = (sys, user, maxTokens, modelOverride) => callOpenAICompat
 const callNvidia = (sys, user, maxTokens, modelOverride) => callOpenAICompat("nvidia", {
   url: "https://integrate.api.nvidia.com/v1/chat/completions",
   key: NVIDIA_API_KEY,
-  model: process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct",
+  // meta/llama-3.3-70b-instruct reached end of life 2026-08 (410).
+    model: process.env.NVIDIA_MODEL || "nvidia/nemotron-3-super-120b-a12b",
 }, sys, user, maxTokens, modelOverride);
 
 // Vercel AI Gateway: one OpenAI-compatible endpoint in front of many vendors.
