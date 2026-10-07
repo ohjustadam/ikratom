@@ -69,3 +69,33 @@ describe("account emails keep their share of Resend", () => {
     expect(src.indexOf('id: "brevo"')).toBeLessThan(src.indexOf('id: "resend"'));
   });
 });
+
+describe("Brevo payload", () => {
+  it("omits the headers field when there is no unsubscribe link (Brevo 400s on an empty one)", async () => {
+    const { vi } = await import("vitest");
+    vi.resetModules();
+    vi.stubEnv("BREVO_API_KEY", "xkeysib-test");
+    vi.stubEnv("RESEND_API_KEY", "");
+    vi.stubEnv("RESEND_FROM_EMAIL", "alerts@ikratom.org");
+    const bodies: Record<string, unknown>[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, text: async () => JSON.stringify({ messageId: "<m1>" }) };
+    }) as unknown as typeof fetch;
+    // Minimal stand-in for the quota table the sender reads and bumps.
+    const sb = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }), insert: async () => ({}), update: () => ({ eq: () => ({ eq: async () => ({}) }) }) }) };
+    try {
+      const { sendEmail } = await import("../scripts/lib/email-send.mjs");
+      const plain = await sendEmail(sb, { to: "a@b.org", subject: "s", text: "t", html: "<p>t</p>" });
+      const withUnsub = await sendEmail(sb, { to: "a@b.org", subject: "s", text: "t", html: "<p>t</p>", unsubscribeUrl: "https://www.ikratom.org/u" });
+      expect(plain).toMatchObject({ ok: true, provider: "brevo" });
+      expect(withUnsub).toMatchObject({ ok: true, provider: "brevo" });
+      expect(bodies[0]).not.toHaveProperty("headers");
+      expect(bodies[1]).toHaveProperty("headers");
+    } finally {
+      globalThis.fetch = realFetch;
+      vi.unstubAllEnvs();
+    }
+  });
+});
