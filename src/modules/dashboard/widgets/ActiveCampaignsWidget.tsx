@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 /**
  * Compact list of campaigns the user can act on right now.
  * Every campaign is actionable regardless of the user's state (owner policy

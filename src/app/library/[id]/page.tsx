@@ -5,7 +5,7 @@ import { TYPE_ICONS, TYPE_LABELS, type LibraryItemType } from "@/modules/library
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 import { CreatorEditLink } from "./CreatorEditLink";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const revalidate = 900;
 
 export function generateStaticParams() {

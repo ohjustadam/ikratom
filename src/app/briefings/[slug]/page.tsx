@@ -9,7 +9,7 @@ import { frontmatterString } from "@/lib/frontmatter";
 import { CopyShareLinkButton } from "./CopyShareLinkButton";
 import { briefingAudioScript } from "@/lib/briefing-audio";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 const BRIEFINGS_DIR = path.join(process.cwd(), "src", "content", "briefings");
 
 /**

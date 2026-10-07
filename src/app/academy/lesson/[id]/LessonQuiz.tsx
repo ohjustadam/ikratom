@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { submitAnswer, completeLesson } from "@/modules/academy/actions";
 
 type Q = { id: string; prompt: string; choices: string[]; points: number };

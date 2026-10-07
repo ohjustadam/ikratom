@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators } from "@/lib/legislators";
 import { listMyCalls, listMyAchievements } from "@/modules/calls/actions";

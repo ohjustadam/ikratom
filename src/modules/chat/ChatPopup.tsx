@@ -8,7 +8,7 @@ import { useSignIn } from "@/components/auth/SignInContext";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { postChatMessage, deleteChatMessage, loadInitialChat, type ChatMessage } from "./actions";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 /**
  * ChatPopup — the Lounge live chat as a floating widget available on EVERY
  * page, so a user can banter from anywhere without leaving what they're doing.

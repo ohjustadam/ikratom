@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { StanceChips, roleMeta, displayRole, orderedDisplayRoles, type StanceValue } from "@/lib/stakeholder-stance";
 

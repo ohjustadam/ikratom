@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 /**
  * Action streak widget for the dashboard. Renders nothing if user has
  * never taken an action; lights up once they have a streak going.

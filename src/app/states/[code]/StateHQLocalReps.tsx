@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import type { MyRepsResult } from "@/app/api/states/[code]/my-reps/route";

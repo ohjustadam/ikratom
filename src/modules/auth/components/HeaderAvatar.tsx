@@ -9,7 +9,7 @@
  * from HeaderAuth, which now reads /api/me on the client. It never fetched
  * anything itself, so the conversion is the "use client" line alone.
  */
-import Link from "next/link";
+import Link from "@/components/Link";
 
 export function HeaderAvatar({
   username,

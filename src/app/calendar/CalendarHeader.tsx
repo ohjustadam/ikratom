@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { CalendarSyncButton } from "./CalendarSyncButton";
 
 /** Page header: title, the .ics subscribe CTA, blurb, and the coverage stat. */

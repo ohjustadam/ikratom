@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listConversations } from "@/modules/dm/actions";
 import { MessagesInbox } from "./MessagesInbox";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "Messages" };
 
 export default async function MessagesPage() {

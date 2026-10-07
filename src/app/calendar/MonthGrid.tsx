@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { EventCard } from "./EventCard";
 import { KIND_BADGE, type CalendarEvent, type MkHref } from "./types";
 

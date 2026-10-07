@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { KIND_BADGE, type MkHref } from "./types";
 
 /** List/month toggle + kind pills + state pills. */

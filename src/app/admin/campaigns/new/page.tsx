@@ -3,7 +3,7 @@ import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { CampaignWizard } from "@/modules/admin/components/CampaignWizard";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "New campaign" };
 
 export default async function NewCampaignPage({

@@ -10,7 +10,7 @@ import { AttachmentRecorder } from "./AttachmentRecorder";
 import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { SendBatchPanel } from "./SendBatchPanel";
-import Link from "next/link";
+import Link from "@/components/Link";
 import {
   groupByRole,
   defaultCollapsed,

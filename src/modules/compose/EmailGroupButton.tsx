@@ -4,7 +4,7 @@ import { useState } from "react";
 import { GroupComposeModal } from "./GroupComposeModal";
 import type { ComposeGroup } from "./types";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 const GROUP_ICON: Record<ComposeGroup["key"], string> = {
   representatives: "🏛",
   senators: "🏛",

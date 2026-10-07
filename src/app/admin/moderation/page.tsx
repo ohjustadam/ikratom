@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { queueCounts } from "@/modules/admin/queue-resolve-actions";
 import ResolveQueue from "@/app/admin/_components/ResolveQueue";

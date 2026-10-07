@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { SubmitFlash } from "./SubmitFlash";

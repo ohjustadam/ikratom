@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 
 /**
  * Segment-level 404 for /briefings/*.

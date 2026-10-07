@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getContent } from "@/lib/editable-content";
 
 // Static + revalidate (2026-07-23): editorial content, identical for everyone.

@@ -12,7 +12,7 @@ import { PageShareWithAttribution } from "@/components/PageShareWithAttribution"
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { frontmatterString } from "@/lib/frontmatter";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "Pulse — live policy feed" };
 // Force dynamic so newly-inserted alerts and breaking events appear on
 // next refresh — the alerts table is the live war room and stale page

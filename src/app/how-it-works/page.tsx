@@ -4,7 +4,7 @@ import { HowItWorksInvite } from "./HowItWorksInvite";
 import { AnnotatedScreenshot, type Pin } from "@/components/AnnotatedScreenshot";
 import { getContent } from "@/lib/editable-content";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "How iKratom works" };
 
 /**

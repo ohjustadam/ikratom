@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { SubmitIntelForm } from "./SubmitIntelForm";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "Submit intel" };
 
 /**

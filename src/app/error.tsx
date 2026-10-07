@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { isStaleDeployError, reloadOnceForNewVersion } from "@/lib/stale-deploy";
 
 export default function ErrorBoundary({

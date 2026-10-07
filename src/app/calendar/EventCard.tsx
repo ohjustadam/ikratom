@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { KIND_BADGE, type CalendarEvent } from "./types";
 
 /** One event row — shared by the day-grouped list and the month-view day detail. */

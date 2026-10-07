@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 import { getOrGenerateBriefSummary } from "@/modules/brief/summary";
 import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getContent } from "@/lib/editable-content";
 
 export const metadata = {

@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 /**
  * Bills the user has personally taken action on, with each bill's
  * current status. Answers "did my email matter?" — they see the bill's

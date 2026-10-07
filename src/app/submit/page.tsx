@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = {
   title: "Submit something",
   description:

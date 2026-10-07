@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NewConversation } from "./NewConversation";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "New message" };
 
 export default async function NewMessagePage({
