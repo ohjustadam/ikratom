@@ -21,7 +21,7 @@
  * These tests pin the distinction: a row only counts if it carried a reading.
  */
 import { describe, it, expect } from "vitest";
-import { getEgressStatus, checkEgressBudget, BILLABLE_RATIO } from "../scripts/lib/egress-budget.mjs";
+import { getEgressStatus, checkEgressBudget, BILLABLE_RATIO, TIER_LIMITS } from "../scripts/lib/egress-budget.mjs";
 
 type Row = { finished_at: string; rows_updated: number | null };
 
@@ -71,22 +71,25 @@ describe("egress status ignores runs that measured nothing", () => {
     expect(gate.reason).toMatch(/stale/);
   });
 
-  it("still sheds bulk work on fresh readings over the 70% ceiling", async () => {
-    // Guards against "fix" by way of failing open everywhere. 3,600 MB of raw
-    // delta is ~1,789 MB billable, i.e. ~36% — under the ceiling.
+  it("still sheds bulk work on fresh readings over the bulk ceiling", async () => {
+    // Guards against "fix" by way of failing open everywhere. Raw deltas are
+    // derived from the live calibration + ceiling so recalibrating (monthly,
+    // scripts/egress-calibrate.mjs) never silently weakens this test.
+    // 3,600 MB of raw delta is well under the ceiling at any plausible ratio.
     const under = await checkEgressBudget("bulk", stubClient([
       { finished_at: hoursAgo(24), rows_updated: 10_000 },
       { finished_at: hoursAgo(1), rows_updated: 13_600 },
     ]));
     expect(under.skip).toBe(false);
 
-    // 7,600 MB of raw delta is ~3,777 MB billable, i.e. ~76% — over it.
+    // Enough raw delta to land 5 points over the bulk ceiling.
+    const rawOver = Math.ceil(((TIER_LIMITS.bulk + 0.05) * 5000) / BILLABLE_RATIO);
     const over = await checkEgressBudget("bulk", stubClient([
       { finished_at: hoursAgo(24), rows_updated: 10_000 },
-      { finished_at: hoursAgo(1), rows_updated: 17_600 },
+      { finished_at: hoursAgo(1), rows_updated: 10_000 + rawOver },
     ]));
     expect(over.skip).toBe(true);
-    expect(over.pct).toBeGreaterThan(0.7);
+    expect(over.pct).toBeGreaterThan(TIER_LIMITS.bulk);
   });
 
   it("reports unknown, not zero, when only one real reading exists", async () => {

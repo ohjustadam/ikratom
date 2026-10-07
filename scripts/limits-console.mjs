@@ -193,7 +193,7 @@ const collectors = {
         note: "Plan an archive of old off-topic/duplicate news before this drops under 3." }),
       meter({ name: "Egress this cycle", value: eg.usedMb != null ? (eg.usedMb / 1000).toFixed(2) : "?", limit: BUDGET_GB, unit: "GB",
         pct: eg.pct != null ? eg.pct * 100 : null, kind: "estimate", consequence: "Project RESTRICTED at the cap (2026-07-16 outage).",
-        note: "Model from transmit counters x0.497. Ground truth: Supabase dashboard -> Usage." }),
+        note: "Model from transmit counters x calibrated ratio (scripts/lib/egress-calibration.json). Ground truth: Supabase dashboard -> Usage." }),
       meter({ name: "Storage", value: Number(st.mb).toFixed(0), limit: 1024, unit: "MB", pct: (st.mb / 1024) * 100 }),
       meter({ name: "DB connections now", value: conn.n, limit: conn.max, pct: (conn.n / conn.max) * 100,
         note: "A flood of uncached renders can exhaust these; pages then hang to the 30s timeout." }),

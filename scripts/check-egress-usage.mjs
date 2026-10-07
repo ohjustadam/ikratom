@@ -73,7 +73,8 @@ const BUDGET_GB = 5;
 // have to mentally derate is a watchdog you eventually ignore — and this one
 // now also drives the load-shedding gate, so reading high means deferring real
 // work for no reason.
-const BILLABLE_RATIO = 0.497;
+// Shared with the egress gate; measured against the dashboard (see the file).
+import { BILLABLE_RATIO, EGRESS_CYCLE_ANCHOR_DAY } from "./lib/egress-budget.mjs";
 const THRESHOLDS = [0.5, 0.75, 0.9]; // page at 50%, 75%, 90%
 /**
  * VERIFIED AGAINST THE DASHBOARD 2026-09-24, which read "18 Sep 2026 - 18 Oct
@@ -88,7 +89,8 @@ const THRESHOLDS = [0.5, 0.75, 0.9]; // page at 50%, 75%, 90%
  * So: the anchor was the defect, NOT the ratio. Do not "fix" the ratio to chase
  * the remaining gap without re-measuring against the dashboard first.
  */
-const EGRESS_CYCLE_ANCHOR_DAY = 18;
+// (2026-10-07: the dashboard now reads 16 Sep - 16 Oct, so the anchor lives in
+// scripts/lib/egress-calibration.json with the ratio, one place for both.)
 
 // Current billing-cycle start (the most recent anchor day, UTC).
 function cycleStart(now = new Date()) {
