@@ -15,10 +15,14 @@ import crypto from "node:crypto";
 
 const PROVIDERS = [
   // Largest free daily cap first, so the smaller ones last the whole day.
-  { id: "brevo", envKey: "BREVO_API_KEY", dailyCap: 300, send: sendBrevo },
-  { id: "resend", envKey: "RESEND_API_KEY", dailyCap: 100, send: sendResend },
+  { id: "brevo", envKey: "BREVO_API_KEY", dailyCap: 300, reserve: 10, send: sendBrevo },
+  // Resend also carries Supabase Auth SMTP (sign-up confirmations, password
+  // resets) and the site security notices, and those sends never reach
+  // email_quota_log. Holding 40 back keeps account emails working on a day when
+  // notifications run long (2026-10-06 the digest + launch email used 90 of 100).
+  { id: "resend", envKey: "RESEND_API_KEY", dailyCap: 100, reserve: 40, send: sendResend },
 ];
-export const RESERVE = 10;
+export const RESERVE = 10; // default for a provider without its own reserve
 
 const today = () => new Date().toISOString().slice(0, 10);
 const configured = () => PROVIDERS.filter((p) => process.env[p.envKey]);
@@ -43,7 +47,7 @@ async function bump(sb, provider, ok) {
 /** Emails still sendable today across every configured provider, after the reserve. */
 export async function remainingToday(sb) {
   let left = 0;
-  for (const p of configured()) left += Math.max(0, p.dailyCap - RESERVE - (await usedToday(sb, p.id)));
+  for (const p of configured()) left += Math.max(0, p.dailyCap - (p.reserve ?? RESERVE) - (await usedToday(sb, p.id)));
   return left;
 }
 
@@ -60,7 +64,7 @@ export async function sendEmail(sb, msg) {
   if (!fromAddress().email) return { ok: false, error: "no sender address (RESEND_FROM_EMAIL / EMAIL_FROM)" };
   const errors = [];
   for (const p of configured()) {
-    if ((await usedToday(sb, p.id)) >= p.dailyCap - RESERVE) { errors.push(`${p.id}: daily cap`); continue; }
+    if ((await usedToday(sb, p.id)) >= p.dailyCap - (p.reserve ?? RESERVE)) { errors.push(`${p.id}: daily cap`); continue; }
     try {
       const id = await p.send(msg);
       await bump(sb, p.id, true);
