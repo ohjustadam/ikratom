@@ -126,6 +126,12 @@ export const CACHEABLE_PATTERNS = [
   // every install/update.
   'http.request.uri.path eq "/offline"',
   'http.request.uri.path in {"/action" "/community" "/knowledge" "/legislative"}',
+  // AUDITED 2026-10-07: prerendered static pages — no cookies()/headers()/
+  // createClient()/searchParams in the page; the forms are client components
+  // (AuthForm reads ?redirect= in the browser). /login alone was 139 origin
+  // hits in 13 h after the other caching landed. /reset-password is NOT here:
+  // it completes a recovery session and is not audited.
+  'http.request.uri.path in {"/login" "/signup" "/forgot"}',
 ];
 
 /**
@@ -182,6 +188,12 @@ const LOCALE_COOKIE_GUARD = '(not http.cookie contains "locale=")'; // guard 5 (
 // Static build output is immutable and safe to cache hard, regardless of auth.
 const STATIC_EXPR = 'starts_with(http.request.uri.path, "/_next/static/") or starts_with(http.request.uri.path, "/icons/")';
 
+// Site icons + web-app manifest: the same bytes for every visitor, signed in or
+// not. /favicon.ico was answering "private, no-store" and ~3 s of server time
+// per request (2026-10-07); /icon, /apple-icon and the manifest are generated
+// by Next on every hit. A day at the edge; deploys purge.
+const ICON_EXPR = 'http.request.method eq "GET" and http.request.uri.path in {"/favicon.ico" "/icon" "/apple-icon" "/manifest.webmanifest"}';
+
 function cacheableExpression(patterns = CACHEABLE_PATTERNS) {
   if (!AUTH_COOKIE) throw new Error("NEXT_PUBLIC_SUPABASE_URL missing — refusing to build a rule without the auth-cookie bypass");
   return [
@@ -193,6 +205,16 @@ function cacheableExpression(patterns = CACHEABLE_PATTERNS) {
 }
 
 const rules = () => [
+  {
+    description: "ikratom: cache site icons + manifest for a day",
+    expression: ICON_EXPR,
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 86400 },
+      browser_ttl: { mode: "override_origin", default: 3600 },
+    },
+  },
   {
     description: "ikratom: cache immutable build assets",
     expression: STATIC_EXPR,
