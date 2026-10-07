@@ -40,11 +40,13 @@ function loadKeys() {
     const k = process.env[`GEMINI_API_KEY_${i}`];
     if (k) keys.push(k);
   }
-  return Array.from(new Set(keys)); // dedupe, preserve first-seen order
+  // A key pasted through a Windows shell can carry a byte-order mark.
+  return Array.from(new Set(keys.map((k) => k.replace(/^﻿/, "").trim()).filter(Boolean)));
 }
 
 const KEYS = loadKeys();
 const cooldownUntil = new Map(); // key -> epoch ms when it's usable again
+const deadKeys = new Set(); // keys refused for good this process (bad key, billing, model not offered)
 let _cursor = -1;
 
 /** Number of distinct configured keys (>= 0). */
@@ -58,12 +60,27 @@ export function geminiKeyCount() {
  * down we return one anyway (better to try-and-maybe-429 than to give up).
  */
 export function pickGeminiKey() {
-  if (KEYS.length === 0) return null;
+  const live = KEYS.filter((k) => !deadKeys.has(k));
+  if (live.length === 0) return null;
   const now = Date.now();
-  const fresh = KEYS.filter((k) => (cooldownUntil.get(k) ?? 0) <= now);
-  const pool = fresh.length ? fresh : KEYS;
+  const fresh = live.filter((k) => (cooldownUntil.get(k) ?? 0) <= now);
+  const pool = fresh.length ? fresh : live;
   _cursor = (_cursor + 1) % pool.length;
   return pool[_cursor];
+}
+
+/**
+ * Drop a key for the rest of the process. 2026-10-07: the primary key's project
+ * ran out of prepaid credit (402) and the router marked ALL of Gemini dead, so a
+ * working second key was never tried. A refusal is about the key, not Gemini.
+ */
+export function markGeminiKeyDead(key) {
+  if (key) deadKeys.add(key);
+}
+
+/** Keys still worth trying this process. */
+export function liveGeminiKeyCount() {
+  return KEYS.filter((k) => !deadKeys.has(k)).length;
 }
 
 /** Park a key after a 429 so the rotation skips it for a while. */
