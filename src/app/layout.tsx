@@ -31,7 +31,7 @@ import { AttributionCapture } from "@/components/chrome/AttributionCapture";
 import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGate } from "@/components/chrome/ChromeGates";
 import "./globals.css";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 const geist = Geist({
   variable: "--font-geist",
   subsets: ["latin"],

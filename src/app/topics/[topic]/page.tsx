@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { STANCE_TOPIC_META, STANCE_TOPICS } from "@/lib/legislator-action-plan";
 import { getBillsForTopic, isStanceTopic, STANCE_TONE } from "@/lib/topic-bills";

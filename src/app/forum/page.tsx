@@ -10,7 +10,7 @@ import { stateKey, communityKey } from "@/modules/forum/engagement-keys";
 import { ForumSubscribeButton } from "@/modules/forum/components/ForumSubscribeButton";
 import { ForumStateNav } from "@/modules/forum/components/ForumStateNav";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "Community" };
 
 export default async function ForumIndexPage() {

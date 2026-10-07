@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 import { KRATOM_INDUSTRY_ACTORS, FACTION_META } from "@/lib/kratom-industry-actors";
 

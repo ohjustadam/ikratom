@@ -5,7 +5,7 @@ import { createLibraryItem, updateLibraryItem } from "../actions";
 import type { LibraryItemType } from "../types";
 import { TYPE_LABELS } from "../types";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 const TYPES: LibraryItemType[] = ["video", "audio", "book", "article", "document"];
 
 type Initial = {

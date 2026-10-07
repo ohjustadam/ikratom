@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { AcademyAdminTree } from "./AcademyAdminTree";

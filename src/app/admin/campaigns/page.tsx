@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { computePriority } from "@/lib/campaign-priority";
 import { AdminCampaignTable, type AdminCampaignRow } from "./AdminCampaignTable";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "Admin · Campaigns" };
 
 const TERMINAL = new Set(["dead", "enacted", "vetoed", "failed", "withdrawn"]);

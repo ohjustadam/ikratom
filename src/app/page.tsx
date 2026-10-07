@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { getCachedClaims } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { HomeMemorialBand } from "@/components/HomeMemorialBand";
 import { HomeLivePulse } from "@/components/HomeLivePulse";
 import { StateLegalMap } from "@/components/StateLegalMap";

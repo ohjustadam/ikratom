@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { enrichLibraryUrl, type LibraryUrlSuggestion } from "@/modules/library/enrich-url-action";
 import { createLibraryItem } from "@/modules/library/actions";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 const TYPE_OPTIONS = [
   { value: "video", label: "📺 Video" },
   { value: "audio", label: "🎙️ Audio / Podcast" },

@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import Link from "next/link";
+import Link from "@/components/Link";
 
 export const metadata = { title: "iKratom — Your seat at the table" };
 export const dynamic = "force-dynamic";

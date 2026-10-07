@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listMyIntelTips } from "@/modules/alerts/actions";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "My intel tips" };
 export const dynamic = "force-dynamic";
 

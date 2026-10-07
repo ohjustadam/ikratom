@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useSearchParams } from "next/navigation";
 import { useChromeMe } from "@/components/chrome/ChromeProvider";
 import { BillsBrowser } from "./BillsBrowser";

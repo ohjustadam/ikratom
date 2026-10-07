@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { startExam, submitExam } from "@/modules/academy/actions";
 
 type Q = { id: string; prompt: string; choices: string[] };

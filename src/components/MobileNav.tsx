@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CATEGORIES } from "@/config/nav-categories";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 /**
  * Mobile menu — full-screen overlay (NOT a side drawer).
  *

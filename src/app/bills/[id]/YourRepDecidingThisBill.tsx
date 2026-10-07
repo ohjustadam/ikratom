@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { useChromeMe } from "@/components/chrome/ChromeProvider";
 import type { YourRepData } from "./your-rep-data";

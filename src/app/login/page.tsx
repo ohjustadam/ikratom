@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { siteConfig } from "@/config/site.config";
 import { AuthForm } from "@/modules/auth/components/AuthForm";
 

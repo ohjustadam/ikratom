@@ -30,7 +30,7 @@ import { PushOptInBanner } from "@/components/PushOptInBanner";
 import { listMyPushSubscriptions } from "@/modules/auth/actions-push";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 /**
  * /dashboard — the cockpit.
  *

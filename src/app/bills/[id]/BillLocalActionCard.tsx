@@ -6,7 +6,7 @@ import { useState } from "react";
 import { NotifyMeButton } from "./NotifyMeButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 /**
  * "Local action playbook" — uniform actionable UI rendered above the
  * journey block on /bills/[id] when scope=municipal/county and

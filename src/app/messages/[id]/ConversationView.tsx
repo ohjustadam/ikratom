@@ -14,7 +14,7 @@ import { sendMessage } from "@/modules/dm/actions";
 import { blockUser } from "@/modules/dm/block-actions";
 import { createClient } from "@/lib/supabase/client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 type MessageRow = {
   id: string;
   sender_id: string;

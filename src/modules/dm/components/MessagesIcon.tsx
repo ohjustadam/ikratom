@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "@/components/Link";
 
 /**
  * Client component (2026-07-22). The unread count now arrives as a prop from

@@ -12,7 +12,7 @@
  * full read. When we add full-body extraction (license-safe), this page
  * is the surface for it.
  */
-import Link from "next/link";
+import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { savePushSubscription } from "@/modules/auth/actions-push";
 import { isDesktopShell, pushBlockedMessage, DESKTOP_SHELL_PUSH_MSG } from "@/lib/push/client-support";
 

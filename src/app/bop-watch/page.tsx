@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { CoverageTable } from "./CoverageTable";
 import { DirectFindingsStat, FilteredFindings } from "./FilteredView";

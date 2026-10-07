@@ -6,7 +6,7 @@ import { recordForumVisit } from "@/modules/forum/engagement-actions";
 import { stateKey, type SubMode } from "@/modules/forum/engagement-keys";
 import { ForumSubscribeButton } from "@/modules/forum/components/ForumSubscribeButton";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export async function generateMetadata({
   params,
 }: {

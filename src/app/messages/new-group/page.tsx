@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NewGroup } from "./NewGroup";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "New group" };
 
 export default async function NewGroupPage() {

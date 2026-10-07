@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext, getAdminQueueCounts } from "@/modules/admin/actions";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { summarizeCronHealth } from "@/lib/cron-expectations";

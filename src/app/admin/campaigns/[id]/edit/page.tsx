@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { CampaignForm } from "@/modules/admin/components/CampaignForm";
 import { listWavesForCampaign } from "@/modules/waves/actions-admin";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 export const metadata = { title: "Edit campaign" };
 
 export default async function EditCampaignPage({

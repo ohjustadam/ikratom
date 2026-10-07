@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 import { extractSponsor, extractBlurb, repealPath } from "@/lib/takeback";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";

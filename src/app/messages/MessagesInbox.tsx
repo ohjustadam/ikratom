@@ -5,7 +5,7 @@ import { getOrCreateKeypair } from "@/lib/crypto/e2e";
 import { setPublicKey } from "@/modules/dm/actions";
 import { publicHandle } from "@/lib/public-handle";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 type Conv = {
   id: string;
   last_message_at: string;
