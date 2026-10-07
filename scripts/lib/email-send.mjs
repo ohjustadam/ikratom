@@ -104,7 +104,10 @@ async function sendBrevo(msg) {
     headers: { "api-key": process.env.BREVO_API_KEY, "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({
       sender: { email: from.email, name: from.name }, to: [{ email: msg.to }], subject: msg.subject,
-      htmlContent: msg.html, textContent: msg.text, headers: listUnsubHeaders(msg.unsubscribeUrl), tags: msg.tag ? [msg.tag] : undefined,
+      htmlContent: msg.html, textContent: msg.text, tags: msg.tag ? [msg.tag] : undefined,
+      // Brevo rejects an empty headers object ("400 headers is blank"), which
+      // silently pushed every email without an unsubscribe link onto Resend.
+      ...(msg.unsubscribeUrl ? { headers: listUnsubHeaders(msg.unsubscribeUrl) } : {}),
     }),
     signal: AbortSignal.timeout(20_000),
   });
