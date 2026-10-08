@@ -24,7 +24,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { encryptStream, decryptFile } from "./lib/backup-crypto.mjs";
+import { encryptStream, decryptFile, inspect } from "./lib/backup-crypto.mjs";
+import { assessSnapshot, countsFromStats, DEFAULT_MIN_ROWS } from "./lib/snapshot-guard.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
@@ -112,13 +113,65 @@ const bytes = await encryptStream(Readable.from(rows(tables, stats)), file, fs.r
 console.log(`✓ ${file} · ${(bytes / 1e6).toFixed(2)} MB encrypted · ${tables.length} tables · ${Math.round((Date.now() - t0) / 1000)}s`);
 console.log(`  ${stats.filter((s) => !s.endsWith("=0")).join(" ")}`);
 
+// ─── NON-VACUITY GUARD (2026-10-08) ──────────────────────────────────────────
+//
+// Until now this script reported `status: "success"` unconditionally, as soon as
+// encryptStream resolved. Nothing checked that anything had actually been
+// captured. So if the Management API had returned `[]` for every table — an
+// expired token, a permissions change, a schema rename — this would have written
+// a tiny well-formed .enc file, printed a ✓, uploaded it as the day's backup and
+// recorded a successful run. The workflow's `if-no-files-found: error` does not
+// help: the file exists, it is just empty. A backup that reports success while
+// holding nothing is worse than a backup that fails, because the failure is
+// discovered at restore time.
+//
+// This CANNOT be a decrypt-and-count check in CI, and that is deliberate: the
+// private key is not a GitHub secret and must never become one, or the cloud
+// gains the ability to read every account. So the checks here are all key-free —
+// counts taken from the plaintext as it streamed past, plus inspect(), which
+// validates the sealed file's magic, wrapped-key length and minimum size without
+// opening it.
+//
+// FUTURE (not built): compare rowsTotal against the previous successful run in
+// scraper_runs and fail on a large drop. That would also catch partial capture,
+// not just total emptiness. Left out because it makes the guard depend on
+// telemetry history, and a brittle guard gets deleted.
+// The decision itself lives in scripts/lib/snapshot-guard.mjs so that every
+// branch of it is reachable from tests/backup-crypto.test.ts without a
+// database, a key or a network call.
+const { ok: verdict, problems, rowsTotal, critical } = assessSnapshot({
+  counts: countsFromStats(stats),
+  sealed: inspect(file),
+  minRows: Number(arg("min-rows", String(DEFAULT_MIN_ROWS))),
+});
+
+if (verdict) {
+  console.log(`✓ guard: ${critical} · ${rowsTotal} rows · seal intact`);
+} else {
+  console.error(`✗ guard FAILED — this backup is not trustworthy:`);
+  for (const p of problems) console.error(`    · ${p}`);
+}
+
 // Telemetry for the staleness pager (source db_snapshot_api), when run with the
-// service-role env (CI). A silent backup job is a silent loss of every account.
+// service-role env (CI). A silent backup job is a silent loss of every account —
+// and so is a LOUDLY SUCCESSFUL one that captured nothing, hence `status` now
+// follows the guard instead of being hardcoded.
 if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.NEXT_PUBLIC_SUPABASE_URL) {
   try {
     const { createClient } = await import("@supabase/supabase-js");
     const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    const rowsTotal = stats.reduce((a, x) => a + Number(x.split("=")[1] || 0), 0);
-    await sb.from("scraper_runs").insert({ source: "db_snapshot_api", started_at: new Date(t0).toISOString(), finished_at: new Date().toISOString(), status: "success", rows_updated: rowsTotal, notes: `${path.basename(file)} ${(bytes / 1e6).toFixed(2)}MB · ${tables.length} tables · ${rowsTotal} rows` });
-  } catch { /* best-effort */ }
+    await sb.from("scraper_runs").insert({
+      source: "db_snapshot_api",
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      status: verdict ? "success" : "error",
+      rows_updated: rowsTotal,
+      error_message: verdict ? null : problems.join("; ").slice(0, 400),
+      notes: `${path.basename(file)} ${(bytes / 1e6).toFixed(2)}MB · ${tables.length} tables · ${rowsTotal} rows · ${critical}`,
+    });
+  } catch { /* best-effort: telemetry must never be the thing that breaks a run */ }
 }
+
+// Exit non-zero so the workflow step fails and `Keep the encrypted snapshot`
+// never runs — an untrustworthy file must not be uploaded as the day's backup.
+if (!verdict) process.exit(1);
