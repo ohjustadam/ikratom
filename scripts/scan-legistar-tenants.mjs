@@ -83,13 +83,18 @@ console.log(`Scanning ${tenants.length} Legistar tenant(s), meetings ${today} �
 
 const outcome = {}; // fail reason / "ok" → count
 let events = 0, itemCalls = 0, hits = 0, inserted = 0, dupes = 0, budgetHit = false;
+const goneClients = []; // live in legistar_tenants, but the webapi says the client no longer exists
 
 for (const t of tenants) {
   if (overBudget()) { budgetHit = true; break; }
   process.stdout.write(`  ${t.locality.padEnd(30)} `);
   const filter = encodeURIComponent(`EventDate ge datetime'${today}' and EventDate le datetime'${until}'`);
   const ev = await getJson(`/${t.client}/events?$filter=${filter}&$orderby=EventDate&$top=${MAX_EVENTS_PER_TENANT}`);
-  if (ev.fail) { outcome[ev.fail] = (outcome[ev.fail] ?? 0) + 1; console.log(`✗ ${ev.fail}`); await sleep(300); continue; }
+  if (ev.fail) {
+    outcome[ev.fail] = (outcome[ev.fail] ?? 0) + 1;
+    if (ev.fail === "gone" && t.fromDb) goneClients.push(t.client);
+    console.log(`✗ ${ev.fail}`); await sleep(300); continue;
+  }
   outcome.ok = (outcome.ok ?? 0) + 1;
   const list = Array.isArray(ev.data) ? ev.data : [];
   events += list.length;
@@ -120,6 +125,19 @@ const outcomes = Object.entries(outcome).map(([k, v]) => `${v} ${k}`).join(", ")
 const notes = `${tenants.length} tenants (${outcomes}) · ${events} meetings (${itemCalls} agendas read) · ${hits} with kratom items · ${inserted} new` +
   `${dupes ? ` · ${dupes} already filed` : ""}${budgetHit ? " · budget-hit" : ""}`;
 console.log(`\nDone in ${((Date.now() - t0) / 60_000).toFixed(1)} min — ${notes}`);
+
+// Self-heal the tenant cache: "not set up in InSite" is Legistar saying the
+// client is gone for EVERY endpoint (verified 2026-10-08 on /bodies too), so the
+// local-officials lookup would keep trying a dead tenant. 9 were stale at rewrite
+// (Chicago, Atlanta, LA County, Miami, ...). NOTE: discover-legistar-tenants
+// never re-probes a 'none' row, so if a city returns to Legistar, delete its row
+// (or set probe_status back to 'live') and the next discovery run re-adds it.
+if (!DRY_RUN && goneClients.length) {
+  const { error } = await sb.from("legistar_tenants")
+    .update({ probe_status: "none", probed_at: new Date().toISOString() })
+    .in("webapi_client", goneClients).eq("probe_status", "live");
+  console.log(error ? `⚠ couldn't retire gone tenants: ${error.message}` : `retired ${goneClients.length} gone tenant(s): ${goneClients.join(", ")}`);
+}
 
 if (!DRY_RUN) {
   try {

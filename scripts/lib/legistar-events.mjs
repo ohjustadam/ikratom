@@ -94,7 +94,7 @@ export function mergeTenants(dbRows, staticList, clientFor) {
   const byClient = new Map();
   for (const r of dbRows ?? []) {
     if (!r.webapi_client) continue;
-    byClient.set(r.webapi_client, { client: r.webapi_client, state: r.state, locality: r.locality, body: r.body ?? null });
+    byClient.set(r.webapi_client, { client: r.webapi_client, state: r.state, locality: r.locality, body: r.body ?? null, fromDb: true });
   }
   const knownLocalities = new Set([...byClient.values()].map((t) => t.locality));
   for (const t of staticList ?? []) {
