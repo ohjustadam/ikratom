@@ -29,7 +29,7 @@ const ENDPOINTS = [
  * approved a critical alert and want it fanned out immediately
  * instead of waiting up to 30 min).
  */
-export function CronTriggerPanel() {
+export function CronTriggerPanel({ isOwner }: { isOwner: boolean }) {
   const [running, setRunning] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, CronTriggerResult>>({});
   const [wfRunning, setWfRunning] = useState<string | null>(null);
@@ -112,6 +112,12 @@ export function CronTriggerPanel() {
         Dispatch a full cron pipeline on GitHub&apos;s cloud runners right now (not your box) —
         watch progress on the linked Actions page. The AI Editor can also run these for you.
       </p>
+      {!isOwner && (
+        <p className="mt-2 rounded border border-amber-700/40 bg-amber-950/15 px-2 py-1.5 text-[10px] text-amber-200">
+          Owner-only — a run executes repo code on a cloud runner holding the service-role key.
+          Use the manual cron triggers above, or ask the owner to run a pipeline.
+        </p>
+      )}
       <ul className="mt-3 space-y-2">
         {DISPATCHABLE_WORKFLOWS.map((wf) => {
           const r = wfResults[wf.file];
@@ -125,7 +131,8 @@ export function CronTriggerPanel() {
               <button
                 type="button"
                 onClick={() => fireWorkflow(wf.file)}
-                disabled={wfRunning === wf.file}
+                disabled={wfRunning === wf.file || !isOwner}
+                title={!isOwner ? "Owner-only" : undefined}
                 className="mt-2 min-h-[40px] rounded-md bg-emerald-500 px-4 py-1.5 text-[11px] font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"
               >
                 {wfRunning === wf.file ? "Dispatching…" : "🚀 Run now"}

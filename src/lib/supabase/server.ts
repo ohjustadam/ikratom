@@ -89,6 +89,13 @@ export type CachedAuthProfile = {
   ui_accent: string | null;
   ui_accent_hex: string | null;
   ui_mode: string | null;
+  // Home state. Read here so PAGES never have to open a cookie-bound client
+  // just to highlight "your state" — that one read was forcing /news (and
+  // others) to re-query Supabase on every crawler hit.
+  state: string | null;
+  // When the member answered "which state?" (0259). Undefined until that
+  // migration is applied; NULL with state NULL means never asked.
+  state_answered_at?: string | null;
 };
 
 /**
@@ -110,11 +117,21 @@ export const getCachedAuthProfile = cache(
     if (!userId) return { userId: null, profile: null };
     const supabase = await createClient();
     const CORE =
-      "id, is_admin, is_owner, is_advocate_leader, leader_tour_pending, leader_acknowledged_at, username, full_name, avatar_url";
+      "id, is_admin, is_owner, is_advocate_leader, leader_tour_pending, leader_acknowledged_at, username, full_name, avatar_url, state";
     // Try the extended select (incl. UI prefs). If migration 0172 hasn't
     // been applied yet, selecting the ui_* columns errors and returns null —
     // fall back to the CORE columns so the always-rendered chrome (admin /
     // leader checks) never breaks in the deploy-before-db:push window.
+    // Newest tier first: state_answered_at (migration 0259) drives the
+    // required "which state?" prompt. Same deploy-before-db:push rule as the
+    // ui_* tier below: if the column is missing this returns null and we fall
+    // through, so the chrome never breaks — the prompt just stays hidden.
+    const { data: newest } = await supabase
+      .from("profiles")
+      .select(`${CORE}, ui_theme, ui_accent, ui_accent_hex, ui_mode, state_answered_at`)
+      .eq("id", userId)
+      .single();
+    if (newest) return { userId, profile: newest as CachedAuthProfile };
     const { data: extended } = await supabase
       .from("profiles")
       .select(`${CORE}, ui_theme, ui_accent, ui_accent_hex, ui_mode`)

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getContent } from "@/lib/editable-content";
 
 export const metadata = {
@@ -29,7 +29,8 @@ export const metadata = {
  *   - One quiet zinc treatment for the negations
  *   - No CTAs in the middle (a manifesto is read, not bounced through)
  */
-export const dynamic = "force-dynamic";
+// Static + revalidate (2026-07-23): editorial content, identical for everyone.
+export const revalidate = 3600;
 
 export default async function EthicsPage() {
   const intro = await getContent(
@@ -134,7 +135,7 @@ export default async function EthicsPage() {
         </p>
         <ul className="mt-3 space-y-1.5 text-[13px] text-zinc-400">
           <li>
-            Public correction: <Link href="/intel/submit" className="text-emerald-400 hover:underline">submit an intel tip</Link> from the bill page in question
+            Public correction: <Link href="/alerts/submit" className="text-emerald-400 hover:underline">submit an intel tip</Link> from the bill page in question
           </li>
           <li>
             Private channel: <a href="mailto:support@ikratom.org" className="text-emerald-400 hover:underline">support@ikratom.org</a>

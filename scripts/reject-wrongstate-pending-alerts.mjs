@@ -49,12 +49,21 @@ function statesNamedInTitle(title) {
   return found;
 }
 
-const { data: alerts, error } = await sb
-  .from("policy_alerts")
-  .select("id, title, locality")
-  .eq("moderation_status", "pending")
-  .limit(1000);
-if (error) { console.error(error.message); process.exit(1); }
+// Range-paginated: a bare .limit(1000) silently scanned an arbitrary 1000-row
+// window — above that, wrong-state alerts outside the window were never
+// rejected (audit 2026-07-16).
+const alerts = [];
+for (let from = 0; ; from += 1000) {
+  const { data, error } = await sb
+    .from("policy_alerts")
+    .select("id, title, locality")
+    .eq("moderation_status", "pending")
+    .order("id")
+    .range(from, from + 999);
+  if (error) { console.error(error.message); process.exit(1); }
+  alerts.push(...(data ?? []));
+  if (!data || data.length < 1000) break;
+}
 
 const specific = (alerts ?? []).filter((a) => STATE_ABBRS.has(String(a.locality ?? "").toUpperCase()));
 console.log(`${APPLY ? "🔧 APPLY" : "🔍 DRY-RUN"} — ${specific.length} pending state-specific alerts\n`);
@@ -71,26 +80,53 @@ for (const a of specific) {
 console.log(`${reject.length} wrong-state pending alerts:`);
 for (const { a, derived } of reject) console.log(`  ${String(a.locality).padEnd(4)}→${derived.padEnd(6)} ${(a.title ?? "").slice(0, 64)}`);
 
+let rejected = 0;
 if (APPLY && reject.length) {
-  const ids = reject.map((r) => r.a.id);
-  const { error: upErr, count } = await sb
-    .from("policy_alerts")
-    .update({ moderation_status: "rejected" })
-    .in("id", ids)
-    .select("id", { count: "exact" });
-  if (upErr) { console.error(`\nApply failed: ${upErr.message}`); process.exit(1); }
-  console.log(`\n✅ Rejected ${count ?? ids.length} wrong-state pending alert(s).`);
+  // Per-row, NOT a batch .in(), so each rejection carries the state that was
+  // actually named in the headline. A rejection with no recorded reason is
+  // indistinguishable from a blanket denial when someone reviews the queue
+  // later — 330 alerts sat rejected with a null moderation_note, which is
+  // exactly why the auto-resolver read as "denies everything with no legit
+  // reason". The reason was known right here and thrown away.
+  const nowIso = new Date().toISOString();
+  for (const { a, derived } of reject) {
+    const note = `Locality "${a.locality}" is not named in the headline, which names ${derived} instead — `
+      + `auto-rejected as a wrong-state alert (reject-wrongstate-pending-alerts).`;
+    const { error: upErr } = await sb
+      .from("policy_alerts")
+      .update({
+        moderation_status: "rejected",
+        moderation_note: note.slice(0, 500),
+        moderated_at: nowIso,
+      })
+      .eq("id", a.id);
+    if (upErr) { console.error(`  ⚠ ${a.id.slice(0, 8)}: ${upErr.message.slice(0, 70)}`); continue; }
+    rejected++;
+  }
+  console.log(`\n✅ Rejected ${rejected} wrong-state pending alert(s).`);
+} else if (reject.length) {
+  console.log(`\n(dry-run — re-run with --apply to reject these.)`);
+}
+
+// Telemetry on EVERY completed apply run, including the no-op.
+//
+// This used to live inside the `reject.length` branch, so a clean sweep — the
+// healthy, normal outcome — wrote nothing at all. The job ran green in
+// cron-daily every single day while check-cron-staleness saw the source as 50+
+// days old and paged the owner about it. "Nothing to do" is a successful run
+// and has to be recorded as one, or silence gets read as failure.
+if (APPLY) {
   try {
     await sb.from("scraper_runs").insert({
       source: "reject_wrongstate_pending_alerts",
       started_at: new Date(t0).toISOString(),
       finished_at: new Date().toISOString(),
-      status: "success",
-      rows_updated: count ?? ids.length,
-      notes: `rejected ${count ?? ids.length} geo-mismatched pending alerts`,
+      status: rejected > 0 ? "success" : "empty",
+      rows_updated: rejected,
+      notes: rejected > 0
+        ? `rejected ${rejected} geo-mismatched pending alerts`
+        : `clean — 0 of ${specific.length} pending state-specific alerts were geo-mismatched`,
     });
   } catch { /* best-effort */ }
-} else if (reject.length) {
-  console.log(`\n(dry-run — re-run with --apply to reject these.)`);
 }
 process.exit(0);

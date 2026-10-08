@@ -11,7 +11,7 @@ export default async function EditLibraryItemPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_library" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { id } = await params;

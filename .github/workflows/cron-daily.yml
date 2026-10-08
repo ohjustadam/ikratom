@@ -16,8 +16,310 @@ concurrency:
   group: daily-cron
   cancel-in-progress: false
 
+# ---------------------------------------------------------------------------
+# Free AI provider pool — workflow-level so EVERY step inherits it.
+#
+# Why this is here and not on each step: the router (scripts/lib/ai-router.mjs)
+# can only use a provider whose key is in the step's environment. Keys were
+# added per step as each provider was adopted, so older steps kept an older,
+# smaller pool — this workflow reached the router with no OPENROUTER_API_KEY at
+# all while OpenRouter was the only provider still answering. Ingestion kept
+# running and every enrichment step failed, which is exactly the "reads the
+# world but cannot make sense of it" state we were in.
+#
+# A workflow-level env block is inherited by every job and every step, and a
+# step-level env still wins where one is set, so this can only widen the pool.
+# Adding a provider is now: create the secret, add one line here.
+# An unset secret expands to "" and the router skips that provider silently.
+# See docs/AI_PROVIDERS.md.
+env:
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+  GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+  MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+  AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+  CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+  CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  # GitHub Actions forbids secret names starting with GITHUB_, hence GH_MODELS_TOKEN.
+  GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+  # Optional: reorder the pool without a deploy, e.g. "groq,mistral,openrouter".
+  AI_PROVIDER_ORDER: ${{ vars.AI_PROVIDER_ORDER }}
+
 jobs:
+  # ── CLOCK DEDUPE ────────────────────────────────────────────────────────
+  # GitHub runs scheduled workflows hours late or not at all (2026-10-06: 3
+  # of 12 every-2-hours runs happened). Supabase pg_cron now starts this
+  # workflow on time through workflow_dispatch (migration 0263); the schedule
+  # above stays as a FALLBACK for when that clock is down. A late scheduled
+  # run that lands after an on-time dispatched one cancels itself, so the
+  # work never runs twice. Only scheduled runs are checked.
+  clock:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel if the database clock already ran this daily workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOW_MIN: "1200"
+        run: |
+          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow cron-daily.yml --event workflow_dispatch -L 1 --json createdAt --jq '.[0].createdAt // empty')
+          if [ -z "$last" ]; then echo "no dispatched run yet: this scheduled run does the work"; exit 0; fi
+          age=$(( ( $(date -u +%s) - $(date -u -d "$last" +%s) ) / 60 ))
+          if [ "$age" -lt "$WINDOW_MIN" ]; then
+            echo "dispatched run started ${age} min ago: cancelling this late scheduled duplicate"
+            gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
+            sleep 60
+          else
+            echo "::warning::last dispatched run was ${age} min ago: the database clock may be down, so this scheduled run does the work"
+          fi
+
+  # ── SUPABASE EGRESS GATE (bulk tier) ────────────────────────────────────
+  #
+  # Same gate as cron-hourly.yml, at the stricter "bulk" ceiling: the daily
+  # fleet is wide audits, backfills and re-scans, all of which can wait a day
+  # and lose nothing permanent. Supabase RESTRICTS the project at 100% of the
+  # free egress cap rather than billing for it, so an unchecked backfill can
+  # take the public site down.
+  #
+  # Only ROOT jobs carry the gate. Everything downstream inherits it for free:
+  # a job whose `needs` was skipped is itself skipped, so gating the roots
+  # gates the whole 38-job graph without touching every definition.
+  #
+  # NOT gated: egress-watchdog (it is what MEASURES the budget — a monitor that
+  # silences itself under load is worse than no monitor) and the two reminder
+  # sends that real users are waiting on.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier bulk
+
+  vercel-migrated-crons:
+    # MIGRATED OFF VERCEL 2026-07-26. These were declared in vercel.json's
+    # "crons" block, which ONLY Vercel executes — after the move to Netlify
+    # (which has no cron primitive) they would have silently stopped running
+    # forever. Re-homed here as an authenticated HTTP call, host-independent:
+    # it hits whatever APP_URL points at, so a future host move needs no edit.
+    #
+    # ONLY reverify-local-officials is called here. `/api/cron/daily-sync` was
+    # DELIBERATELY NOT migrated, for two independent reasons:
+    #   1. It CANNOT complete on Netlify — verified live: the function is killed
+    #      at exactly 30s and returns 502. Its work (Google News RSS for every
+    #      state + OpenStates bills for every state) takes minutes, not seconds.
+    #   2. It is REDUNDANT anyway — `sync-news-rss.mjs --max-minutes 14`
+    #      (cron-hourly) and `sync-bills.mjs --max-minutes 18` +
+    #      `sync-bills-via-legiscan.mjs` (this workflow) already do that work as
+    #      node scripts, with minutes of runway instead of a 30s HTTP budget.
+    # The HTTP route was a Vercel-era convenience that the script pipeline
+    # outgrew. Leaving it uncalled loses nothing. (Route left in the codebase —
+    # it still works on a long-timeout host if we ever go back.)
+    #
+    # Verified live 2026-07-26: reverify returns 200 in ~7.6s with real stats.
+    # continue-on-error so a slow endpoint can't take down the daily fan-out —
+    # the route writes its own scraper_runs telemetry, so genuine failures
+    # surface through the staleness watchdog, not a red workflow badge.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Hit /api/cron/reverify-local-officials
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # Netlify origin — bypasses Cloudflare BFM for authenticated cron paths only.
+          CRON_ORIGIN: https://ikratom.netlify.app
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
+            echo "::error::Missing CRON_SECRET or APP_URL repo secret"
+            exit 1
+          fi
+          # Cloudflare Bot Fight Mode blocks this call by IP/ASN, NOT by User-Agent.
+          # PROVEN 2026-08-19: with the browser-first UA below, GitHub's runner still got
+          # HTTP/2 403 + cf-mitigated: challenge + the 'Just a moment...' interstitial
+          # (cf-ray a2dc8a236d4a7a9d-ORD), while the IDENTICAL request with the IDENTICAL
+          # UA from a residential IP returned a clean 401 from the app. Reordering the UA
+          # is harmless hygiene and is kept, but it is NOT a fix and must not be reported
+          # as one -- an earlier review claimed BFM keys off the UA prefix; it does not.
+          # Two real options, both needing an owner decision (see private/RELAUNCH_2026-08-19.md 1.1):
+          #   (a) turn Bot Fight Mode off, or
+          #   (b) exempt /api/cron/* from the netlify.app -> www 308 so this call can reach
+          #       the origin directly (these routes already require Bearer CRON_SECRET).
+          # Until one is chosen, this job fails every run and ALL push/email fan-out is dead.
+          # ORIGIN-DIRECT (owner decision, 2026-08-19). Cloudflare Bot Fight Mode
+          # challenges GitHub's datacenter IPs, so this call via www.ikratom.org got a
+          # 403 challenge and never reached the app -- see netlify.toml's cron
+          # passthrough rule for the full rationale and threat model. CRON_ORIGIN goes
+          # straight to the Netlify origin, where netlify.toml serves /api/cron/* with
+          # status 200 instead of the 308 that bounces everything else back to www.
+          # The route still requires Authorization: Bearer CRON_SECRET, so this is an
+          # authenticated keyhole, not an open bypass. Falls back to APP_URL if unset.
+          curl -fsS --max-time 600 \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 iKratom-Cron/1.0 (+https://www.ikratom.org)" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "${CRON_ORIGIN:-$APP_URL}/api/cron/reverify-local-officials"
+
+  national-news-digest:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    # The country-wide counterpart to push-state-news (cron-hourly), which only
+    # ever reaches in-state users — so a Florida advocate never heard that Ohio
+    # moved. ONE condensed digest per user per day of news from other states plus
+    # national coverage; their own state's stories are excluded because they
+    # already arrived individually.
+    #
+    # Gated like every other daily job: it is a scheduled digest, not an urgent
+    # alert, so it yields when the egress budget is tight.
+    #
+    # Free — inserts notifications rows; the hourly fanout turns them into web
+    # pushes with our existing VAPID keys.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Push the national news digest
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/push-national-news-digest.mjs
+
+  email-digest:
+    # The daily email: everything since the last digest, upcoming hearings first.
+    # Runs AFTER the national digest so today's country-wide items are included,
+    # and on `always()` so a failed digest step never silences email.
+    #
+    # NOT gated by the egress budget: it reads a few hundred notification rows,
+    # and email is the only channel that reaches most members (push reaches
+    # ~15%). Runs here, not on Netlify, so it keeps working when the site is down.
+    #
+    # Needs repo secrets RESEND_API_KEY + RESEND_FROM_EMAIL + RESEND_FROM_NAME
+    # (optional BREVO_API_KEY adds 300/day). Without them it fails loudly.
+    needs: national-news-digest
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Send the daily email digest
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_APP_URL: https://www.ikratom.org
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/send-email-notifications.mjs --mode digest
+
+  pending-meeting-alert:
+    # NOT gated by the egress budget, on purpose. This is an owner page about a
+    # hearing with a date on it — an alert that load-sheds goes quiet exactly
+    # when the platform is busiest, and a missed ban hearing cannot be caught up
+    # later. Same reasoning as the watchdog job below.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Resolve the pending queue first (superseded, not-a-meeting)
+        # Also here because this job is NOT budget-gated: on days discovery is
+        # skipped, the owner should still only be paged about real candidates.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/resolve-pending-meetings.mjs
+      - name: Page the owner about meetings awaiting review
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/alert-pending-meetings.mjs
+
+  egress-watchdog:
+    # The "never restricted again" failsafe (2026-07-16 incident): reads the
+    # project's Prometheus metrics endpoint and pages the owner at 50/75/90%
+    # of the 5GB/mo free-tier egress budget — weeks before a restriction.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Check egress usage vs free-tier budget
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Project ref derives from the URL inside the script — no extra secret.
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-egress-usage.mjs
+      # Netlify's half of the same failsafe (added 2026-09-16). Credits burn
+      # from bandwidth, requests and compute — NONE of which need a deploy — so
+      # the PR-time gate in ci.yml could not see the burn that disabled the site
+      # on 2026-07-30 with no PR open. Same job as the egress watchdog because
+      # they answer the same question ("is the free tier about to stop serving
+      # the site"), and for the same reason that job is NOT behind the egress
+      # gate: a monitor that load-sheds is a monitor that goes quiet exactly
+      # when it matters. --watchdog implies --warn-only, so a braking verdict
+      # pages instead of failing this job.
+      - name: Check Netlify credit budget (pages owner on trajectory)
+        continue-on-error: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_ACCOUNT_SLUG: ${{ secrets.NETLIFY_ACCOUNT_SLUG }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/netlify-credit-gate.mjs --watchdog
+
   verify-bill-status:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Layer 3 of the real-time pipeline (Layer 1 = bill_actions trigger;
     # Layer 2 = LegiScan primary sync). This is the safety net for
     # cases where BOTH OpenStates and LegiScan miss something — Gemini
@@ -55,9 +357,11 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
-        run: node scripts/auto-resolve-sync-discrepancies.mjs --limit 100
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-resolve-sync-discrepancies.mjs --limit 100
 
   openfec-donor-sync:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Refresh OpenFEC donor data for federal legislators (us_senate +
     # us_house). Once a day is plenty — campaign finance updates
     # quarterly. 50 legs/run = ~2 days to cover full ~700 federal
@@ -83,7 +387,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENFEC_API_KEY: ${{ secrets.OPENFEC_API_KEY }}
-        run: node scripts/sync-legislator-donors.mjs --limit 50
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-legislator-donors.mjs --limit 50
       - name: Classify donor industries from refreshed employers
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -91,9 +395,11 @@ jobs:
         # --refresh because legislator_donors.top_employers may have
         # changed (new contribs in this cycle); re-derive industries
         # from scratch to avoid stale aggregates.
-        run: node scripts/classify-donor-industries.mjs --refresh
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-donor-industries.mjs --refresh
 
   sync-bill-sponsors-all:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Back-fill bill_sponsors via OpenStates for every active anti/pro
     # bill across all 50 states. Critical for the /intel/threat-matrix
     # to surface hostile / champion legislators nationwide — without
@@ -124,9 +430,11 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
-        run: node scripts/sync-bill-sponsors.mjs --all --max-minutes 24
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bill-sponsors.mjs --all --max-minutes 24
 
   sync-stock-act-trades:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # STOCK Act personal-trade disclosures for federal legislators
     # (Periodic Transaction Reports). Pulls Senate + House data from
     # community-maintained mirrors (Senate Stock Watcher GitHub +
@@ -154,9 +462,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/sync-stock-act-trades.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-stock-act-trades.mjs
 
   lda-kratom-sync:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Pulls every Senate LDA filing mentioning kratom, refreshes our
     # lobbying_filings table. New filings drop quarterly so daily
     # is overkill but cheap (~25s wall time, no auth required) and
@@ -175,9 +485,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/sync-lda-kratom.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-lda-kratom.mjs
 
   bop-browser-scrape:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # BoP sources whose state .gov WAFs do TLS fingerprinting
     # (KS, NH, MA, AR currently) can't be scraped via Node fetch —
     # the JA3 signature gives us away regardless of headers. This
@@ -202,7 +514,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/scrape-bop-browser.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/scrape-bop-browser.mjs
 
   parse-bop-pdfs:
     # Layer 1.5 of the BoP classifier pipeline. Downloads PDF agendas
@@ -228,7 +540,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/parse-bop-pdfs.mjs --limit 50
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/parse-bop-pdfs.mjs --limit 50
 
   classify-bop-ai:
     # Layer 2 of the BoP classifier pipeline. Regex pass runs inside
@@ -254,9 +566,11 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/classify-bop-ai.mjs --limit 50
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-bop-ai.mjs --limit 50
 
   resolve-news-urls:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Phase 2 of FP defense — resolve Google News redirect URLs to publisher
     # URLs so verify-news-body / extract-news-content can fetch the article.
     # KEYLESS HTTP decode (lib/google-news-decode.mjs) — no Chromium needed;
@@ -277,7 +591,19 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/resolve-news-urls.mjs --limit 400
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/resolve-news-urls.mjs --limit 400
+      - name: Backfill alert source URLs from the just-resolved news URLs
+        # Closes the hourly/daily gap: classify-news-policy mints alerts HOURLY,
+        # before resolve-news-urls (above, DAILY) has a publisher URL, so alerts
+        # were written with source_url null and nothing ever went back for them.
+        # That null blocked auto-approve-campaigns' require_source gate, which is
+        # why the same 17-18 campaigns escalated every run and never resolved.
+        # Must run AFTER the resolver, in this job.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-alert-source-urls.mjs
 
   verify-news-body:
     # False-positive defense — two-phase pipeline:
@@ -305,7 +631,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/verify-news-body.mjs --limit 200
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/verify-news-body.mjs --limit 200
       - name: Seed /news from newsworthy unlinked alerts
         # "If it's not in /news, create it." Alerts born outside the news
         # pipeline (bill-action trigger, BoP, manual) that cite a real NEWS
@@ -317,7 +643,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/feed-news-from-alerts.mjs --apply
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/feed-news-from-alerts.mjs --apply
       - name: Derive local vote outcomes from alerts
         # Restructures local (city/county) kratom VOTE results from policy_alerts
         # into the local_vote_outcomes table (passed/failed/tabled) for /calendar
@@ -328,7 +654,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/extract-local-vote-outcomes.mjs --apply
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-local-vote-outcomes.mjs --apply
       - name: Extract in-app article excerpt + embedded media
         # Mines the resolved publisher HTML for a fair-use lead excerpt
         # (capped paragraphs) + embedded media (YouTube/Vimeo players,
@@ -339,7 +665,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/extract-news-content.mjs --limit 300
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-news-content.mjs --limit 300
       - name: Summarize news articles (our AI synthesis for /news/[id])
         # Guarantees every classified article has OUR 2-3 sentence summary even
         # when body extraction fails on JS-heavy sources (MSN/Yahoo) — so the
@@ -354,7 +680,7 @@ jobs:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: node scripts/summarize-news.mjs --limit 120
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/summarize-news.mjs --limit 120
       - name: Generate in-app news digests (full write-up)
         # FINAL enrichment step — runs AFTER extract+summarize so a brand-new
         # article embeds end-to-end (body + summary + our original full digest)
@@ -370,9 +696,24 @@ jobs:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: node scripts/generate-news-digest.mjs --limit 300 --days 90
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/generate-news-digest.mjs --limit 300 --days 90
+      - name: Audit federal scheduling claims
+        # Runs LAST in this job, after summaries + digests exist, so it audits
+        # what we just wrote. Checks every published claim that a substance is
+        # federally scheduled against the actual Federal Register record
+        # (keyless API, no key, no quota). Reports + flags for review; never
+        # rewrites copy. Added after the 2026-08-28 incident where a reader had
+        # to email us that a summarized article — and the federal alert it
+        # spawned — announced a 7-OH ban that had not happened.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/audit-federal-claims.mjs --days 45 --fix
 
   sync-usaspending-kratom:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Federal awards (grants + contracts) from USAspending.gov.
     # Surfaces who's getting paid by the feds for kratom-related work
     # — FDA contracts for human abuse potential studies, NIH grants
@@ -391,9 +732,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/sync-usaspending-kratom.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-usaspending-kratom.mjs
 
   sync-regulations-gov:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Federal rulemaking tracker via Regulations.gov. Pulls every
     # kratom-mentioning federal document (FDA/DEA/HHS/EPA/FTC notices,
     # NDI submissions, proposed/final rules, public comments). Works
@@ -416,9 +759,32 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           REGULATIONS_GOV_API_KEY: ${{ secrets.REGULATIONS_GOV_API_KEY }}
-        run: node scripts/sync-regulations-gov-kratom.mjs --max-pages 5
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-regulations-gov-kratom.mjs --max-pages 5
+
+  sync-community-videos:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    # /videos: newest uploads + upcoming lives from the kratom orgs' and
+    # creators' YouTube channels (external_communities, category youtube).
+    # Keyless RSS, ~1 request per channel; video bytes never touch us.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Sync community YouTube channels
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-community-videos.mjs
 
   sync-courtlistener-kratom:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Court litigation tracking via CourtListener (Free Law Project).
     # Pulls federal + state court opinions AND active RECAP dockets
     # mentioning kratom. Free unlimited API, no key required.
@@ -441,9 +807,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/sync-courtlistener-kratom.mjs --max-pages 5
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-courtlistener-kratom.mjs --max-pages 5
 
   scrape-utah-lobbying:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Phase 3 D2 pilot — scrape Utah's lobbyist registry. Single HTML
     # page, ~8MB, parses to ~6,800 registrations. Kratom-industry rows
     # (~16 today) upsert idempotently. Quick — runs in under 10s.
@@ -462,7 +830,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/scrape-utah-lobbying.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/scrape-utah-lobbying.mjs
 
   generate-state-briefings:
     # Per-state field-work briefings — AI synthesizes live platform data
@@ -472,7 +840,15 @@ jobs:
     # Runs AFTER all the data-collection jobs so the briefing reflects
     # today's bill/news/BoP/state-lobbying state. ~5s per state × 51
     # states ≈ 5 min.
-    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom]
+    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom, budget]
+    # Never cascade-skip on an upstream failure. These 5 needs are external-API
+    # collectors (the BoP Playwright chain notes House/state 403s); GitHub's
+    # default `needs` requires SUCCESS, so one flaky API would SKIP this job —
+    # which bundles the daily 50-state briefing regen, the intel-coverage check,
+    # AND ~7 production queue-cleanup steps. Briefings degrade fine on yesterday's
+    # intel and the cleanup steps are idempotent, so run regardless (matches the
+    # legiscan-wide-pass dependents' `if: !cancelled()` hardening).
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -489,7 +865,14 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
-        run: node scripts/generate-state-briefing.mjs --all-states
+        # --max-minutes 20 against the job's 30-minute cap. The script stops
+        # itself cleanly and reports `partial`, instead of GitHub CANCELLING the
+        # job at 30 and silently dropping the audit+heal and intel-coverage
+        # steps below. Targets are ordered stalest-first, so deferred states are
+        # first in line next run and coverage converges over a few days.
+        # Diagnosed 2026-09-05: generate_state_briefing had not succeeded since
+        # 2026-08-17 (19 days) because every run was cancelled at the cap.
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/generate-state-briefing.mjs --all-states --max-minutes 20
       # Phase 3 D7: audit briefings that came out of the blanket regen
       # and self-correct any with critique-blocked revisions or low
       # quality. Runs in-process so a single workflow run covers both
@@ -503,16 +886,79 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
-        run: node scripts/audit-state-briefings.mjs --auto-regen
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/audit-state-briefings.mjs --auto-regen
       # Intel coverage matrix — daily snapshot of which states have
       # which intel layers populated. `--check` fails the step if
       # briefings or legislators drop below floor coverage, surfacing
       # silent breakage (e.g. cron-step failure, missing secret).
+
+  translate-content:
+    needs: budget
+    # MOVED OFF THE OWNER'S PC, 2026-09-05. This was pinned to a local Ollama at
+    # localhost:11434, so it only ran when his machine did — and it had produced
+    # nothing since 2026-07-14, leaving id/th/ms/vi/tl (the kratom-producing
+    # countries) 53 days stale. It now goes through the free router first and
+    # keeps Ollama only as a local fallback, so it runs unattended here.
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Translate new content into the six locales
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/translate-content.mjs --limit 120
+
+  daily-maintenance:
+    # SPLIT OUT OF generate-state-briefings, 2026-08-22.
+    #
+    # These eight cleanup steps used to live INSIDE that job, after the
+    # 50-state AI briefing regen. On 2026-08-15 that regen hit the job's
+    # 30-minute timeout and GitHub cancelled it -- which SKIPPED all eight
+    # steps behind it. They then sat silent for 128 hours and showed up in the
+    # pager as eight separate "stale source" alerts, obscuring the fact that
+    # there was exactly ONE fault.
+    #
+    # The job comment itself already admitted it "bundles the daily 50-state
+    # briefing regen, the intel-coverage check, AND ~7 production queue-cleanup
+    # steps", and it had been hardened against `needs` cascade-skips -- but not
+    # against its own timeout. Same per-job-timeout trap that silently gutted
+    # cron-hourly in June (#632 era).
+    #
+    # Identical `needs` + `if: !cancelled()`, so ordering after the collectors
+    # is preserved -- but as a SIBLING job, so a slow briefing run can never
+    # take the cleanup down with it again. These steps are cheap, idempotent,
+    # and have nothing to do with AI generation.
+    needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom, budget]
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
       - name: Intel coverage matrix check
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/intel-coverage-audit.mjs --check
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/intel-coverage-audit.mjs --check
       # Data-quality cleanup. Deactivates news_items where the body-
       # verifier said "no kratom keyword" AND the title also has no
       # kratom keyword — RSS title-match false positives (NBA player
@@ -524,7 +970,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/cleanup-data-quality.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/cleanup-data-quality.mjs
       # V2_KICKOFF §3.A0 — retire active campaigns/alerts whose fight is
       # over (bill went terminal, or a news event duplicated a cluster's
       # canonical). Idempotent + self-healing; logs to scraper_runs as
@@ -538,7 +984,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/cleanup-stale-active-campaigns.mjs --apply
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/cleanup-stale-active-campaigns.mjs --apply
       # Rotating-campaign expiry (owner timeout model): stamp a 90d shelf-life on
       # auto-generated, non-standing campaigns + retire ORPHAN ones that are >90d
       # old AND 60d-quiet. Standing (is_standing) + manual + bill-linked campaigns
@@ -548,7 +994,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/expire-rotating-campaigns.mjs --apply
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/expire-rotating-campaigns.mjs --apply
       # Auto-dedupe (topic-cluster collapse) + reject stale/FP-derived pending
       # auto-campaigns so the review queue doesn't fill with junk. Live mode.
       - name: Auto-clean the pending-campaign queue
@@ -556,7 +1002,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/cleanup-pending-campaigns.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/cleanup-pending-campaigns.mjs
       # Auto-reject wrong-state pending alerts (per-state RSS mis-tags national
       # news to a state; the title is the trustworthy signal). Drains the
       # pending "intel queue" of geo-mismatched false positives.
@@ -565,7 +1011,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/reject-wrongstate-pending-alerts.mjs --apply
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/reject-wrongstate-pending-alerts.mjs --apply
       # Intel-queue cluster-janitor — collapse cross-outlet duplicates of one
       # story (the national FDA/DEA 7-OH push lands as ~16 near-identical alerts)
       # and re-scrapes of already-public stories, so the pending intel queue
@@ -577,7 +1023,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/dedupe-pending-alerts.mjs --apply
+        # --stale-days 45: age-based expiry for GENUINE pending intel — without
+        # it the intel queue only drains via manual owner review + the dedupe/
+        # wrong-state janitors, so a review lapse grows it without bound
+        # (the campaign queue already has a 45-day stale-reject; this matches).
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/dedupe-pending-alerts.mjs --apply --stale-days 45
       # Locality<->state DRIFT MONITOR: re-check every geo-tagged row against the
       # authoritative US gazetteer (scripts/lib/geo-resolver.mjs) and report any
       # mismatch via scraper_runs telemetry. DETECT-ONLY by design — it does NOT
@@ -591,7 +1041,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/audit-locality-states.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/audit-locality-states.mjs
       # NOTE: verify-local-bans (two-source gate for LOCAL kratom bans, 0190)
       # moved OFF this workflow in PR-A: it now runs nightly on the owner box
       # (SearXNG + local extract — keyless, no Gemini grounding). Registered
@@ -606,10 +1056,10 @@ jobs:
     # 2026-05-14: widened from --priority-only (10 states) to --all-states
     # (51 states). OpenStates free tier handles this — ~150 API calls
     # per run, well under the 100k/day limit.
-    needs: legiscan-wide-pass
+    needs: [legiscan-wide-pass, budget]
     # Sequencing only (protects the shared OpenStates quota) — committees
     # don't consume legiscan output, so run even if the sweep failed/timed out.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -624,7 +1074,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
-        run: node scripts/sync-committees-openstates.mjs --all-states --max-minutes 50
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-committees-openstates.mjs --all-states --max-minutes 50
 
   draft-legislator-stance:
     # Multi-state expansion of the legislator-stance pipeline.
@@ -641,10 +1091,10 @@ jobs:
     # is available when AI is asked to draft. Falls through to local
     # Ollama when cloud providers are saturated — graceful catchup
     # over multiple daily runs is fine.
-    needs: sync-committees-openstates
+    needs: [sync-committees-openstates, budget]
     # Run even if the committee sync failed — stance drafting degrades
     # gracefully with yesterday's committee data.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -662,48 +1112,104 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/draft-legislator-stance.mjs --all-states --max-minutes 80
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/draft-legislator-stance.mjs --all-states --max-minutes 80
 
   discover-municipal-meetings:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Discover city/county council + town-hall meetings with kratom
     # (or related: gas-station-heroin, 7-OH, tianeptine) on the agenda.
-    # Uses Gemini grounded search per state. Found meetings land in
-    # pending_review for admin moderation; once approved they fire
-    # 7d/3d/1d push reminders to users in the locality.
+    # Found meetings land in pending_review for admin moderation; once
+    # approved they fire 7d/3d/1d push reminders to users in the locality.
     #
-    # 2026-05-14: widened from --priority-only (10 states) to --all-states
-    # (51 states). ~51 Gemini grounded calls per run, well under the
-    # 1500/day free tier.
+    # 2026-05-14: widened from --priority-only (10 states) to --all-states.
+    # 2026-09-16: the pipeline no longer writes rows out of model JSON.
+    # SearXNG finds candidate URLs, code ranks and fetches them, and the LLM
+    # only READS one page we already hold — it never authors a URL, a date, an
+    # address or a confidence number. That matters here specifically because
+    # auto-approve-meetings.mjs promotes any row with ai_confidence >= 0.85
+    # straight onto the public /calendar and pushes it to real people with no
+    # human click, so a fabricated meeting carrying a high confidence number
+    # would have gone live by itself. Gemini survives only as a lead
+    # generator: its URLs go through the same verification as SearXNG's.
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Job-level so both scripts in this job see the same providers. The router
+    # tries every provider whose key is set, so the whole free set is listed
+    # rather than just today's working one — see docs/AI_TOOLKIT.md.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+      GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+      # The composite action below does NOT export this — it has no $GITHUB_ENV
+      # write and no outputs:. Drop this line and you get a healthy container, a
+      # green step, searxngConfigured() === false, and a run that searches
+      # nothing while reporting success. Same silent no-op shape as the
+      # pipelines that logged "0 found" for four days with a dead provider.
+      SEARXNG_URL: http://localhost:8080
+      # No Ollama in CI. Without this the reader pins providerOverride "ollama"
+      # and burns one connection-refused round trip per page before the router
+      # falls through. Same knob shape as BAN_EXTRACT_PROVIDER /
+      # OFFICIALS_EXTRACT_PROVIDER; openrouter rather than groq because as of
+      # 2026-09-16 it is the cloud provider actually answering.
+      MEETING_EXTRACT_PROVIDER: openrouter
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: "npm"
+      # Deliberately WITHOUT --ignore-scripts, unlike the sibling grounded
+      # workflows: playwright-chromium's postinstall is what downloads the
+      # browser, and that browser is the only way renderPage() can read a
+      # JS-shell agenda viewer (Granicus AgendaViewer.php). Skip it and those
+      # pages come back as an empty shell no gate can rescue.
       - run: npm ci --omit=dev --no-audit --no-fund
+      # After checkout + npm ci: the action mounts
+      # $GITHUB_WORKSPACE/scripts/searxng/settings.yml and hard-fails without
+      # it. ~8-17s to start, 90s hard ceiling, and it fails the job rather than
+      # letting the run continue ungrounded.
+      - uses: ./.github/actions/searxng
       - name: Discover municipal meetings across ALL 51 states
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/discover-municipal-meetings.mjs --all-states
-      - name: Re-check watchlist bodies for upcoming kratom agenda items
-        # Targeted re-check of legislative bodies that have previously
-        # hosted a kratom item. Derived from municipal_meetings rows
-        # where kratom_relevance='confirmed'. Closes the "tabled
-        # resolution" loop — when Suffolk County Legislature recesses
-        # I.R. 1279-2026 to the next General Meeting, we'll catch the
-        # next agenda by name rather than relying on generic state-
-        # wide news search. continue-on-error so a Gemini quota event
-        # doesn't kill the daily run.
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/discover-municipal-meetings.mjs --all-states --max-minutes 40
+      # The watchlist re-check (recheck-watchlist-meetings.mjs) was retired on
+      # 2026-10-03: it only ever searched through Gemini grounding, failed every
+      # run once the Gemini credits ran out, and duplicated the warm lane above,
+      # which already re-checks every confirmed-kratom body through SearXNG.
+      - name: Resolve the pending queue (superseded, not-a-meeting)
+        # Runs right after discovery so a meeting verified THIS run retires its
+        # news-derived twin before anyone is paged about it. Rules only, no model.
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/resolve-pending-meetings.mjs
+      - name: Map who decides in every hot-zone town
+        # A town with kratom on its agenda gets its council (and county board)
+        # queued for roster resolution by cron-localreps-cloud.yml, so a
+        # hearing alert can name who votes. Idempotent; no model call here.
         continue-on-error: true
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/recheck-watchlist-meetings.mjs --limit 25
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/seed-hotzone-officials.mjs
+      - name: Re-check rosters that may be out of date
+        # Ended terms, 150+ day-old checks, or a hearing within 30 days: re-queue
+        # the locality so the same pipeline re-confirms members and retires
+        # departed ones on strong evidence only. 8 per run.
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/refresh-local-rosters.mjs
+      # Diagnostics only, never a failure signal. On a datacenter IP this log
+      # is always noisy — ahmia/torch engine-load errors, the missing
+      # limiter.toml, "X-Forwarded-For nor X-Real-IP", per-engine
+      # brave/mojeek/wikidata HTTP failures. Do NOT wire an alert off ERROR
+      # lines here; the monitored signal is scraper_runs.status.
+      - name: SearXNG logs (always)
+        if: always()
+        run: docker logs searxng 2>&1 | tail -40 || true
 
   fire-meeting-reminders:
     # Push reminders for upcoming approved meetings — 7d / 3d / 1d
@@ -729,7 +1235,7 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
-        run: node scripts/fire-meeting-reminders.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/fire-meeting-reminders.mjs
 
   fire-voting-reminders:
     # Push reminders before every approved election in election_dates —
@@ -755,9 +1261,11 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
-        run: node scripts/fire-voting-reminders.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/fire-voting-reminders.mjs
 
   scan-legistar-tenants:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Proactive scan of ~22 major US Legistar tenants (NYC, SF, LA
     # County, Chicago, Philadelphia, San Antonio, Atlanta, Miami,
     # Seattle, etc.) for kratom-relevant agenda items.
@@ -781,9 +1289,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/scan-legistar-tenants.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/scan-legistar-tenants.mjs
 
   scan-granicus-tenants:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Proactive scan of ~45 major US Granicus tenants (LA, SF, Chicago,
     # Boston, etc.) for kratom-relevant agenda items. Complements the
     # Gemini-grounded discovery — Gemini covers anywhere on the web but
@@ -806,9 +1316,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/scan-granicus-tenants.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/scan-granicus-tenants.mjs
 
   sync-research-pubmed:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Ingest newest kratom + 7-OH research from PubMed (NCBI E-utils,
     # free + no key). Then run AI evaluation on anything new.
     runs-on: ubuntu-latest
@@ -825,7 +1337,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
-        run: node scripts/sync-research-pubmed.mjs --limit 100
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-research-pubmed.mjs --limit 100
       - name: AI-evaluate fresh papers
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -834,9 +1346,11 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/evaluate-research-papers.mjs --limit 50
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/evaluate-research-papers.mjs --limit 50
 
   legiscan-wide-pass:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Daily sweep of every active anti/pro bill via LegiScan. The hourly
     # cron only hits the 30 most-stale; this catches everything else
     # at least once a day even if hourly never gets to it.
@@ -873,7 +1387,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
-        run: node scripts/sync-bills.mjs --max-minutes 18
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bills.mjs --max-minutes 18
       - name: LegiScan full sweep (all active anti + pro bills)
         # Best-effort like the rest: a LegiScan hiccup must not cancel the
         # dependents. Persistent silence is caught by check-cron-staleness
@@ -884,7 +1398,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LEGISCAN_API_KEY: ${{ secrets.LEGISCAN_API_KEY }}
-        run: node scripts/sync-bills-via-legiscan.mjs --all-anti --max-minutes 22
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bills-via-legiscan.mjs --all-anti --max-minutes 22
       # OpenStates fallback for vote data. Runs AFTER the LegiScan
       # step so any bill LegiScan already covered shows up in
       # bill_votes and this script skips it. When LEGISCAN_API_KEY
@@ -900,7 +1414,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
-        run: node scripts/sync-bill-votes-via-openstates.mjs --limit 50
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bill-votes-via-openstates.mjs --limit 50
 
   backfill-bill-committees:
     # Safety net: scans every active bill with a committee mention in
@@ -912,9 +1426,9 @@ jobs:
     #     hit through the normal write path
     # Runs after legiscan-wide-pass so the most-recent LegiScan data
     # is in place first; only fills in residual gaps.
-    needs: legiscan-wide-pass
+    needs: [legiscan-wide-pass, budget]
     # Best on fresh data, still correct on yesterday's — never skip.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -928,9 +1442,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/backfill-bill-committees.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-bill-committees.mjs
 
   index-legislator-news-mentions:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Phase 3 D4: scan news_items for per-legislator name mentions.
     # Builds two regex patterns per legislator:
     #   1. Exact full-name
@@ -955,9 +1471,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/index-legislator-news-mentions.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/index-legislator-news-mentions.mjs
 
   correlate-news-bills-ai:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # AI semantic news↔bill correlation. The hourly regex pass catches
     # explicit bill-number mentions; this fills in articles that cover
     # a specific bill thematically without naming the bill number.
@@ -987,7 +1505,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/correlate-news-to-bills.mjs --ai --ai-limit 200
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/correlate-news-to-bills.mjs --ai --ai-limit 200
 
   detect-bill-clusters:
     # Coordinated-operation detection across active anti/pro bills.
@@ -995,11 +1513,11 @@ jobs:
     # place when we cluster. Pattern-based v1 (regex on title +
     # summary + bill_text_versions) — cheap, no AI. Idempotent:
     # cluster + member rows are upserted on each run.
-    needs: legiscan-wide-pass
+    needs: [legiscan-wide-pass, budget]
     # CRITICAL to never skip: this job carries the DAILY BRIEF PUSH.
     # When legiscan-wide-pass timed out on 2026-07-05, this was skipped
     # and users got no brief. Clustering on day-old data beats no brief.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1013,12 +1531,12 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/detect-bill-clusters.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/detect-bill-clusters.mjs
       - name: Align bills to research library
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/align-bills-to-research.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/align-bills-to-research.mjs
       - name: Fire daily-brief push to opted-in users
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -1027,7 +1545,7 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           APP_URL: ${{ secrets.APP_URL }}
-        run: node scripts/fire-daily-brief-push.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/fire-daily-brief-push.mjs
       # Pre-render today's brief as an MP3 with Edge TTS (Christopher
       # Neural). The /brief page picks this up automatically via the
       # daily-brief-audio storage bucket; clients with no neural voice
@@ -1038,7 +1556,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/render-daily-brief-audio.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/render-daily-brief-audio.mjs
 
   enrich-bill-journey:
     # Regenerate the 4-paragraph journey narrative + 200-300 word
@@ -1059,9 +1577,9 @@ jobs:
     # than 7 days OR null (e.g. the 39 cleared in PR #325). The
     # script caps at LIMIT (default 20) per run to spread AI quota
     # across many days — full backfill takes ~2 daily runs.
-    needs: legiscan-wide-pass
+    needs: [legiscan-wide-pass, budget]
     # Journeys enrich yesterday's text fine — never cascade-skip.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -1081,7 +1599,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/enrich-bill-journey.mjs --all-stale --limit 30
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/enrich-bill-journey.mjs --all-stale --limit 30
 
   classify-bill-substance:
     # State Mission Control PR1 — dedicated 7-OH / substance classifier.
@@ -1095,10 +1613,10 @@ jobs:
     # are available to classify. Idempotent: only touches bills it doesn't
     # already own (substance_targeting_source != 'ai-substance-pass-v1'),
     # capped at --limit per run to spread AI quota across days.
-    needs: enrich-bill-journey
+    needs: [enrich-bill-journey, budget]
     # Run even if the journey pass failed or timed out — independent enough
     # that the substance classify + downstream derive should still recompute.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -1117,7 +1635,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/classify-bill-substance.mjs --limit 40
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-bill-substance.mjs --limit 40
 
   derive-state-status:
     # State Mission Control PR2 — recompute canonical per-state leaf + 7-OH
@@ -1125,9 +1643,9 @@ jobs:
     # substance_targeting. Runs AFTER classify-bill-substance so the latest
     # substance map is available. No AI calls (reads stored classification).
     # Idempotent; preserves admin overrides. Flags edge cases needs_review.
-    needs: classify-bill-substance
+    needs: [classify-bill-substance, budget]
     # Always recompute even if upstream enrich/classify failed or timed out.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1145,7 +1663,7 @@ jobs:
         # /admin/state-status confirm queue). SAFE to --apply: the public
         # StatusHeader renders ONLY admin-confirmed rows, so unreliable
         # auto-derivations never surface publicly (fix/data-accuracy 2026-06-06).
-        run: node scripts/derive-state-status.mjs --apply
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/derive-state-status.mjs --apply
 
   queue-due-state-flips:
     # Surface FUTURE-DATED legal changes (state_status_flips, migration 0179) —
@@ -1153,8 +1671,8 @@ jobs:
     # confirm queue on their effective date, and notify the owner. Runs AFTER
     # derive-state-status so its needs_review flag wins for the day (derive
     # rewrites needs_review nightly). Does NOT auto-publish — the owner confirms.
-    needs: derive-state-status
-    if: ${{ !cancelled() }}
+    needs: [derive-state-status, budget]
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1168,9 +1686,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/queue-due-state-flips.mjs --apply
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/queue-due-state-flips.mjs --apply
 
   sync-legistar-officials:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # FREE, non-grounded local-officials source: the Legistar (Granicus)
     # webapi exposes authoritative current council/board rosters (the
     # clerk's own system) with NO key and NO per-day cap. Seeds major-metro
@@ -1191,9 +1711,9 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/discover-legistar-tenants.mjs --limit 200
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/discover-legistar-tenants.mjs --limit 200
       - name: Sync local officials from Legistar webapi
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/sync-legistar-officials.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-legistar-officials.mjs

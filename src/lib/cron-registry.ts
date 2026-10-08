@@ -207,12 +207,8 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
 
   // ─── GH Daily (cron-daily.yml — once per day) ──────────────
-  {
-    source: "verify_bill_status_ai",
-    label: "AI bill-status verification",
-    purpose: "Verify status of 50 most-stale tracked bills via AI grounding",
-    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "bills",
-  },
+  // verify_bill_status_ai RETIRED 2026-06-11 (de-Gemini policy) — entry removed
+  // 2026-07-16 so /admin/automation stops showing a forever-silent phantom row.
   {
     source: "auto_resolve_sync_discrepancies",
     label: "Auto-resolve sync discrepancies",
@@ -237,10 +233,18 @@ export const CRON_REGISTRY: CronEntry[] = [
     purpose: "Sync sponsorship rows across all states",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "bills",
   },
+  // sync-stock-act-trades.mjs writes TWO sources (one per data mirror) — the
+  // old single "sync_federal_trades" entry matched neither (phantom, 2026-07-16).
   {
-    source: "sync_federal_trades",
-    label: "Federal STOCK Act trades",
-    purpose: "Sync personal-trades data for federal legislators",
+    source: "senate_stock_watcher",
+    label: "Federal STOCK Act trades (Senate)",
+    purpose: "Sync Senate personal-trades data for federal legislators",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "donors",
+  },
+  {
+    source: "house_stock_watcher",
+    label: "Federal STOCK Act trades (House)",
+    purpose: "Sync House personal-trades data for federal legislators",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "donors",
   },
   {
@@ -250,7 +254,9 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
   },
   {
-    source: "scrape_bop_findings",
+    // Renamed from phantom "scrape_bop_findings" — matches the writer added
+    // to scripts/scrape-bop-browser.mjs (2026-07-16).
+    source: "bop_browser_scrape",
     label: "Scrape BoP findings (browser)",
     purpose: "Headless-Chrome scrape of TLS-blocked Board of Pharmacy sources",
     system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
@@ -386,6 +392,41 @@ export const CRON_REGISTRY: CronEntry[] = [
     label: "Auto-fulfill local reps (cloud + box)",
     purpose: "Drain pending local-rep requests via SearXNG + free-tier extract. Primary: GitHub Actions (cron-localreps-cloud.yml) every 6h + on-demand — in-job SearXNG container + headless Chromium, no box dependency. Owner box nightly is the fallback.",
     system: "gh-daily", cadence: "daily", runs_per_day: 4, category: "legislators",
+  },
+  // ─── Free-AI research agents (cron-nightly-cloud.yml jobs) ─────
+  {
+    source: "dossier_research",
+    label: "Dossier deep-dive",
+    purpose: "One target per night researched through the verified corpora into an admin-only dossier (migration 0195)",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
+  },
+  {
+    source: "auto_brief_campaigns",
+    label: "Campaign research briefings",
+    purpose: "Write a research briefing for each newly approved campaign so an admin can act on it in 60 seconds",
+    system: "gh-daily", cadence: "daily", runs_per_day: 1, category: "intel",
+  },
+  // ─── Grounded queue work (cron-grounded-queues.yml, 2x daily) ─────────
+  // Moved off the owner's PC 2026-09-07. These were absent from this registry
+  // entirely, so /admin/automation showed nothing about three automations that
+  // had been silent for 55-66 days.
+  {
+    source: "clear_review_queues",
+    label: "Clear the review queues",
+    purpose: "Ground each escalated campaign/intel item with a keyless search + free-tier verdict, then auto-approve the confidently-real and reject the dead/moot/hallucinated ones with a recorded reason",
+    system: "gh-daily", cadence: "daily", runs_per_day: 2, category: "moderation",
+  },
+  {
+    source: "verify_local_bans",
+    label: "Verify local kratom bans",
+    purpose: "Two-source gate behind /banned: re-confirm held single-source local bans and catch repeals (migration 0190)",
+    system: "gh-daily", cadence: "daily", runs_per_day: 2, category: "data-quality",
+  },
+  {
+    source: "sweep_locality_intel",
+    label: "Locality intelligence sweep",
+    purpose: "Fill legal status, framework, ordinance citation, pending measures and next meeting for queued localities",
+    system: "gh-daily", cadence: "daily", runs_per_day: 2, category: "intel",
   },
   {
     source: "sync_research_pubmed",

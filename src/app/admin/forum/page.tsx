@@ -46,7 +46,7 @@ type Report = {
 };
 
 export default async function ForumModerationPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "moderate_forum" });
   if (!ctx.ok) redirect("/dashboard");
 
   const supabase = await createClient();

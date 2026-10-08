@@ -36,7 +36,7 @@ export default async function PartnerKitPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_partners" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { slug } = await params;

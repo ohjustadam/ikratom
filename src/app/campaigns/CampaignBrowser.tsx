@@ -1,5 +1,7 @@
 "use client";
 
+import { useChromeMe } from "@/components/chrome/ChromeProvider";
+
 import { useMemo, useState } from "react";
 
 type Scope = "state" | "federal" | "municipal" | "county" | "unknown";
@@ -38,17 +40,18 @@ const STATES_50 = [
 
 export function CampaignBrowser({
   campaigns,
-  userState,
   actionCounts,
-  signedIn = false,
-  emailConnected = false,
 }: {
   campaigns: Campaign[];
-  userState: string | null;
   actionCounts: Record<string, number>;
-  signedIn?: boolean;
-  emailConnected?: boolean;
 }) {
+  // The three per-user values used to be server props, which forced /campaigns
+  // to open a cookie-bound Supabase client and made the whole route uncacheable.
+  // They now come from the single /api/me chrome read that real browsers make.
+  const me = useChromeMe();
+  const userState = me.state;
+  const signedIn = !!me.userId;
+  const emailConnected = me.emailConnected;
   const [query, setQuery] = useState("");
   // Default to "All" so every campaign is visible to everyone regardless of
   // state (owner policy 2026-06-22); the urgency sort still floats the user's

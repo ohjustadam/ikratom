@@ -1,29 +1,37 @@
+"use client";
+
+import { useChrome } from "@/components/chrome/ChromeProvider";
 import { HeaderShareButton } from "./HeaderShareButton";
 import { InviteFriends } from "./InviteFriends";
-import { getMyInviteSummary, buildInviteUrl } from "@/modules/invite/actions";
 
 /**
- * Server-rendered wrapper that picks the right share payload based on
- * auth state, then hands it to the client-side HeaderShareButton modal
- * trigger.
+ * Picks the right share payload based on auth state, then hands it to the
+ * HeaderShareButton modal trigger.
  *
  *   Signed-in:  user's personal /i/CODE invite link → attributed share
  *   Signed-out: generic homepage URL → unattributed but functional
  *
- * The modal contents are passed through as children so we don't have
- * to ship the auth check into the client bundle.
+ * Client component (2026-07-22) — was a server component awaiting
+ * `getMyInviteSummary()`, a cookie read in the ROOT layout that forced every
+ * route in the app to render dynamically. The invite code now rides along on
+ * /api/me. See `private/STATIC_CHROME_PLAN.md`.
+ *
+ * The URL is built from `window.location.origin` rather than APP_URL: the user
+ * is already on the canonical host, so it's correct by construction and needs
+ * no server round-trip. Falls back to the production URL for the pre-mount
+ * render.
  */
-export async function HeaderShare() {
-  const summary = await getMyInviteSummary();
-  let inviteUrl: string;
-  let isPersonal: boolean;
-  if (summary?.invite_code) {
-    inviteUrl = await buildInviteUrl(summary.invite_code);
-    isPersonal = true;
-  } else {
-    inviteUrl = (process.env.APP_URL ?? "https://www.ikratom.org").replace(/\/+$/, "");
-    isPersonal = false;
-  }
+export function HeaderShare() {
+  const { me } = useChrome();
+
+  const origin =
+    typeof window !== "undefined"
+      ? window.location.origin.replace(/\/+$/, "")
+      : "https://www.ikratom.org";
+
+  const inviteCode = me?.inviteCode ?? null;
+  const isPersonal = !!inviteCode;
+  const inviteUrl = isPersonal ? `${origin}/i/${inviteCode}` : origin;
 
   return (
     <HeaderShareButton>

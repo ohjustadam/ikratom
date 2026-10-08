@@ -33,18 +33,126 @@ name: Hourly cron
 
 on:
   schedule:
-    # Single hourly schedule. We previously ran TWO (:00 and :30) but that
-    # doubled sustained DB load on the free-tier (~400MB) Postgres and
-    # contributed to the 2026-06-08 OOM. News + alerts target <1h latency,
-    # not real-time; the pipeline drains any backlog across ticks.
-    - cron: "0 * * * *"
+    # EGRESS-SURVIVAL CADENCE (2026-07-16): widened from hourly (`0 * * * *`)
+    # to every 2h. The free-tier Supabase project hit its 5GB/mo EGRESS cap
+    # (7.3GB, 146%) and was restricted — with only ~10 MAU the driver is this
+    # fixed-schedule cron read volume, not user traffic. This hourly workflow
+    # (~24 runs/day of RSS sync + classify + fan-out + ~18 action steps) is the
+    # single biggest recurring reader; halving its cadence ~halves its egress.
+    # News/alerts target <1h latency, not real-time, and the pipeline drains
+    # any backlog across ticks, so ~2h latency is an acceptable TEMPORARY cost.
+    # FULLY REVERSIBLE: restore `0 * * * *` once the read-caching work (PR3 /
+    # Lever A — unstable_cache on public pages) lands and egress headroom is
+    # confirmed. Kept single-schedule (not :00+:30) since the 2026-06-08 OOM.
+    - cron: "0 */2 * * *"
   workflow_dispatch: {}
 
 concurrency:
   group: hourly-cron
   cancel-in-progress: false
 
+# ---------------------------------------------------------------------------
+# Free AI provider pool — workflow-level so EVERY step inherits it.
+#
+# Why this is here and not on each step: the router (scripts/lib/ai-router.mjs)
+# can only use a provider whose key is in the step's environment. Keys were
+# added per step as each provider was adopted, so older steps kept an older,
+# smaller pool — this workflow reached the router with no OPENROUTER_API_KEY at
+# all while OpenRouter was the only provider still answering. Ingestion kept
+# running and every enrichment step failed, which is exactly the "reads the
+# world but cannot make sense of it" state we were in.
+#
+# A workflow-level env block is inherited by every job and every step, and a
+# step-level env still wins where one is set, so this can only widen the pool.
+# Adding a provider is now: create the secret, add one line here.
+# An unset secret expands to "" and the router skips that provider silently.
+# See docs/AI_PROVIDERS.md.
+env:
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+  GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+  MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+  AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+  CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+  CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  # GitHub Actions forbids secret names starting with GITHUB_, hence GH_MODELS_TOKEN.
+  GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+  # Optional: reorder the pool without a deploy, e.g. "groq,mistral,openrouter".
+  AI_PROVIDER_ORDER: ${{ vars.AI_PROVIDER_ORDER }}
+
 jobs:
+  # ── CLOCK DEDUPE ────────────────────────────────────────────────────────
+  # GitHub runs scheduled workflows hours late or not at all (2026-10-06: 3
+  # of 12 every-2-hours runs happened). Supabase pg_cron now starts this
+  # workflow on time through workflow_dispatch (migration 0263); the schedule
+  # above stays as a FALLBACK for when that clock is down. A late scheduled
+  # run that lands after an on-time dispatched one cancels itself, so the
+  # work never runs twice. Only scheduled runs are checked.
+  clock:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel if the database clock already ran this every-2-hours workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOW_MIN: "110"
+        run: |
+          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow cron-hourly.yml --event workflow_dispatch -L 1 --json createdAt --jq '.[0].createdAt // empty')
+          if [ -z "$last" ]; then echo "no dispatched run yet: this scheduled run does the work"; exit 0; fi
+          age=$(( ( $(date -u +%s) - $(date -u -d "$last" +%s) ) / 60 ))
+          if [ "$age" -lt "$WINDOW_MIN" ]; then
+            echo "dispatched run started ${age} min ago: cancelling this late scheduled duplicate"
+            gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
+            sleep 60
+          else
+            echo "::warning::last dispatched run was ${age} min ago: the database clock may be down, so this scheduled run does the work"
+          fi
+
+  # ── SUPABASE EGRESS GATE ────────────────────────────────────────────────
+  #
+  # Supabase's free plan does not BILL for egress overage, it RESTRICTS the
+  # project: "Your projects will not be able to serve requests when you use up
+  # your quota." Hitting the cap takes the SITE down. It happened on
+  # 2026-07-16, and on 2026-09-08 we reached 94.3% with 8 days left in the cycle.
+  #
+  # Monitoring alone cannot prevent it — check-egress-usage has been paging
+  # correctly for weeks and the number still climbed, because an alert only
+  # works if someone is awake to act on it. This gate sheds load automatically.
+  #
+  # The rule: when the budget runs low the ROBOTS stop so the HUMANS can still
+  # use the site. News sync and enrichment can wait a day and lose nothing
+  # permanent; a visitor hitting a dead site is the failure we are preventing.
+  #
+  # DELIBERATELY NOT GATED: fire-waves and drain-send-batches (real user sends
+  # people are waiting on) and watchdog (a monitor that silences itself under
+  # load is worse than no monitor). See scripts/lib/egress-budget.mjs.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      pct: ${{ steps.gate.outputs.pct }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier normal
+
   fire-waves:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -52,17 +160,83 @@ jobs:
       - name: Hit /api/cron/fire-waves
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # Netlify origin — bypasses Cloudflare BFM for authenticated cron paths only.
+          CRON_ORIGIN: https://ikratom.netlify.app
           APP_URL: ${{ secrets.APP_URL }}
         run: |
           if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
             echo "::error::Missing CRON_SECRET or APP_URL repo secret"
             exit 1
           fi
-          curl -fsS --max-time 240 \
+          # This step has returned 403 on every run since 2026-07-26T15:00 —
+          # the push/email fan-out has simply not run, with nothing failing
+          # anywhere a user could see.
+          #
+          # What is RULED OUT so far:
+          #   - Not auth. This route only ever returns 401 (route.ts:26); it has
+          #     no 403 path at all, so the 403 is not coming from the app.
+          #   - Not the UA alone. Adding cron-daily's browser-ish UA (#857) did
+          #     NOT fix it — the very next run still returned 403.
+          #   - Not a blanket edge block on this host or path prefix.
+          #     cron-daily's curl to /api/cron/reverify-local-officials, with
+          #     the SAME UA, host and auth header, genuinely succeeds (step
+          #     conclusion "success", not masked by its continue-on-error), and
+          #     both paths return a normal 401 to a bogus token from a
+          #     residential IP. So it is specific to this path from GitHub's
+          #     datacenter IPs.
+          #
+          # The reason this took days to narrow is that `curl -fsS` prints the
+          # status and throws away everything that would explain it. That is the
+          # actual defect being fixed here: capture the response headers and
+          # body on failure, so the NEXT occurrence names its own cause
+          # (CF-RAY + cf-mitigated identify a Cloudflare block and which rule;
+          # an x-nf-request-id with no cf-mitigated means Netlify answered).
+          #
+          # Behaviour on success is unchanged: still exits non-zero on a bad
+          # status, so a genuine outage still fails the run.
+          set -o pipefail
+          HDR="$(mktemp)"; OUT="$(mktemp)"
+          # Cloudflare Bot Fight Mode blocks this call by IP/ASN, NOT by User-Agent.
+          # PROVEN 2026-08-19: with the browser-first UA below, GitHub's runner still got
+          # HTTP/2 403 + cf-mitigated: challenge + the 'Just a moment...' interstitial
+          # (cf-ray a2dc8a236d4a7a9d-ORD), while the IDENTICAL request with the IDENTICAL
+          # UA from a residential IP returned a clean 401 from the app. Reordering the UA
+          # is harmless hygiene and is kept, but it is NOT a fix and must not be reported
+          # as one -- an earlier review claimed BFM keys off the UA prefix; it does not.
+          # Two real options, both needing an owner decision (see private/RELAUNCH_2026-08-19.md 1.1):
+          #   (a) turn Bot Fight Mode off, or
+          #   (b) exempt /api/cron/* from the netlify.app -> www 308 so this call can reach
+          #       the origin directly (these routes already require Bearer CRON_SECRET).
+          # Until one is chosen, this job fails every run and ALL push/email fan-out is dead.
+          # ORIGIN-DIRECT (owner decision, 2026-08-19). Cloudflare Bot Fight Mode
+          # challenges GitHub's datacenter IPs, so this call via www.ikratom.org got a
+          # 403 challenge and never reached the app -- see netlify.toml's cron
+          # passthrough rule for the full rationale and threat model. CRON_ORIGIN goes
+          # straight to the Netlify origin, where netlify.toml serves /api/cron/* with
+          # status 200 instead of the 308 that bounces everything else back to www.
+          # The route still requires Authorization: Bearer CRON_SECRET, so this is an
+          # authenticated keyhole, not an open bypass. Falls back to APP_URL if unset.
+          code=$(curl -sS --max-time 240 \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 iKratom-Cron/1.0 (+https://www.ikratom.org)" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "$APP_URL/api/cron/fire-waves"
+            -D "$HDR" -o "$OUT" -w "%{http_code}" \
+            "${CRON_ORIGIN:-$APP_URL}/api/cron/fire-waves") || code="000"
+
+          if [ "$code" = "200" ]; then
+            echo "fire-waves OK ($code)"
+            head -c 500 "$OUT"; echo
+          else
+            echo "::error::fire-waves returned HTTP $code"
+            echo "--- edge/origin headers (identifies WHO refused) ---"
+            grep -iE '^(HTTP/|cf-ray|cf-mitigated|cf-cache-status|server|x-nf-request-id|retry-after|location)' "$HDR" || true
+            echo "--- first 500 bytes of body ---"
+            head -c 500 "$OUT"; echo
+            exit 1
+          fi
 
   daily-brief-audio-selfheal:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Self-heal: render TODAY's brief audio if it's missing. --if-missing is a
     # cheap no-op once today's file exists, so it's safe every hour and
     # guarantees same-day audio regardless of the daily cron.
@@ -79,9 +253,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/render-daily-brief-audio.mjs --if-missing
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/render-daily-brief-audio.mjs --if-missing
 
   news-intake:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # The essential, always-must-run leg: scrape Google News RSS across all
     # states, then classify newly-ingested items into policy_alerts. These are
     # the heaviest steps (sync ~16 min, classify ~8 min) so they get their own
@@ -107,12 +283,12 @@ jobs:
       - name: Sync Google News RSS across all states
         # ~14-min budget inside the 28-min news-intake step: a Google throttling
         # window can't push RSS past the cap and cascade-skip news-enrich/actions.
-        run: node scripts/sync-news-rss.mjs --max-minutes 14
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-news-rss.mjs --max-minutes 14
       - name: Classify newly-ingested news into policy_alerts
         # --limit 80: 200/hr front-loaded the free-tier daily quota; 80/hr
         # still drains any realistic backlog across ticks. Circuit breaker
         # (scripts/lib/batch-guard.mjs) stops early if providers die.
-        run: node scripts/classify-news-policy.mjs --limit 80
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-news-policy.mjs --limit 20
 
   news-enrich:
     # Same-tick in-app enrichment (#632 fast path): resolve → extract body+media
@@ -121,7 +297,8 @@ jobs:
     # Each step self-gates to unprocessed rows and is --limit-bounded; the
     # daily/nightly crons remain the deep-backlog drain. Steps are
     # continue-on-error so a transient provider/robots wall can't fail the leg.
-    needs: news-intake
+    needs: [news-intake, budget]
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 28
     env:
@@ -144,20 +321,45 @@ jobs:
         # Clean GHA IP — the owner box gets Google-throttled. Higher limit keeps
         # fresh items resolving fast AND drains the resolve backlog (newest-first).
         continue-on-error: true
-        run: node scripts/resolve-news-urls.mjs --limit 200
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/resolve-news-urls.mjs --limit 200
       - name: Extract article body + embedded media (fresh items)
         # HTTP fetch only; bounded retry (body_extract_attempts) self-heals walls.
         # Runs before the slow AI steps below, so it always gets its budget.
         # Limit raised to keep the content-ready gate (news only shows once
         # body+media are extracted) opening fast + drain the extract backlog.
         continue-on-error: true
-        run: node scripts/extract-news-content.mjs --limit 200
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-news-content.mjs --limit 200
+      # ── FREE-POOL BUDGET (rebalanced 2026-09-26) ───────────────────────────
+      # These hourly limits were sized for draining BACKLOG, not for fresh
+      # volume, and collectively could demand ~8,400 AI calls a day
+      # (80+40+80+100+25+25 per hour). Free tiers are measured in hundreds. Each
+      # queue is deep enough to always find work, so the pool was drained
+      # continuously and the DAILY jobs — municipal discovery, BOP classification,
+      # state briefings — arrived at 15:00 UTC to find nothing left. That is why
+      # discovery reported "49/51 states BLOCKED · extract-provider-down": not a
+      # search failure, no reader.
+      #
+      # Measured fresh volume is ~72 news items/day. These limits now total
+      # ~2,088/day, still 4-7x headroom on fresh content, leaving the daily jobs
+      # a working pool. Backlog drains slower on purpose; enrich-news orders
+      # newest-first (#931), so fresh news is never behind history.
+      - name: Score news relevance + topic via the free AI router
+        # WHY THIS IS A CRON AT ALL (2026-09-21): it never ran in the cloud.
+        # sync-news-rss inserts ai_relevance_score 0.5 as a placeholder and this
+        # is the only thing that replaces it, but it spoke straight to
+        # localhost:11434, so it could only run on the owner's PC. Result: 150 of
+        # 150 items in a fortnight sat at exactly 0.5, push-state-news gates at
+        # >= 0.85, and every news notification silently delivered nothing.
+        # Now routed through the free provider pool, so CI can run it.
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/enrich-news.mjs --limit 12
+
       - name: Summarize fresh articles (our AI synthesis)
         continue-on-error: true
-        run: node scripts/summarize-news.mjs --limit 80
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/summarize-news.mjs --limit 15
       - name: Generate full in-app digest for fresh articles
         continue-on-error: true
-        run: node scripts/generate-news-digest.mjs --limit 100 --concurrency 6
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/generate-news-digest.mjs --limit 20 --concurrency 3
 
   news-actions:
     # Everything downstream of intake: push fresh alerts/news, auto-spawn and
@@ -167,7 +369,8 @@ jobs:
     # (the enrich-dependent steps self-gate, so they pick up the prior tick's
     # enriched rows — a 1-tick lag, not a stall). Most steps are idempotent
     # no-ops in a quiet hour.
-    needs: news-intake
+    needs: [news-intake, budget]
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 28
     env:
@@ -189,53 +392,129 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
+      # Every step below is continue-on-error: they are INDEPENDENT automations
+      # sharing one job for runner economy — an early hard throw (e.g. a schema
+      # drift in one script) used to abort the tick and silently skip the ~15
+      # steps after it (audit 2026-07-16). Each script writes its own
+      # scraper_runs telemetry, so real persistent failures still page via
+      # check-cron-staleness — job-level green just means "the tick ran".
       - name: Auto-push approved critical alerts to in-state users
-        run: node scripts/push-critical-alerts.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/push-critical-alerts.mjs
       - name: Push bill_actions to users who took action on them
-        run: node scripts/push-bill-actions-to-actors.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/push-bill-actions-to-actors.mjs
       - name: Push high-relevance state news to in-state users
-        run: node scripts/push-state-news.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/push-state-news.mjs
       - name: Auto-create campaigns from new actionable alerts (safety net)
         # Real-time path is the 0068 Postgres trigger; this is the backstop.
-        run: node scripts/auto-campaign-from-alert.mjs --all-pending
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-campaign-from-alert.mjs --all-pending
       - name: Promote city-ordinance alerts into bills rows
-        run: node scripts/promote-alert-to-bill.mjs --all-bill-events
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/promote-alert-to-bill.mjs --all-bill-events
       - name: Extract structured local-event metadata from alerts
-        run: node scripts/extract-local-meta.mjs --all-municipal
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-local-meta.mjs --all-municipal
       - name: Seed full city-council slate for new municipal bills
-        run: node scripts/seed-bill-officials.mjs --all-municipal
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/seed-bill-officials.mjs --all-municipal
       - name: Extract officials from news alerts + make them actionable
         # A 429/parse failure here must not fail the whole leg (self-heals next hour).
         continue-on-error: true
-        run: node scripts/extract-news-officials.mjs --limit 25
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-news-officials.mjs --limit 10
       - name: Extract future civic events from news → calendar
-        run: node scripts/extract-news-events.mjs --limit 25
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-news-events.mjs --limit 10
       - name: Auto-approve high-confidence municipal meetings
-        run: node scripts/auto-approve-meetings.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-approve-meetings.mjs
       - name: Auto-approve high-confidence campaigns (shadow until owner promotes)
         continue-on-error: true
-        run: node scripts/auto-approve-campaigns.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-approve-campaigns.mjs
       - name: Auto-post active anti/pro bills to state forums
-        run: node scripts/auto-post-bills-to-forum.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-post-bills-to-forum.mjs
       - name: LegiScan primary sync for active anti bills (Layer 2)
-        run: node scripts/sync-bills-via-legiscan.mjs --priority
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bills-via-legiscan.mjs --priority
       - name: Post critical bill alerts to Discord channels
-        run: node scripts/post-bill-alerts-to-discord.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/post-bill-alerts-to-discord.mjs
       - name: Fan out bill subscription notifications
-        run: node scripts/fanout-bill-reminders.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/fanout-bill-reminders.mjs
       - name: Extract bill numbers from alerts + news (auto-promote to bills)
         # --limit 500: pulling 2000+2000 rows materialized a multi-MB working
         # set on the ~400MB instance hourly; 500 still drains across ticks.
-        run: node scripts/extract-bills-from-alerts.mjs --limit 500
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/extract-bills-from-alerts.mjs --limit 500
       - name: Fire user-set custom reminders
-        run: node scripts/fire-custom-reminders.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/fire-custom-reminders.mjs
       - name: Scrape protectkratom.org state alert pages
         # AKA posts time-sensitive state alerts hours-to-days ahead of news.
-        run: node scripts/scrape-protectkratom-org.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/scrape-protectkratom-org.mjs
       - name: Correlate news_items to bills (regex pass)
-        run: node scripts/correlate-news-to-bills.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/correlate-news-to-bills.mjs
       - name: Dedupe news by title (exact-syndication case)
-        run: node scripts/dedupe-news-by-title.mjs
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/dedupe-news-by-title.mjs
+
+  email-meeting-alerts:
+    # Hearings are the top-priority notification: a meeting approved since the
+    # last tick is emailed to EVERY opted-in member, whatever their state, with
+    # Zoom / sign-up-to-speak / agenda / who-decides links. Independent job and
+    # not budget-gated: a hearing has a date on it and cannot be caught up later.
+    # Runs in Actions, not Netlify, so it works while the site is down.
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Email newly approved meetings
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_APP_URL: https://www.ikratom.org
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/send-email-notifications.mjs --mode meetings
+
+  push-fanout:
+    # Delivers pending notifications as web push from HERE, not only from the
+    # Netlify fire-waves route. 2026-10-02: Netlify was disabled and every push
+    # stopped, while the crons kept writing notifications that went stale after
+    # 24h. Same module as the site (loaded via jiti), so no duplicated rules; a
+    # delivered row is stamped pushed_at, so running both paths is safe.
+    # Full `npm ci`: jiti comes with the build toolchain, not the runtime deps.
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - name: Fan out pending notifications as push
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/run-push-fanout.mjs
 
   watchdog:
     # Self-monitoring observability. MUST run every hour and MUST run last so
@@ -254,6 +533,69 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Check hosting health (Netlify meters + Vercel spare + live site)
+        # The HOSTING failsafe. Two outages built this step:
+        #   2026-07-22 — Vercel soft-blocked on Fluid CPU, 402 for ~18h.
+        #   2026-07-30 — Netlify DISABLED the site for credit exhaustion while
+        #                this very step reported healthy, because it watched
+        #                bandwidth (0.77GB/100GB = 0.8%) instead of credits.
+        # Checks now:
+        #   - NETLIFY (live host since 2026-07-26): CREDITS — the pooled budget
+        #     that actually disables the site. Deploys are 15 credits each and
+        #     were 75% of the burn that killed us. Warns at 65/80, brakes at 90.
+        #     Bandwidth is no longer a ceiling, just a 20-credits/GB input.
+        #   - VERCEL (cold spare): reported, escalated only if HOST_PLATFORM=vercel.
+        #   - A synthetic GET of the real public URL — cause-agnostic, and the
+        #     only check that survives a host migration without an edit.
+        # continue-on-error so an API hiccup can't starve the staleness check
+        # below, which is the older and broader watchdog.
+        continue-on-error: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          # Unset secrets resolve to "" and the script's `||` fallbacks take
+          # over, so these are safe to wire before the values exist. They make
+          # "an account move is an env change, not a code change" actually true.
+          NETLIFY_ACCOUNT_SLUG: ${{ secrets.NETLIFY_ACCOUNT_SLUG }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          HOST_PLATFORM: ${{ secrets.HOST_PLATFORM }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          APP_URL: ${{ secrets.APP_URL }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          # Owner phone + inbox (scripts/lib/owner-alert.mjs). All optional:
+          # an unset secret is "" and that channel is simply skipped.
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          # Flood detector (Cloudflare analytics, last hour). Skipped if unset.
+          CLOUDFLARE_CACHE_TOKEN: ${{ secrets.CLOUDFLARE_CACHE_TOKEN }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          OWNER_SMS_EMAIL: ${{ secrets.OWNER_SMS_EMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-vercel-usage.mjs
+
+      # Egress reading, HOURLY (moved from the daily cron 2026-09-08).
+      #
+      # The load-shedding gate can only be as fresh as this measurement. On a
+      # once-a-day reading the gate could be acting on a number up to 24h old,
+      # and 24h is enough to cross the cap from a comfortable-looking number —
+      # we went 89.6% -> 94.3% in a single day. Two metrics calls and a small
+      # query is a trivial cost for making the gate actually responsive.
+      # It also runs in the UNGATED watchdog job on purpose: the thing that
+      # measures the budget must never be switched off by the budget.
+      - name: Egress reading (feeds the load-shedding gate)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-egress-usage.mjs
+
       - name: Check cron staleness (self-monitoring)
         # Compares cron-registry expected cadences against scraper_runs.finished_at;
         # web-pushes the owner once per silent period (cron_staleness_alerts) and
@@ -267,4 +609,31 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
-        run: node scripts/check-cron-staleness.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-cron-staleness.mjs
+
+  drain-send-batches:
+    # Drains the durable campaign send queue (migration 0248).
+    #
+    # The endpoint deliberately drains only a ~20s SLICE and returns
+    # `more: true` when work remains, because Netlify's serverless budget is
+    # ~30s -- /api/cron/daily-sync was orphaned from the schedule for exactly
+    # that reason. So the LOOP lives here, where a job may run for minutes,
+    # instead of inside a function that would be killed mid-send.
+    #
+    # Hits the Netlify ORIGIN, not www: Cloudflare Bot Fight Mode challenges
+    # GitHub's datacenter IPs and would 403 every call (the 24-day fire-waves
+    # outage). netlify.toml serves /api/cron/* at the origin with status 200.
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Drain queued campaign sends
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CRON_ORIGIN: https://ikratom.netlify.app
+        run: |
+          set -o pipefail
+          for i in $(seq 1 25); do
+            OUT="$(curl -sS --max-time 90               -H "Authorization: Bearer $CRON_SECRET"               -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 iKratom-Cron/1.0 (+https://www.ikratom.org)"               "$CRON_ORIGIN/api/cron/drain-send-batches")" || { echo "::warning::drain call failed on pass $i"; break; }
+            echo "pass $i: $OUT"
+            echo "$OUT" | grep -q '"more":true' || { echo "queue drained"; break; }
+          done

@@ -54,7 +54,7 @@ const PROVIDERS: ProviderConfig[] = [
 ];
 
 export default async function OAuthConfigPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_ops_console" });
   if (!ctx.ok) redirect("/dashboard");
 
   const appUrl = (process.env.APP_URL ?? "").replace(/\/+$/, "");

@@ -1,4 +1,3 @@
-// @ts-nocheck - imports a plain .mjs script module
 import { describe, it, expect } from "vitest";
 import { normalizeForTTS } from "../scripts/lib/tts-normalize.mjs";
 

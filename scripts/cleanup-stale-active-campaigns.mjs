@@ -74,15 +74,31 @@ function topicKey(state, title) {
 const TERMINAL = new Set(["dead", "enacted", "vetoed", "failed", "withdrawn"]);
 const stats = { supersededOrphans: 0, deactivatedBillTerminal: 0, expiredAlerts: 0, deactivatedActionStale: 0 };
 
+// Range-paginate a PostgREST query builder factory — without this, every
+// select silently caps at 1000 rows (the documented Supabase cap) and rows
+// past the window are never cleaned. (Audit 2026-07-16; pattern mirrors
+// cleanup-pending-campaigns.mjs.)
+async function fetchAll(buildQuery, pageSize = 1000) {
+  const all = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) { console.error(`  fetchAll page ${from / pageSize} failed: ${error.message}`); break; }
+    all.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+  }
+  return all;
+}
+
 // ── Pass 1: dedup orphan auto_active campaigns by topic cluster ────
 console.log("Pass 1: dedup orphan auto_active campaigns by topic cluster");
-const { data: orphans } = await sb
+const orphans = await fetchAll(() => sb
   .from("campaigns")
   .select("id, slug, title, state, created_at, review_state")
   .eq("active", true)
   .eq("auto_generated", true)
   .eq("review_state", "auto_active")
-  .is("bill_id", null);
+  .is("bill_id", null)
+  .order("id"));
 console.log(`  ${orphans?.length ?? 0} orphan auto_active candidates`);
 
 const clusters = new Map();
@@ -116,11 +132,12 @@ console.log(`  → ${stats.supersededOrphans} ${DRY_RUN ? "would be" : ""} super
 
 // ── Pass 2: deactivate campaigns whose bill is terminal/inactive ───
 console.log("Pass 2: deactivate active campaigns whose linked bill is terminal or inactive");
-const { data: linked } = await sb
+const linked = await fetchAll(() => sb
   .from("campaigns")
   .select("id, slug, title, state, bill_id, bills:bill_id(id, bill_number, status, active, kratom_relevance, last_action_at)")
   .eq("active", true)
-  .not("bill_id", "is", null);
+  .not("bill_id", "is", null)
+  .order("id"));
 const billTerminal = (linked ?? []).filter((c) => c.bills && (c.bills.active === false || TERMINAL.has((c.bills.status ?? "").toLowerCase())));
 console.log(`  ${billTerminal.length} active campaigns whose bill is terminal/inactive`);
 for (const c of billTerminal) {
@@ -139,12 +156,13 @@ console.log(`  → ${stats.deactivatedBillTerminal} ${DRY_RUN ? "would be" : ""}
 
 // ── Pass 3: expire action_required alerts on terminal/inactive bills ─
 console.log("Pass 3: expire action_required policy_alerts on terminal/inactive bills");
-const { data: aalerts } = await sb
+const aalerts = await fetchAll(() => sb
   .from("policy_alerts")
   .select("id, title, locality, kind, bill_id, expires_at, moderation_status, bills:bill_id(bill_number, status, active)")
   .eq("action_required", true)
   .eq("moderation_status", "approved")
-  .not("bill_id", "is", null);
+  .not("bill_id", "is", null)
+  .order("id"));
 const stale = (aalerts ?? []).filter((a) => a.bills && (a.bills.active === false || TERMINAL.has((a.bills.status ?? "").toLowerCase())));
 // Only re-expire ones not already past their expires_at
 const toExpire = stale.filter((a) => !a.expires_at || new Date(a.expires_at) > new Date());

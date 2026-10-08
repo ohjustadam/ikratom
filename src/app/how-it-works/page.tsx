@@ -1,22 +1,43 @@
-import { createClient } from "@/lib/supabase/server";
-import { InviteFriends } from "@/components/InviteFriends";
-import { getMyInviteSummary, buildInviteUrl } from "@/modules/invite/actions";
+import { createAnonClient } from "@/lib/supabase/anon";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { HowItWorksInvite } from "./HowItWorksInvite";
 import { AnnotatedScreenshot, type Pin } from "@/components/AnnotatedScreenshot";
 import { getContent } from "@/lib/editable-content";
 
+import Link from "@/components/Link";
 export const metadata = { title: "How iKratom works" };
-export const dynamic = "force-dynamic";
 
 /**
  * Public tour — annotated screenshots, ethics, what's good vs bad practice.
  * Designed for FB advocates considering migrating + first-time visitors.
+ *
+ * ── WHY THIS IS STATIC NOW (2026-09-10) ─────────────────────────────────────
+ * This is a marketing explainer: the same words, the same screenshots and the
+ * same four headline numbers for every single visitor. It nonetheless carried
+ * `force-dynamic` for no stated reason, and even without that export it had two
+ * cookie reads — the user-bound Supabase client used for the counts, and an
+ * `auth.getUser()` behind the invite widget — either of which is enough on its
+ * own to opt a route out of caching. So every crawler hit re-ran four COUNT
+ * queries against Supabase, on a page whose content changes when someone edits
+ * copy in /admin, i.e. almost never.
+ *
+ * Beyond egress there is a resilience argument: Supabase's free plan does not
+ * bill for overage, it RESTRICTS the project. A prerendered page is a file on
+ * the CDN and keeps serving through that; a dynamic route 500s. The tour a new
+ * advocate lands on should be the last thing to go dark.
  */
+export const revalidate = 3600;
+
 export default async function HowItWorksPage() {
-  const supabase = await createClient();
-  const [{ count: campaigns }, { count: bills }, { count: actions }, { count: stories }, intro] = await Promise.all([
+  // Cookieless anon client: these three counts are public aggregates and were
+  // VERIFIED to return identical numbers under anon and service role
+  // (campaigns 218/218, bills 342/342, kratom_stories 2/2 on 2026-09-10), so
+  // RLS is not hiding rows from the cached snapshot.
+  const supabase = createAnonClient();
+  const [{ count: campaigns }, { count: bills }, actions, { count: stories }, intro] = await Promise.all([
     supabase.from("campaigns").select("id", { count: "exact", head: true }).eq("active", true),
     supabase.from("bills").select("id", { count: "exact", head: true }).eq("active", true),
-    supabase.from("campaign_actions").select("id", { count: "exact", head: true }),
+    totalActionsTaken(),
     supabase.from("kratom_stories").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
     // Admin-editable intro paragraph — overridable from /admin/content/how-it-works.intro.
     getContent(
@@ -31,7 +52,7 @@ export default async function HowItWorksPage() {
         intro={intro}
         campaigns={campaigns ?? 0}
         bills={bills ?? 0}
-        actions={actions ?? 0}
+        actions={actions}
         stories={stories ?? 0}
       />
 
@@ -44,6 +65,38 @@ export default async function HowItWorksPage() {
       <CTA />
     </div>
   );
+}
+
+/**
+ * Platform-wide count of actions taken — a genuine public aggregate.
+ *
+ * This one count CANNOT come from the anon client. `campaign_actions` RLS is
+ * self-scoped ("actions_self_read", migration 0001), so anon reads 0 and a
+ * signed-in advocate reads only their own. That made the number in a row of
+ * platform stats — next to "218 active campaigns" and "342 bills tracked" —
+ * accidentally per-viewer, and permanently "0 actions taken" for the logged-out
+ * visitors this tour is written for. Caching either answer would be wrong:
+ * publishing one advocate's personal total to everyone is exactly the leak this
+ * whole effort is closing, and freezing a hard 0 is a false claim.
+ *
+ * A service-role COUNT is the honest reading of what the chip has always meant.
+ * It bypasses RLS deliberately and returns a bare integer — no rows, no
+ * identities, nothing per-user — so it is safe in shared HTML. Note this is a
+ * different call than /api/bills/[id]/viewer's action count, which is
+ * deliberately RLS-scoped because it is presented as the READER's number.
+ *
+ * Degrades to 0 if the key is absent (e.g. a preview build) rather than taking
+ * the page down, matching how `getContent` tolerates the same gap.
+ */
+async function totalActionsTaken(): Promise<number> {
+  try {
+    const { count } = await createServiceRoleClient()
+      .from("campaign_actions")
+      .select("id", { count: "exact", head: true });
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 function Hero({ intro, campaigns, bills, actions, stories }: { intro: string; campaigns: number; bills: number; actions: number; stories: number }) {
@@ -310,19 +363,6 @@ function FbMigration() {
   );
 }
 
-/**
- * Lightweight wrapper that prefers the signed-in user's personal invite
- * URL (gets them attribution credit) and falls back to the unattributed
- * homepage URL for signed-out visitors.
- */
-async function HowItWorksInvite() {
-  const summary = await getMyInviteSummary();
-  const url = summary?.invite_code
-    ? await buildInviteUrl(summary.invite_code)
-    : (process.env.APP_URL ?? "https://www.ikratom.org");
-  return <InviteFriends inviteUrl={url} />;
-}
-
 function ForLeaders() {
   return (
     <section className="mt-16 rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-6 text-center">
@@ -351,7 +391,7 @@ function CTA() {
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         <a href="/signup" className="rounded-md bg-emerald-500 px-6 py-3 font-semibold text-zinc-950 hover:bg-emerald-400">Join the war room →</a>
-        <a href="/campaigns" className="rounded-md border border-zinc-700 px-6 py-3 font-semibold hover:border-emerald-500 hover:text-emerald-400">Browse campaigns first</a>
+        <Link href="/campaigns" className="rounded-md border border-zinc-700 px-6 py-3 font-semibold hover:border-emerald-500 hover:text-emerald-400">Browse campaigns first</Link>
       </div>
     </section>
   );

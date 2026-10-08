@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>iKratom Operator</title>
+  <link rel="stylesheet" href="/ui/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="i">i</span>Kratom <span class="sub">Operator</span></div>
+    <div id="siteState" class="pill pill-muted">checking…</div>
+    <nav class="tabs">
+      <button class="tab active" data-panel="status">Status</button>
+      <button class="tab" data-panel="database">Database</button>
+      <button class="tab" data-panel="ops">Ops</button>
+      <button class="tab" data-panel="assistant">Assistant</button>
+      <button class="tab" data-panel="config">Config</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- STATUS -->
+    <section id="status" class="panel active">
+      <div class="row">
+        <h2>Platform diagnosis</h2>
+        <button id="rediagnose" class="btn">Re-run</button>
+      </div>
+      <p class="hint">Talks straight to the platform APIs — works even when the site is down.</p>
+      <div id="verdict" class="verdict">Running first diagnosis…</div>
+      <div id="probes" class="probes"></div>
+    </section>
+
+    <!-- DATABASE -->
+    <section id="database" class="panel">
+      <div class="row">
+        <h2>Database</h2>
+        <label class="toggle"><input type="checkbox" id="allowWrite" /> allow writes</label>
+      </div>
+      <p class="hint">Runs through the Supabase Management API (open even when the app gateway is restricted). Reads are free; writes need the toggle above.</p>
+      <div class="db-layout">
+        <aside id="tableList" class="tables"><div class="muted">loading tables…</div></aside>
+        <div class="db-main">
+          <textarea id="sql" spellcheck="false" placeholder="select count(*) from profiles">select table_name from information_schema.tables where table_schema='public' order by 1 limit 20</textarea>
+          <div class="row">
+            <button id="runSql" class="btn btn-primary">Run</button>
+            <span id="sqlMeta" class="muted"></span>
+          </div>
+          <div id="sqlOut" class="tableout"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- OPS -->
+    <section id="ops" class="panel">
+      <div class="row"><h2>Pipelines &amp; CI</h2><button id="refreshOps" class="btn">Refresh</button></div>
+      <p class="hint">Recent GitHub Actions runs, and one-click dispatch of any allowlisted cron/pipeline.</p>
+      <div class="ops-grid">
+        <div><h3>Dispatch a pipeline</h3><div id="dispatchList" class="dispatch"></div></div>
+        <div><h3>Recent runs</h3><div id="runList" class="runs"><div class="muted">loading…</div></div></div>
+      </div>
+    </section>
+
+    <!-- ASSISTANT -->
+    <section id="assistant" class="panel">
+      <div class="row"><h2>Operator assistant</h2><span id="aiProviders" class="muted"></span></div>
+      <p class="hint">Free-tier AI only (Ollama / Groq / Gemini / …). Your never-need-Claude troubleshooter. It can see the latest diagnosis as context.</p>
+      <div id="chat" class="chat"></div>
+      <div class="row chat-input">
+        <input id="chatMsg" type="text" placeholder="e.g. why is the site down? what should I check first?" />
+        <label class="toggle"><input type="checkbox" id="withContext" checked /> share diagnosis</label>
+        <button id="chatSend" class="btn btn-primary">Send</button>
+      </div>
+    </section>
+
+    <!-- CONFIG -->
+    <section id="config" class="panel">
+      <h2>Configuration</h2>
+      <p class="hint">Which credentials are wired in (values never leave your machine — this shows presence only).</p>
+      <div id="configGrid" class="config-grid">loading…</div>
+    </section>
+  </main>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>

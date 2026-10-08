@@ -47,7 +47,10 @@ async function decodeDoc(b64, mimeId) {
   if (mimeId === 2) {
     try {
       const { PDFParse } = require("pdf-parse");
-      const parser = new PDFParse(buf);
+      // pdf-parse's engine rejects Node Buffers since ~2026-07 ("provide binary
+      // data as Uint8Array") — broke ALL PDF decodes silently for days. Copy
+      // into a plain Uint8Array before handing it over.
+      const parser = new PDFParse(new Uint8Array(buf));
       const data = await parser.getText();
       return (data?.text ?? "").replace(/\s+/g, " ").trim();
     } catch (e) { return null; }

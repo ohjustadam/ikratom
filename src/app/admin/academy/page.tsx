@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { AcademyAdminTree } from "./AcademyAdminTree";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · Academy" };
 
 export default async function AdminAcademyPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sb = await createClient();

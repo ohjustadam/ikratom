@@ -34,13 +34,17 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { TOOLS_SCHEMA, dispatchTool } from "./research-tools.mjs";
-import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
+import { toolChat, ollamaToolModel, availableToolProviders } from "./lib/tool-chat.mjs";
 
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const args = process.argv.slice(2);
 const slug = argValue("--slug");
 const id = argValue("--id");
-const MODEL = argValue("--model") || "llama3.1:8b";
+// --model still names the OLLAMA model (callers pass hermes3:8b). It is now a
+// PREFERENCE, not a requirement: lib/tool-chat runs the identical tool loop on
+// any of the free OpenAI-compatible providers when Ollama is not up. Before
+// this, no Ollama meant no briefing anywhere but the owner's PC.
+if (argValue("--model")) process.env.OLLAMA_TOOL_MODEL = argValue("--model");
+const PROVIDER = argValue("--provider") || null;
 const MAX_TURNS = 6;
 
 if (!slug && !id) {
@@ -57,24 +61,6 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!supabaseUrl || !serviceKey) { console.error("Missing Supabase env"); process.exit(1); }
 const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
-
-async function checkOllama() {
-  try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return false;
-    const data = await res.json();
-    const models = (data.models ?? []).map((m) => m.name);
-    if (!models.some((m) => m === MODEL || m.startsWith(MODEL.split(":")[0]))) {
-      console.error(`✗ Model "${MODEL}" not found. Available: ${models.join(", ")}`);
-      console.error(`  Pull it: ollama pull ${MODEL}`);
-      return false;
-    }
-    return true;
-  } catch {
-    console.error(`✗ Can't reach Ollama at ${OLLAMA_URL}.`);
-    return false;
-  }
-}
 
 const SYSTEM = `You are a research analyst preparing a briefing for a U.S. kratom advocacy campaign.
 
@@ -107,9 +93,13 @@ Be concrete. Cite specific bill numbers, headline dates, and legislator names. I
 When you have enough info, output the briefing as your final response WITHOUT making any more tool calls.`;
 
 // ---------- main ----------
-console.log(`\nResearching campaign with Ollama (${MODEL} @ ${OLLAMA_URL})…\n`);
-
-if (!(await checkOllama())) process.exit(1);
+const localModel = await ollamaToolModel();
+const cloud = availableToolProviders();
+console.log(`\nResearching campaign — local:${localModel ?? "none"} cloud:[${cloud.join(", ") || "none"}]\n`);
+if (!localModel && cloud.length === 0) {
+  console.error("✗ No tool-capable provider: Ollama is not up and no free-tier key is set.");
+  process.exit(1);
+}
 
 // Load campaign
 let q = supabase.from("campaigns").select("id, slug, title, blurb, state").limit(1);
@@ -138,51 +128,29 @@ const messages = [
 ];
 
 let finalText = null;
+let usedProvider = null, usedModel = null;
 
-for (let turn = 0; turn < MAX_TURNS; turn++) {
-  process.stdout.write(`Turn ${turn + 1}/${MAX_TURNS}: `);
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      tools: TOOLS_SCHEMA,
-      stream: false,
-      options: { temperature: 0.2, num_thread: OLLAMA_NUM_THREAD },
-    }),
-    signal: AbortSignal.timeout(180_000),
+try {
+  const run = await toolChat({
+    messages,
+    tools: TOOLS_SCHEMA,
+    dispatch: (name, fargs) => dispatchTool(supabase, name, fargs),
+    maxTurns: MAX_TURNS,
+    maxTokens: 2048,
+    timeoutMs: 180_000,
+    providerOverride: PROVIDER,
+    onEvent: (e) => {
+      if (e.type === "tool") console.log(`  → ${e.name}(${JSON.stringify(e.args).slice(0, 80)})  [${e.provider}]`);
+      if (e.type === "provider-failed") console.log(`  ↻ ${e.provider} failed: ${e.error}`);
+      if (e.type === "done") console.log(`  ✓ ${e.provider} wrote the briefing in ${e.turns} turn(s)`);
+    },
   });
-
-  if (!res.ok) { console.log(`✗ Ollama ${res.status}: ${(await res.text()).slice(0, 200)}`); process.exit(1); }
-  const data = await res.json();
-  const msg = data.message ?? {};
-
-  // If the model wants to call tools, execute them and feed results back.
-  const toolCalls = msg.tool_calls ?? [];
-  if (toolCalls.length > 0) {
-    console.log(`${toolCalls.length} tool call${toolCalls.length === 1 ? "" : "s"}`);
-    messages.push({ role: "assistant", content: msg.content ?? "", tool_calls: toolCalls });
-
-    for (const tc of toolCalls) {
-      const fname = tc.function?.name;
-      const fargs = tc.function?.arguments ?? {};
-      console.log(`  → ${fname}(${JSON.stringify(fargs).slice(0, 80)})`);
-      const result = await dispatchTool(supabase, fname, fargs);
-      const summary = result?.count != null ? `${result.count} items` : "ok";
-      console.log(`    ← ${summary}`);
-      messages.push({
-        role: "tool",
-        content: JSON.stringify(result).slice(0, 8000),
-      });
-    }
-    continue; // next turn — let model see tool output
-  }
-
-  // No tool calls → final answer
-  finalText = (msg.content ?? "").trim();
-  console.log(`final answer (${finalText.length} chars)`);
-  break;
+  finalText = (run.text ?? "").trim();
+  usedProvider = run.provider;
+  usedModel = run.model;
+} catch (e) {
+  console.error(`\n✗ ${String(e.message ?? e)}`);
+  process.exit(1);
 }
 
 if (!finalText) {
@@ -199,5 +167,5 @@ const { error: saveErr } = await supabase
   .eq("id", campaign.id);
 if (saveErr) { console.error(`✗ Save failed: ${saveErr.message}`); process.exit(1); }
 
-console.log(`✓ Briefing saved to campaigns.briefing for "${campaign.slug}".`);
+console.log(`✓ Briefing saved to campaigns.briefing for "${campaign.slug}" (via ${usedProvider}/${usedModel}).`);
 console.log(`  View at /admin/campaigns/${campaign.id}/edit`);

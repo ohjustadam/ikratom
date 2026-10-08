@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { siteConfig } from "@/config/site.config";
 
 export const metadata = {

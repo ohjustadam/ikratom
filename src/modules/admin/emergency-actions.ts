@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
 import { requireMfaForMutation } from "./mfa";
@@ -72,7 +72,7 @@ export async function updateReadOnlyMode(input: {
   enabled: boolean;
   reason?: string;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "admin_emergency_mode" });
   if (!ctx.ok) return { error: "Admin only." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
@@ -96,6 +96,10 @@ export async function updateReadOnlyMode(input: {
     details: { reason: input.reason ?? null },
   });
 
+  // The read-only flag is cached by lib/read-only-mode.ts under this tag.
+  // revalidatePath alone does NOT clear an unstable_cache entry, so without
+  // this the toggle would wait out the TTL.
+  updateTag("site-config");
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -108,7 +112,7 @@ export async function updateEmergencyConfig(input: {
   ctaHref?: string;
   severity?: "info" | "urgent" | "critical";
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "admin_emergency_mode" });
   if (!ctx.ok) return { error: "Admin only." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
@@ -137,6 +141,10 @@ export async function updateEmergencyConfig(input: {
     details: { title: input.title ?? null, severity: input.severity ?? "urgent" },
   });
 
+  // The public banner is an unstable_cache entry under this tag
+  // (lib/emergency-banner.ts); revalidatePath alone does NOT clear it, so the
+  // toggle used to wait out the cache's TTL. Clearing the tag makes it instant.
+  updateTag("emergency-banner");
   revalidatePath("/", "layout");
   return { ok: true };
 }

@@ -23,7 +23,11 @@ import { NextRequest, NextResponse } from "next/server";
  * path (/v2/) for breaking changes.
  */
 
-export const runtime = "edge";
+// nodejs (was "edge") since 2026-07-26: this route is force-static (prerendered
+// to a cached asset), so the runtime is immaterial at serve time — but declaring
+// "edge" made the Netlify adapter try to bundle it as an Edge Function, one more
+// surface for the Next-16 edge-bundling trap. nodejs sidesteps that entirely.
+export const runtime = "nodejs";
 export const dynamic = "force-static";
 
 // Build the public URL that the widget will redirect users to. Only a known

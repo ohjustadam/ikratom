@@ -23,8 +23,17 @@ let mockAdminCtx: { ok: boolean; isAdmin: boolean; isOwner: boolean } = {
   ok: false, isAdmin: false, isOwner: false,
 };
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => ({
+// getReadOnlyState now reads site_config through the SERVICE-ROLE client behind
+// an unstable_cache (2026-09-01): the row is global config, identical for every
+// visitor, and reading it live was 954 billable DB reads/day. Mock the client it
+// actually uses, and stub unstable_cache to pass the function straight through
+// so each test still sees its own fixture rather than a cached first result.
+vi.mock("next/cache", () => ({
+  unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
+}));
+
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: () => ({
     from: (_table: string) => ({
       select: (_cols: string) => ({
         eq: (_col: string, _val: unknown) => ({

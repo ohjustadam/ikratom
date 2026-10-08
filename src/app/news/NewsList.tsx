@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { searchNews } from "@/modules/news/actions";
+import { useChromeMe } from "@/components/chrome/ChromeProvider";
 
 type NewsItem = {
   id: string;
@@ -59,7 +60,11 @@ function saveLS(key: string, value: string) {
   catch { /* noop */ }
 }
 
-export function NewsList({ items, userState }: { items: NewsItem[]; userState: string | null }) {
+export function NewsList({ items }: { items: NewsItem[] }) {
+  // From the ONE per-user chrome read, not from the server render. Taking it
+  // as a prop meant /news had to open a cookie-bound Supabase client, which
+  // opts the whole route out of caching — see src/app/api/me/route.ts.
+  const userState = useChromeMe().state;
   // Owner explicitly asked: default to ALL states, not "yours". Home-state
   // is still a one-click filter chip, just not the default scope.
   const [stateFilter, setStateFilter] = useState<string>("all");

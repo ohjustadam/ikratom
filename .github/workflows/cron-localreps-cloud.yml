@@ -29,13 +29,74 @@ on:
         description: "Max localities to process this run"
         required: false
         default: "40"
+      probe:
+        description: 'Read-only test of ONE locality, e.g. "Clifton Park, NY" (no writes; skips the drain)'
+        required: false
+        default: ""
 
 concurrency:
   group: localreps-cloud
   cancel-in-progress: false
 
+# ---------------------------------------------------------------------------
+# Free AI provider pool — workflow-level so EVERY step inherits it.
+#
+# Why this is here and not on each step: the router (scripts/lib/ai-router.mjs)
+# can only use a provider whose key is in the step's environment. Keys were
+# added per step as each provider was adopted, so older steps kept an older,
+# smaller pool — this workflow reached the router with no OPENROUTER_API_KEY at
+# all while OpenRouter was the only provider still answering. Ingestion kept
+# running and every enrichment step failed, which is exactly the "reads the
+# world but cannot make sense of it" state we were in.
+#
+# A workflow-level env block is inherited by every job and every step, and a
+# step-level env still wins where one is set, so this can only widen the pool.
+# Adding a provider is now: create the secret, add one line here.
+# An unset secret expands to "" and the router skips that provider silently.
+# See docs/AI_PROVIDERS.md.
+env:
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+  GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+  MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+  AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+  CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+  CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  # GitHub Actions forbids secret names starting with GITHUB_, hence GH_MODELS_TOKEN.
+  GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+  # Optional: reorder the pool without a deploy, e.g. "groq,mistral,openrouter".
+  AI_PROVIDER_ORDER: ${{ vars.AI_PROVIDER_ORDER }}
+
 jobs:
+  # ── SUPABASE EGRESS GATE ────────────────────────────────────────────────
+  # Background resolution defers when the free-tier egress cap is close, so
+  # page traffic keeps the headroom. See scripts/lib/egress-budget.mjs.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier normal
+
   resolve:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -52,7 +113,12 @@ jobs:
       SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
       GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }} # GitHub Models (GITHUB_ prefix is reserved → GH_)
+      # Census places API (authoritative incorporated-vs-CDP) for place-classify.
+      # Key-optional: if the secret is unset the classifier falls back to keyless
+      # Wikidata, so the cloud resolver behaves exactly as before without it.
+      CENSUS_API_KEY: ${{ secrets.CENSUS_API_KEY }}
       # No Ollama in CI — pick a cloud provider first instead of burning one
       # connection-refused attempt per extraction. Router still falls through
       # to the others (Cerebras/Gemini/…) if Groq is cooling down.
@@ -73,27 +139,35 @@ jobs:
         # Uses the version-matched local playwright-chromium CLI (prod dep).
         run: npx playwright install --with-deps chromium
 
-      - name: Start in-job SearXNG container
+      # THE ORIGINAL INLINE BOOTSTRAP FELL THROUGH WITHOUT FAILING.
+      # Its wait loop ran 45 times and then simply carried on, so when SearXNG
+      # never came up the job continued, every lookup got [] from a search
+      # backend that was not there, every request was re-queued as "could not
+      # find", and the run went GREEN having accomplished nothing. That is the
+      # same shape as the pipelines that reported "0 found" for four days while
+      # their provider was dead. The composite action exists precisely because
+      # of this and hard-fails instead — a job with no grounding must go red.
+      - uses: ./.github/actions/searxng
+
+      - name: Probe one locality (read-only)
+        if: github.event.inputs.probe != ''
+        # Same env-indirection rule as below; the value is also shape-checked so
+        # only "Name, ST" ever reaches the script.
+        env:
+          PROBE: ${{ github.event.inputs.probe }}
         run: |
-          docker run -d --name searxng -p 8080:8080 \
-            -e SEARXNG_SECRET="$(openssl rand -hex 32)" \
-            -v "${{ github.workspace }}/scripts/searxng/settings.yml:/etc/searxng/settings.yml:ro" \
-            searxng/searxng:latest
-          echo "waiting for searxng JSON API..."
-          for i in $(seq 1 45); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/search?q=test&format=json" || true)
-            if [ "$code" = "200" ]; then echo "ready after ${i}s"; break; fi
-            sleep 2
-          done
+          if ! printf '%s' "$PROBE" | grep -Eq '^[A-Za-z .'"'"'-]{2,60}, [A-Z]{2}$'; then echo "bad probe value"; exit 2; fi
+          node --import=./scripts/lib/egress-meter.mjs scripts/auto-fulfill-pending-local-reps.mjs --probe "$PROBE"
 
       - name: Drain pending local-rep requests
+        if: github.event.inputs.probe == ''
         # `limit` read via env: indirection (not inline ${{ }} in run:) + integer
         # clamp, so a malicious dispatch value can't inject shell. Security audit 2026-07-06.
         env:
           DISPATCH_LIMIT: ${{ github.event.inputs.limit || '40' }}
         run: |
           lim=$(printf '%d' "${DISPATCH_LIMIT:-40}" 2>/dev/null || echo 40)
-          node scripts/auto-fulfill-pending-local-reps.mjs --limit "$lim" --max-minutes 22
+          node --import=./scripts/lib/egress-meter.mjs scripts/auto-fulfill-pending-local-reps.mjs --limit "$lim" --max-minutes 22
 
       - name: SearXNG container logs (always)
         if: always()

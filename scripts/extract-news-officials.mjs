@@ -33,7 +33,7 @@
  *   node --env-file=.env.local scripts/extract-news-officials.mjs --days 30
  */
 import { createClient } from "@supabase/supabase-js";
-import { aiRouter } from "./lib/ai-router.mjs";
+import { aiRouter, logProviderSummary, providerNote } from "./lib/ai-router.mjs";
 import { seedLocalitySlate } from "./lib/officials-slate.mjs";
 import { queueLocalityIntel } from "./lib/locality-intel.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
@@ -225,6 +225,8 @@ for (const a of alerts) {
 console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s — processed ${processed}, seeded ${seeded}, retargeted ${retargeted}, non-local ${skippedScope}, soft-retry ${softRetry}, hard-fail ${hardFailed}.`);
 
 if (!DRY) {
+  logProviderSummary();
+
   try {
     await sb.from("scraper_runs").insert({
       source: "extract_news_officials",
@@ -234,7 +236,7 @@ if (!DRY) {
       // (unconfirmed locality / slate awaiting box infra) are expected → not error.
       status: hardFailed > 0 && processed === 0 ? "error" : processed === 0 ? "empty" : "success",
       rows_updated: seeded,
-      notes: `processed ${processed} · seeded ${seeded} · retargeted ${retargeted} · non-local ${skippedScope} · soft-retry ${softRetry} · hard-fail ${hardFailed}`,
+      notes: `processed ${processed} · seeded ${seeded} · retargeted ${retargeted} · non-local ${skippedScope} · soft-retry ${softRetry} · hard-fail ${hardFailed} · ${providerNote()}`,
     });
   } catch { /* best-effort */ }
 }

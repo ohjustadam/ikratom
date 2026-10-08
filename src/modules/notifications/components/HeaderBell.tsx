@@ -1,4 +1,5 @@
-import { getUnreadNotificationCount } from "../actions";
+"use client";
+
 import { NotificationFlyout } from "./NotificationFlyout";
 
 /**
@@ -10,7 +11,6 @@ import { NotificationFlyout } from "./NotificationFlyout";
  * away to /notifications. Per owner spec (Facebook-style overlay):
  * users should never lose their work tab to read a notification.
  */
-export async function HeaderBell() {
-  const count = await getUnreadNotificationCount();
+export function HeaderBell({ count = 0 }: { count?: number }) {
   return <NotificationFlyout initialUnreadCount={count} />;
 }

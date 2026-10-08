@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useTransition } from "react";
 import type { CustomReminder } from "@/modules/notifications/custom-reminders";
 

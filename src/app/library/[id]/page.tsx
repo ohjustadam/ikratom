@@ -1,9 +1,16 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createAnonClient } from "@/lib/supabase/anon";
 import { Markdown } from "@/components/Markdown";
 import { TYPE_ICONS, TYPE_LABELS, type LibraryItemType } from "@/modules/library/types";
-import { getCreatorContext } from "@/modules/admin/actions";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
+import { CreatorEditLink } from "./CreatorEditLink";
+
+import Link from "@/components/Link";
+export const revalidate = 900;
+
+export function generateStaticParams() {
+  return [];
+}
 
 export async function generateMetadata({
   params,
@@ -11,7 +18,7 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createAnonClient();
   const { data } = await supabase
     .from("library_items")
     .select("title, description, summary, type, author, source_org")
@@ -39,7 +46,7 @@ export default async function LibraryItemPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createAnonClient();
   const { data: item } = await supabase
     .from("library_items")
     .select("*")
@@ -48,18 +55,15 @@ export default async function LibraryItemPage({
     .single();
   if (!item) notFound();
 
-  const ctx = await getCreatorContext();
-  const canEdit = ctx.ok;
-
   const typeLabel = TYPE_LABELS[item.type as LibraryItemType] ?? item.type;
   const typeIcon = TYPE_ICONS[item.type as LibraryItemType] ?? "•";
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between">
-        <a href="/library" className="text-xs text-zinc-500 hover:text-emerald-400">
+        <Link href="/library" className="text-xs text-zinc-500 hover:text-emerald-400">
           ← Library
-        </a>
+        </Link>
         <PageShareWithAttribution
           path={`/library/${item.id}`}
           title={item.title}
@@ -84,16 +88,7 @@ export default async function LibraryItemPage({
             {item.published_at && <span className="ml-2 text-zinc-600">· {item.published_at}</span>}
           </p>
         )}
-        {canEdit && (
-          <div className="mt-3">
-            <a
-              href={`/admin/library/${item.id}/edit`}
-              className="rounded-md border border-zinc-700 px-3 py-1 text-xs hover:border-emerald-500"
-            >
-              Edit
-            </a>
-          </div>
-        )}
+        <CreatorEditLink itemId={item.id} />
       </header>
 
       {/* Embed (video/audio) */}

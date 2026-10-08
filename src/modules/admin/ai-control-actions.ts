@@ -41,7 +41,7 @@ export type AiStatRow = {
 };
 
 export async function listRecentAiJobs(limit = 100): Promise<{ rows: AiJobRow[] } | { error: string }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Admins only." };
 
   const supabase = createServiceRoleClient();
@@ -55,7 +55,7 @@ export async function listRecentAiJobs(limit = 100): Promise<{ rows: AiJobRow[] 
 }
 
 export async function getAiStats24h(): Promise<{ rows: AiStatRow[] } | { error: string }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Admins only." };
 
   const supabase = createServiceRoleClient();
@@ -65,14 +65,14 @@ export async function getAiStats24h(): Promise<{ rows: AiStatRow[] } | { error: 
 }
 
 export async function getProviderAvailability() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Admins only." };
   const available = await whichAvailable();
   return { available };
 }
 
 export async function getEmailQuotaStatus() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Admins only." };
   const status = await getTodayQuotaStatus();
   return { status };
@@ -86,7 +86,7 @@ export async function getEmailQuotaStatus() {
 export async function getGroundingQuotaStatus(): Promise<
   { status: GroundingBudgetStatus } | { error: string }
 > {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Admins only." };
   const supabase = createServiceRoleClient();
   const status = await getGroundingBudget(supabase);
@@ -112,7 +112,7 @@ export type EnvPresenceGroup = {
 export async function getEnvPresence(): Promise<
   { groups: EnvPresenceGroup[] } | { error: string }
 > {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Admins only." };
 
   const has = (k: string) => !!process.env[k] && process.env[k]!.length > 0;

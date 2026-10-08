@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 import { rankActions, type RankableBill, type RankableCampaign } from "@/modules/district/rank";
 

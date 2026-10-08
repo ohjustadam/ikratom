@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -105,8 +106,17 @@ export async function createCoalition(input: {
     return { ok: false, error: error?.message ?? "Failed to create coalition" };
   }
 
-  // Owner is also a member with role='owner'
-  const { error: memberErr } = await supabase
+  // Owner is also a member with role='owner'.
+  //
+  // Service role, ON PURPOSE (2026-10-03). The coalition_members INSERT policy
+  // requires is_coalition_admin(coalition_id), which only looks at
+  // coalition_members — and a brand-new coalition has no members yet. So the
+  // creator's own owner row was always refused, the coalition was rolled back,
+  // and no non-admin could EVER create one: 709 attempts by one leader over
+  // Sep 30-Oct 2, zero coalitions in the table. Safe because the coalition row
+  // above was inserted under RLS with owner_id = auth.uid(), and this writes
+  // exactly that user as owner of exactly that row — nothing else.
+  const { error: memberErr } = await createServiceRoleClient()
     .from("coalition_members")
     .insert({ coalition_id: created.id, user_id: user.id, role: "owner" });
   if (memberErr) {

@@ -32,7 +32,7 @@ export default async function AdminBillsPage({
 }: {
   searchParams: Promise<{ state?: string; scope?: string; status?: string; q?: string; inactive?: string }>;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_bills" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sp = await searchParams;

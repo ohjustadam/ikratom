@@ -21,7 +21,7 @@ export default async function StanceReviewPage({
 }: {
   searchParams?: Promise<{ state?: string; filter?: string }>;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_stance" });
   if (!ctx.ok) redirect("/dashboard");
   const sp = (await searchParams) ?? {};
   const state = (sp.state ?? "NY").toUpperCase();

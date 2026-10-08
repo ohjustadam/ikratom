@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 
@@ -38,7 +38,7 @@ export const dynamic = "force-dynamic";
  *      year — likely from a closed prior session that got re-used.
  */
 export default async function DataQualityPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sb = await createClient();

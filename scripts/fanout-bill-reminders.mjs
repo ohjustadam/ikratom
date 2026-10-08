@@ -45,6 +45,22 @@ const { data: subs } = await sb
 
 if (!subs || subs.length === 0) {
   console.log("No bill subscriptions to fan out.");
+  // Record the "nothing to do" run BEFORE exiting. Without this the script
+  // returns at line ~48 on every tick and never reaches the telemetry write at
+  // the bottom, so check-cron-staleness saw fanout_bill_reminders as "never
+  // written telemetry" and paged forever about a job that was working fine.
+  // Same defect class as d29368f (auto_post_bills_to_forum). A quiet run is
+  // still a run; only silence should be alarming.
+  try {
+    await sb.from("scraper_runs").insert({
+      source: "fanout_bill_reminders",
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      status: "empty",
+      rows_added: 0,
+      notes: "no bill subscriptions with notify flags",
+    });
+  } catch { /* best-effort */ }
   process.exit(0);
 }
 console.log(`Checking ${subs.length} subscription(s)…`);

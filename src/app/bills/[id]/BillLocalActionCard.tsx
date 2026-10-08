@@ -1,9 +1,12 @@
 "use client";
 
+import { useBillViewer } from "./useBillViewer";
+
 import { useState } from "react";
 import { NotifyMeButton } from "./NotifyMeButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
+import Link from "@/components/Link";
 /**
  * "Local action playbook" — uniform actionable UI rendered above the
  * journey block on /bills/[id] when scope=municipal/county and
@@ -118,8 +121,6 @@ export function BillLocalActionCard({
   agendaItemNumber,
   officials = [],
   sourceUrl,
-  signedIn,
-  initiallySubscribed,
 }: {
   meta: LocalMeta;
   billId: string;
@@ -129,10 +130,14 @@ export function BillLocalActionCard({
   agendaItemNumber?: string;
   officials?: LocalOfficial[];
   sourceUrl?: string | null;
-  signedIn: boolean;
-  initiallySubscribed: boolean;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
+  // Signed-in + subscription state used to arrive as props, which meant the
+  // bill page had to resolve them on the server and could not be cached. They
+  // now come from the shared per-viewer fetch (see useBillViewer).
+  const { data: viewer } = useBillViewer(billId);
+  const signedIn = viewer.signedIn;
+  const initiallySubscribed = viewer.subscribed;
 
   const meetingDate = meta.meeting_at ? new Date(meta.meeting_at) : null;
   const meetingValid = meetingDate && !isNaN(meetingDate.getTime());
@@ -500,7 +505,7 @@ export function BillLocalActionCard({
             <p className="mt-3 text-[10px] text-zinc-600">
               Run <code className="rounded bg-zinc-900 px-1 py-0.5 font-mono text-zinc-400">npm run seed:bill-officials -- --bill &lt;id&gt;</code> (admin)
               to AI-pull the full council slate for this locality. Officials saved here also appear in
-              {" "}<a href="/legislators" className="text-emerald-400 hover:underline">/legislators</a> for the locality.
+              {" "}<Link href="/legislators" className="text-emerald-400 hover:underline">/legislators</Link> for the locality.
             </p>
           </div>
         );

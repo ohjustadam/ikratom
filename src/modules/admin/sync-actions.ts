@@ -11,7 +11,7 @@ import { getAdminContext } from "./actions";
  * authorizes the writes, no service role needed.
  */
 export async function syncOneStateLegislators(state: string) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "sync_legislators" });
   if (!ctx.ok) return { error: "Admin only." };
 
   const abbr = state.trim().toUpperCase();

@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * scripts/lib/bop-engine.mjs (also called by daily cron).
  */
 export default async function BopMonitorPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) redirect("/dashboard");
 
   const supabase = await createClient();

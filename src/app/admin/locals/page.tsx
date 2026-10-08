@@ -6,7 +6,7 @@ import { LocalsBrowser } from "./LocalsBrowser";
 export const metadata = { title: "Admin · Local officials" };
 
 export default async function AdminLocalsPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) redirect("/dashboard");
 
   const supabase = await createClient();

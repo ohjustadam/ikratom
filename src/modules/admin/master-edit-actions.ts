@@ -31,7 +31,7 @@ export async function searchEntitiesForEdit(
   query: string,
   state?: string,
 ): Promise<MasterSearchResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_master_edit" });
   if (!ctx.ok) return { ok: false, error: "Admins only." };
   const def = ENTITIES[type as EntityType];
   if (!def) return { ok: false, error: "Unknown entity type." };
@@ -62,7 +62,7 @@ export type MasterApplyResult = { ok: true; results: MasterApplyRow[] } | { ok: 
 /** Apply a reviewed batch of whitelisted edits. Each row is validated, diffed,
  *  and audit-logged individually by applyEntityEdit. */
 export async function applyMasterEdits(edits: MasterEdit[]): Promise<MasterApplyResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_master_edit" });
   if (!ctx.ok) return { ok: false, error: "Admins only." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { ok: false, error: mfaErr };

@@ -31,6 +31,7 @@ import { listMyPushSubscriptions } from "@/modules/auth/actions-push";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 import { Reveal } from "@/components/motion/Reveal";
 
+import Link from "@/components/Link";
 /**
  * /dashboard — the cockpit.
  *
@@ -204,9 +205,9 @@ export default async function DashboardPage({
             <section data-tour="my-reps">
               <div className="mb-3 flex items-end justify-between">
                 <h2 className="text-lg font-semibold">Your representatives</h2>
-                <a href="/legislators" className="text-xs text-emerald-400 hover:underline">
+                <Link href="/legislators" className="text-xs text-emerald-400 hover:underline">
                   See all in {profile?.state} →
-                </a>
+                </Link>
               </div>
               <div className="space-y-4">
                 {groupMeta.map((g) => (

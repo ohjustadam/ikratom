@@ -1,0 +1,343 @@
+#!/usr/bin/env node
+/**
+ * cloudflare-cache-setup.mjs — put the edge cache in front of Netlify.
+ *
+ * WHY: on 2026-07-30 Netlify disabled the site for credit exhaustion. Every
+ * request — including every bot crawl — reaches the origin and invokes the
+ * single catch-all `___netlify-server-handler`, because the app answers with
+ * `Cache-Control: no-cache, must-revalidate` on every page. Cloudflare is
+ * already proxying the domain but `cf-cache-status: DYNAMIC` confirms it caches
+ * nothing, so it provides zero protection.
+ *
+ * This installs the cache rules that make anonymous traffic free: Cloudflare
+ * answers from its own edge and the request never reaches Netlify, so it costs
+ * no compute, no request, and no bandwidth credits.
+ *
+ * ── THE FOUR SAFETY GUARDS (all four matter) ─────────────────────────────────
+ *  1. AUTH BYPASS. Never cache a response for a request carrying the Supabase
+ *     auth cookie. Several pages (/bills, /campaigns, /calendar) personalise
+ *     server-side; caching those for everyone would serve one user's data to
+ *     the world. Signed-in traffic always goes to origin.
+ *  2. RSC BYPASS. Next.js sends `Vary: rsc, next-router-state-tree, ...`, but
+ *     custom cache keys are not available on the Free plan, so Cloudflare would
+ *     ignore that Vary and could hand an RSC flight payload to a document
+ *     request (or the reverse), breaking client navigation. We therefore cache
+ *     ONLY plain document GETs and let every RSC request through.
+ *  3. PATH ALLOWLIST. Default is "do not cache". Only paths verified to render
+ *     identically for every visitor are listed. A wrong entry here is a data
+ *     leak, so the list is opt-in and short.
+ *  4. EDGE TTL OVERRIDE. The origin says `no-cache`; respecting that would make
+ *     the whole rule a no-op. We deliberately override origin TTL at the edge
+ *     while sending browsers `max-age=0`, so users still revalidate and a purge
+ *     takes effect immediately.
+ *
+ * Usage:
+ *   node --env-file=.env.local scripts/cloudflare-cache-setup.mjs            # dry run
+ *   node --env-file=.env.local scripts/cloudflare-cache-setup.mjs --apply
+ *   node --env-file=.env.local scripts/cloudflare-cache-setup.mjs --purge
+ *
+ * Requires CLOUDFLARE_CACHE_TOKEN with Zone > Cache Rules > Edit AND
+ * Zone > Cache Purge > Purge on the ikratom.org zone. The existing
+ * CLOUDFLARE_DEPLOY_TOKEN is Zone:Read only and CANNOT do this.
+ */
+
+const APPLY = process.argv.includes("--apply");
+const PURGE = process.argv.includes("--purge");
+// The calendar rule needs a custom cache key; if the plan refuses it, apply
+// the rest with --no-calendar-key.
+const NO_CALENDAR_KEY = process.argv.includes("--no-calendar-key");
+
+const ZONE = process.env.CLOUDFLARE_ZONE_ID || "6f054a2b237f9b7ec10d525ec7e99d05"; // ikratom.org
+const TOKEN = process.env.CLOUDFLARE_CACHE_TOKEN || process.env.CLOUDFLARE_API_TOKEN;
+
+// Derived from NEXT_PUBLIC_SUPABASE_URL so an account/project move can't leave a
+// stale cookie name here silently caching signed-in pages.
+const SUPABASE_REF = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").match(/https:\/\/([a-z0-9]+)\.supabase\./)?.[1];
+const AUTH_COOKIE = SUPABASE_REF ? `sb-${SUPABASE_REF}-auth-token` : null;
+
+/**
+ * Paths that render identically for every visitor. KEEP THIS SHORT AND PROVEN.
+ *
+ * ⚠ EVERY ENTRY IS AUDITED. A wrong entry here is a privacy breach, not a bug.
+ * It is not enough for the page file to look clean — a page is only cacheable if
+ * NOTHING in its render tree reads the viewer. Three shared server components
+ * silently poison otherwise-public pages, and a grep of page files alone gives
+ * false "safe" verdicts:
+ *   - PageShareWithAttribution → bakes the VIEWER'S OWN invite code into the HTML
+ *   - SignUpNudge / EnablePushNudge → async server components reading auth
+ *
+ * /banned, /states/:code and /meetings/:id were BLOCKED and are now allowed,
+ * because the components that poisoned them were converted to client
+ * components on 2026-07-30 (PageShareWithAttribution, SignUpNudge,
+ * EnablePushNudge). Verified after the change: the anonymous server render of
+ * /states/OK is byte-identical across requests and contains no invite code, no
+ * name, no email, and no server-rendered signup nudge.
+ *
+ * ⚠ PREFIX vs EXACT MATTERS — three real traps, all verified:
+ *   /news       is NOT safe, /news/:id IS   → "/news/" prefix (with the slash)
+ *   /briefings  is safe, /briefings/:slug NOT (it reads headers()) → exact only
+ *   /states/:code is safe, but /states/:code/briefing is NOT (awaits
+ *               createClient) → prefix MINUS an ends_with("/briefing") guard
+ *
+ * ⚠ .ics EXCLUSION: /meetings/:id/event.ics and /calendar/feed.ics use a
+ * cookie-bound Supabase client whose RLS resolves per viewer, yet already send
+ * `Cache-Control: public`. That is a pre-existing bug (they should use the
+ * service-role client with an explicit public projection). Edge-caching them
+ * would AMPLIFY it, so they are excluded until that is fixed.
+ *
+ * Never here: / · /bills · /campaigns · /legislators (the one audited
+ * exception is /legislators/:id/briefing, see LONG_TTL_PATTERNS) · /forum/* ·
+ * /account/* · /admin/* · /api/* · /search · /research/* · /pulse · /deadlines
+ */
+export const CACHEABLE_PATTERNS = [
+  // Viewer-independent DB reads (service-role + unstable_cache), high crawl value
+  'starts_with(http.request.uri.path, "/news/")',
+  'starts_with(http.request.uri.path, "/topics")',
+  'starts_with(http.request.uri.path, "/whats-new")',
+  '(starts_with(http.request.uri.path, "/states/") and not ends_with(http.request.uri.path, "/briefing"))',
+  '(starts_with(http.request.uri.path, "/meetings/") and not ends_with(http.request.uri.path, ".ics"))',
+  'http.request.uri.path eq "/states"',
+  'http.request.uri.path eq "/status"',
+  'http.request.uri.path eq "/banned"',
+  'http.request.uri.path eq "/briefings"',
+  'http.request.uri.path eq "/videos"',
+  // AUDITED 2026-10-03: page.tsx reads only a service-role unstable_cache
+  // snapshot and renders CalendarView (client); filters/geofence run in the
+  // browser via useSearchParams + /api/me. The root layout is barred from
+  // cookies()/headers(). It was the #1 target of the 2026-10-03 distributed
+  // crawl (6,898 hits from thousands of IPs) — per-IP limits can't stop that,
+  // a cache can. Exact match: /calendar/feed.ics stays uncached (see above).
+  'http.request.uri.path eq "/calendar"',
+  // AUDITED 2026-10-03: service-role unstable_cache snapshot; filters are
+  // searchParams (part of the cache key); ResearchBrowser and ResearchSubmitCta
+  // are client components (the CTA was a cookie-reading server component until
+  // today). Exact match only — /research/:id is NOT audited.
+  'http.request.uri.path eq "/research"',
+  'http.request.uri.path in {"/donate" "/ethics" "/support"}',
+  // Fully static content pages (no data fetch at all)
+  'starts_with(http.request.uri.path, "/install")',
+  'http.request.uri.path in {"/glossary" "/membership" "/roles"}',
+  'http.request.uri.path in {"/cookies" "/privacy" "/terms"}',
+  // Crawler plumbing: identical for everyone (robots.ts is ISR 3600, no data).
+  // 415 robots.txt fetches in the Oct 3 crawl alone.
+  'http.request.uri.path in {"/robots.txt" "/sitemap.xml"}',
+  // The PWA's offline fallback: a client component with no data at all, yet
+  // 207 origin renders in three days — the service worker refetches it on
+  // every install/update.
+  'http.request.uri.path eq "/offline"',
+  'http.request.uri.path in {"/action" "/community" "/knowledge" "/legislative"}',
+  // AUDITED 2026-10-07: prerendered static pages — no cookies()/headers()/
+  // createClient()/searchParams in the page; the forms are client components
+  // (AuthForm reads ?redirect= in the browser). /login alone was 139 origin
+  // hits in 13 h after the other caching landed. /reset-password is NOT here:
+  // it completes a recovery session and is not audited.
+  'http.request.uri.path in {"/login" "/signup" "/forgot"}',
+];
+
+/**
+ * Paths that are EXPENSIVE to render and identical for every ANONYMOUS visitor,
+ * cached for an hour instead of five minutes. Added 2026-10-03 after the
+ * 2026-10-02 flood: ONE IP replayed ~440 real URLs ~28 times each and 4,000+ of
+ * those renders (~6.5s apiece, 10 queries each) burned ~635 credits in 25
+ * minutes. With this rule a repeated URL costs one render per hour, however many
+ * times it is requested, so the worst case is bounded by the number of distinct
+ * URLs, not the number of requests.
+ *
+ *  /legislators/:id/briefing — AUDITED 2026-10-03. Its only viewer dependence is
+ *    `sb.auth.getUser()` + `getAdminContext()` (both read the Supabase auth
+ *    cookie, which guard 1 already bypasses) and the viewer's own profile via
+ *    getUserLegislators(), which is skipped when there is no user. Every child
+ *    component it renders (EmailOfficialButton, RemindMeButton, OfficialAvatar)
+ *    is a client component. It reads no cookies()/headers()/searchParams. If it
+ *    ever does, REMOVE IT FROM THIS LIST FIRST — a wrong entry is a data leak.
+ *    The page is `noindex` and advocate-facing, so an hour of staleness costs
+ *    nothing a reader would notice.
+ */
+export const LONG_TTL_PATTERNS = [
+  '(starts_with(http.request.uri.path, "/legislators/") and ends_with(http.request.uri.path, "/briefing"))',
+  // /legislators/:id — AUDITED 2026-10-03. ISR (revalidate 3600): every read is
+  // createAnonClient() inside unstable_cache; MemberGates, ShareButtons,
+  // OfficialAvatar and EmailOfficialButton are client components; no
+  // cookies()/headers()/searchParams. It was 7,507 of the Oct 3 distributed
+  // crawl's requests (1,001 ids, robots.txt ignored). An hour matches its ISR.
+  '(starts_with(http.request.uri.path, "/legislators/") and not ends_with(http.request.uri.path, "/briefing"))',
+  // /bills/:id — AUDITED 2026-10-03 to the same standard as the briefing entry:
+  // the public read-set is a service-role unstable_cache snapshot; per-viewer
+  // reads moved to /api/bills/[id]/viewer (client). Two server children still
+  // touch the auth cookie and nothing else: YourRepDecidingThisBill returns
+  // null without a session, BillTimeline reads public bill_actions. Guard 1
+  // bypasses every request carrying the auth cookie. /bills/:id/dossier reads
+  // the cookie-bound client and is NOT audited — excluded. 1,200 hits in the
+  // Oct 3 crawl; the platform's most valuable search content.
+  '(starts_with(http.request.uri.path, "/bills/") and not ends_with(http.request.uri.path, "/dossier"))',
+];
+
+/**
+ * The home page — AUDITED 2026-10-04. Its only per-visitor inputs are the auth
+ * cookie (guard 1) and the LANGUAGE cookie: readLocale() renders the hero in
+ * the visitor's locale. So this rule adds guard 5, skipping any request that
+ * carries `locale=`. Everyone else (anonymous, default English — nearly all
+ * traffic) gets one shared copy. Data is a 5-min service-role snapshot; the
+ * two server children (HomeLivePulse, StateLegalMap) read public tables only.
+ * Home was 402 origin renders in three ordinary days (~1 s each, 6% of
+ * compute); a single URL is exactly what a cache is good at.
+ */
+const HOME_EXPR = 'http.request.uri.path eq "/"';
+const LOCALE_COOKIE_GUARD = '(not http.cookie contains "locale=")'; // guard 5 (src/modules/auth/actions-locale.ts)
+
+// Static build output is immutable and safe to cache hard, regardless of auth.
+const STATIC_EXPR = 'starts_with(http.request.uri.path, "/_next/static/") or starts_with(http.request.uri.path, "/icons/")';
+
+// Site icons + web-app manifest: the same bytes for every visitor, signed in or
+// not. /favicon.ico was answering "private, no-store" and ~3 s of server time
+// per request (2026-10-07); /icon, /apple-icon and the manifest are generated
+// by Next on every hit. A day at the edge; deploys purge.
+const ICON_EXPR = 'http.request.method eq "GET" and http.request.uri.path in {"/favicon.ico" "/icon" "/apple-icon" "/manifest.webmanifest"}';
+
+function cacheableExpression(patterns = CACHEABLE_PATTERNS) {
+  if (!AUTH_COOKIE) throw new Error("NEXT_PUBLIC_SUPABASE_URL missing — refusing to build a rule without the auth-cookie bypass");
+  return [
+    '(http.request.method eq "GET")',
+    `(not http.cookie contains "${AUTH_COOKIE}")`,       // guard 1
+    '(not any(http.request.headers["rsc"][*] == "1"))',   // guard 2
+    `(${patterns.join(" or ")})`,                         // guard 3
+  ].join(" and ");
+}
+
+const rules = () => [
+  {
+    description: "ikratom: cache site icons + manifest for a day",
+    expression: ICON_EXPR,
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 86400 },
+      browser_ttl: { mode: "override_origin", default: 3600 },
+    },
+  },
+  {
+    description: "ikratom: cache immutable build assets",
+    expression: STATIC_EXPR,
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 31536000 },
+      browser_ttl: { mode: "override_origin", default: 31536000 },
+    },
+  },
+  {
+    description: "ikratom: cache anonymous public HTML (bypass auth cookie + RSC)",
+    expression: cacheableExpression(),
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      // guard 4 — origin says no-cache; override at the edge only.
+      // 5 min -> 30 min (2026-10-07, 300-credit plan): every origin hit costs
+      // Netlify compute + Supabase egress. Deploys purge Cloudflare
+      // (.github/workflows/cloudflare-purge-after-deploy.yml), so code changes
+      // still show at once; only data can lag, by at most 30 min.
+      edge_ttl: { mode: "override_origin", default: 1800 },
+      browser_ttl: { mode: "override_origin", default: 0 },
+    },
+  },
+  {
+    description: "ikratom: cache the anonymous English home page for 1h",
+    expression: `${cacheableExpression([HOME_EXPR])} and ${LOCALE_COOKIE_GUARD}`,
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 3600 },
+      browser_ttl: { mode: "override_origin", default: 0 },
+    },
+  },
+  {
+    description: "ikratom: cache anonymous expensive pages for 3h (bound flood cost)",
+    expression: cacheableExpression(LONG_TTL_PATTERNS),
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      // 1h -> 3h (2026-10-07): bill and legislator pages change slowly and are
+      // the crawlers' favourite targets; deploys purge.
+      edge_ttl: { mode: "override_origin", default: 10800 },
+      browser_ttl: { mode: "override_origin", default: 0 },
+    },
+  },
+  ...(NO_CALENDAR_KEY ? [] : [{
+    // /calendar renders identically for every query string: its filters run in
+    // the browser (useSearchParams). Bing crawls endless filter variants, so on
+    // 2026-10-06 /calendar had 2,676 cache MISSES and 1 hit in a day. One cache
+    // entry for all variants. (The browser URL keeps its query; only the cache
+    // key drops it.)
+    description: "ikratom: one cache entry for every /calendar query string",
+    expression: cacheableExpression(['http.request.uri.path eq "/calendar"']),
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 1800 },
+      browser_ttl: { mode: "override_origin", default: 0 },
+      cache_key: { custom_key: { query_string: { exclude: { all: true } } } },
+    },
+  }]),
+];
+
+async function cf(path, init = {}) {
+  const res = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json", ...(init.headers || {}) },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!json.success) {
+    throw new Error(`${path} -> ${res.status} ${JSON.stringify(json.errors ?? json)}`);
+  }
+  return json.result;
+}
+
+if (!TOKEN) {
+  console.error("✗ No CLOUDFLARE_CACHE_TOKEN (or CLOUDFLARE_API_TOKEN) in env.");
+  console.error("  Create one at https://dash.cloudflare.com/profile/api-tokens");
+  console.error("  Permissions: Zone > Cache Rules > Edit  +  Zone > Cache Purge > Purge");
+  console.error("  Scope: Zone = ikratom.org");
+  process.exit(1);
+}
+
+console.log("Zone:", ZONE);
+console.log("Auth-cookie bypass:", AUTH_COOKIE ?? "(MISSING — would refuse)");
+console.log("\nRules to install:\n");
+for (const r of rules()) {
+  console.log(`  • ${r.description}`);
+  console.log(`    when: ${r.expression}`);
+  console.log(`    edge_ttl=${r.action_parameters.edge_ttl.default}s browser_ttl=${r.action_parameters.browser_ttl.default}s\n`);
+}
+
+if (PURGE) {
+  await cf(`/zones/${ZONE}/purge_cache`, { method: "POST", body: JSON.stringify({ purge_everything: true }) });
+  console.log("✓ Cache purged.");
+  process.exit(0);
+}
+
+if (!APPLY) {
+  console.log("DRY RUN — nothing changed. Re-run with --apply to install.");
+  process.exit(0);
+}
+
+// The cache-settings phase has a single zone entrypoint ruleset; PUT replaces
+// its rules wholesale, which keeps this script idempotent (re-running installs
+// exactly the rules above rather than appending duplicates).
+const phase = "http_request_cache_settings";
+let entrypoint;
+try {
+  entrypoint = await cf(`/zones/${ZONE}/rulesets/phases/${phase}/entrypoint`);
+} catch {
+  entrypoint = await cf(`/zones/${ZONE}/rulesets`, {
+    method: "POST",
+    body: JSON.stringify({ name: "ikratom cache rules", kind: "zone", phase, rules: [] }),
+  });
+}
+
+const updated = await cf(`/zones/${ZONE}/rulesets/${entrypoint.id}`, {
+  method: "PUT",
+  body: JSON.stringify({ rules: rules() }),
+});
+console.log(`✓ Installed ${updated.rules?.length ?? 0} cache rules on ikratom.org.`);
+console.log("  Verify with:  curl -sI https://www.ikratom.org/banned | grep -i cf-cache-status");
+console.log("  Expect MISS on the first hit, then HIT.");

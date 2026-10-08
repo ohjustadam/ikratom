@@ -51,7 +51,7 @@ export async function setStance(input: {
   last_evidence_url?: string | null;
   topic?: string;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_stance" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!VALID_STANCES.includes(input.stance as Stance)) return { error: "Invalid stance." };
   const t = normTopic(input.topic);
@@ -95,7 +95,7 @@ export async function bulkSetStance(input: {
   stance: string;
   topic?: string;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_stance" });
   if (!ctx.ok) return { error: "Admin only." };
   if (!VALID_STANCES.includes(input.stance as Stance)) return { error: "Invalid stance." };
   const t = normTopic(input.topic);

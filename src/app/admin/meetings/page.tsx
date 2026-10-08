@@ -8,7 +8,7 @@ export const metadata = { title: "Municipal meeting moderation" };
 export const dynamic = "force-dynamic";
 
 export default async function AdminMeetingsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_meetings" });
   if (!ctx.ok) redirect("/dashboard");
   const [meetings, autoApprovePolicy] = await Promise.all([
     listMeetingsForReview(),

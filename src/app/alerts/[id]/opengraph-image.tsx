@@ -147,7 +147,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
               maxWidth: 1060,
             }}
           >
-            "{bodyFirstLine}"
+            &quot;{bodyFirstLine}&quot;
           </p>
         )}
 

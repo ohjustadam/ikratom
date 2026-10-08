@@ -4,11 +4,13 @@ import { useState } from "react";
 import { GroupComposeModal } from "./GroupComposeModal";
 import type { ComposeGroup } from "./types";
 
+import Link from "@/components/Link";
 const GROUP_ICON: Record<ComposeGroup["key"], string> = {
   representatives: "🏛",
   senators: "🏛",
   executives: "🖊",
   my_delegation: "🏛",
+  council: "🏘",
 };
 
 /**
@@ -46,7 +48,7 @@ export function EmailGroupButton({
     return (
       <p className="text-sm text-zinc-400">
         We don&apos;t have contactable {scope === "federal" ? "delegation" : "officials"} on file for this bill yet.{" "}
-        <a href="/legislators" className="text-emerald-400 hover:underline">Browse officials →</a>
+        <Link href="/legislators" className="text-emerald-400 hover:underline">Browse officials →</Link>
       </p>
     );
   }

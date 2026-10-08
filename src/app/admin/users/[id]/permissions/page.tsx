@@ -1,7 +1,13 @@
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
 import { getUserEffectivePermissions } from "@/modules/admin/permissions-actions";
-import { PERMISSIONS_BY_CATEGORY, CATEGORY_LABELS, type PermissionCategory } from "@/modules/admin/permissions";
+import {
+  PERMISSIONS_BY_CATEGORY,
+  CATEGORY_LABELS,
+  isOwnerOnly,
+  resolvePermissions,
+  type PermissionCategory,
+} from "@/modules/admin/permissions";
 import { PermissionRow } from "./PermissionRow";
 
 export const metadata = { title: "User permissions" };
@@ -31,7 +37,7 @@ export default async function UserPermissionsPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_users_list" });
   if (!ctx.ok) redirect("/dashboard");
   const { id } = await params;
 
@@ -46,6 +52,15 @@ export default async function UserPermissionsPage({
   const { profile, overrides } = r;
   const overrideByKey = new Map<string, Override>(
     (overrides as Override[]).map((o) => [o.permission, o]),
+  );
+
+  const effectivePerms = resolvePermissions(
+    {
+      isOwner: !!profile.is_owner,
+      isAdmin: !!profile.is_admin,
+      isLeader: !!profile.is_advocate_leader,
+    },
+    overrides as Override[],
   );
 
   const categories: PermissionCategory[] = [
@@ -81,6 +96,13 @@ export default async function UserPermissionsPage({
         </div>
       </header>
 
+      <div className="mb-6 rounded-md border border-emerald-700/40 bg-emerald-950/15 p-3 text-xs text-emerald-200">
+        <strong>Live.</strong> These toggles are enforced on every admin page and every admin
+        action. Granting one to an Advocate Leader gives them exactly that capability without
+        making them an admin; revoking one from an admin takes it away while leaving the rest of
+        the role intact.
+      </div>
+
       {!ctx.isOwner && (
         <div className="mb-6 rounded-md border border-amber-700/40 bg-amber-950/10 p-3 text-xs text-amber-300">
           You can view this matrix but only the owner can flip toggles. Ask the owner if you need
@@ -100,14 +122,16 @@ export default async function UserPermissionsPage({
               <ul className="space-y-2">
                 {perms.map((p) => {
                   const override = overrideByKey.get(p.key);
-                  // Role default
                   const isDefault =
-                    (profile.is_admin && p.defaultFor.includes("admin")) ||
-                    (profile.is_advocate_leader && p.defaultFor.includes("leader")) ||
-                    profile.is_owner;
-                  // Effective: explicit override wins
-                  const effective =
-                    override !== undefined ? override.granted : isDefault;
+                    profile.is_owner ||
+                    (!isOwnerOnly(p.key) &&
+                      ((profile.is_admin && p.defaultFor.includes("admin")) ||
+                        (profile.is_advocate_leader && p.defaultFor.includes("leader"))));
+                  // Effective state comes from the SAME resolver the server
+                  // gates on, so this page can never show a state the runtime
+                  // disagrees with (owner short-circuit, owner-only keys
+                  // ignoring overrides, and all).
+                  const effective = (effectivePerms as Set<string>).has(p.key);
                   return (
                     <PermissionRow
                       key={p.key}
@@ -118,7 +142,9 @@ export default async function UserPermissionsPage({
                       overrideReason={override?.reason ?? null}
                       roleDefault={isDefault}
                       effective={effective}
-                      canEdit={ctx.isOwner}
+                      canEdit={ctx.isOwner && !isOwnerOnly(p.key)}
+                      ownerOnly={isOwnerOnly(p.key)}
+                      targetIsOwner={!!profile.is_owner}
                     />
                   );
                 })}
@@ -131,12 +157,23 @@ export default async function UserPermissionsPage({
       <div className="mt-8 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-[11px] text-zinc-500">
         <p className="font-semibold text-zinc-300">How resolution works</p>
         <ol className="mt-2 ml-4 list-decimal space-y-1">
-          <li>Explicit grant or deny on this matrix wins (highest priority).</li>
-          <li>Owner role grants everything by default.</li>
-          <li>Admin role grants its default set (the perms tagged ADMIN-DEFAULT below).</li>
-          <li>Leader role grants its smaller default set.</li>
+          <li>
+            <strong className="text-zinc-400">Owner holds everything</strong>, and a deny on this
+            matrix does not apply to them — so a mis-click can never lock you out of your own
+            platform.
+          </li>
+          <li>
+            <strong className="text-zinc-400">Owner-reserved</strong> permissions (marked below)
+            stop there. They are not delegable to anyone, by role or by override.
+          </li>
+          <li>Otherwise an explicit grant or deny on this matrix wins.</li>
+          <li>Otherwise the Admin role default applies, then the Leader role default.</li>
           <li>Otherwise: denied.</li>
         </ol>
+        <p className="mt-3">
+          Grants here are independent of role. Handing a Leader one capability does not make them
+          an admin, and revoking one from an admin leaves the rest of the role intact.
+        </p>
       </div>
     </div>
   );

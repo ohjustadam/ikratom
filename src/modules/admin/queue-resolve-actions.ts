@@ -175,7 +175,7 @@ function autoDecision(p: PlanItem): ProposedAction {
 // ── Public server actions ──────────────────────────────────────────────────
 
 export async function analyzeCampaignQueue(): Promise<AnalyzeResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
   if (!(await checkRateLimit(`queue-analyze:camp:${ctx.userId}`, 12, 3600))) return { ok: false, error: "Rate limit reached — try again in a bit." };
   const sb = await createClient();
@@ -183,7 +183,7 @@ export async function analyzeCampaignQueue(): Promise<AnalyzeResult> {
 }
 
 export async function analyzeIntelQueue(): Promise<AnalyzeResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
   if (!(await checkRateLimit(`queue-analyze:intel:${ctx.userId}`, 12, 3600))) return { ok: false, error: "Rate limit reached — try again in a bit." };
   const sb = await createClient();
@@ -191,7 +191,7 @@ export async function analyzeIntelQueue(): Promise<AnalyzeResult> {
 }
 
 export async function applyCampaignQueuePlan(decisions: Decision[]): Promise<ApplyResult> {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) return { ok: false, error: "Admin or leader only." };
   const mfaErr = requireMfaForMutation(ctx); if (mfaErr) return { ok: false, error: mfaErr };
   const ds = sanitize(decisions);
@@ -204,7 +204,7 @@ export async function applyCampaignQueuePlan(decisions: Decision[]): Promise<App
 }
 
 export async function applyIntelQueuePlan(decisions: Decision[]): Promise<ApplyResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
   const mfaErr = requireMfaForMutation(ctx); if (mfaErr) return { ok: false, error: mfaErr };
   const ds = sanitize(decisions);
@@ -216,7 +216,7 @@ export async function applyIntelQueuePlan(decisions: Decision[]): Promise<ApplyR
 
 /** One-click FULL AUTO: analyze + apply every confident decision. */
 export async function autoResolveQueue(kind: QueueKind): Promise<ApplyResult> {
-  const ctx = await getAdminContext(); // full-auto approves → admin required
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" }); // full-auto approves → admin required
   if (!ctx.ok) return { ok: false, error: "Admin only." };
   const mfaErr = requireMfaForMutation(ctx); if (mfaErr) return { ok: false, error: mfaErr };
   if (!(await checkRateLimit(`queue-auto:${kind}:${ctx.userId}`, 6, 3600))) return { ok: false, error: "Rate limit reached — try again in a bit." };
@@ -238,7 +238,7 @@ export async function autoResolveQueue(kind: QueueKind): Promise<ApplyResult> {
 
 /** Pending counts for the unified moderation panel. */
 export async function queueCounts(): Promise<{ campaigns: number; intel: number }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) return { campaigns: 0, intel: 0 };
   const sb = await createClient();
   const [c, i] = await Promise.all([

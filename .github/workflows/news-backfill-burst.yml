@@ -30,7 +30,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── SUPABASE EGRESS GATE (bulk tier) ──────────────────────────────────
+  # The highest-volume job in the repo — up to 4,000 URL resolves and 7,000 body
+  # extracts in one run, each a Supabase read plus write. It is manual-dispatch,
+  # which is exactly why it needed the gate MOST and had it LEAST: a human firing
+  # a burst at 80% of the cap has no way to know that is what they are doing. The
+  # gate now declines and says why, instead of spending the rest of the month.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier bulk
   burst:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
@@ -52,7 +77,7 @@ jobs:
           rounds=$(printf '%d' "${RESOLVE_ROUNDS:-4}" 2>/dev/null || echo 4)
           for i in $(seq 1 "$rounds"); do
             echo "::group::resolve round $i"
-            node scripts/resolve-news-urls.mjs --limit 1000 --delay 250 || true
+            node --import=./scripts/lib/egress-meter.mjs scripts/resolve-news-urls.mjs --limit 1000 --delay 250 || true
             echo "::endgroup::"
           done
       - name: Extract in-app article excerpt + embedded media (historical)
@@ -64,7 +89,7 @@ jobs:
           rounds=$(printf '%d' "${EXTRACT_ROUNDS:-7}" 2>/dev/null || echo 7)
           for i in $(seq 1 "$rounds"); do
             echo "::group::extract round $i"
-            node scripts/extract-news-content.mjs --days 3650 --limit 1000 || true
+            node --import=./scripts/lib/egress-meter.mjs scripts/extract-news-content.mjs --days 3650 --limit 1000 || true
             echo "::endgroup::"
           done
       # NOTE: AI summaries are intentionally left to the nightly summarize cron,

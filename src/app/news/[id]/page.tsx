@@ -12,93 +12,150 @@
  * full read. When we add full-body extraction (license-safe), this page
  * is the surface for it.
  */
-import Link from "next/link";
+import Link from "@/components/Link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { NewsVideo } from "./NewsVideo";
 import { AudioReader } from "@/components/AudioReader";
 
 type Params = { id: string };
 
-export const dynamic = "force-dynamic";
+/**
+ * ISR (2026-09-04). Nothing on this page is per-viewer: the whole read-set is
+ * one cached service-role snapshot that already re-applies the public RLS
+ * filter (moderation_status = 'approved'), and no cookie is read anywhere in
+ * the route. `force-dynamic` was therefore paying to re-render an identical
+ * page for every crawler hit. Serving it from the CDN is the same output at
+ * zero function time.
+ */
+export const revalidate = 900;
+
+/**
+ * Enables the ISR path for this dynamic segment.
+ *
+ * `export const revalidate` alone is NOT enough: a dynamic segment with no
+ * generateStaticParams is server-rendered on demand and returns
+ * `Cache-Control: private, no-store` — verified 2026-09-04 against a local
+ * production server, where /privacy and /whats-new/[slug] returned
+ * `x-nextjs-cache` + `s-maxage` and this route did not.
+ *
+ * Returning an empty list prerenders nothing at build time (builds stay fast
+ * and cost no extra minutes) while `dynamicParams` — true by default — lets
+ * any id render on first request and then be CACHED and served from the CDN.
+ */
+export function generateStaticParams() {
+  return [];
+}
+
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Supabase's generated types for foreign-table embeds get confused at the join
+// boundary; cast through unknown to this hand-typed shape.
+type ArticleRow = {
+  id: string;
+  state: string | null;
+  title: string;
+  summary: string | null;
+  body_extract_excerpt: string | null;
+  body_paragraphs: string[] | null;
+  digest_paragraphs: string[] | null;
+  media_urls: Array<{ type: string; url: string; embed_url?: string; video_id?: string; poster?: string; lead?: boolean }> | null;
+  url: string;
+  resolved_url: string | null;
+  source_name: string | null;
+  published_at: string | null;
+  scraped_at: string | null;
+  kratom_topic: string | null;
+  ai_relevance_score: number | null;
+  duplicate_count: number | null;
+  policy_alert_id: string | null;
+  bill_id: string | null;
+  bills:
+    | { id: string; bill_number: string; state: string; title: string | null; status: string | null; last_action: string | null; last_action_at: string | null; kratom_relevance: string | null }
+    | Array<{ id: string; bill_number: string; state: string; title: string | null; status: string | null; last_action: string | null; last_action_at: string | null; kratom_relevance: string | null }>
+    | null;
+};
+
+type Sibling = { id: string; state: string | null; source_name: string | null; published_at: string | null };
+type TriggeredAlert = { id: string; severity: string; title: string; locality: string | null };
+
+// Everything on /news/[id] is PUBLIC and keyed by the article id — there are NO
+// viewer-specific reads — so the whole page serves from ONE cached service-role
+// read-set (the #827 egress pattern; part 2 for the /news/[id] crawl surface,
+// ~12k news items). generateMetadata shares the exact same snapshot.
+const getNewsArticle = unstable_cache(
+  async (id: string) => {
+    const sb = createServiceRoleClient();
+    const [{ data: rawArticle }, { data: siblings }] = await Promise.all([
+      sb
+        .from("news_items")
+        .select(
+          "id, state, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
+          "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
+          "duplicate_count, policy_alert_id, bill_id, " +
+          "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
+        )
+        .eq("id", id)
+        .eq("active", true)
+        .maybeSingle(),
+      sb
+        .from("news_items")
+        .select("id, state, source_name, published_at")
+        .eq("duplicate_of", id)
+        .eq("active", true)
+        .order("state", { ascending: true })
+        .limit(20),
+    ]);
+    const article = (rawArticle as unknown as ArticleRow | null) ?? null;
+    if (!article) return null;
+    let triggeredAlert: TriggeredAlert | null = null;
+    if (article.policy_alert_id) {
+      // moderation_status='approved' replicates the public RLS visibility the
+      // cookie-bound client had (service-role bypasses RLS — must re-apply it).
+      const { data } = await sb
+        .from("policy_alerts")
+        .select("id, severity, title, locality")
+        .eq("id", article.policy_alert_id)
+        .eq("moderation_status", "approved")
+        .maybeSingle();
+      triggeredAlert = (data as TriggeredAlert | null) ?? null;
+    }
+    return { article, siblings: (siblings ?? []) as Sibling[], triggeredAlert };
+  },
+  ["news-detail"],
+  { revalidate: 900, tags: ["news-detail"] },
+);
 
 export async function generateMetadata({ params }: { params: Promise<Params> }) {
   const { id } = await params;
-  const sb = await createClient();
-  const { data } = await sb.from("news_items").select("title,summary,source_name").eq("id", id).maybeSingle();
-  if (!data) return { title: "Article not found" };
+  if (!UUID_RE.test(id)) return {
+    title: "Article not found",
+    // Soft-404 mitigation. The root src/app/loading.tsx commits the HTTP status
+    // before this route renders, so notFound() cannot return a real 404 here
+    // (see 979a1c3). The proven fix — dynamicParams = false — is not usable on
+    // this route: it would 404 every new article until the next deploy. Marking the
+    // miss noindex stops junk URLs entering the index, which is the actual harm
+    // and also stops crawlers re-fetching addresses that hold nothing.
+    robots: { index: false, follow: false },
+  };
+  const snap = await getNewsArticle(id);
+  if (!snap) return { title: "Article not found", robots: { index: false, follow: false } };
   return {
-    title: `${data.title} — iKratom news`,
-    description: data.summary ?? `Kratom news from ${data.source_name ?? "verified sources"}.`,
+    title: `${snap.article.title} — iKratom news`,
+    description: snap.article.summary ?? `Kratom news from ${snap.article.source_name ?? "verified sources"}.`,
   };
 }
 
 export default async function NewsArticlePage({ params }: { params: Promise<Params> }) {
   const { id } = await params;
-  const sb = await createClient();
-
-  // 1. The article itself, with linked bill if any. Supabase's
-  // generated types for foreign-table embeds get confused at the
-  // join boundary; cast through unknown to a hand-typed shape.
-  type ArticleRow = {
-    id: string;
-    state: string | null;
-    title: string;
-    summary: string | null;
-    body_extract_excerpt: string | null;
-    body_paragraphs: string[] | null;
-    digest_paragraphs: string[] | null;
-    media_urls: Array<{ type: string; url: string; embed_url?: string; video_id?: string; poster?: string; lead?: boolean }> | null;
-    url: string;
-    resolved_url: string | null;
-    source_name: string | null;
-    published_at: string | null;
-    scraped_at: string | null;
-    kratom_topic: string | null;
-    ai_relevance_score: number | null;
-    duplicate_count: number | null;
-    policy_alert_id: string | null;
-    bill_id: string | null;
-    bills:
-      | { id: string; bill_number: string; state: string; title: string | null; status: string | null; last_action: string | null; last_action_at: string | null; kratom_relevance: string | null }
-      | Array<{ id: string; bill_number: string; state: string; title: string | null; status: string | null; last_action: string | null; last_action_at: string | null; kratom_relevance: string | null }>
-      | null;
-  };
-  const { data: rawArticle } = await sb
-    .from("news_items")
-    .select(
-      "id, state, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
-      "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
-      "duplicate_count, policy_alert_id, bill_id, " +
-      "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
-    )
-    .eq("id", id)
-    .eq("active", true)
-    .maybeSingle();
-  const article = (rawArticle as unknown as ArticleRow | null) ?? null;
-  if (!article) notFound();
-
-  // 2. Sibling syndicated articles (same canonical → other states).
-  const { data: siblings } = await sb
-    .from("news_items")
-    .select("id, state, source_name, published_at")
-    .eq("duplicate_of", id)
-    .eq("active", true)
-    .order("state", { ascending: true })
-    .limit(20);
-
-  // 3. Policy alert this article spawned, if any.
-  let triggeredAlert: {
-    id: string; severity: string; title: string; locality: string | null;
-  } | null = null;
-  if (article.policy_alert_id) {
-    const { data } = await sb
-      .from("policy_alerts")
-      .select("id, severity, title, locality")
-      .eq("id", article.policy_alert_id)
-      .maybeSingle();
-    triggeredAlert = data ?? null;
-  }
+  // Validate the id BEFORE touching the cache so random-uuid crawls can't
+  // seed junk cache entries.
+  if (!UUID_RE.test(id)) notFound();
+  const snap = await getNewsArticle(id);
+  if (!snap) notFound();
+  const { article, siblings, triggeredAlert } = snap;
 
   const bill = Array.isArray(article.bills) ? article.bills[0] : article.bills;
   const publishedAt = article.published_at ? new Date(article.published_at) : null;

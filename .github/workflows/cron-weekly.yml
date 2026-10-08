@@ -14,15 +14,125 @@ name: Weekly cron
 
 on:
   schedule:
-    - cron: "0 9 * * 0"
+    # :13 offset (was :00) — the heavy all-51-state committee sync used to
+    # launch on the exact clock-edge as the hourly news pipeline, the same
+    # simultaneous-launch DB-load pattern cron-daily was offset to :17 to
+    # avoid after the 2026-06-08 OOM.
+    - cron: "13 9 * * 0"
   workflow_dispatch: {}
 
 concurrency:
   group: weekly-cron
   cancel-in-progress: false
 
+# ---------------------------------------------------------------------------
+# Free AI provider pool — workflow-level so EVERY step inherits it.
+#
+# Why this is here and not on each step: the router (scripts/lib/ai-router.mjs)
+# can only use a provider whose key is in the step's environment. Keys were
+# added per step as each provider was adopted, so older steps kept an older,
+# smaller pool — this workflow reached the router with no OPENROUTER_API_KEY at
+# all while OpenRouter was the only provider still answering. Ingestion kept
+# running and every enrichment step failed, which is exactly the "reads the
+# world but cannot make sense of it" state we were in.
+#
+# A workflow-level env block is inherited by every job and every step, and a
+# step-level env still wins where one is set, so this can only widen the pool.
+# Adding a provider is now: create the secret, add one line here.
+# An unset secret expands to "" and the router skips that provider silently.
+# See docs/AI_PROVIDERS.md.
+env:
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+  GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+  MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+  AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+  CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+  CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  # GitHub Actions forbids secret names starting with GITHUB_, hence GH_MODELS_TOKEN.
+  GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+  # Optional: reorder the pool without a deploy, e.g. "groq,mistral,openrouter".
+  AI_PROVIDER_ORDER: ${{ vars.AI_PROVIDER_ORDER }}
+
 jobs:
+  # ── SUPABASE EGRESS GATE (bulk tier) ────────────────────────────────────
+  # Supabase RESTRICTS the project at 100% of the free egress cap rather than
+  # billing for it — hitting it takes the SITE down. The weekly fleet is the
+  # widest work we run (term backfills touch 7.5k rows, committees 33k), so it
+  # defers first. See scripts/lib/egress-budget.mjs.
+  #
+  # NOT gated: weekly-patch-digest-broadcast — it sends a real notification to
+  # real users, and a skipped week is a silently missing digest.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier bulk
+
+  backfill-term-dates:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    # Terms change only at elections and appointments, so weekly is plenty.
+    # Both steps use keyless sources — no key, no quota — and both join on a
+    # stable id rather than a name, because a wrong term date is worse than a
+    # missing one: the UI states it as fact.
+    #   federal -> unitedstates/congress-legislators, joined on bioguide_id
+    #   state   -> openstates/people, joined on openstates_id (ocd-person uuid)
+    # Local terms are still uncovered; they are mostly not published in any
+    # machine-readable feed and will come through the locality pipeline.
+    runs-on: ubuntu-latest
+    # 25, not 10: the state step touches 7.5k rows. Steady-state it writes
+    # almost nothing (everything is already correct), but a cold or largely
+    # re-seeded roster is a real batch of work and a cancelled job would skip
+    # the rest of its steps in silence.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Backfill federal term start/end dates
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-term-dates.mjs
+
+      # State tier (7.5k rows, 98% joinable). This one fills term_START_date
+      # almost everywhere and leaves term_end_date alone: openstates/people
+      # publishes an end date for six of 7,346 current state roles. Deriving it
+      # from start + term length would be confidently WRONG for every appointee
+      # and special-election winner, who serve the remainder of a seat's term
+      # rather than a full one. That belongs to the elections table.
+      - name: Backfill state term start dates
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-state-term-dates.mjs
+
   sync-committees-all-states:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Pull legislator committee data for every state + DC via the
     # OpenStates v3 API. Idempotent — upsert on
     # (legislator_id, committee_name, session_id) so non-priority
@@ -41,9 +151,11 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
-        run: node scripts/sync-committees-openstates.mjs --max-minutes 80
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-committees-openstates.mjs --max-minutes 80
 
   sync-nonprofit-990s:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     # Weekly refresh of ProPublica Form 990 data for kratom-policy-
     # aligned orgs (AKA, GKC, etc.). 990 filings update annually
     # by definition; weekly is plenty.
@@ -59,7 +171,7 @@ jobs:
       - env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/sync-nonprofit-990s.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-nonprofit-990s.mjs
 
   weekly-patch-digest-broadcast:
     # Sunday morning weekly digest. Broadcasts a web-push notification to
@@ -102,18 +214,59 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/broadcast-whats-new.mjs --slug ${{ steps.latest.outputs.slug }} --all-users
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/broadcast-whats-new.mjs --slug ${{ steps.latest.outputs.slug }} --all-users
+
+  weekly-self-review:
+    # The PROPOSE arm. Reads a week of scraper_runs, a week of admin_audit_log
+    # (action names only) and this repo's merge history, then asks the free AI
+    # pool for "what moved, what decayed, what I would do next" and posts it as
+    # a comment on one rolling GitHub issue. One model call, one Action run,
+    # no deploy — telling the owner what changed must never cost Netlify
+    # credits, which is the same lesson the patch-note backlog taught.
+    #
+    # NOT behind the egress gate, for the same reason the digest broadcast
+    # isn't: a review that gets shed is a review that never happens, and a
+    # skipped week leaves a hole in the week-over-week comparison the next run
+    # depends on. Its read is deliberately small — six columns over 14 days.
+    #
+    # fetch-depth: 0 is load-bearing. The "what shipped" section is `git log`
+    # on the checkout rather than an API call; at the default depth of 1 it
+    # sees one commit and silently reports nothing shipped.
+    #
+    # issues: write is the only extra permission, and it is scoped to this job
+    # alone rather than the workflow, so nothing else here can write to the
+    # repo. GITHUB_TOKEN is the built-in one — no PAT, no secret to rotate.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Draft the weekly self-review
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/weekly-self-review.mjs
 
   draft-legislator-stance-all:
     # Run the AI stance drafter for every state — skips already-stanced
     # legislators so cost stays low after the first full pass. Provides
     # weekly catch-up for states whose kratom activity is low enough
     # to skip the daily priority cron.
-    needs: sync-committees-all-states
+    needs: [sync-committees-all-states, budget]
     # Never cascade-skip if the committee sync timed out — the stance pass is
     # this workflow's only weekly catch-up for the 41 non-priority states and
     # degrades fine on last week's committee data. Matches the daily-cron pattern.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -131,4 +284,4 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-        run: node scripts/draft-legislator-stance.mjs --all-states --max-minutes 100
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/draft-legislator-stance.mjs --all-states --max-minutes 100

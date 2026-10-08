@@ -1,0 +1,277 @@
+#!/usr/bin/env node
+/**
+ * netlify-credit-gate.mjs — the BRAKE. Refuses to let a deploy happen when the
+ * Netlify credit budget is nearly spent.
+ *
+ * WHY: on 2026-07-30 www.ikratom.org was disabled with
+ * `disabled_reason: "Account usage exceeded for credits"`. 15 production deploys
+ * at 15 credits each = 225 of the 300-credit monthly budget — 75% of everything
+ * we had, spent on shipping. Most of those were fix-forward commits chasing the
+ * Netlify migration itself.
+ *
+ * Traffic we cannot throttle. Deploys we can. This gate makes the controllable
+ * 75% of the burn physically unable to take the site down: past the brake
+ * threshold it exits non-zero, the required CI check goes red, branch protection
+ * refuses the merge, and Netlify never builds.
+ *
+ * It is deliberately a GATE, not a notification. The 2026-07 lesson is that a
+ * warning nobody is forced to act on is indistinguishable from no warning.
+ *
+ * Usage:
+ *   node --env-file=.env.local scripts/netlify-credit-gate.mjs
+ *   node scripts/netlify-credit-gate.mjs --threshold 80
+ *   node scripts/netlify-credit-gate.mjs --warn-only     # never fails the build
+ *
+ * Exit codes: 0 = clear to deploy, 1 = braked, 0 = skipped (no token).
+ */
+import {
+  estimateNetlifyCredits,
+  creditSeverity,
+  CREDIT_THRESHOLDS,
+} from "./lib/netlify-credits.mjs";
+
+const argv = process.argv.slice(2);
+// --watchdog IMPLIES --warn-only. Without this the brake paths below exit(1)
+// before the watchdog block at the bottom is ever reached — and they exit(1)
+// precisely when credits are exceeded or on track to be, i.e. the one case the
+// watchdog exists for. It would have paged in every situation except the
+// emergency.
+const WARN_ONLY = argv.includes("--warn-only") || argv.includes("--watchdog");
+const tIdx = argv.indexOf("--threshold");
+const THRESHOLD = tIdx >= 0 ? Number(argv[tIdx + 1]) : CREDIT_THRESHOLDS.brake;
+
+const token = process.env.NETLIFY_AUTH_TOKEN;
+const accountSlug = process.env.NETLIFY_ACCOUNT_SLUG || "ohjustadam";
+const siteId = process.env.NETLIFY_SITE_ID || "de541c33-9185-4be7-a961-0fe09c868557";
+
+if (!token) {
+  // A missing token must not become a silent green light, but it also must not
+  // block every PR from a fork/CI context that legitimately has no secret.
+  console.log("⚠ NETLIFY_AUTH_TOKEN not set — credit gate SKIPPED (not a pass).");
+  process.exit(0);
+}
+
+let est;
+try {
+  est = await estimateNetlifyCredits({ token, accountSlug, siteId });
+} catch (e) {
+  console.log(`⚠ credit gate could not read Netlify (${e.message}) — SKIPPED.`);
+  process.exit(0);
+}
+
+if (!est.ok) {
+  console.log(`⚠ credit gate skipped: ${est.reason}`);
+  process.exit(0);
+}
+
+const sev = creditSeverity(est.pct);
+console.log("── Netlify credit budget ────────────────────────────────");
+console.log(`  period       ${String(est.periodStart).slice(0, 10)} → ${String(est.periodEnd).slice(0, 10)}`);
+if (est.source === "true-meter") {
+  // Netlify's own meter (scripts/lib/netlify-credits.mjs readTrueCredits). Exact.
+  const meters = Object.entries(est.byMeter).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  console.log(`  TRUE METER   ${est.projectedUsed.toFixed(1)} / ${est.planCredits} credits (${est.pct.toFixed(1)}%) — read from Netlify, not modelled`);
+  for (const [k, v] of meters) console.log(`    ${k.padEnd(20)} ${v.toFixed(1)}`);
+  console.log(`  last days    ${est.daily.slice(-5).map((d) => `${d.date.slice(5)} ${d.total.toFixed(0)}`).join(" · ")}`);
+  console.log(`  burn rate    ${est.burnPerDay.toFixed(1)} credits/day passive (last 3 complete days)`);
+  if (est.spike) console.log(`  ⚠ SPIKE      ${est.spikeDetail}`);
+} else {
+  console.log(`  (true meter unavailable: ${est.trueMeterError ?? "unknown"} — falling back to the model)`);
+}
+const MODEL = est.source !== "true-meter";
+if (MODEL) {
+  console.log(`  deploys      ${est.deploys} × ${15} = ${est.deployCredits} credits`);
+  console.log(`  bandwidth    ${est.bandwidthGb.toFixed(2)} GB × 20 = ${est.bandwidthCredits.toFixed(0)} credits`);
+  console.log(`  measured     ${est.usedFloor.toFixed(0)} credits (deploys + bandwidth only)`);
+  console.log(`  requests+compute (modelled) ≈ ${est.blindCredits.toFixed(0)} projected`);
+  console.log(`  PROJECTED    ${est.projectedUsed.toFixed(0)} / ${est.planCredits}  (${est.pct.toFixed(1)}%)`);
+}
+console.log(`  severity     ${sev}   (brake at ${THRESHOLD}%)`);
+console.log(`  burn rate    ${est.burnPerDay.toFixed(1)} credits/day over ${est.daysElapsed.toFixed(1)}d elapsed`);
+if (est.daysRemaining !== null) {
+  console.log(`  RUNWAY       cap in ${est.daysToCap.toFixed(1)}d · reset in ${est.daysRemaining.toFixed(1)}d`
+    + ` · on track for ${est.projectedAtReset.toFixed(0)}/${est.planCredits} by reset`);
+}
+if (MODEL) {
+console.log("  Deploys + bandwidth are EXACT (counted from the API).");
+console.log(`  Compute + requests were not readable this run, so they are`);
+console.log(`  modelled at ${(est.blindCredits / Math.max(est.bandwidthCredits, 0.001)).toFixed(1)}x bandwidth from the ${est.calibration.period}`);
+console.log(`  dashboard reading (${est.calibration.ageDays}d old, ${est.calibration.note}).`);
+console.log(`  The measurable part alone reads ${est.floorPct.toFixed(1)}% — do NOT quote that as the state of play.`);
+console.log("  Ground truth: app.netlify.com -> Usage & billing -> Account usage insights.");
+if (est.calibration.ageDays > 45) {
+  console.log("  ⚠ CALIBRATION STALE (>45d) — re-read the dashboard and add a CALIBRATION row.");
+}
+}
+console.log("─────────────────────────────────────────────────────────");
+
+if (est.exceeded) {
+  console.error(`\n✗ BRAKED — Netlify already reports credits exceeded at ${est.exceededAt}.`);
+  console.error("  The site is disabled. Deploying now spends credits you do not have.");
+  if (!WARN_ONLY) process.exit(1);
+}
+
+// Trajectory, not level. An account can sit under the brake and still be
+// certain to hit the cap before the period resets — that is exactly the state
+// on 2026-09-01 (90%, zero deploys, cap ~8 days out, reset 17 days out).
+if (est.willExceedBeforeReset) {
+  console.error(`
+✗ ON TRACK TO EXCEED — at ${est.burnPerDay.toFixed(1)} credits/day the cap arrives in`);
+  console.error(`  ${est.daysToCap.toFixed(1)} days but the period does not reset for ${est.daysRemaining.toFixed(1)} days.`);
+  console.error(`  Projected ${est.projectedAtReset.toFixed(0)}/${est.planCredits} by reset. Netlify DISABLES the site at the cap.`);
+  console.error("  Cut passive burn (crawl surface / caching) — deploying more will not help.");
+  if (!WARN_ONLY) process.exit(1);
+}
+
+if (est.pct >= THRESHOLD) {
+  console.error(`\n✗ BRAKED — measured burn ≥ ${THRESHOLD}% of the credit budget.`);
+  console.error("  Batch the remaining work into ONE deploy, or wait for the reset on");
+  console.error(`  ${String(est.periodEnd).slice(0, 10)}. Each production deploy costs 15 credits.`);
+  if (!WARN_ONLY) process.exit(1);
+  console.error("  (--warn-only set: not failing the build)");
+}
+
+/**
+/**
+ * SUPABASE EGRESS, shown at the moment you decide to deploy.
+ *
+ * ⚠ CORRECTION (2026-09-12). The first version of this block claimed a build
+ * re-renders every prerendered route against production Supabase and was
+ * therefore a major egress cost. THAT WAS WRONG, and it was wrong in the worst
+ * way: it was a story that fit the numbers, asserted without measuring.
+ *
+ * scripts/measure-build-egress.mjs settles it by reading the raw transmit
+ * counter either side of a real build: **a full `next build` costs ~0 MB of
+ * Supabase egress**. Next serves prerenders from .next/cache, and the ISR
+ * routes use generateStaticParams() -> [] so they render on first request,
+ * not at build time. Builds are free. Build and typecheck as much as you like.
+ *
+ * What egress IS worth seeing here is simply that it exists and is finite:
+ * exceeding the free cap RESTRICTS the project rather than billing for it, so
+ * the site stops serving. Two costs, one decision point.
+ *
+ * Fails open: if egress cannot be read, the credit verdict below still prints.
+ */
+try {
+  const { getEgressStatus, BUDGET_GB } = await import("./lib/egress-budget.mjs");
+  const eg = await getEgressStatus();
+  if (eg.pct != null) {
+    const pct = eg.pct * 100;
+    const leftMb = BUDGET_GB * 1000 - (eg.usedMb ?? 0);
+    console.log("");
+    console.log(`  Supabase egress ${pct.toFixed(1)}% of ${BUDGET_GB}GB · ~${leftMb.toFixed(0)} MB left this cycle`);
+    if (pct >= 90) {
+      console.log("  ⚠ Near the cap. Exceeding it RESTRICTS the project — the API stops");
+      console.log("    answering and the site goes down. Builds are NOT the cost (measured);");
+      console.log("    heavy multi-agent runs and bulk scripts are.");
+    }
+  }
+} catch { /* egress unreadable -- the credit verdict below still stands */ }
+
+if (sev === "critical") {
+  console.log(`\n⚠ ${est.pct.toFixed(0)}% spent — deploy only if this change matters today.`);
+} else if (sev === "warn") {
+  console.log(`\n⚠ ${est.pct.toFixed(0)}% spent — start batching PRs into single deploys.`);
+} else {
+  console.log("\n✓ Clear to deploy.");
+}
+
+/**
+ * ── WATCHDOG MODE (--watchdog, added 2026-09-16) ────────────────────────────
+ *
+ * Everything above runs at DEPLOY time, from CI. That was the whole coverage
+ * story for Netlify credits, and it has a hole big enough to have already
+ * caused an outage: credits burn from bandwidth, requests and compute, none of
+ * which need a deploy to happen. A bot sweep or a traffic spike can spend the
+ * month with no PR open at all — and with nobody opening one, the gate never
+ * runs, so the first signal is the site being disabled. That is 2026-07-30.
+ *
+ * Supabase egress already had a daily watchdog that pages the owner. Netlify
+ * did not. This makes the two symmetric, deliberately by extending the gate
+ * rather than adding a second script: the estimate is subtle (the compute and
+ * request components are NOT exposed by Netlify and are modelled from a
+ * calibration reading), and a copy of that math would drift from this one.
+ *
+ * Always exits 0 — a watchdog that fails its own cron job is just a second
+ * thing to notice. The alarm is the push and the telemetry row, not the badge.
+ */
+if (argv.includes("--watchdog")) {
+  const DRY = argv.includes("--dry-run");
+  // Page on the same trajectory conditions the gate brakes on, plus the level
+  // threshold. willExceedBeforeReset is the one that matters most: it fires
+  // while there is still time to act, instead of at the cap.
+  // est.spike: a day burning far above its trailing median (true meter only).
+  // That is the 2026-10-02 shape — the level was fine the day before.
+  const shouldPage = est.exceeded || est.willExceedBeforeReset || est.spike || sev === "critical" || sev === "warn";
+  let pagedNote = "";
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    console.log("\n[watchdog] no Supabase creds — cannot record telemetry or page.");
+    process.exit(0);
+  }
+  const { createClient } = await import("@supabase/supabase-js");
+  const sb = createClient(url, key);
+
+  if (shouldPage && !DRY) {
+    try {
+      const { data: owner } = await sb.from("profiles").select("id").eq("is_owner", true).maybeSingle();
+      if (owner) {
+        const { data: subs } = await sb.from("push_subscriptions")
+          .select("endpoint, p256dh, auth").eq("user_id", owner.id);
+        const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY, priv = process.env.VAPID_PRIVATE_KEY;
+        if (subs?.length && pub && priv) {
+          const { createRequire } = await import("node:module");
+          const webpush = createRequire(import.meta.url)("web-push");
+          webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:support@ikratom.org", pub, priv);
+          // Lead with the DATE, not the percentage — "83%" does not tell you
+          // whether to act today, "cap in 4 days, reset in 12" does.
+          const runway = est.willExceedBeforeReset
+            ? ` Cap in ~${est.daysToCap.toFixed(0)}d but reset is ${est.daysRemaining.toFixed(0)}d out —`
+              + ` on track for ${est.projectedAtReset.toFixed(0)}/${est.planCredits}.`
+            : "";
+          const payload = JSON.stringify({
+            title: est.exceeded
+              ? "🛑 Netlify credits EXCEEDED — site disabled"
+              : `💳 Netlify credits at ${est.pct.toFixed(0)}%`,
+            body: `${est.projectedUsed.toFixed(0)}/${est.planCredits} projected at `
+              + `${est.burnPerDay.toFixed(1)}/day.${runway}`
+              + ` Netlify DISABLES the site at the cap (2026-07-30).`,
+            link: "/admin/ops", tag: "netlify-credit-watchdog",
+          });
+          for (const s of subs) {
+            try {
+              await webpush.sendNotification(
+                { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+                payload, { TTL: 6 * 3600 },
+              );
+            } catch { /* per-sub best-effort */ }
+          }
+          pagedNote = " · paged owner";
+        }
+      }
+    } catch (e) {
+      console.log(`[watchdog] paging failed: ${e.message}`);
+    }
+  }
+
+  if (!DRY) {
+    try {
+      await sb.from("scraper_runs").insert({
+        source: "netlify_credit_watchdog",
+        started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+        // "error" is how this surfaces in /admin/automation — it means the
+        // watchdog is FIRING, not that the watchdog is broken (same convention
+        // as egress_watchdog, and the same thing that confused a past reader).
+        status: est.exceeded || est.willExceedBeforeReset ? "error" : "success",
+        rows_updated: Math.round(est.projectedUsed),
+        notes: `${est.projectedUsed.toFixed(0)}/${est.planCredits} (${est.pct.toFixed(1)}%) · `
+          + `${est.burnPerDay.toFixed(1)}/day · sev=${sev}${pagedNote}`,
+      });
+    } catch { /* best-effort */ }
+  }
+  console.log(`\n[watchdog] recorded · sev=${sev}${pagedNote}${DRY ? " (dry run)" : ""}`);
+}
+
+process.exit(0);

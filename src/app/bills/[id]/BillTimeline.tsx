@@ -1,5 +1,5 @@
-import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import Link from "@/components/Link";
+import { createAnonClient } from "@/lib/supabase/anon";
 
 type BillAction = {
   id: string;
@@ -44,7 +44,10 @@ export async function BillTimeline({
    *  the closed-session warning (owner caught the contradiction). */
   billActive?: boolean;
 }) {
-  const sb = await createClient();
+  // Anonymous client on purpose (2026-10-05): bill_actions is public, and a
+  // cookie read here made production refuse to render the cached bill page
+  // (DYNAMIC_SERVER_USAGE -> every /bills/:id returned 500).
+  const sb = createAnonClient();
   const { data: actions } = await sb
     .from("bill_actions")
     .select("id, bill_id, action_date, description, chamber, source")

@@ -55,6 +55,31 @@ async function verify(fullName, sourceUrl) {
   return { ok: false, reason: "name-not-found" };
 }
 
+// --probe "Clifton Park, NY" [--level county]: READ-ONLY end-to-end check of
+// the resolver (Legistar → SearXNG → free-AI extract → page verification) for
+// one locality. Prints what WOULD be inserted and exits; writes nothing. Lets
+// the pipeline be proven before a batch of new requests depends on it.
+const probeAt = args.indexOf("--probe");
+if (probeAt >= 0) {
+  const locality = String(args[probeAt + 1] ?? "").trim();
+  const m = /^(.+),\s*([A-Z]{2})$/.exec(locality);
+  if (!m) { console.error('--probe needs "Town, ST"'); process.exit(2); }
+  const lvlAt = args.indexOf("--level");
+  const level = lvlAt >= 0 ? args[lvlAt + 1] : /\b(county|parish|borough)\b/i.test(locality) ? "county" : "municipal";
+  console.log(`PROBE ${locality} (${level}) — read-only`);
+  const res = await findAndExtractOfficials({ sb, city: m[1], state: m[2], locality, level, caller: "auto-fulfill-probe" });
+  if (!res.ok) { console.log(`  result: ${res.queued ? `queued (${res.reason}${res.detail ? `: ${res.detail}` : ""})` : `error (${res.error ?? "0 officials"})`}`); process.exit(res.queued ? 0 : 1); }
+  console.log(`  source: ${res.source} · ${res.officials.length} official(s)`);
+  let verified = 0;
+  for (const o of res.officials) {
+    const v = res.source === "legistar" ? { ok: true } : await verify(o.full_name, o.source_url);
+    if (v.ok) verified++;
+    console.log(`  ${v.ok ? "✓" : "✗"} ${o.full_name} · ${o.title ?? o.role ?? "?"} · email:${o.email ? "yes" : "no"} phone:${o.phone ? "yes" : "no"}${v.ok ? "" : ` (${v.reason})`}`);
+  }
+  console.log(`  would insert ${verified} of ${res.officials.length}`);
+  process.exit(verified > 0 ? 0 : 1);
+}
+
 let pq = sb
   .from("local_rep_requests")
   .select("id, state, locality, level")
@@ -74,6 +99,21 @@ if (pendErr) {
   console.error(pendErr.message); process.exit(1);
 }
 console.log(`pending: ${pending?.length ?? 0}${LIMIT ? ` (capped at ${LIMIT})` : ""}`);
+
+// Write the outcome onto the request so /admin/local-rep-requests can say WHY
+// it's still pending (src/lib/local-rep-attempt.ts renders the code). Without
+// this the admin only ever saw "check back shortly" — even for a city site
+// behind a bot check that no retry will ever get past. Best-effort.
+async function recordAttempt(req, reason, detail) {
+  const { error } = await sb.from("local_rep_requests")
+    .update({
+      last_attempt_at: new Date().toISOString(),
+      last_attempt_reason: String(reason).slice(0, 40),
+      last_attempt_detail: detail ? String(detail).slice(0, 200) : null,
+    })
+    .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");
+  if (error) console.log(`  ⚠ couldn't record attempt: ${error.message?.slice(0, 80)}`);
+}
 
 const seen = new Set();
 let totalInserted = 0;
@@ -123,7 +163,8 @@ for (const req of pending ?? []) {
         .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");
       continue;
     }
-    console.log(`  ⏳ queued (${res.reason}) — left pending`);
+    console.log(`  ⏳ queued (${res.reason}${res.detail ? `: ${res.detail}` : ""}) — left pending`);
+    await recordAttempt(req, res.reason, res.detail);
     // Only infra-flavored reasons feed the breaker; content misses fall through.
     if (res.reason === "no-extract" || res.reason === "searxng-empty") {
       consecutiveInfraMiss++;
@@ -138,6 +179,7 @@ for (const req of pending ?? []) {
     // Content miss (e.g. WAF-blocked roster) — leave pending, retried next
     // run, but DO NOT strand the rest of the queue behind it.
     console.log(`  ✗ no officials: ${res.error ?? "0 returned"} — left pending (queue continues)`);
+    await recordAttempt(req, "no-officials", null);
     continue;
   }
   consecutiveInfraMiss = 0;
@@ -145,8 +187,32 @@ for (const req of pending ?? []) {
   const fromLegistar = res.source === "legistar";
   console.log(`  ${fromLegistar ? "Legistar (clerk)" : res.source}: ${res.officials.length} official(s)`);
 
-  const { data: existing } = await sb.from("legislators").select("full_name").eq("level", req.level).eq("locality", req.locality).eq("active", true);
+  const { data: existing } = await sb.from("legislators").select("id, full_name, term_end_date").eq("level", req.level).eq("locality", req.locality).eq("active", true);
   const existingNames = new Set((existing ?? []).map((r) => r.full_name.toLowerCase()));
+
+  // REFRESH (2026-10-03): a locality re-queued by refresh-local-rosters.mjs
+  // already has officials. Members still on the fresh roster get their check
+  // date bumped (the meeting page shows it). A member missing from it is
+  // retired only on strong evidence — the clerk's own system (Legistar) no
+  // longer lists them, or their recorded term has ended — and never when the
+  // fresh roster looks partial (an AI extract that found 3 of 9 members).
+  const freshNames = new Set(res.officials.map((o) => o.full_name.toLowerCase()));
+  const stillThere = (existing ?? []).filter((r) => freshNames.has(r.full_name.toLowerCase()));
+  if (stillThere.length) {
+    await sb.from("legislators").update({ last_synced_at: new Date().toISOString() }).in("id", stillThere.map((r) => r.id));
+    console.log(`  ↻ re-confirmed ${stillThere.length} existing official(s)`);
+  }
+  const gone = (existing ?? []).filter((r) => !freshNames.has(r.full_name.toLowerCase()));
+  const looksComplete = res.officials.length >= Math.ceil((existing ?? []).length * 0.6);
+  for (const r of gone) {
+    const termEnded = r.term_end_date && Date.parse(r.term_end_date) < Date.now();
+    if (looksComplete && (fromLegistar || termEnded)) {
+      await sb.from("legislators").update({ active: false, last_synced_at: new Date().toISOString() }).eq("id", r.id);
+      console.log(`    − ${r.full_name}: retired (${fromLegistar ? "not on the clerk roster" : "term ended"})`);
+    } else {
+      console.log(`    ? ${r.full_name}: not re-confirmed — kept (${looksComplete ? "no strong evidence" : "fresh roster looks partial"})`);
+    }
+  }
 
   const rows = [];
   for (const o of res.officials) {

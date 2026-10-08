@@ -7,7 +7,7 @@ import { normalizeLocality } from "@/lib/locality";
 import { getCreatorContext } from "./actions";
 
 export async function suggestOfficialsAction(input: { city: string; state: string }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader." };
   return suggestLocalOfficials(input);
 }
@@ -31,7 +31,7 @@ export async function acceptSuggestions(input: {
   locality: string;
   officials: SuggestedOfficial[];
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader." };
 
   const stateRaw = input.state.trim().toUpperCase();

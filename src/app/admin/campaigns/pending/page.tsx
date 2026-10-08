@@ -42,7 +42,7 @@ export default async function PendingCampaignsPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "approve_campaigns" });
   if (!ctx.ok) redirect("/dashboard");
   const sp = await searchParams;
 

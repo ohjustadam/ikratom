@@ -1,8 +1,11 @@
-import Link from "next/link";
+import Link from "@/components/Link";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { SubmitFlash } from "./SubmitFlash";
+import { unstable_cache } from "next/cache";
 import { renderMarkdown } from "@/lib/markdown";
 import { jsonLdSafe } from "@/lib/jsonld";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { AudioReader } from "@/components/AudioReader";
@@ -11,7 +14,37 @@ import { ShareEverywhere } from "@/components/ShareEverywhere";
 import { getAdminContext } from "@/modules/admin/actions";
 
 export const metadata = { title: "Research paper" };
-export const dynamic = "force-dynamic";
+export const revalidate = 900;
+
+export function generateStaticParams() {
+  return [];
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The public paper row is the crawl hit (Google Scholar / Semantic Scholar
+// index these) — cache it per id via a service-role snapshot (#827 pattern).
+// The EXPLICIT column list is the exact public-safe projection 0227 allows
+// (no admin_notes_md / uploaded_storage_path / submitted_by), so service-role
+// here returns the same columns the anon client did — no PII widening. The
+// signed uploaded-PDF URL (1h expiry) and the admin check stay per-request
+// below (never cache a signed URL or a viewer's admin status).
+const getResearchPaper = unstable_cache(
+  async (id: string) => {
+    const sb = createServiceRoleClient();
+    const { data } = await sb
+      .from("research_papers")
+      .select(
+        "id, pubmed_id, doi, semantic_scholar_id, title, authors, journal, journal_iso_abbreviation, publication_year, publication_date, abstract, full_text_url, pdf_url, topics, study_type, ai_methodology_quality, ai_sample_size_adequate, ai_sample_size_notes, ai_bias_indicators, ai_evidence_strength, ai_key_findings_md, ai_relevance_natural_leaf, ai_relevance_7oh, ai_distinguishes_natural_vs_synthetic, ai_evaluated_at, ai_evaluated_by_provider, citation_count, retracted, retraction_url, retraction_reason, admin_quality_override, is_active, ingested_at, ingested_via",
+      )
+      .eq("id", id)
+      .eq("is_active", true)
+      .maybeSingle();
+    return data ?? null;
+  },
+  ["research-paper"],
+  { revalidate: 1800, tags: ["research-paper"] },
+);
 
 const STRENGTH_COLORS: Record<string, string> = {
   strong: "border-emerald-700/50 bg-emerald-950/20 text-emerald-300",
@@ -23,29 +56,13 @@ const STRENGTH_COLORS: Record<string, string> = {
 
 export default async function ResearchPaperPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ from?: string; duplicate?: string }>;
 }) {
   const { id } = await params;
-  const sp = (await searchParams) ?? {};
-  const arrivedFromSubmit = sp.from === "submit";
-  const wasDuplicate = sp.duplicate === "1";
 
-  const sb = await createClient();
-  // Explicit public-safe columns only — 0227 revoked anon/authenticated SELECT
-  // on admin_notes_md / uploaded_storage_path / submitted_by, so `select("*")`
-  // now errors (permission denied) for a non-service-role client. Must be a
-  // string literal (not a const) so supabase-js can infer the row type.
-  const { data: p } = await sb
-    .from("research_papers")
-    .select(
-      "id, pubmed_id, doi, semantic_scholar_id, title, authors, journal, journal_iso_abbreviation, publication_year, publication_date, abstract, full_text_url, pdf_url, topics, study_type, ai_methodology_quality, ai_sample_size_adequate, ai_sample_size_notes, ai_bias_indicators, ai_evidence_strength, ai_key_findings_md, ai_relevance_natural_leaf, ai_relevance_7oh, ai_distinguishes_natural_vs_synthetic, ai_evaluated_at, ai_evaluated_by_provider, citation_count, retracted, retraction_url, retraction_reason, admin_quality_override, is_active, ingested_at, ingested_via",
-    )
-    .eq("id", id)
-    .eq("is_active", true)
-    .maybeSingle();
+  if (!UUID_RE.test(id)) notFound();
+  const p = await getResearchPaper(id);
   if (!p) notFound();
 
   // uploaded_storage_path is admin-only (0227 column privacy — it embeds the
@@ -123,25 +140,11 @@ export default async function ResearchPaperPage({
         ← Research library
       </Link>
 
-      {/* Flash from /research/submit. wasDuplicate = library already had
-          this URL; otherwise it's a fresh submission landing for review. */}
-      {arrivedFromSubmit && (
-        <div className={`mt-3 mb-4 rounded-md border-2 p-3 text-sm ${
-          wasDuplicate
-            ? "border-amber-700/50 bg-amber-950/15 text-amber-200"
-            : "border-emerald-700/50 bg-emerald-950/15 text-emerald-200"
-        }`}>
-          {wasDuplicate ? (
-            <>
-              📚 This paper was already in the library. Taking you to its existing entry.
-            </>
-          ) : (
-            <>
-              ✓ Added to the library. Bibliographic metadata captured; topic tags + AI evaluation will populate after the next editorial pass. Thanks for contributing.
-            </>
-          )}
-        </div>
-      )}
+      {/* Flash from /research/submit. Client-side: reading the query string
+          on the server made this whole page dynamic (see SubmitFlash). */}
+      <Suspense fallback={null}>
+        <SubmitFlash />
+      </Suspense>
 
       <header className="mt-2 mb-6 border-b border-zinc-800 pb-4">
         <div className="flex flex-wrap items-baseline gap-2 text-[11px]">

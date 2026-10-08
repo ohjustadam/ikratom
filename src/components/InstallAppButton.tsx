@@ -129,11 +129,19 @@ export function InstallAppButton({
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center"
+          // overflow-y-auto on the OVERLAY (not just the panel) so that when the
+          // panel is taller than the viewport it scrolls from the top instead of
+          // being centred with its head clipped off-screen and unreachable.
+          className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto overscroll-contain bg-black/70 p-4 sm:items-center"
           onClick={() => setShowHelp(false)}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-emerald-700/40 bg-zinc-950 p-5 shadow-2xl"
+            // max-h + overflow keeps the panel inside the viewport on short
+            // windows and mobile landscape; `my-auto` re-centres it only when it
+            // actually fits, so a tall panel starts at the top rather than
+            // hanging above it. 100dvh (not vh) accounts for mobile browser
+            // chrome, which is what made the header clip on phones.
+            className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-xl border border-emerald-700/40 bg-zinc-950 p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-start gap-3">

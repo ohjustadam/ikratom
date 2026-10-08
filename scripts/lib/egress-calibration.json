@@ -1,0 +1,11 @@
+{
+  "_what": "One calibration for every Supabase egress estimate (egress gate + daily watchdog). Re-run monthly: node --env-file=.env.local scripts/egress-calibrate.mjs --dashboard <GB from supabase.com/dashboard -> Usage -> Egress>",
+  "measuredAt": "2026-10-07T00:30:00Z",
+  "billingCycle": "16 Sep 2026 - 16 Oct 2026 (dashboard)",
+  "cycleAnchorDay": 16,
+  "dashboardGB": 2.729,
+  "estimateGBBefore": 3.725,
+  "ratioBefore": 0.497,
+  "overReportMargin": 1.1,
+  "ratio": 0.4005
+}

@@ -29,8 +29,19 @@ export const revalidate = 0;
  *        Collapsible.
  */
 export default async function AdminPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "view_admin_dashboard" });
   if (!ctx.ok) redirect("/dashboard");
+
+  // Cards are shown by CAPABILITY, not by role. That is what makes an
+  // individual grant usable: a leader the owner handed `moderate_lounge` sees
+  // the lounge card here and nothing else new, instead of having to be told a
+  // URL. Each check below uses the same permission its target page gates on,
+  // so a visible card always opens.
+  const perms = new Set<string>(ctx.permissions);
+  const can = (p: string) => perms.has(p);
+  const canAny = (...ps: string[]) => ps.some((p) => perms.has(p));
+  // Retained for the handful of places that mean "the full admin surface"
+  // rather than one capability (page heading, role label).
   const adminOnly = ctx.isAdmin || ctx.isOwner;
 
   const supabase = await createClient();
@@ -65,63 +76,66 @@ export default async function AdminPage() {
   // Build the inbox row: queue cards that have a backlog, sorted desc.
   // Each entry is a card descriptor — we render via AdminCard below.
   type QueueEntry = { href: string; title: string; body: string; count: number };
+  // Each queue appears only for someone who can actually work it — so a
+  // delegated moderator's inbox shows their queue and nothing they'd have to
+  // hand back.
   const inbox: QueueEntry[] = [];
-  if (adminOnly) {
-    if (queues.campaigns > 0) inbox.push({
+  {
+    if (can("approve_campaigns") && queues.campaigns > 0) inbox.push({
       href: "/admin/campaigns/pending",
       title: `Campaign review (${queues.campaigns})`,
       body: "Approve or reject auto-generated campaigns flagged for human review.",
       count: queues.campaigns,
     });
-    if ((pendingCallCount ?? 0) > 0) inbox.push({
+    if (can("moderate_calls") && (pendingCallCount ?? 0) > 0) inbox.push({
       href: "/admin/calls",
       title: `Call intel review (${pendingCallCount})`,
       body: "Approve advocate call summaries for the public 'what is government saying' board.",
       count: pendingCallCount ?? 0,
     });
-    if (queues.forum > 0) inbox.push({
+    if (can("moderate_forum") && queues.forum > 0) inbox.push({
       href: "/admin/forum",
       title: `Forum moderation (${queues.forum})`,
       body: "Review flagged posts + threads.",
       count: queues.forum,
     });
-    if (queues.loungeBanReview > 0) inbox.push({
+    if (can("moderate_lounge") && queues.loungeBanReview > 0) inbox.push({
       href: "/admin/lounge",
       title: `Lounge moderation (${queues.loungeBanReview})`,
       body: "Delete chat messages, mute users.",
       count: queues.loungeBanReview,
     });
-    if (queues.intelTips > 0) inbox.push({
+    if (can("moderate_intel_queue") && queues.intelTips > 0) inbox.push({
       href: "/admin/intel-queue",
       title: `Intel queue (${queues.intelTips})`,
       body: "Review advocate-submitted tips from /alerts/submit.",
       count: queues.intelTips,
     });
-    if (queues.syncDiscrepancies > 0) inbox.push({
+    if (can("moderate_intel_queue") && queues.syncDiscrepancies > 0) inbox.push({
       href: "/admin/sync-discrepancies",
       title: `Sync discrepancies (${queues.syncDiscrepancies})`,
       body: "Bills where AI fact-check disagrees with our DB.",
       count: queues.syncDiscrepancies,
     });
-    if (queues.localRepRequests > 0) inbox.push({
+    if (can("review_local_rep_requests") && queues.localRepRequests > 0) inbox.push({
       href: "/admin/local-rep-requests",
       title: `Local rep requests (${queues.localRepRequests})`,
       body: "Areas where users have asked us to add their local reps.",
       count: queues.localRepRequests,
     });
-    if (queues.vendorApplications > 0) inbox.push({
+    if (can("review_vendor_applications") && queues.vendorApplications > 0) inbox.push({
       href: "/admin/vendor-applications",
       title: `Vendor applications (${queues.vendorApplications})`,
       body: "Review users applying to be verified vendors.",
       count: queues.vendorApplications,
     });
-    if (queues.stories > 0) inbox.push({
+    if (can("moderate_stories") && queues.stories > 0) inbox.push({
       href: "/admin/stories",
       title: `Story moderation (${queues.stories})`,
       body: "Review user-submitted advocacy stories.",
       count: queues.stories,
     });
-    if (queues.inactiveDiscord > 0) inbox.push({
+    if (can("manage_discord") && queues.inactiveDiscord > 0) inbox.push({
       href: "/admin/discord-integrations",
       title: `Discord integrations (${queues.inactiveDiscord} inactive)`,
       body: "Re-enable disabled webhooks.",
@@ -140,7 +154,7 @@ export default async function AdminPage() {
         <p className="mt-2 text-sm text-zinc-400">
           Signed in as <span className="font-mono text-zinc-200">{ctx.email}</span>
         </p>
-        {adminOnly && (
+        {can("view_ops_console") && (
           <p className="mt-3 flex flex-wrap items-center gap-2">
             <a
               href="/admin/ops"
@@ -171,7 +185,7 @@ export default async function AdminPage() {
       {ctx.isOwner && <WhosOnline />}
 
       {/* ── P0 Inbox + Emergency mode ────────────────────────────── */}
-      {adminOnly && (inbox.length > 0 || true) && (
+      {canAny("admin_emergency_mode") || inbox.length > 0 ? (
         <section className="mb-10">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
             {inbox.length > 0 ? `Needs you now — ${inbox.reduce((n, e) => n + e.count, 0)} items across ${inbox.length} queue${inbox.length === 1 ? "" : "s"}` : "Status"}
@@ -180,14 +194,16 @@ export default async function AdminPage() {
             {inbox.map((q) => (
               <AdminCard key={q.href} href={q.href} title={q.title} body={q.body} accent />
             ))}
-            <AdminCard
-              href="/admin/emergency"
-              title="🚨 Emergency mode"
-              body="Site-wide red banner. Use for FDA action, hostile federal bills, scheduling rumors."
-            />
+            {can("admin_emergency_mode") && (
+              <AdminCard
+                href="/admin/emergency"
+                title="🚨 Emergency mode"
+                body="Site-wide red banner. Use for FDA action, hostile federal bills, scheduling rumors."
+              />
+            )}
           </div>
         </section>
-      )}
+      ) : null}
 
       {/* ── Stats strip ─ honest counts, force-dynamic, no cache. ──── */}
       <section className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
@@ -212,7 +228,7 @@ export default async function AdminPage() {
             body="Create, edit, archive call-to-action campaigns."
             accent
           />
-          {adminOnly && (
+          {can("moderate_forum") && (
             <AdminCard
               href="/admin/moderation"
               title="Moderation"
@@ -220,7 +236,7 @@ export default async function AdminPage() {
               accent
             />
           )}
-          {adminOnly && queues.campaigns === 0 && (
+          {can("approve_campaigns") && queues.campaigns === 0 && (
             <AdminCard
               href="/admin/campaigns/pending"
               title="Campaign review"
@@ -232,56 +248,56 @@ export default async function AdminPage() {
             title="Local officials"
             body="Add city + county officials for local campaigns."
           />
-          {adminOnly && (
+          {can("edit_bills") && (
             <AdminCard
               href="/admin/bills"
               title="Bills"
               body="Edit any bill. Sensitive (MFA-gated)."
             />
           )}
-          {adminOnly && (
+          {can("edit_bills") && (
             <AdminCard
               href="/admin/bills/new"
               title="+ Add a bill (manual)"
               body="For county / municipal bills OpenStates doesn't track."
             />
           )}
-          {adminOnly && (
+          {can("view_users_list") && (
             <AdminCard
               href="/admin/users"
               title="Users"
               body="Manage admins, advocate leaders, ownership."
             />
           )}
-          {adminOnly && queues.forum === 0 && (
+          {can("moderate_forum") && queues.forum === 0 && (
             <AdminCard
               href="/admin/forum"
               title="Forum moderation"
               body="Review flagged posts + threads. Empty right now."
             />
           )}
-          {adminOnly && queues.loungeBanReview === 0 && (
+          {can("moderate_lounge") && queues.loungeBanReview === 0 && (
             <AdminCard
               href="/admin/lounge"
               title="Lounge moderation"
               body="Chat moderation. Empty right now."
             />
           )}
-          {adminOnly && queues.stories === 0 && (
+          {can("moderate_stories") && queues.stories === 0 && (
             <AdminCard
               href="/admin/stories"
               title="Story moderation"
               body="User-submitted advocacy stories. Empty right now."
             />
           )}
-          {adminOnly && (
+          {can("send_announcements") && (
             <AdminCard
               href="/admin/announcements"
               title="Announcements"
               body="Post platform updates that show up in every user's 'What's new' widget."
             />
           )}
-          {adminOnly && (
+          {can("edit_meetings") && (
             <AdminCard
               href="/admin/events/new"
               title="+ Town halls + hearings"
@@ -292,7 +308,7 @@ export default async function AdminPage() {
       </section>
 
       {/* ── P2 Observability & data infra ─────────────────────────── */}
-      {adminOnly && (
+      {can("edit_legislators") && (
         <CollapsibleSection title="System & observability">
           <AdminCard
             href="/admin/legislators"
@@ -404,7 +420,7 @@ export default async function AdminPage() {
       )}
 
       {/* ── P3 Static catalogs & integrations ─────────────────────── */}
-      {adminOnly && (
+      {can("edit_partners") && (
         <CollapsibleSection title="Content & integrations">
           <AdminCard
             href="/admin/partners"

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { siteConfig } from "@/config/site.config";
+import { statusBanner } from "@/config/status-banner";
 import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
 import { MobileAuthPill } from "@/modules/auth/components/MobileAuthPill";
 import { HeaderNav } from "@/components/HeaderNav";
@@ -9,6 +10,7 @@ import { InstallAppButton } from "@/components/InstallAppButton";
 import { CookieBanner } from "@/components/CookieBanner";
 import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { GlobalAnnouncement } from "@/components/GlobalAnnouncement";
+import { DonateStrip } from "@/components/DonateStrip";
 import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { RegisterSW } from "@/components/RegisterSW";
@@ -24,11 +26,13 @@ import { PostHogProvider } from "@/lib/posthog/PostHogProvider";
 import { SignInProvider } from "@/components/auth/SignInContext";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
 import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
-import { LocaleSwitcher } from "@/components/LocaleSwitcher";
-import { readLocale } from "@/modules/auth/actions-locale";
-import { getCachedAuthProfile } from "@/lib/supabase/server";
+import { ChromeProvider } from "@/components/chrome/ChromeProvider";
+import { StateQuestionGate } from "@/components/chrome/StateQuestionGate";
+import { AttributionCapture } from "@/components/chrome/AttributionCapture";
+import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGate } from "@/components/chrome/ChromeGates";
 import "./globals.css";
 
+import Link from "@/components/Link";
 const geist = Geist({
   variable: "--font-geist",
   subsets: ["latin"],
@@ -97,55 +101,33 @@ export const viewport: Viewport = {
   viewportFit: "cover",  // iPhone notch / safe-area support
 };
 
-export default async function RootLayout({
+/**
+ * ROOT LAYOUT — MUST STAY STATIC.
+ *
+ * This function previously awaited `readLocale()` and `getCachedAuthProfile()`.
+ * In the App Router a cookie read anywhere in the render tree opts that route
+ * out of static generation, and from the ROOT layout that means EVERY route in
+ * the app. The result: 215 pages server-rendered on every hit, 688K function
+ * invocations, 12h of Fluid CPU against a 4h allowance, and the 2026-07-22
+ * account block that took the site down.
+ *
+ * ⚠ DO NOT reintroduce `cookies()`, `headers()`, `getCachedAuthProfile()`,
+ * `readLocale()`, or any cookie-bound Supabase client here or in any component
+ * this layout renders. Per-user state belongs in /api/me, read client-side by
+ * ChromeProvider — crawlers don't execute JS, so they never pay for it.
+ * Full context: `private/STATIC_CHROME_PLAN.md`.
+ */
+export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const locale = await readLocale();
-
-  // Cheap auth check so MobileNav can show admin / leader sub-section,
-  // plus leader-tour bootstrap state. Single row read; never blocks
-  // render — falls back to non-admin on error.
-  let isAdmin = false;
-  let isLeader = false;
-  let signedIn = false;
-  let leaderTourPending = false;
-  let leaderAcknowledged = true; // assume true so we don't flash a banner for non-leaders
-  // Signed-in users' saved UI prefs, server-rendered onto <html> so they
-  // apply cross-device with no flash. Null for anon → the inline script
-  // falls back to localStorage (or the app defaults).
-  let uiTheme: string | undefined;
-  let uiAccent: string | undefined;
-  let uiAccentHex: string | undefined;
-  let uiMode: string | undefined;
-  try {
-    // Request-cached: shares the single auth round-trip + profile read
-    // with HeaderAuth (see getCachedAuthProfile). Was a per-render
-    // getUser() + profile select; now deduped across the chrome.
-    const { profile } = await getCachedAuthProfile();
-    if (profile) {
-      signedIn = true;
-      isAdmin = !!(profile.is_admin || profile.is_owner);
-      isLeader = !!(isAdmin || profile.is_advocate_leader);
-      leaderTourPending = isLeader && !!profile.leader_tour_pending;
-      leaderAcknowledged = !isLeader || !!profile.leader_acknowledged_at;
-      uiTheme = profile.ui_theme ?? undefined;
-      uiAccent = profile.ui_accent ?? undefined;
-      uiAccentHex = profile.ui_accent_hex ?? undefined;
-      uiMode = profile.ui_mode ?? undefined;
-    }
-  } catch {
-    // non-fatal — drawer just hides admin / leader section
-  }
-
+  // No auth/locale reads here — see the header comment. `lang` is static and
+  // the theme `data-*` attributes are now set by the inline script below (from
+  // localStorage) and corrected by ChromeProvider once /api/me lands.
   return (
     <html
-      lang={locale}
+      lang="en"
       className={`${geist.variable} h-full antialiased`}
       suppressHydrationWarning
-      data-theme={uiTheme}
-      data-accent={uiAccentHex ? "custom" : uiAccent}
-      data-accent-hex={uiAccentHex}
-      data-mode={uiMode}
     >
       <body className="min-h-full flex flex-col font-[family-name:var(--font-geist)]">
         {/* Set theme/accent/mode on <html> before paint to avoid a flash of
@@ -159,25 +141,37 @@ export default async function RootLayout({
           }}
         />
         <PostHogProvider>
+        <ChromeProvider>
+        {/* Captures ?via= / ?ref=embed&host= / ?state= into httpOnly cookies.
+            Was proxy.ts's job; that middleware is disabled on Netlify, which
+            silently broke invite + partner attribution. No-ops (and makes no
+            network call) unless the URL actually carries one of the params. */}
+        <AttributionCapture />
         <SignInProvider>
-        {/* Leader-tour banner — visible on every page until a leader
-            completes the multi-page walkthrough + signs the
-            acknowledgment. Non-leaders never see it. */}
-        {isLeader && !leaderAcknowledged && <LeaderTourBanner />}
-
-        {/* Multi-page tour controller. Mounts on every page; only fires
-            when leader_tour_pending=true and acknowledgment is missing.
-            Persists state via localStorage across navigation. */}
-        {isLeader && (
-          <LeaderTourController
-            pending={leaderTourPending}
-            alreadyAcknowledged={leaderAcknowledged}
-          />
-        )}
+        {/* Leader-tour banner + multi-page controller. Visible on every page
+            until a leader completes the walkthrough + signs the
+            acknowledgment; non-leaders never see it. Gated client-side off
+            /api/me now — the leader flags used to come from a server-side
+            profile read in this layout, which forced every route dynamic. */}
+        <LeaderTourGate />
+        <StateQuestionGate />
 
         {/* Site-wide soft announcement (editable from /admin/content) — renders
             only when admin sets global.announcement content. */}
         <GlobalAnnouncement />
+
+        {/* Static service-status banner — code-committed so it renders even
+            when the DATABASE is the outage (the DB-driven EmergencyBanner
+            below can't turn on in that case). Flip off in status-banner.ts. */}
+        {statusBanner.enabled && (
+          <div role="alert" className="border-b-2 border-amber-500 bg-amber-950/40 text-amber-100">
+            <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6 lg:px-8">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-300">⚠ Service notice</p>
+              <p className="mt-0.5 text-sm font-semibold leading-tight sm:text-base">{statusBanner.title}</p>
+              <p className="mt-0.5 text-xs sm:text-sm">{statusBanner.body}</p>
+            </div>
+          </div>
+        )}
 
         {/* Site-wide emergency banner — renders only when admin toggles emergency_mode on */}
         <EmergencyBanner />
@@ -187,22 +181,29 @@ export default async function RootLayout({
           style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
-            <a
+            <Link
               href="/"
               className="flex items-center gap-1 text-lg font-bold leading-none"
               aria-label="iKratom home"
             >
               <span className="text-emerald-400">i</span>
               <span>Kratom</span>
-            </a>
+            </Link>
 
-            {/* Desktop nav (md+). The 10 flat sections from v1 are
+            {/* Desktop nav (lg+). Was md+ (768px), but this toolbar renders ~766px
+                wide — 2px of headroom at its own breakpoint — so any viewport with a
+                classic scrollbar scrolled the whole PAGE sideways, and one more nav
+                item would have made that permanent on real tablets. Moved to lg so
+                tablets get the touch chrome instead. Everything keyed to that
+                switch moved with it: the mobile cluster below, the <main> bottom
+                padding, MobileNav, MobileTabBar, MobileAuthPill and DonateStrip.
+                The 10 flat sections from v1 are
                 grouped into 4 dropdown categories inside HeaderNav so
                 the toolbar reads cleanly. The Share button is server-
                 rendered (HeaderShare) so we can pre-pick the user's
                 personal /i/CODE link or a generic URL depending on
                 auth state without round-tripping to the client. */}
-            <nav className="hidden items-center gap-3 text-sm md:flex">
+            <nav className="hidden items-center gap-3 text-sm lg:flex">
               <HeaderNav />
               <a
                 href="/search"
@@ -219,15 +220,15 @@ export default async function RootLayout({
               <HeaderAuth />
             </nav>
 
-            {/* Mobile right-side controls (<md): always-visible auth
+            {/* Mobile + tablet right-side controls (<lg): always-visible auth
                 pill + the hamburger. Pill gives one-tap access to
                 Sign in / Dashboard without opening the menu, since
                 that's the most-common destination. */}
-            <div className="flex items-center gap-2 md:hidden">
+            <div className="flex items-center gap-2 lg:hidden">
               <ThemeQuickControls placement="toolbar" />
               <InstallAppButton variant="mobile" />
               <MobileAuthPill />
-              <MobileNav authSlot={<HeaderAuth />} isAdmin={isAdmin} isLeader={isLeader} />
+              <MobileNavGate />
             </div>
           </div>
         </header>
@@ -239,7 +240,7 @@ export default async function RootLayout({
             that need it. */}
         {/* Bottom padding clears: mobile tab bar (3.5rem) + donation strip
             (~1.75rem) + device safe-area; desktop just the strip. */}
-        <main className="flex-1 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-7"><ShareBanner /><RouteTransition>{children}</RouteTransition></main>
+        <main className="flex-1 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-7"><ShareBanner /><RouteTransition>{children}</RouteTransition></main>
 
         <footer className="border-t border-zinc-800 bg-zinc-950 py-8">
           <div className="mx-auto max-w-6xl px-4 text-center text-xs text-zinc-500 sm:px-6 lg:px-8">
@@ -249,11 +250,11 @@ export default async function RootLayout({
               <a href="/roles" className="hover:text-emerald-400">Roles</a>
               <a href="/spread" className="hover:text-emerald-400">Storefront kit</a>
               <a href="/ethics" className="hover:text-emerald-400">Ethics</a>
-              <a href="/research" className="hover:text-emerald-400">Research</a>
+              <Link href="/research" className="hover:text-emerald-400">Research</Link>
               <a href="/intel" className="hover:text-emerald-400">Intel hub</a>
               <a href="/calendar" className="hover:text-emerald-400">Calendar</a>
               <a href="/deadlines" className="hover:text-emerald-400">Deadlines</a>
-              <a href="/whats-new" className="hover:text-emerald-400">What&apos;s new</a>
+              <Link href="/whats-new" className="hover:text-emerald-400">What&apos;s new</Link>
               <a href="/support" className="font-semibold text-emerald-400 hover:text-emerald-300">♥ Support</a>
               <a href="/status" className="hover:text-emerald-400">Status</a>
               <a href="/glossary" className="hover:text-emerald-400">Glossary</a>
@@ -267,7 +268,7 @@ export default async function RootLayout({
             </nav>
             <div className="mb-4 flex items-center justify-center gap-2">
               <span className="text-zinc-600">🌐</span>
-              <LocaleSwitcher current={locale} />
+              <LocaleSwitcherGate />
             </div>
             <p>
               {siteConfig.name} is a nonpartisan advocacy tool. Not affiliated with any
@@ -293,23 +294,15 @@ export default async function RootLayout({
         <CookieBanner />
         <MobileTabBar />
 
-        {/* Donation strip — always visible along the bottom border
-            (above the tab bar on mobile). Deliberately simple: plain
-            text; the cashtag links straight to the Cash App profile. */}
-        <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-emerald-900/50 bg-zinc-950/95 px-3 py-1.5 text-center text-[11px] text-zinc-400 backdrop-blur md:bottom-0">
-          💚 iKratom is free &amp; community-funded — chip in on Cash App:{" "}
-          <a
-            href="https://cash.app/$ohjustadam"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono font-semibold text-emerald-300 underline decoration-emerald-700/60 underline-offset-2 hover:text-emerald-200"
-          >
-            $ohjustadam
-          </a>
-        </div>
+        {/* Donation strip — always visible along the bottom border (above the
+            tab bar on mobile). Was hard-coded here, which meant the owner could
+            not change or remove it without a code change. Now content-driven:
+            edit at /admin/content/donate.strip, or save it empty to hide the
+            strip entirely. See src/components/DonateStrip.tsx. */}
+        <DonateStrip />
         <RegisterSW />
         <PushBackStop />
-        {signedIn && <PresenceHeartbeat />}
+        <PresenceHeartbeatGate />
         <InstallPrompt />
         <FeedbackWidget />
         {/* Floating appearance control — a small icon on every screen, sitting
@@ -320,6 +313,7 @@ export default async function RootLayout({
             stays at /forum, where this self-hides). Gated on the forum flag. */}
         {siteConfig.features.forum && <ChatPopup />}
         </SignInProvider>
+        </ChromeProvider>
         </PostHogProvider>
       </body>
     </html>

@@ -7,7 +7,7 @@ import { ReadOnlyForm } from "./ReadOnlyForm";
 export const metadata = { title: "Emergency mode" };
 
 export default async function EmergencyPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "admin_emergency_mode" });
   if (!ctx.ok) redirect("/dashboard");
   const config = await getEmergencyConfig();
 

@@ -5,7 +5,7 @@ import { NewDiscordIntegrationForm } from "./NewDiscordIntegrationForm";
 export const metadata = { title: "Add Discord integration" };
 
 export default async function NewDiscordIntegrationPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "manage_discord" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (

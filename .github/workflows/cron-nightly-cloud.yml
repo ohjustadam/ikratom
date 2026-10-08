@@ -30,8 +30,66 @@ concurrency:
   group: nightly-cloud
   cancel-in-progress: false
 
+# ---------------------------------------------------------------------------
+# Free AI provider pool — workflow-level so EVERY step inherits it.
+#
+# Why this is here and not on each step: the router (scripts/lib/ai-router.mjs)
+# can only use a provider whose key is in the step's environment. Keys were
+# added per step as each provider was adopted, so older steps kept an older,
+# smaller pool — this workflow reached the router with no OPENROUTER_API_KEY at
+# all while OpenRouter was the only provider still answering. Ingestion kept
+# running and every enrichment step failed, which is exactly the "reads the
+# world but cannot make sense of it" state we were in.
+#
+# A workflow-level env block is inherited by every job and every step, and a
+# step-level env still wins where one is set, so this can only widen the pool.
+# Adding a provider is now: create the secret, add one line here.
+# An unset secret expands to "" and the router skips that provider silently.
+# See docs/AI_PROVIDERS.md.
+env:
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+  GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+  MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+  AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+  CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+  CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  # GitHub Actions forbids secret names starting with GITHUB_, hence GH_MODELS_TOKEN.
+  GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+  # Optional: reorder the pool without a deploy, e.g. "groq,mistral,openrouter".
+  AI_PROVIDER_ORDER: ${{ vars.AI_PROVIDER_ORDER }}
+
 jobs:
+  # ── SUPABASE EGRESS GATE (bulk tier) ────────────────────────────────────
+  # Supabase RESTRICTS the project at 100% of the free egress cap rather than
+  # billing for it — hitting it takes the SITE down. Background work defers so
+  # page traffic keeps the remaining headroom. See scripts/lib/egress-budget.mjs.
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier bulk
+
   nightly-cloud:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 110
     env:
@@ -49,6 +107,7 @@ jobs:
       SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
       GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }} # GitHub Models (GITHUB_ prefix is reserved → GH_)
     steps:
       - uses: actions/checkout@v4
@@ -71,43 +130,43 @@ jobs:
 
       - name: Legistar tenant discovery (keyless)
         continue-on-error: true
-        run: node scripts/discover-legistar-tenants.mjs --limit 300
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/discover-legistar-tenants.mjs --limit 300
 
       - name: Bill texts (LegiScan, session-exact)
         continue-on-error: true
-        run: node scripts/fetch-bill-texts.mjs --limit 100
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/fetch-bill-texts.mjs --limit 100
 
       - name: Substance classification (free-tier cloud LLMs)
         continue-on-error: true
-        run: node scripts/classify-bill-substance.mjs --limit 100
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-bill-substance.mjs --limit 100
 
       - name: Live bill refresh (LegiScan, active anti/pro)
         continue-on-error: true
         # --max-minutes so a degraded-LegiScan night can't eat the single-job
         # budget and starve the elections + news-digest steps after it.
-        run: node scripts/sync-bills-via-legiscan.mjs --all-anti --max-minutes 35
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bills-via-legiscan.mjs --all-anti --max-minutes 35
 
       - name: State executives (keyless YAML, weekly self-gate)
         continue-on-error: true
-        run: node scripts/sync-state-executives.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-state-executives.mjs
 
       - name: Elections sync (keyless NCSL scrape, weekly self-gate)
         continue-on-error: true
-        run: node scripts/sync-elections.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-elections.mjs
 
       - name: News summaries drain (cloud router)
         continue-on-error: true
-        run: node scripts/summarize-news.mjs --limit 300
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/summarize-news.mjs --limit 300
 
       - name: News digests — full in-app write-up (cloud router)
         continue-on-error: true
-        run: node scripts/generate-news-digest.mjs --limit 300 --days 90
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/generate-news-digest.mjs --limit 300 --days 90
 
       # Session calendar (LegiScan sine_die) — feeds the review failsafe below.
       # Cheap (~51 calls); run before the review step so it sees fresh sine_die.
       - name: Legislative session calendar (LegiScan sine_die)
         continue-on-error: true
-        run: node scripts/sync-legislative-sessions.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-legislative-sessions.mjs
 
       # Review-by failsafe: retire bills whose session adjourned without passage
       # (+ cascade to their alerts/campaigns), stamp review_by up front, and
@@ -115,9 +174,79 @@ jobs:
       # scraper_runs. Keeps the active count honest as sessions end.
       - name: Review lapsed bills/alerts/campaigns (dead-session failsafe)
         continue-on-error: true
-        run: node scripts/review-lapsed-items.mjs --apply
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/review-lapsed-items.mjs --apply
 
       # Self-heal the Frankenstein/session-drift residue (LegiScan-verified).
       - name: Bill session-drift self-heal (LegiScan-verified)
         continue-on-error: true
-        run: node scripts/audit-bill-session-drift.mjs --verify --apply
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/audit-bill-session-drift.mjs --verify --apply
+
+  # ── Free-AI research agents, moved off the owner's PC 2026-09-07 ──────────
+  #
+  # These two wrote their output with a LOCAL Ollama model and opened with a
+  # reachability probe that, off the box, printed "nothing to do here" and
+  # exited 0 having written no telemetry at all. So a PC that was simply asleep
+  # was indistinguishable from a job that had never been scheduled — and it was
+  # asleep for 55 days.
+  #
+  # scripts/lib/tool-chat.mjs now speaks the same tool-calling loop to Ollama OR
+  # to any free OpenAI-compatible provider, so they run anywhere. Local Ollama
+  # is still tried FIRST (free and unmetered) and simply is not present here.
+  #
+  # SEPARATE JOBS, not steps on nightly-cloud: that job already carries a
+  # 110-minute budget across a dozen steps, and a job that overruns
+  # timeout-minutes is cancelled with every remaining step skipped in silence.
+  # Research agents are the slowest and least predictable work we run, so they
+  # must not be able to take the rest of the nightly chassis down with them.
+
+  dossier-research:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+      GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - name: Dossier deep-dive (one target per night)
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/dossier-research.mjs --auto
+
+  auto-brief-campaigns:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+      GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - name: Research briefings for newly approved campaigns
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-brief-campaigns.mjs --limit 5

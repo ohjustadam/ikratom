@@ -69,6 +69,7 @@ export async function GET(request: NextRequest) {
     { auth: { persistSession: false } },
   );
 
+  const startedAt = Date.now();
   const stats = {
     termExpiredRetired: 0,
     staleLocalitiesReVerified: 0,
@@ -163,6 +164,23 @@ export async function GET(request: NextRequest) {
       stats.errors.push(`pending ${pair.locality}: ${(e as Error).message}`);
     }
   }
+
+  // Telemetry so check-cron-staleness can monitor this Vercel cron — the
+  // owner-mandated officials-freshness failsafe (2026-05-16). It wrote no
+  // scraper_runs row (the identical blind spot daily-sync was patched to
+  // close), so a Hobby pause / CRON_SECRET rotation / 500 would silently
+  // stop it retiring former officials with no owner page. Best-effort;
+  // `reverify_local_officials` matches the cron-registry.ts catalog name.
+  try {
+    await admin.from("scraper_runs").insert({
+      source: "reverify_local_officials",
+      started_at: new Date(startedAt).toISOString(),
+      finished_at: new Date().toISOString(),
+      status: "success",
+      rows_updated: stats.termExpiredRetired + stats.staleLocalitiesReVerified + stats.pendingFulfilled,
+      notes: `retired ${stats.termExpiredRetired} · reverified ${stats.staleLocalitiesReVerified} · pending +${stats.pendingFulfilled}/-${stats.pendingFailed} · ${stats.errors.length} soft-err`.slice(0, 300),
+    });
+  } catch { /* best-effort telemetry */ }
 
   return NextResponse.json({
     ok: true,

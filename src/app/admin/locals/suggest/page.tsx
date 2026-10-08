@@ -5,7 +5,7 @@ import { SuggestPanel } from "./SuggestPanel";
 export const metadata = { title: "AI suggest local officials" };
 
 export default async function SuggestLocalsPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (

@@ -1,16 +1,21 @@
 #!/usr/bin/env node
 /**
- * fire-daily-brief-push.mjs — opt-in daily brief web-push.
+ * fire-daily-brief-push.mjs — opt-in daily brief (in-app + push).
  *
- * For every user with `notification_preferences.daily_brief_push = true`
- * AND at least one active `push_subscriptions` row, compute a tiny
- * digest preview ("3 alerts in OK + 2 watched bills moved") and fire a
- * single web-push notification per device. Tap-action deep-links to
- * /brief.
+ * For every user with `notification_preferences.daily_brief_push = true`,
+ * compute a tiny digest preview ("3 alerts in OK + 2 watched bills moved")
+ * and INSERT a single `daily_brief` notification. Delivery (the device buzz)
+ * is handled by the hourly push fan-out (fanoutPushNotifications via
+ * /api/cron/fire-waves), which coalesces the brief with anything else the
+ * user has pending into ONE buzz and honors the global push opt-out
+ * (in_app/digest), DND/quiet-hours, and the per-user rate-cap. Tap deep-links
+ * to /brief.
  *
- * Runs daily via cron-daily.yml at ~13:00 UTC (~8am ET). Idempotent
- * via `tag: "daily-brief"` — subsequent pushes replace prior brief on
- * the user's device rather than stacking.
+ * This script no longer direct-sends web push: it left rows pushed_at=NULL and
+ * then pushed, so the fan-out re-delivered the same brief as a second buzz ~1h
+ * later, and it ignored users who globally turned push off (digest='off').
+ * Insert-only fixes both. Runs daily via cron-daily.yml at ~13:00 UTC (~8am ET);
+ * a per-day idempotency guard keeps a workflow re-run from re-inserting.
  *
  * Cost: $0. web-push is free; payload is <4kb.
  *
@@ -20,8 +25,6 @@
  *   node --env-file=.env.local scripts/fire-daily-brief-push.mjs --user <user_id>
  */
 import { createClient } from "@supabase/supabase-js";
-import webpush from "web-push";
-import { canPushUser, recordPush } from "./lib/push-gate.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -33,19 +36,8 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
-const VAPID_PUB = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-const VAPID_PRIV = process.env.VAPID_PRIVATE_KEY;
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:noreply@ikratom.org";
-const APP_URL = process.env.APP_URL || "https://www.ikratom.org";
-
-if (!VAPID_PUB || !VAPID_PRIV) {
-  // Missing VAPID is "we can't push today," not a workflow failure.
-  // Exit 0 so the GH Actions job stays green; staleness alert covers
-  // the case where this script gets skipped for too many days.
-  console.log("VAPID env vars not set in this env — skipping push delivery (exit 0).");
-  process.exit(0);
-}
-webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUB, VAPID_PRIV);
+// No VAPID needed here — this script only INSERTS the brief notification;
+// the hourly push fan-out (which owns the VAPID keys) delivers the device buzz.
 
 function isoDaysAgo(n) {
   return new Date(Date.now() - n * 86400 * 1000).toISOString();
@@ -154,61 +146,32 @@ function buildPayload(digest, userState) {
   };
 }
 
-async function fireForUser(userId, userState, prefs, nowMs) {
-  const { data: subs } = await sb
-    .from("push_subscriptions")
-    .select("id, endpoint, p256dh, auth")
-    .eq("user_id", userId);
-  const subscriptions = subs ?? [];
-  if (subscriptions.length === 0) return { sent: 0, dropped: 0, held: 0 };
-
+async function fireForUser(userId, userState) {
   const digest = await getDigestForUser(userId, userState);
   const payload = buildPayload(digest, userState);
 
-  // Drop a row in the in-app notifications table so the brief shows
-  // up in /notifications even after the OS-level push is dismissed.
-  // push-critical-alerts already does this; the brief was the only
-  // push that never left a history trail.
-  if (!DRY) {
-    await sb.from("notifications").insert({
-      user_id: userId,
-      kind: "daily_brief",
-      title: payload.title,
-      body: payload.body,
-      link: payload.link,
-    });
+  if (DRY) {
+    console.log(`  would queue brief for ${userId}  →  ${payload.title} · ${payload.body}`);
+    return { queued: 0 };
   }
 
-  // Quiet-hours / DND: the brief still lands in the inbox above; just
-  // don't buzz the device while the user is muted or in their quiet window.
-  if (!canPushUser(prefs, nowMs)) return { sent: 0, dropped: 0, held: subscriptions.length };
-
-  let sent = 0, dropped = 0;
-  for (const s of subscriptions) {
-    if (DRY) {
-      console.log(`  would push to ${s.endpoint.slice(0, 60)}…  →  ${payload.title} · ${payload.body}`);
-      sent += 1;
-      continue;
-    }
-    try {
-      await webpush.sendNotification(
-        { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-        JSON.stringify(payload),
-        { TTL: 60 * 60 * 24 },
-      );
-      sent += 1;
-    } catch (e) {
-      const status = e.statusCode ?? 0;
-      if (status === 404 || status === 410) {
-        // Subscription is gone — prune
-        await sb.from("push_subscriptions").delete().eq("id", s.id);
-        dropped += 1;
-      } else {
-        console.warn(`    send failed for ${userId}: ${e.message ?? e.body ?? "unknown"}`);
-      }
-    }
+  // Insert the brief as an in-app notification. The hourly push fan-out picks
+  // up this pushed_at=NULL row and delivers the device buzz — coalesced with
+  // the user's other pending rows, and suppressed entirely if they turned push
+  // off (in_app=false / digest='off') or are in DND / quiet-hours. This is the
+  // history trail too (the brief shows in /notifications after the buzz clears).
+  const { error } = await sb.from("notifications").insert({
+    user_id: userId,
+    kind: "daily_brief",
+    title: payload.title,
+    body: payload.body,
+    link: payload.link,
+  });
+  if (error) {
+    console.warn(`    insert failed for ${userId}: ${error.message?.slice(0, 80)}`);
+    return { queued: 0 };
   }
-  return { sent, dropped, held: 0 };
+  return { queued: 1 };
 }
 
 async function pruneLocalhostSubs() {
@@ -259,17 +222,17 @@ async function main() {
 
   await pruneLocalhostSubs();
 
-  // Find opted-in users (pull the quiet-hours/DND gate columns in the same hop)
+  // Find opted-in users. DND/quiet-hours/opt-out are now enforced by the push
+  // fan-out at delivery time, so this query only needs the opt-in flag.
   let optInQuery = sb.from("notification_preferences")
-    .select("user_id, dnd_enabled, quiet_hours_start, quiet_hours_end, timezone")
+    .select("user_id")
     .eq("daily_brief_push", true);
   if (ONLY_USER) optInQuery = optInQuery.eq("user_id", ONLY_USER);
   const { data: optedIn } = await optInQuery;
   const userIds = (optedIn ?? []).map((r) => r.user_id);
-  const prefsById = new Map((optedIn ?? []).map((r) => [r.user_id, r]));
   console.log(`  ${userIds.length} opted-in user${userIds.length === 1 ? "" : "s"}`);
   if (userIds.length === 0) {
-    await tag("empty", 0, 0);
+    await tag("empty", 0);
     return;
   }
 
@@ -280,35 +243,26 @@ async function main() {
     .in("id", userIds);
   const stateById = new Map((profiles ?? []).map((p) => [p.id, p.state]));
 
-  let totalSent = 0, totalDropped = 0, totalUsers = 0, totalHeld = 0;
-  const nowMs = Date.now();
-  const pushedIds = [];
+  let totalQueued = 0;
   for (const userId of userIds) {
-    const { sent, dropped, held } = await fireForUser(
-      userId, stateById.get(userId) ?? null, prefsById.get(userId), nowMs,
-    );
-    totalSent += sent;
-    totalDropped += dropped;
-    totalHeld += held ?? 0;
-    if (sent > 0) { totalUsers += 1; pushedIds.push(userId); }
-    process.stdout.write(`  ${totalUsers}/${userIds.length} users  ${totalSent} sent  ${totalDropped} dropped  ${totalHeld} held\r`);
+    const { queued } = await fireForUser(userId, stateById.get(userId) ?? null);
+    totalQueued += queued;
+    process.stdout.write(`  ${totalQueued}/${userIds.length} briefs queued\r`);
   }
   console.log();
-  // Stamp last_push_at so the in-app fanout cron's rate-cap accounts for the brief.
-  if (!DRY) await recordPush(sb, pushedIds);
-  console.log(`Done in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${totalSent} pushes to ${totalUsers} users, ${totalDropped} stale subs pruned, ${totalHeld} held (quiet/DND).`);
-  await tag(DRY ? "empty" : "success", totalSent, totalDropped);
+  console.log(`Done in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${totalQueued} briefs queued for ${userIds.length} opted-in user(s); delivery via the hourly push fan-out.`);
+  await tag(DRY ? "empty" : "success", totalQueued);
 }
 
-async function tag(status, sent, dropped) {
+async function tag(status, queued) {
   try {
     await sb.from("scraper_runs").insert({
       source: "fire_daily_brief_push",
       started_at: new Date(Date.now() - 1000).toISOString(),
       finished_at: new Date().toISOString(),
       status,
-      rows_updated: sent,
-      notes: `${dropped} stale subscriptions pruned`,
+      rows_updated: queued,
+      notes: `${queued} daily-brief notifications queued (delivery via push fan-out)`,
     });
   } catch { /* best-effort */ }
 }

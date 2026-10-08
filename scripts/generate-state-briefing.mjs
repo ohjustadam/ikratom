@@ -44,6 +44,15 @@ const PROVIDER_OVERRIDE = arg("--provider");
 // the old single-pass behavior, --max-revisions N to allow more rounds.
 const NO_CRITIQUE = args.includes("--no-critique");
 const MAX_REVISIONS = Math.max(0, Math.min(3, parseInt(arg("--max-revisions") ?? "1", 10) || 0));
+// Wall-clock budget for --all-states. The GHA job caps at 30 min and GitHub
+// CANCELS on overrun, which silently drops every LATER step in the job (the
+// audit+heal pass and the intel-coverage check). That is exactly what happened:
+// generate_state_briefing last succeeded 2026-08-17 and went unnoticed for 19
+// days because a cancelled job looks like an infrastructure hiccup, not a bug.
+// Stopping ourselves first turns a hard cancel into a clean partial run.
+// Targets are already ordered stalest-first, so whatever we skip is simply
+// first in line next time and coverage self-converges.
+const MAX_MINUTES = parseFloat(arg("--max-minutes") ?? "0") || 0;
 
 if (!STATE && !ALL_STATES) {
   console.error("Usage: --state <2-letter>  OR  --all-states  (optionally --dry-run, --provider, --no-critique, --max-revisions N)");
@@ -796,7 +805,16 @@ if (STATE) {
 }
 const t0 = Date.now();
 const results = [];
+let budgetStoppedAfter = null;
 for (const s of targets) {
+  if (MAX_MINUTES > 0 && (Date.now() - t0) / 60000 >= MAX_MINUTES) {
+    budgetStoppedAfter = results.length;
+    const left = targets.slice(results.length);
+    console.log(`
+⏱ --max-minutes ${MAX_MINUTES} reached after ${results.length}/${targets.length}.`);
+    console.log(`   Deferred (stalest-first next run): ${left.join(", ")}`);
+    break;
+  }
   const r = await generateOne(s);
   results.push(r);
   // Polite delay between AI calls
@@ -829,10 +847,16 @@ try {
     finished_at: new Date().toISOString(),
     // "partial" when some briefings generated despite failures; only a run that
     // produced NOTHING is a hard error (matches the partial-success convention).
-    status: ok === 0 && errored > 0 ? "error" : errored > 0 ? "partial" : "success",
+    status: ok === 0 && errored > 0 ? "error"
+      : (errored > 0 || budgetStoppedAfter !== null) ? "partial" : "success",
     rows_added: ok,
     error_message: errored > 0 ? errSummary.slice(0, 500) : null,
-    notes: `${ok} generated, ${errored} errored` + (STATE ? ` (state=${STATE})` : " (all states)"),
+    // A budget stop is reported as `partial`, never `success`. The 19-day
+    // silent outage happened because a cancelled job left NO telemetry row at
+    // all; a partial row with the deferred count is what makes it visible.
+    notes: `${ok} generated, ${errored} errored`
+      + (budgetStoppedAfter !== null ? `, ${targets.length - budgetStoppedAfter} deferred (--max-minutes ${MAX_MINUTES})` : "")
+      + (STATE ? ` (state=${STATE})` : " (all states)"),
   });
 } catch { /* best-effort */ }
 

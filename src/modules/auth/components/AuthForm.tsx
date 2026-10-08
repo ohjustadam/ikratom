@@ -1,11 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
 import { signIn, signUp } from "../actions";
 
 type Mode = "signin" | "signup";
 
-export function AuthForm({ redirectTo }: { redirectTo?: string }) {
+/**
+ * `?redirect=` is read HERE, in the browser, so /login can be a static file
+ * (2026-10-04: the page read searchParams on the server only to pass this
+ * through, which made every visit a ~0.6 s server render — 414 of them in
+ * three ordinary days). The server action still validates the target.
+ */
+export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) {
+  const params = useSearchParams();
+  const redirectTo = redirectProp ?? params.get("redirect") ?? undefined;
   const [mode, setMode] = useState<Mode>("signin");
   const [error, setError] = useState<string | null>(null);
   const [errorHint, setErrorHint] = useState<string | null>(null);

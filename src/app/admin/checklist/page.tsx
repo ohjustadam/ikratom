@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext, getAdminQueueCounts } from "@/modules/admin/actions";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { summarizeCronHealth } from "@/lib/cron-expectations";
@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 type Tone = "ok" | "warn" | "bad" | "info";
 
 export default async function ChecklistPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_ops_console" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sb = createServiceRoleClient();

@@ -67,6 +67,16 @@ if (error) {
 
 if (!due || due.length === 0) {
   console.log("No reminders due.");
+  // A quiet run must still write telemetry — the staleness pager can't tell
+  // "nothing due" from "script dead" otherwise (found 2026-07-16: three quiet
+  // ticks in a row read as never-observed).
+  try {
+    await sb.from("scraper_runs").insert({
+      source: "fire_custom_reminders",
+      started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+      status: "empty", rows_updated: 0, notes: "no reminders due",
+    });
+  } catch { /* best-effort */ }
   process.exit(0);
 }
 
@@ -114,3 +124,16 @@ for (const r of due) {
 }
 
 console.log(`\nDone — ${fired} fired, ${failed} failed`);
+
+// Telemetry — user-set reminders are a user-facing hourly automation; without
+// this row the staleness monitor could never detect it dying (audit 2026-07-16).
+try {
+  await sb.from("scraper_runs").insert({
+    source: "fire_custom_reminders",
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: failed > 0 && fired === 0 ? "error" : fired > 0 ? "success" : "empty",
+    rows_updated: fired,
+    notes: `${fired} fired · ${failed} failed`,
+  });
+} catch { /* best-effort */ }

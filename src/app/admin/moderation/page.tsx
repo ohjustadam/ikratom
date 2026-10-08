@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { queueCounts } from "@/modules/admin/queue-resolve-actions";
 import ResolveQueue from "@/app/admin/_components/ResolveQueue";
@@ -33,7 +33,7 @@ const QUEUES: { kind: QueueKind; title: string; blurb: string; href: string }[] 
 ];
 
 export default async function ModerationPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_forum" });
   if (!ctx.ok) redirect("/dashboard");
   const counts = await queueCounts();
   const countOf = (k: QueueKind) => (k === "campaigns" ? counts.campaigns : counts.intel);

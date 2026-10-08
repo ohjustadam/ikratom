@@ -1,0 +1,62 @@
+name: Cloudflare purge after deploy
+
+# Cloudflare keeps pages for signed-out visitors 30 min to 3 h
+# (scripts/cloudflare-cache-setup.mjs, raised 2026-10-07 for the 300-credit
+# plan: every page Cloudflare serves costs Netlify and Supabase nothing). When a
+# site change reaches production, clear Cloudflare so visitors get the new code
+# immediately instead of when the cached copy expires.
+#
+# The path filter mirrors netlify.toml's `ignore`: pushes that only touch these
+# paths never trigger a production build, so there is nothing to purge.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "scripts/**"
+      - ".github/**"
+      - "tests/**"
+      - "supabase/**"
+      - "docs/**"
+      - "private/**"
+      - "**.md"
+  workflow_dispatch: {}
+
+concurrency:
+  group: cloudflare-purge
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Wait for this commit's production deploy
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          SHA: ${{ github.sha }}
+        run: |
+          for i in $(seq 1 50); do
+            state=$(curl -fsS "https://api.netlify.com/api/v1/sites/www.ikratom.org/deploys?per_page=10" \
+              -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+              | jq -r --arg s "$SHA" '[.[] | select(.commit_ref == $s and .context == "production")][0].state // "none"')
+            echo "deploy state: $state"
+            case "$state" in
+              ready) exit 0 ;;
+              error) echo "deploy failed or was skipped: nothing new to show, not purging"; echo "SKIP=1" >> "$GITHUB_ENV"; exit 0 ;;
+            esac
+            sleep 30
+          done
+          echo "::warning::deploy not ready after 25 minutes; purging anyway"
+
+      - name: Purge Cloudflare
+        if: env.SKIP != '1'
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_CACHE_TOKEN }}
+        run: |
+          curl -fsS -X POST "https://api.cloudflare.com/client/v4/zones/6f054a2b237f9b7ec10d525ec7e99d05/purge_cache" \
+            -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+            --data '{"purge_everything":true}' | jq -e '.success'

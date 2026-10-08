@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * which the /states/[code] header prefers over the auto-derived value.
  */
 export default async function AdminStateStatusPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) redirect("/dashboard");
 
   const r = await listStateStatus();

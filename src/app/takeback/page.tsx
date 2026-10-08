@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 import { extractSponsor, extractBlurb, repealPath } from "@/lib/takeback";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
@@ -60,10 +60,40 @@ export default async function TakebackPage() {
     .order("state", { ascending: true });
 
   const rows = (data ?? []) as Row[];
+
+  // The bill row says what was ENACTED; state_status says what is TRUE NOW
+  // (an admin override wins over the derived value). Until 2026-10-03 this page
+  // read only the bill rows, so Rhode Island — which overturned its ban — was
+  // still listed as banned, and a member had to tell us (feedback 2026-09-29).
+  const { data: statusRows } = await sb
+    .from("state_status")
+    .select("state, derived_leaf_status, admin_leaf_status, admin_note, confirmed_at")
+    .in("state", [...new Set(rows.map((r) => r.state))]);
+  type StatusRow = { state: string; derived_leaf_status: string | null; admin_leaf_status: string | null; admin_note: string | null; confirmed_at: string | null };
+  const nowStatus = new Map(
+    (statusRows ?? []).map((s: StatusRow) => [s.state, { status: s.admin_leaf_status ?? s.derived_leaf_status, note: s.admin_note, override: s.admin_leaf_status, confirmedAt: s.confirmed_at }]),
+  );
+  // An admin override only beats the ban if it was confirmed AFTER the ban took
+  // effect. Tennessee's override ("legal today; ban takes effect July 1, 2026")
+  // was written in June and would otherwise list TN as overturned forever.
+  const stillBanned = (r: Row) => {
+    const s = nowStatus.get(r.state);
+    if (!s || s.status === "banned") return true;
+    if (!s.override) return false;                       // derived status says not banned
+    const banDate = r.effective_date ?? r.last_action_at;
+    return !!banDate && !!s.confirmedAt && s.confirmedAt.slice(0, 10) < banDate.slice(0, 10);
+  };
+
   const imminent = rows.filter((r) => r.status === "passed_chamber");
   const enacted = rows.filter((r) => r.status === "enacted");
-  const adminRule = enacted.filter((r) => /(DEA-list|DOH-rule|Reg-Drugs)/i.test(r.bill_number));
-  const statutory = enacted.filter((r) => !/(DEA-list|DOH-rule|Reg-Drugs)/i.test(r.bill_number));
+  const overturned = enacted.filter((r) => !stillBanned(r));
+  const banned = enacted.filter(stillBanned);
+  const isAdminRule = (r: Row) => /(DEA-list|DOH-rule|Reg-Drugs)/i.test(r.bill_number);
+  const adminRule = banned.filter(isAdminRule);
+  const statutory = banned.filter((r) => !isAdminRule(r));
+  const bannedStates = [...new Set(banned.map((r) => r.state))];
+  const list = (rs: Row[]) => [...new Set(rs.map((r) => r.state))].join(" / ");
+  const NUM = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
@@ -79,7 +109,9 @@ export default async function TakebackPage() {
             <span className="text-zinc-400">Here&apos;s the plan.</span>
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-zinc-400">
-            Six US states ban kratom. A seventh (Tennessee) is one signature away. For each, we&apos;ve mapped who pushed the ban, what coalition backed it, what funding trail (where documented), and the concrete repeal sequence — named legislators most likely to carry a Kratom Consumer Protection Act, coalition partners ready to engage, hardest constraints. Open one to see the full plan; subscribe to get pinged when status changes.
+            {NUM[bannedStates.length] ?? bannedStates.length} US state{bannedStates.length === 1 ? "" : "s"} ban kratom
+            {overturned.length > 0 ? `, and ${list(overturned)} proved a ban can be overturned` : ""}
+            {imminent.length > 0 ? `. ${imminent.length} more bill${imminent.length === 1 ? " is" : "s are"} past a chamber vote` : ""}. For each, we&apos;ve mapped who pushed the ban, what coalition backed it, what funding trail (where documented), and the concrete repeal sequence — named legislators most likely to carry a Kratom Consumer Protection Act, coalition partners ready to engage, hardest constraints. Open one to see the full plan; subscribe to get pinged when status changes.
           </p>
         </div>
         <PageShareWithAttribution
@@ -106,7 +138,30 @@ export default async function TakebackPage() {
         </section>
       )}
 
-      {/* ADMIN-RULE — AR/RI/VT. Easier repeal path. */}
+      {/* OVERTURNED — proof it can be done. Read from state_status, not the bill row. */}
+      {overturned.length > 0 && (
+        <section className="mb-10 rounded-lg border-2 border-emerald-600/60 bg-emerald-950/20 p-6">
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+            🏆 Bans overturned · {overturned.length}
+          </p>
+          <p className="mt-1 text-[11px] text-emerald-200/80">
+            These states banned kratom and then reversed it. Their path is the template for every state below.
+          </p>
+          <ul className="mt-3 space-y-2 text-sm text-zinc-200">
+            {overturned.map((r) => (
+              <li key={r.id}>
+                <Link href={`/states/${r.state}`} className="font-semibold text-emerald-200 hover:underline">
+                  {STATE_NAMES[r.state] ?? r.state}
+                </Link>
+                {" — "}
+                {nowStatus.get(r.state)?.note ?? "Ban overturned; kratom is now legal."}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* ADMIN-RULE. Easier repeal path. */}
       {adminRule.length > 0 && (
         <section className="mb-10">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -149,16 +204,16 @@ export default async function TakebackPage() {
         </h2>
         <ul className="mt-3 space-y-2 text-sm text-zinc-300 leading-relaxed">
           <li>
-            <strong className="text-emerald-200">→ Admin-rule bans (AR / RI / VT)</strong> can be rescinded by a state Health Department without legislative action. These are the cleanest repeal targets — engagement at Governor + Health Director level.
+            <strong className="text-emerald-200">→ Admin-rule bans ({list(adminRule) || "none left"})</strong> can be rescinded by a state Health Department without legislative action. These are the cleanest repeal targets — engagement at Governor + Health Director level.
           </li>
           <li>
-            <strong className="text-emerald-200">→ Statutory bans (AL / IN / WI)</strong> need a Kratom Consumer Protection Act bill carrier. Look for legislators on the Judiciary or Healthcare committees who have voted for harm-reduction measures in other contexts.
+            <strong className="text-emerald-200">→ Statutory bans ({list(statutory) || "none left"})</strong> need a Kratom Consumer Protection Act bill carrier. Look for legislators on the Judiciary or Healthcare committees who have voted for harm-reduction measures in other contexts.
           </li>
           <li>
-            <strong className="text-emerald-200">→ Imminent fights (TN)</strong> are highest-leverage at the pre-signature veto moment. A signed bill becomes a multi-year repeal effort.
+            <strong className="text-emerald-200">→ Imminent fights{imminent.length ? ` (${list(imminent)})` : ""}</strong> are highest-leverage at the pre-signature veto moment. A signed bill becomes a multi-year repeal effort.
           </li>
           <li>
-            <strong className="text-emerald-200">→ The conflation tactic</strong> — labeling natural-leaf kratom as &quot;gas station heroin&quot; — is the through-line of every recent push. Disaggregating natural leaf from 7-OH-concentrated derivatives is the unifying messaging defense across all 7 states.
+            <strong className="text-emerald-200">→ The conflation tactic</strong> — labeling natural-leaf kratom as &quot;gas station heroin&quot; — is the through-line of every recent push. Disaggregating natural leaf from 7-OH-concentrated derivatives is the unifying messaging defense across every one of these states.
           </li>
         </ul>
       </section>

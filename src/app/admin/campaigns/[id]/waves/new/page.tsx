@@ -10,7 +10,7 @@ export default async function NewWavePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_campaigns" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { id } = await params;

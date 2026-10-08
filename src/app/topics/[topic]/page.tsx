@@ -1,9 +1,16 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { STANCE_TOPIC_META, STANCE_TOPICS } from "@/lib/legislator-action-plan";
 import { getBillsForTopic, isStanceTopic, STANCE_TONE } from "@/lib/topic-bills";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 900;
+
+export function generateStaticParams() {
+  // The topic set is a fixed, known list, so unlike the id-keyed routes these
+  // CAN all be prerendered at build time — a handful of pages, and then zero
+  // renders at runtime.
+  return STANCE_TOPICS.map((topic) => ({ topic }));
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ topic: string }> }) {
   const { topic } = await params;

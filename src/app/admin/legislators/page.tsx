@@ -13,7 +13,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default async function AdminLegislatorsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_legislators" });
   if (!ctx.ok) redirect("/dashboard");
 
   const supabase = await createClient();

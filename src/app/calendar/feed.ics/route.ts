@@ -23,7 +23,7 @@
  * 6 hours is fine; iOS often refreshes more often anyway.
  */
 import type { NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAnonClient } from "@/lib/supabase/anon";
 import { buildIcalDocument, type IcalEvent } from "@/lib/ical";
 
 export const dynamic = "force-dynamic";
@@ -50,7 +50,11 @@ export async function GET(req: NextRequest) {
   const stateFilter = url.searchParams.get("state")?.toUpperCase() || null;
   const kindFilter = url.searchParams.get("kind") || null;
 
-  const sb = await createClient();
+  // Cookie-LESS anon client: this response ships `Cache-Control: public,
+  // s-maxage=600`, so it MUST be identical for every viewer. The cookie-bound
+  // server client made RLS widen for privileged viewers, and that wider row set
+  // was then cached and served to everyone. See src/lib/supabase/anon.ts.
+  const sb = createAnonClient();
   const now = new Date();
   const horizon = new Date(now.getTime() + 90 * 86_400_000);
   // Elections sit months out (general + many primaries) — 1-year horizon.

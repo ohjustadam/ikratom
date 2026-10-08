@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAnonClient } from "@/lib/supabase/anon";
 
 type Source = {
   state: string;
@@ -40,7 +40,10 @@ export async function BopWatchSummary({
   state?: string;
   compact?: boolean;
 }) {
-  const supabase = await createClient();
+  // Cookie-LESS (2026-09-08): both RPCs are the get_public_* pair and return
+  // identical rows to an anonymous caller (verified: 53 sources, 1 finding).
+  // Not reading cookies is what lets the pages embedding this be cached.
+  const supabase = createAnonClient();
 
   const [{ data: sourcesRaw }, { data: findingsRaw }] = await Promise.all([
     supabase.rpc("get_public_bop_sources"),

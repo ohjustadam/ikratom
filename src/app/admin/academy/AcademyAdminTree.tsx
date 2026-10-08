@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { setAcademyStatus, setCourseTreeStatus } from "@/modules/admin/academy-actions";
 
 type Lesson = { id: string; title: string; status: string };

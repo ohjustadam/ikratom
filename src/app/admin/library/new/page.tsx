@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 
@@ -14,14 +14,14 @@ export const metadata = { title: "Add to library" };
  * full form at /admin/library/new/manual.
  */
 export default async function NewLibraryItemLanding() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_library" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-      <a href="/library" className="text-xs text-zinc-500 hover:text-emerald-400">
+      <Link href="/library" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Library
-      </a>
+      </Link>
       <header className="mt-2 mb-8">
         <h1 className="text-3xl font-bold">Add to library</h1>
         <p className="mt-2 text-sm text-zinc-400">

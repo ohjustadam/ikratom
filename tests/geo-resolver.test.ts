@@ -1,4 +1,3 @@
-// @ts-nocheck - imports a plain .mjs script module (no type declarations needed for the test)
 import { describe, it, expect } from "vitest";
 import { resolveLocality } from "../scripts/lib/geo-resolver.mjs";
 

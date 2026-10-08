@@ -4,6 +4,7 @@ import { listPendingCoverageRequests } from "@/modules/local-reps/actions";
 import { RejectButton } from "./RejectButton";
 import { LocalRepRequestRow } from "./LocalRepRequestRow";
 import { ResolveQueueButton } from "./ResolveQueueButton";
+import { LastAttemptNote } from "./LastAttemptNote";
 
 /**
  * /admin/local-rep-requests — queue of user-requested local rep coverage.
@@ -18,7 +19,7 @@ import { ResolveQueueButton } from "./ResolveQueueButton";
 export const metadata = { title: "Local rep requests" };
 
 export default async function LocalRepRequestsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "review_local_rep_requests" });
   if (!ctx.ok) redirect("/dashboard");
 
   const r = await listPendingCoverageRequests();
@@ -39,9 +40,10 @@ export default async function LocalRepRequestsPage() {
           waiting users get a notification. No page reroute, no context loss.
         </p>
         <p className="mt-2 text-[11px] text-zinc-500">
-          🤖 The weekly cron also auto-fulfills these (Sundays 8am UTC) using the
-          same flow + source verification. Anything still here is something the
-          automation rejected or hasn&apos;t reached yet.{" "}
+          🤖 A cloud batch also works this queue every ~6 hours (web search + free
+          AI + source verification). Each row says what its last try ran into;
+          an amber note means retrying won&apos;t help and the officials need adding
+          by hand — saving them closes the request and notifies whoever asked.{" "}
           <a href="/admin/locals/suggest" className="text-zinc-400 hover:text-emerald-400">
             Legacy bulk-suggest page →
           </a>
@@ -64,6 +66,14 @@ export default async function LocalRepRequestsPage() {
                 level: row.level as "municipal" | "county",
                 user_count: row.user_count,
               }}
+              attemptNote={
+                <LastAttemptNote
+                  state={row.state}
+                  locality={row.locality}
+                  level={row.level as "municipal" | "county"}
+                  attempt={row.last_attempt}
+                />
+              }
               rejectButton={
                 <RejectButton
                   state={row.state}

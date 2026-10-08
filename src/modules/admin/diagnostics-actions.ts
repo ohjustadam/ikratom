@@ -28,7 +28,7 @@ export type DiagResult =
 // ── Discord webhook test ──────────────────────────────────────
 
 export async function testDiscordWebhook(integrationId: string): Promise<DiagResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   const sb = svc();
@@ -81,7 +81,7 @@ export async function testDiscordWebhook(integrationId: string): Promise<DiagRes
 // ── Push notification test (sends to the current admin) ───────
 
 export async function testPushToSelf(): Promise<DiagResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   const sb = svc();
@@ -142,7 +142,7 @@ const AI_PROVIDERS = ["groq", "gemini", "ollama"] as const;
 type AiProvider = typeof AI_PROVIDERS[number];
 
 export async function testAiProvider(provider: AiProvider): Promise<DiagResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   try {
@@ -174,7 +174,7 @@ export async function testAiProvider(provider: AiProvider): Promise<DiagResult> 
 // ── Supabase health ──────────────────────────────────────────
 
 export async function testSupabaseHealth(): Promise<DiagResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   const sb = svc();
@@ -198,7 +198,7 @@ export async function testSupabaseHealth(): Promise<DiagResult> {
 // ── OAuth callback URLs ──────────────────────────────────────
 
 export async function listOauthCallbacks(): Promise<DiagResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   const base = process.env.APP_URL ?? "https://www.ikratom.org";
@@ -261,7 +261,7 @@ export type EnvCheckRow = { name: string; set: boolean; length: number; required
 export type EnvCheckResult = { ok: true; rows: EnvCheckRow[] } | { ok: false; error: string };
 
 export async function checkEnvVars(): Promise<EnvCheckResult> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
   if (!ctx.isOwner) return { ok: false, error: "Owner role required (env-var check leaks shape of secret config)." };
 

@@ -7,7 +7,12 @@
  * reminder windows AND a NULL `reminder_Xd_sent_at`, this script:
  *   1. Finds in-state users
  *   2. Inserts a `meeting_upcoming` in-app notification per user
- *   3. Fans out a web push to each subscription
+ *   3. Lets the hourly push fan-out (fanoutPushNotifications) deliver — it
+ *      COALESCES all of a user's pending rows into ONE buzz and honors
+ *      opt-out (in_app/digest), the notify_meetings category mute, DND /
+ *      quiet-hours, and the per-user rate-cap. (This script no longer
+ *      direct-sends: a per-item direct push double-buzzed users because the
+ *      fan-out re-delivered the same pushed_at=NULL rows an hour later.)
  *   4. Stamps `reminder_Xd_sent_at` so the next cron run skips it
  *
  * Windows (in days from now):
@@ -24,7 +29,6 @@
  *   node --env-file=.env.local scripts/fire-meeting-reminders.mjs --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
-import { canPushUser, loadPushPrefs, recordPush } from "./lib/push-gate.mjs";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -70,16 +74,14 @@ async function fireWindow(win) {
 
   let totalRecipients = 0;
   for (const m of meetings) {
-    // Find in-state users
-    const { data: users } = await sb
-      .from("profiles")
-      .select("id")
-      .eq("state", m.state)
-      .limit(50_000);
-    const userIds = (users ?? []).map((u) => u.id);
+    // EVERY member, whatever their state (owner decision 2026-10-03): meetings
+    // are the top-priority notification. A ban hearing in one town is the
+    // template for the next town, and out-of-state advocates can still watch,
+    // submit written comment and email the council.
+    const userIds = await allUserIds();
 
     if (userIds.length === 0) {
-      console.log(`    · ${m.locality ?? m.state} (no in-state users) — stamping anyway`);
+      console.log(`    · ${m.locality ?? m.state} (no users) — stamping anyway`);
       if (!DRY_RUN) {
         await sb.from("municipal_meetings").update({ [win.col]: new Date().toISOString() }).eq("id", m.id);
       }
@@ -109,62 +111,63 @@ async function fireWindow(win) {
       if (error) console.log(`    ✗ notif chunk: ${error.message?.slice(0, 80)}`);
     }
 
-    // Push fanout
-    const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    const priv = process.env.VAPID_PRIVATE_KEY;
-    const subject = process.env.VAPID_SUBJECT || "mailto:noreply@ikratom.org";
-    let pushSent = 0;
-    let pushHeld = 0;
-    let pushGone = [];
-    if (pub && priv) {
-      const webpush = (await import("web-push")).default;
-      webpush.setVapidDetails(subject, pub, priv);
-      // Quiet-hours / DND: never buzz a muted user or one in their quiet
-      // window. The in-app notification above still reaches their inbox.
-      const prefsMap = await loadPushPrefs(sb, userIds);
-      const nowMs = Date.now();
-      const pushedUsers = new Set();
-      const { data: subs } = await sb
-        .from("push_subscriptions")
-        .select("id, user_id, endpoint, p256dh, auth")
-        .in("user_id", userIds)
-        .limit(10_000);
-      const payload = JSON.stringify({ title, body, link, tag: `meeting-reminder-${m.id}-${win.days}` });
-      for (const s of subs ?? []) {
-        if (!canPushUser(prefsMap.get(s.user_id), nowMs)) { pushHeld++; continue; }
-        try {
-          await webpush.sendNotification(
-            { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-            payload,
-            { TTL: 24 * 60 * 60 },
-          );
-          pushSent++;
-          pushedUsers.add(s.user_id);
-        } catch (e) {
-          const status = e?.statusCode ?? 0;
-          if (status === 404 || status === 410) pushGone.push(s.id);
-        }
-      }
-      if (pushGone.length > 0) {
-        await sb.from("push_subscriptions").delete().in("id", pushGone);
-      }
-      await recordPush(sb, [...pushedUsers]);
-    }
+    // Delivery is handled by the hourly push fan-out (fanoutPushNotifications
+    // via /api/cron/fire-waves), which coalesces this row with anything else
+    // the user has pending into ONE buzz and honors every opt-out + DND +
+    // rate-cap. No direct send here — that was the source of the double-buzz.
 
     // Stamp so we don't re-fire
     await sb.from("municipal_meetings").update({ [win.col]: new Date().toISOString() }).eq("id", m.id);
 
     totalRecipients += userIds.length;
-    console.log(`    ✓ ${m.locality ?? m.state}: ${userIds.length} notif, ${pushSent} push${pushHeld > 0 ? `, ${pushHeld} held (quiet/DND)` : ""}`);
+    console.log(`    ✓ ${m.locality ?? m.state}: ${userIds.length} notif queued (delivered via fan-out)`);
   }
 
   return { window: win.label, sent: meetings.length, recipients: totalRecipients };
 }
 
+let _allIds = null;
+async function allUserIds() {
+  if (_allIds) return _allIds;
+  const { data } = await sb.from("profiles").select("id").limit(50_000);
+  _allIds = (data ?? []).map((u) => u.id);
+  return _allIds;
+}
+
+/**
+ * "New hearing" notice, the moment a meeting is approved — not only at the
+ * 7/3/1-day windows. Idempotent: a meeting that already has meeting_new rows is
+ * skipped, so re-runs and overlapping schedules never double-notify.
+ */
+async function announceNewMeetings() {
+  const { data: meetings } = await sb.from("municipal_meetings")
+    .select("id, state, locality, body_name, meeting_at")
+    .eq("moderation_status", "approved").is("broadcast_at", null)
+    .gte("meeting_at", new Date().toISOString()).order("meeting_at").limit(50);
+  let announced = 0, recipients = 0;
+  for (const m of meetings ?? []) {
+    const link = `/meetings/${m.id}`;
+    const { count } = await sb.from("notifications").select("id", { count: "exact", head: true }).eq("kind", "meeting_new").eq("link", link);
+    if ((count ?? 0) > 0) continue;
+    const ids = await allUserIds();
+    const when = new Date(m.meeting_at).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+    const title = `🏛️ Kratom hearing: ${m.locality ?? m.state}, ${when}`;
+    const body = `${m.body_name ?? "Officials"} will take up kratom. Watch, sign up to speak, or email the people who vote.`;
+    if (DRY_RUN) { console.log(`  [dry] new-meeting notice "${title}" -> ${ids.length} users`); continue; }
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error } = await sb.from("notifications").insert(ids.slice(i, i + 200).map((uid) => ({ user_id: uid, kind: "meeting_new", title, body, link })));
+      if (error) console.log(`  ✗ notif chunk: ${error.message?.slice(0, 80)}`);
+    }
+    announced++; recipients += ids.length;
+    console.log(`  ✓ new-meeting notice: ${m.locality ?? m.state} -> ${ids.length} users`);
+  }
+  return { window: "new", sent: announced, recipients };
+}
+
 // ---------- main ----------
 console.log(`Firing meeting reminders${DRY_RUN ? " [DRY RUN]" : ""}…\n`);
 const t0 = Date.now();
-const results = [];
+const results = [await announceNewMeetings()];
 for (const win of WINDOWS) {
   console.log(`Window: ${win.label}`);
   const r = await fireWindow(win);

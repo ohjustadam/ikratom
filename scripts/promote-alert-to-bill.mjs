@@ -112,15 +112,24 @@ async function processAlert(alert) {
   const session = String(new Date().getFullYear());
 
   // Idempotent — match by (state, bill_number, scope, locality).
-  const { data: existing } = await sb
+  //
+  // The lookup has to match what the INSERT below actually writes. It asked for
+  // `locality ?? ""` while the insert stores `locality` unchanged, so a null
+  // locality searched for an empty string and could never find the row it had
+  // written as NULL — minting a duplicate municipal bill on every run.
+  //
+  // Latent rather than live: all 51 municipal bills currently carry a non-empty
+  // locality, so the `?? ""` branch has never actually fired. Fixed because the
+  // day it does fire, the symptom is duplicate bills on a public page, and
+  // nothing would explain why.
+  let existingQ = sb
     .from("bills")
     .select("id")
     .eq("state", resolvedState)
     .eq("bill_number", billNumber)
-    .eq("scope", "municipal")
-    .eq("locality", locality ?? "")
-    .limit(1)
-    .maybeSingle();
+    .eq("scope", "municipal");
+  existingQ = locality ? existingQ.eq("locality", locality) : existingQ.is("locality", null);
+  const { data: existing } = await existingQ.limit(1).maybeSingle();
 
   let billId = existing?.id;
   if (billId) {
@@ -164,21 +173,76 @@ async function processAlert(alert) {
 }
 
 let alerts;
+let MODE = SPECIFIC ? "single" : "full";
 if (SPECIFIC) {
   const { data } = await sb.from("policy_alerts").select("*").eq("id", SPECIFIC).single();
   alerts = data ? [data] : [];
 } else {
+  // ── WINDOWED + NARROW (2026-09-05 egress fix) ─────────────────────────────
+  // This query was `select("*")` with no window and no limit. Because an alert
+  // that CANNOT be promoted keeps `bill_id = null`, it stayed in the working set
+  // forever and was re-examined on every run — the skip-without-marking pattern.
+  //
+  // Measured before the fix: 1,794 alerts re-scanned per run, 1,544 of them
+  // permanently stuck. At 1.9 KB/row that is 3.4 MB per run, 41 MB/day across
+  // the 12 hourly runs, PLUS 21,528 `bills` lookups/day (one per alert per run)
+  // — which was the single largest consumer of Supabase egress on the whole
+  // project, against a free-tier budget of ~59 MB/day.
+  //
+  // Three changes, none of which lose a promotion we would otherwise make:
+  //   1. Explicit columns — processAlert() reads only these. `select("*")`
+  //      dragged full bodies across the wire on every pass.
+  //   2. A recency window. A "bill event" older than the window has already
+  //      failed to promote on ~700 consecutive runs; promoting it now would
+  //      mint a stale bill anyway. --since overrides it for a deliberate
+  //      backfill, so no capability is lost.
+  //   3. A hard limit as a backstop, so a future data bug cannot make this
+  //      unbounded again.
+  const sinceDays = parseInt(arg("--since-days") ?? "60", 10);
+  let since = new Date(Date.now() - sinceDays * 86400_000).toISOString();
+  // INCREMENTAL (2026-10-05). The window above still re-read every unpromotable
+  // alert on every run: 387 alerts, 0 promoted, run after run. Whether an alert
+  // can promote depends only on its own text, so a skipped alert stays skipped
+  // until it is edited. Hourly runs now read only alerts created since the last
+  // run (minus 3 h of overlap); one full-window pass a day still catches edits
+  // and code changes. --full or --since-days forces the full window.
+  if (!process.argv.includes("--full") && !arg("--since-days")) {
+    const dayAgo = new Date(Date.now() - 86400_000).toISOString();
+    const [{ data: lastFull }, { data: lastRun }] = await Promise.all([
+      sb.from("scraper_runs").select("started_at").eq("source", "promote_alert_to_bill")
+        .like("notes", "%mode=full%").gte("started_at", dayAgo).limit(1),
+      sb.from("scraper_runs").select("started_at").eq("source", "promote_alert_to_bill")
+        .order("started_at", { ascending: false }).limit(1),
+    ]);
+    if (lastFull?.length && lastRun?.[0]) {
+      const incremental = new Date(Date.parse(lastRun[0].started_at) - 3 * 3600_000).toISOString();
+      if (incremental > since) { since = incremental; MODE = "incremental"; }
+    }
+  }
   const { data } = await sb
     .from("policy_alerts")
-    .select("*")
+    .select("id, title, body, locality, specific_locality, source_url, created_at, occurs_at, bill_id")
     .eq("kind", "bill_event")
     .is("bill_id", null)
     .eq("moderation_status", "approved")
-    .order("created_at", { ascending: false });
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(500);
   alerts = data ?? [];
+  console.log(`Window: alerts created since ${since.slice(0, 16)} (mode=${MODE})`);
 }
 
-if (alerts.length === 0) { console.log("Nothing to process."); process.exit(0); }
+if (alerts.length === 0) {
+  console.log("Nothing to process.");
+  // Incremental runs are usually empty now: still record the run, or the
+  // staleness pager would read a quiet queue as a dead job.
+  if (!SPECIFIC) {
+    try {
+      await sb.from("scraper_runs").insert({ source: "promote_alert_to_bill", started_at: new Date().toISOString(), finished_at: new Date().toISOString(), status: "empty", rows_added: 0, notes: `0 promoted, 0 skipped · mode=${MODE}` });
+    } catch { /* best-effort */ }
+  }
+  process.exit(0);
+}
 console.log(`Processing ${alerts.length} alert(s)…`);
 
 let ok = 0, skip = 0;
@@ -194,6 +258,6 @@ try {
     finished_at: new Date().toISOString(),
     status: ok === 0 && skip === 0 ? "empty" : "success",
     rows_added: ok,
-    notes: `${ok} promoted, ${skip} skipped`,
+    notes: `${ok} promoted, ${skip} skipped · mode=${MODE}`,
   });
 } catch { /* best-effort */ }

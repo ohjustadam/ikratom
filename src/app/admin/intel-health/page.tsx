@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  * source breaks until 9 days later" gap that bit us with NH SB 557.
  */
 export default async function IntelHealthPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) redirect("/dashboard");
 
   const supabase = await createClient();
@@ -314,7 +314,7 @@ export default async function IntelHealthPage() {
           <li><code className="text-zinc-300">sync-news-rss</code> — Google News RSS across 50 states + DC + FED</li>
           <li><code className="text-zinc-300">classify-news-policy</code> — AI router classifies up to 200 unclassified news items per run</li>
           <li><code className="text-zinc-300">auto-campaign-from-alert</code> — generates solidarity campaigns for actionable alerts</li>
-          <li><code className="text-zinc-300">promote-alert-to-bill</code> — wraps "City, ST" alerts as municipal bills</li>
+          <li><code className="text-zinc-300">promote-alert-to-bill</code> — wraps &quot;City, ST&quot; alerts as municipal bills</li>
           <li><code className="text-zinc-300">extract-local-meta</code> — AI parses alert body into structured event data</li>
           <li><code className="text-zinc-300">seed-bill-officials</code> — Gemini grounding pulls full city council slate</li>
           <li><code className="text-zinc-300">fanout-bill-reminders</code> — meeting reminders + status-change notifications to subscribers</li>

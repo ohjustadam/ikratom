@@ -1,32 +1,64 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { RemindMeButton } from "@/components/RemindMeButton";
+import { WhoDecides } from "./WhoDecides";
 
 type Props = { params: Promise<{ id: string }> };
 
 const SITE = process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Everything on /meetings/[id] is PUBLIC and keyed by the meeting id — there
+// are NO viewer-specific reads (RemindMe/nudges are client components). So the
+// page + generateMetadata share ONE cached service-role read-set (the #827/#831
+// egress pattern). RLS parity: only moderation_status='approved' meetings are
+// public, so that filter is baked into the query — the fn returns null for any
+// non-approved or missing id, and callers notFound()/fall back to a bare title.
+const getMeeting = unstable_cache(
+  async (id: string) => {
+    const sb = createServiceRoleClient();
+    const { data } = await sb
+      .from("municipal_meetings")
+      .select(
+        "id, state, locality, body_name, meeting_at, zoom_url, livestream_url, agenda_url, agenda_text, public_comment_signup_url, in_person_address",
+      )
+      .eq("id", id)
+      .eq("moderation_status", "approved")
+      .maybeSingle();
+    return data ?? null;
+  },
+  ["meeting-detail"],
+  { revalidate: 600, tags: ["meeting-detail"] },
+);
 
 // Per-meeting metadata so the page has rich Open Graph + Twitter
 // cards for Facebook Messenger / iMessage / SMS / Slack / Twitter
 // link previews. The og-image is dynamically generated at /meetings/[id]/opengraph-image.
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;
-  const sb = await createClient();
-  const { data: m } = await sb
-    .from("municipal_meetings")
-    .select("state, locality, body_name, meeting_at, agenda_text")
-    .eq("id", id)
-    .maybeSingle();
+  if (!UUID_RE.test(id)) return { title: "Meeting · iKratom" };
+  const m = await getMeeting(id);
 
   if (!m) {
     return { title: "Meeting · iKratom" };
   }
 
-  const title = `🚨 LIVE: ${m.locality ?? m.state} ${m.body_name ?? "meeting"} — kratom on agenda`;
+  // Timing-aware: this title is also the social-preview headline, and it said
+  // "LIVE" for every meeting, including ones a month in the past (2026-10-03).
+  const startMs = new Date(m.meeting_at).getTime();
+  const sinceStart = Date.now() - startMs;
+  const day = new Date(m.meeting_at).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+  const where = `${m.locality ?? m.state} ${m.body_name ?? "meeting"}`;
+  const title = sinceStart >= 0 && sinceStart < 6 * 3600_000
+    ? `🔴 LIVE: ${where} — kratom on the agenda`
+    : sinceStart < 0
+      ? `📅 ${day}: ${where} — kratom on the agenda`
+      : `${where} — kratom item (${day})`;
   const description = m.agenda_text
     ? `${m.agenda_text.slice(0, 200)}${m.agenda_text.length > 200 ? "…" : ""}`
     : `${m.locality ?? m.state} ${m.body_name ?? "officials"} are considering kratom policy. Watch live, sign up for public comment, or call your rep — links inside.`;
@@ -52,7 +84,14 @@ export async function generateMetadata({ params }: Props) {
   };
 }
 
-export const dynamic = "force-dynamic";
+export const revalidate = 900;
+
+export function generateStaticParams() {
+  // Empty: render on first request, then cache. There are thousands of
+  // meetings and fanning them all out at build time would be worse than the
+  // problem being solved.
+  return [];
+}
 
 // Format a Date as Google Calendar's expected URL format:
 // YYYYMMDDTHHMMSSZ (UTC). Same shape as iCal but without the colon
@@ -73,14 +112,10 @@ function formatGoogleDate(d: Date): string {
 
 export default async function MeetingDetailPage({ params }: Props) {
   const { id } = await params;
-  const sb = await createClient();
-  const { data: m } = await sb
-    .from("municipal_meetings")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  if (!UUID_RE.test(id)) notFound();
+  const m = await getMeeting(id);
 
-  if (!m || m.moderation_status !== "approved") notFound();
+  if (!m) notFound();
 
   const when = new Date(m.meeting_at);
   const now = Date.now();
@@ -247,13 +282,24 @@ export default async function MeetingDetailPage({ params }: Props) {
         </section>
       )}
 
+      {/* Who votes, how to reach them, and how fresh that is. */}
+      <WhoDecides
+        state={m.state}
+        locality={m.locality}
+        subject={`Kratom item, ${m.body_name ?? "meeting"} on ${when.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })}`}
+        pageUrl={`${SITE}/meetings/${m.id}`}
+        meetingId={m.id}
+        bodyName={m.body_name}
+        meetingDate={when.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "long", day: "numeric" })}
+      />
+
       {/* Cross-actions */}
       <section className="mb-6 rounded-md border border-emerald-700/30 bg-emerald-950/10 p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-300">
           What advocates can do RIGHT NOW
         </h2>
         <ul className="mt-2 space-y-1 text-sm text-zinc-300">
-          <li>👂 <strong>Watch</strong> the livestream so you know what's said in your name</li>
+          <li>👂 <strong>Watch</strong> the livestream so you know what&apos;s said in your name</li>
           <li>📞 <strong>Call</strong> a county legislator — <Link href={`/calls?state=${m.state}`} className="text-emerald-400 hover:underline">your in-state targets</Link></li>
           <li>🎤 <strong>Sign up to give public comment</strong> if a comment window exists (linked above)</li>
           <li>📨 <strong>Share this page</strong> on social so more advocates show up to the next one</li>

@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  * chat (no server persistence required).
  */
 export default async function AdminChatPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (

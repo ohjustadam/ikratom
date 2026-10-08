@@ -1,5 +1,5 @@
 import { redirect, notFound } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import { LessonEditor } from "./LessonEditor";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · Edit lesson" };
 
 export default async function AdminLessonEditPage({ params }: { params: Promise<{ id: string }> }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) redirect("/dashboard");
   const { id } = await params;
 

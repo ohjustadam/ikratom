@@ -35,7 +35,7 @@ export async function listRecentChatMessages(opts: {
   limit?: number;
   beforeIso?: string;
 } = {}): Promise<{ ok: true; rows: ListedMessage[] } | { error: string }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
 
   const supabase = await createClient();
@@ -80,7 +80,7 @@ export async function listRecentChatMessages(opts: {
 }
 
 export async function bulkDeleteChatMessages(ids: string[]) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
   if (!Array.isArray(ids) || ids.length === 0) return { error: "Nothing selected." };
   if (ids.length > MAX_BULK) return { error: `Bulk delete capped at ${MAX_BULK} per call.` };
@@ -110,7 +110,7 @@ export async function muteUserFromChat(input: {
   hours: number | "forever";
   reason?: string;
 }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
 
   const userId = (input.userId ?? "").trim();
@@ -172,7 +172,7 @@ export async function unmuteUserFromChat(userId: string) {
  * recent context. Pass 0 to clear the entire room.
  */
 export async function clearOldLoungeMessages(hoursOld = 24, room = "lounge") {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
 
   const supabase = await createClient();
@@ -199,7 +199,7 @@ export async function clearOldLoungeMessages(hoursOld = 24, room = "lounge") {
 }
 
 export async function listMutedChatUsers() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
   // Service-role: mig 0233 revoked client SELECT on the chat_muted_users
   // view (it exposes full_name, which must never be readable by non-admin
@@ -219,7 +219,7 @@ export async function listMutedChatUsers() {
  * the owner can decide: revoke, permaban, or reset history.
  */
 export async function listBanReviewQueue() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
   // Service-role: chat_ban_review_queue() is SECURITY DEFINER and returns
   // full_name; mig 0236 revoked its EXECUTE from anon/authenticated (audit #5)
@@ -246,7 +246,7 @@ export async function listBanReviewQueue() {
  * historical sins. The current mute (if any) is untouched.
  */
 export async function clearMuteHistory(userId: string) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
   if (!/^[0-9a-f-]{36}$/i.test(userId)) return { error: "Invalid user id." };
 
@@ -284,7 +284,7 @@ export type HeldChatMessage = {
 export async function listHeldChatMessages(): Promise<
   { ok: true; rows: HeldChatMessage[] } | { error: string }
 > {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
   const admin = createServiceRoleClient();
   const { data: held, error } = await admin
@@ -310,7 +310,7 @@ export async function listHeldChatMessages(): Promise<
 /** Approve a held message: post it as the original author, mark released.
  *  Form action → returns void; the page is already admin-gated. */
 export async function releaseHeldMessage(formData: FormData): Promise<void> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return;
   const id = String(formData.get("id") ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(id)) return;
@@ -342,7 +342,7 @@ export async function releaseHeldMessage(formData: FormData): Promise<void> {
 
 /** Reject a held message: mark dismissed, never posts. Form action → void. */
 export async function dismissHeldMessage(formData: FormData): Promise<void> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return;
   const id = String(formData.get("id") ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(id)) return;

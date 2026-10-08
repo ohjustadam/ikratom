@@ -32,7 +32,7 @@ Definitions of in-house terms. Saves "what does this mean?" grep loops for new c
 | **vendor** (verified) | A shop owner whose business representation is admin-approved. Can sign campaign emails as the business. Distinct from partner record. |
 | **scope match** | DB-level rule: a campaign with scope `state:OK` notifies users whose `profiles.state = 'OK'`. |
 | **deep analysis** (bill) | LLM-driven extraction of a bill's actual text intent — does it target plain leaf, only synthetics, or both. Migration 0030. |
-| **embed referral** | When a user lands via `?ref=embed&host=<slug>`, `proxy.ts` sets a 60-day cookie. Subsequent campaign actions get `referred_from = <slug>` for partner attribution. |
+| **embed referral** | When a user lands via `?ref=embed&host=<slug>`, `AttributionCapture` (root layout) posts to `/api/attribution`, which sets a 60-day httpOnly cookie. Subsequent campaign actions get `referred_from = <slug>` for partner attribution. `proxy.ts` used to do this and is disabled. |
 | **FED** | Special state code meaning "federal." Used for federal-jurisdiction bills + the national forum board. |
 
 ## Tech / infrastructure

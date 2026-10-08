@@ -57,7 +57,7 @@ export async function askAdminChatbot(
   question: string,
   history: ChatTurn[],
 ): Promise<ChatAnswer> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
 
   const q = question.trim().slice(0, MAX_QUESTION_LEN);

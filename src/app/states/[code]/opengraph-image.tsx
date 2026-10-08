@@ -131,7 +131,7 @@ export default async function Image({ params }: { params: Promise<{ code: string
             <span style={{ fontSize: 42, fontWeight: 900, color: "#10b981" }}>i</span>
             <span style={{ fontSize: 42, fontWeight: 800, color: "#fafafa" }}>Kratom</span>
             <span style={{ fontSize: 26, color: "#71717a", marginLeft: 16 }}>
-              the advocate's toolbelt
+              the advocate&apos;s toolbelt
             </span>
           </div>
           <div style={{ background: "#10b981", color: "#0a0a0a", padding: "14px 28px", borderRadius: 8, fontSize: 28, fontWeight: 800 }}>

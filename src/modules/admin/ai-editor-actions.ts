@@ -386,7 +386,7 @@ RULES OF ENGAGEMENT (be honest about these):
 
 /** One conversational turn. Stateless: the client passes prior history. */
 export async function askAdminEditor(message: string, history: EditorMessage[] = []): Promise<EditorTurn> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { ok: false, error: "Admins only." };
 
   const msg = (message ?? "").trim();
@@ -442,7 +442,7 @@ export async function askAdminEditor(message: string, history: EditorMessage[] =
 /** Confirm handler — the UI calls this when the owner clicks "Do it". The model
  *  never reaches here; only a whitelisted tool with validated args runs. */
 export async function executeEditorTool(tool: string, argsJson: string): Promise<{ ok: boolean; message: string }> {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { ok: false, message: "Admins only." };
   const def = TOOLS[tool];
   if (!def) return { ok: false, message: `Tool "${tool}" is not allowed.` };

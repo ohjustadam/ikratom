@@ -27,7 +27,7 @@ type Discrepancy = {
 };
 
 export default async function SyncDiscrepanciesPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) redirect("/dashboard");
   const supabase = await createClient();
 

@@ -9,7 +9,7 @@ const STATES = [
 ];
 
 export default async function NewEventPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_meetings" });
   if (!ctx.ok) redirect("/dashboard");
 
   return (

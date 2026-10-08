@@ -10,7 +10,7 @@ export default async function EditLocalOfficialPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { id } = await params;

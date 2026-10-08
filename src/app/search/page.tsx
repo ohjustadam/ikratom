@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { searchSite, SITE_SEARCH_KIND_EMOJI, SITE_SEARCH_KIND_LABELS, type SiteSearchKind } from "@/lib/site-search";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 

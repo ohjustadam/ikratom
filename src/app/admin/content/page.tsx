@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
 import { listAllContent, CONTENT_CATALOG } from "@/lib/editable-content";
@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
  * fallback copy.
  */
 export default async function ContentListPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) redirect("/dashboard");
 
   const rows = await listAllContent();

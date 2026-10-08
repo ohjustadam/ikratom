@@ -6,7 +6,7 @@ import { CommunitiesPanel } from "./CommunitiesPanel";
 export const metadata = { title: "Communities" };
 
 export default async function AdminCommunitiesPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_communities" });
   if (!ctx.ok) redirect("/dashboard");
 
   const r = await listAllCommunities();

@@ -5,6 +5,7 @@ name: CI
 #   - Test failures
 #   - Build failures (Next.js production build)
 #   - High/critical npm CVEs in dependencies
+#   - Logic-layer coverage falling below tests/coverage-baseline.json
 #
 # Runs on every PR + on pushes to main (to catch the rare squash-merge
 # that introduced a regression). Uses ubuntu-latest + Node 22 to match
@@ -34,8 +35,34 @@ jobs:
           cache: npm
       - name: Install deps
         run: npm ci --no-audit --no-fund
-      - name: Verify (typecheck + tests)
-        run: npm run verify
+      - name: Verify (typecheck + tests, instrumented)
+        # `test:coverage` is `verify`'s test command plus --coverage. The v8
+        # provider reads V8's own counters instead of rewriting the source, so
+        # the tests that run here are the same tests `npm run verify` runs
+        # locally -- this is not a second, differently-behaving suite. It costs
+        # a few seconds of remapping and saves a whole extra job, which on a
+        # repo this budget-conscious is the right trade.
+        #
+        # `npm run verify` stays untouched as the ~9s local loop AGENTS.md
+        # points contributors at.
+        run: npm run typecheck && npm run test:coverage
+      - name: Coverage floor + report
+        # Deliberately NOT `if: always()`: coverage of a run whose tests failed
+        # measures nothing worth reading, and a second red step would just
+        # obscure the first. Exits non-zero only when coverage has fallen more
+        # than a point below tests/coverage-baseline.json -- see
+        # scripts/report-coverage.mjs for why a new untested module is a
+        # warning rather than a block.
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/report-coverage.mjs
+      - name: Report safety-suite coverage
+        # `verify` is green even when the RLS and rate-limit suites never ran
+        # (rls.test.ts is excluded; rate-limit self-skips without DB env, and
+        # this job has no env: block). Green that proves nothing is worse than
+        # red. This surfaces the gap on every run as a warning annotation; it
+        # never blocks, because the real fix is a dedicated Supabase test
+        # project, not pointing prod credentials at a suite that creates users.
+        if: always()
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/report-safety-coverage.mjs
 
   build:
     name: Next.js build
@@ -52,11 +79,66 @@ jobs:
       - name: Build
         # Build needs env vars at compile time; provide minimal stubs.
         # Real values come from Vercel at deploy time.
+        #
+        # SUPABASE_SERVICE_ROLE_KEY stub added 2026-07-23: once the root layout
+        # stopped forcing every route dynamic, pages became eligible to
+        # PRERENDER at build time, and createServiceRoleClient() THROWS when the
+        # key is absent ("fail fast rather than silently masquerading as an anon
+        # client" — correct, don't weaken it). Without a stub the build died on
+        # /states. A fake value is right here: it lets the client construct so
+        # prerender proceeds, while pointing at example.supabase.co means no PR
+        # build ever touches the real database (which would also burn egress).
+        # Vercel supplies the genuine key at deploy time, so production
+        # prerenders against live data as intended.
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: stub-service-role-key
           APP_URL: https://www.ikratom.org
         run: npm run build
+
+  responsive:
+    name: Responsive guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        # playwright-chromium is already a dependency; this fetches the browser
+        # binary plus the system libs the runner image does not ship.
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        # Same stubs as the "Next.js build" job -- see that job for why
+        # SUPABASE_SERVICE_ROLE_KEY must be present but must NOT be real.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: stub-service-role-key
+          APP_URL: https://www.ikratom.org
+        run: npm run build
+      - name: Serve + check
+        # MUST be a production server. `next dev` does not enforce
+        # dynamicParams and lays some things out differently, so a dev check
+        # would pass while production is broken.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: stub-service-role-key
+          APP_URL: https://www.ikratom.org
+          BASE_URL: http://localhost:3003
+        run: |
+          npx next start -p 3003 &
+          for i in $(seq 1 45); do
+            curl -sf -o /dev/null http://localhost:3003/ && break
+            sleep 2
+          done
+          npm run check:responsive
 
   audit:
     name: npm audit (high+)
@@ -75,3 +157,48 @@ jobs:
         # Production-relevant only via --omit=dev — devDependency CVEs
         # don't ship to runtime.
         run: npm audit --audit-level=high --omit=dev
+
+  credits:
+    name: Netlify credit budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    # THE BRAKE. On 2026-07-30 the site was disabled for credit exhaustion:
+    # 15 production deploys x 15 credits = 225 of a 300-credit monthly budget.
+    # Merging to main triggers a production build, so the merge IS the spend —
+    # which makes pull_request the only moment a check can still prevent it.
+    #
+    # This is deliberately a required check rather than a notification. The
+    # whole lesson of both outages is that a warning nobody must act on is
+    # indistinguishable from no warning at all.
+    #
+    # No `npm ci`: the gate uses only built-in fetch, so this job is seconds.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Check remaining credits before allowing a deploy
+        env:
+          # Already configured at repo level (cron-hourly.yml uses it). On fork
+          # PRs secrets are absent, and the script then reports SKIPPED and
+          # exits 0 — it never reports a false "pass".
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_ACCOUNT_SLUG: ${{ secrets.NETLIFY_ACCOUNT_SLUG }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # A diff that netlify.toml's `ignore` rule would cancel cannot start a
+        # production build, so it cannot spend deploy credits. Braking it anyway
+        # blocks exactly the free fixes needed while the account is over its
+        # limit (2026-10-02: every PR went red, including script-only safety
+        # fixes). Such diffs still print the full budget, they just do not fail.
+        # KEEP THE EXCLUDE LIST IDENTICAL TO netlify.toml's `ignore` command.
+        # If they drift, a diff that DOES build could slip through unbraked.
+        run: |
+          git fetch -q --depth=1 origin "$BASE_SHA" 2>/dev/null || true
+          if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
+             && git diff --quiet "$BASE_SHA" HEAD -- . ':(exclude,glob)*.md' ':(exclude)docs/**' ':(exclude).github/**' ':(exclude)tests/**' ':(exclude)supabase/**' ':(exclude)scripts/**' ':(exclude)private/**'; then
+            echo "Diff touches only build-ignored paths: merging cannot trigger a Netlify build. Reporting, not braking."
+            node --import=./scripts/lib/egress-meter.mjs scripts/netlify-credit-gate.mjs --warn-only
+          else
+            node --import=./scripts/lib/egress-meter.mjs scripts/netlify-credit-gate.mjs
+          fi

@@ -49,6 +49,26 @@ export async function GET(request: NextRequest) {
   const pushResult = await fanoutPushNotifications(supabase);
 
   const elapsedMs = Date.now() - startedAt;
+
+  // Telemetry so check-cron-staleness can monitor this route. It is the SOLE
+  // push/email delivery path (fanoutPushNotifications) and daily-sync defers
+  // ALL its push to this hourly tick — yet it wrote no scraper_runs row, so a
+  // silent stall (CRON_SECRET rotation / 500 / GH billing) would strand every
+  // notification with no owner page. `fire_waves` is already in the UI catalog
+  // (cron-registry.ts) and now in the pager registry too. Best-effort insert.
+  try {
+    const pushSent = (pushResult && "sent" in pushResult ? pushResult.sent : 0) ?? 0;
+    const pushHeld = (pushResult && "held" in pushResult ? pushResult.held : 0) ?? 0;
+    await supabase.from("scraper_runs").insert({
+      source: "fire_waves",
+      started_at: new Date(startedAt).toISOString(),
+      finished_at: new Date().toISOString(),
+      status: "success",
+      rows_updated: pushSent,
+      notes: `push sent ${pushSent} · held ${pushHeld} · ${Math.round(elapsedMs / 1000)}s`,
+    });
+  } catch { /* best-effort telemetry */ }
+
   return NextResponse.json({
     ok: true,
     elapsed_seconds: Math.round(elapsedMs / 1000),

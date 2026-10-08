@@ -25,6 +25,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "crypto";
 import { OLLAMA_NUM_THREAD } from "./lib/ollama-options.mjs";
+import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const args = process.argv.slice(2);
@@ -77,6 +78,35 @@ async function checkOllama() {
 async function translate(text, targetLangCode) {
   const targetLabel = LANG_LABEL[targetLangCode] ?? targetLangCode;
   const system = `You are a professional translator. Translate the user's message to ${targetLabel}. Output ONLY the translated text — no quotes, no explanation, no English commentary. Preserve the tone (advocacy / civic / urgent) and any specialized terms (Schedule II, mitragynine, 7-OH, KCPA, kratom). Use natural ${targetLabel} that a native speaker would write.`;
+
+  // CLOUD FIRST (2026-09-05). This script was pinned to a local Ollama at
+  // localhost:11434, which meant it only ran on the owner's PC — and it has not
+  // run since 2026-07-14, leaving the id/th/ms/vi/tl locales 53 days stale.
+  // Those locales serve the kratom-producing countries, so letting them rot is
+  // a real quality loss, and it is also why geo-blocking bot traffic was never
+  // an option for this platform.
+  //
+  // The free router (Groq/Cerebras/Gemini/…) is both more AVAILABLE than the
+  // box and generally higher quality here — it fronts 70B-class models where
+  // the local default was llama3.1:8b. Ollama stays as the fallback so a local
+  // run still works and so the script degrades rather than fails when every
+  // free provider is rate-limited.
+  if (listAvailableProviders().length > 0) {
+    try {
+      const r = await aiRouter({
+        systemPrompt: `${system}
+
+Return ONLY JSON: {"translation": "..."}.`,
+        userPrompt: text,
+        maxTokens: 1200,
+        verbose: false,
+      });
+      const out = (r.parsed?.translation ?? r.parsed?.Translation ?? "").toString().trim();
+      if (out) return out;
+    } catch {
+      // fall through to Ollama
+    }
+  }
 
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
@@ -167,7 +197,15 @@ console.log(`Languages: ${TARGET_LANGS.join(", ")}`);
 console.log(`Types:     ${targetSources.map((s) => s.type).join(", ")}`);
 console.log();
 
-if (!(await checkOllama())) process.exit(1);
+// Ollama is now the FALLBACK, not the requirement — only insist on it when no
+// cloud provider is configured, so this runs unattended in GitHub Actions.
+const cloudProviders = listAvailableProviders();
+if (cloudProviders.length > 0) {
+  console.log(`Providers: ${cloudProviders.join(", ")} (Ollama used only as fallback)`);
+} else if (!(await checkOllama())) {
+  console.error("No cloud AI providers configured and Ollama is unreachable — nothing can translate.");
+  process.exit(1);
+}
 
 let totalDone = 0, totalFailed = 0, totalSkipped = 0;
 let budgetHit = false;

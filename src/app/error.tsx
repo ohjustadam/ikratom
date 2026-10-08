@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+
+import Link from "@/components/Link";
+import { isStaleDeployError, reloadOnceForNewVersion } from "@/lib/stale-deploy";
 
 export default function ErrorBoundary({
   error,
@@ -9,10 +12,25 @@ export default function ErrorBoundary({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [reloading, setReloading] = useState(false);
   useEffect(() => {
-    // Log to console for debugging — in prod, hook a real error reporter here later
+    // A page opened before a deploy: reload onto the new version instead of
+    // showing a failure (see src/lib/stale-deploy.ts).
+    if (isStaleDeployError(error) && reloadOnceForNewVersion()) {
+      setReloading(true);
+      return;
+    }
     console.error("[error boundary]", error);
   }, [error]);
+
+  if (reloading) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-2xl flex-col items-center justify-center px-4 py-16 text-center">
+        <p className="text-lg font-semibold text-emerald-300">iKratom was just updated</p>
+        <p className="mt-2 text-zinc-400">Loading the new version…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex min-h-[60vh] max-w-2xl flex-col items-center justify-center px-4 py-16 text-center">
@@ -38,12 +56,12 @@ export default function ErrorBoundary({
         >
           Try again
         </button>
-        <a
+        <Link
           href="/"
           className="rounded-md border border-zinc-700 px-5 py-2 font-semibold hover:border-emerald-500"
         >
           Home
-        </a>
+        </Link>
       </div>
     </div>
   );

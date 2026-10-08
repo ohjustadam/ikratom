@@ -1,0 +1,101 @@
+/**
+ * email-select.test.ts — the daily email must not repeat itself.
+ *
+ * 2026-10-05: the digest listed every upcoming hearing, so one hearing three
+ * weeks out would have arrived in every member's inbox for 21 days straight,
+ * and a placeholder address burned a send on a guaranteed 422.
+ */
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { isDeliverable, digestHearings } from "../scripts/lib/email-select.mjs";
+
+const NOW = Date.parse("2026-10-05T19:00:00Z");
+const h = (id: string, meetingAt: string, reviewedAt: string) => ({ id, meeting_at: meetingAt, moderation_reviewed_at: reviewedAt });
+
+describe("digestHearings", () => {
+  const lastDigest = "2026-10-04T10:17:00Z";
+  const meetings = [
+    h("tomorrow-old", "2026-10-06T23:05:00Z", "2026-10-01T00:00:00Z"),
+    h("far-new", "2026-10-20T23:00:00Z", "2026-10-05T12:00:00Z"),
+    h("far-old", "2026-10-21T23:00:00Z", "2026-10-02T00:00:00Z"),
+  ];
+
+  it("keeps hearings confirmed since the last digest and ones within 48 hours", () => {
+    expect(digestHearings(meetings, lastDigest, NOW).map((m: { id: string }) => m.id)).toEqual(["tomorrow-old", "far-new"]);
+  });
+
+  it("drops a far-off hearing the member was already told about", () => {
+    expect(digestHearings([meetings[2]], lastDigest, NOW)).toEqual([]);
+  });
+
+  it("caps the list", () => {
+    const many = Array.from({ length: 9 }, (_, i) => h(`m${i}`, "2026-10-06T12:00:00Z", "2026-10-01T00:00:00Z"));
+    expect(digestHearings(many, lastDigest, NOW)).toHaveLength(5);
+  });
+});
+
+describe("isDeliverable", () => {
+  it("accepts real addresses", () => {
+    expect(isDeliverable("someone@gmail.com")).toBe(true);
+    expect(isDeliverable("a.b+tag@proton.me")).toBe(true);
+  });
+  it("rejects placeholders Resend refuses", () => {
+    for (const e of ["x@example.com", "x@example.org", "x@site.test", "x@box.local", "x@a.invalid", "nope", "", null]) {
+      expect(isDeliverable(e)).toBe(false);
+    }
+  });
+});
+
+describe("send-email-notifications wiring", () => {
+  const src = readFileSync("scripts/send-email-notifications.mjs", "utf8");
+  it("uses the hearing filter, not every upcoming hearing", () => {
+    expect(src).toMatch(/meetings: digestHearings\(meetings, from, now\)/);
+  });
+  it("refuses a second digest within 12 hours unless forced", () => {
+    expect(src).toMatch(/now - Date\.parse\(last\) < 12 \* 3600e3/);
+    expect(src).toMatch(/--force/);
+  });
+  it("skips undeliverable addresses before they cost quota", () => {
+    expect(src).toMatch(/if \(!isDeliverable\(p\.email\)\) return false/);
+  });
+});
+
+describe("account emails keep their share of Resend", () => {
+  it("the notification sender leaves 40/day of Resend for sign-up and reset emails", () => {
+    const src = readFileSync("scripts/lib/email-send.mjs", "utf8");
+    expect(src).toMatch(/id: "resend",[^\n]*dailyCap: 100, reserve: 40/);
+    expect(src).toMatch(/p\.dailyCap - \(p\.reserve \?\? RESERVE\)/);
+    // Brevo (300/day) is tried first, so bulk mail lands there.
+    expect(src.indexOf('id: "brevo"')).toBeLessThan(src.indexOf('id: "resend"'));
+  });
+});
+
+describe("Brevo payload", () => {
+  it("omits the headers field when there is no unsubscribe link (Brevo 400s on an empty one)", async () => {
+    const { vi } = await import("vitest");
+    vi.resetModules();
+    vi.stubEnv("BREVO_API_KEY", "xkeysib-test");
+    vi.stubEnv("RESEND_API_KEY", "");
+    vi.stubEnv("RESEND_FROM_EMAIL", "alerts@ikratom.org");
+    const bodies: Record<string, unknown>[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, text: async () => JSON.stringify({ messageId: "<m1>" }) };
+    }) as unknown as typeof fetch;
+    // Minimal stand-in for the quota table the sender reads and bumps.
+    const sb = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }), insert: async () => ({}), update: () => ({ eq: () => ({ eq: async () => ({}) }) }) }) };
+    try {
+      const { sendEmail } = await import("../scripts/lib/email-send.mjs");
+      const plain = await sendEmail(sb, { to: "a@b.org", subject: "s", text: "t", html: "<p>t</p>" });
+      const withUnsub = await sendEmail(sb, { to: "a@b.org", subject: "s", text: "t", html: "<p>t</p>", unsubscribeUrl: "https://www.ikratom.org/u" });
+      expect(plain).toMatchObject({ ok: true, provider: "brevo" });
+      expect(withUnsub).toMatchObject({ ok: true, provider: "brevo" });
+      expect(bodies[0]).not.toHaveProperty("headers");
+      expect(bodies[1]).toHaveProperty("headers");
+    } finally {
+      globalThis.fetch = realFetch;
+      vi.unstubAllEnvs();
+    }
+  });
+});

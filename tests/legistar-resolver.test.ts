@@ -1,4 +1,3 @@
-// @ts-nocheck - imports a plain .mjs script module (no type declarations needed)
 import { describe, it, expect } from "vitest";
 import { slugCandidates, statesForName, levelForTenant, normLoc, bodiesMatchLevel } from "../scripts/lib/legistar-resolver.mjs";
 
@@ -33,8 +32,12 @@ describe("legistar tenant resolver", () => {
 
   it("knows multi-state vs unique place names from the gazetteer", () => {
     const cook = statesForName("Cook County, IL");
+    // statesForName returns null for an unknown name, so assert presence
+    // before reading .length — otherwise an unknown name would fail with
+    // "cannot read length of null" instead of a useful assertion message.
+    expect(cook).not.toBeNull();
     expect(cook).toContain("IL");
-    expect(cook.length).toBeGreaterThan(1); // also GA, MN — ambiguous
+    expect(cook!.length).toBeGreaterThan(1); // also GA, MN — ambiguous
 
     const chicago = statesForName("Chicago, IL");
     expect(chicago).toContain("IL");

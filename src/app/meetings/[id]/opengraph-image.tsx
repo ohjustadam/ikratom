@@ -179,7 +179,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
               maxWidth: 1000,
             }}
           >
-            "{agendaSnippet}{(m.agenda_text ?? "").length > 180 ? "…" : ""}"
+            &quot;{agendaSnippet}{(m.agenda_text ?? "").length > 180 ? "…" : ""}&quot;
           </p>
         )}
 
@@ -198,7 +198,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
             <span style={{ fontSize: 38, fontWeight: 900, color: "#10b981" }}>i</span>
             <span style={{ fontSize: 38, fontWeight: 800, color: "#fafafa" }}>Kratom</span>
             <span style={{ fontSize: 24, color: "#71717a", marginLeft: 16 }}>
-              the advocate's toolbelt
+              the advocate&apos;s toolbelt
             </span>
           </div>
           <div

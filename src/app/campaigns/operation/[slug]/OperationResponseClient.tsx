@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { POSTURE_STANCE } from "@/modules/compose/default-letter";
 

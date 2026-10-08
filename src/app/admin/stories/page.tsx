@@ -20,7 +20,7 @@ type PendingStory = {
 };
 
 export default async function AdminStoriesPage() {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "moderate_stories" });
   if (!ctx.ok) redirect("/dashboard");
   const stories = (await listPendingStoriesForAdmin()) as unknown as PendingStory[];
 

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
 import { CONTENT_CATALOG } from "@/lib/editable-content";
@@ -15,7 +15,7 @@ export default async function EditContentPage({ params }: { params: Params }) {
   const { key: rawKey } = await params;
   const key = decodeURIComponent(rawKey);
 
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) redirect("/dashboard");
 
   // Look up catalog metadata (if known) + current DB row.

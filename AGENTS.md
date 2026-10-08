@@ -2,7 +2,9 @@
 
 You are working on **iKratom**, a nonpartisan kratom advocacy platform. This file is the cold-start brief: read it once and you have enough context to be useful without wasting tokens grepping.
 
-**START HERE if you're a new session:** read `private/V2_KICKOFF.md` — single source of truth for what's left before app-store submission and v2 work. It supersedes `ROADMAP.md` and anything below this line if there's a conflict.
+**START HERE if you're a new session:** read **`STATE_OF_PLAY.md`** (repo root) — the in-repo cold-start brief. Where the platform actually runs, what survives 60 days untouched, what will bite you, and where the forward plan is declared.
+
+Then read `private/V2_KICKOFF.md` — the owner's working notes and the single source of truth for what's in flight. It supersedes `STATE_OF_PLAY.md`, `ROADMAP.md` and anything below this line if there's a conflict. **But `private/` is gitignored, so V2_KICKOFF does not exist in a fresh clone** — any session not running on the owner's own machine will not have it, and that is exactly why `STATE_OF_PLAY.md` exists. Don't treat its absence as "no context available"; several cloud sessions burned a run re-deriving the platform from scratch, and one of them derived it wrongly.
 
 **🏛️ If your task touches `/states`, `/briefings`, `/intel`, `/legislators`, or any state-scoped surface: ALSO read `private/STATE_HUB_SPEC.md` FIRST** — the canonical spec for the active State-HQ rebuild (owner ask 2026-06-22). It sets the consolidation IA (`/states/[code]` is the one hub), the 3-tier model, the live-data-not-baked rule, and the section-by-section build plan + fast-follow pipelines. Build to it; don't re-architect these pages ad hoc.
 
@@ -14,6 +16,7 @@ You are working on **iKratom**, a nonpartisan kratom advocacy platform. This fil
 - `docs/SCHEMA.md` — auto-generated table/column/RLS/RPC dump (regenerate with `npm run docs:schema`)
 - `docs/TASK_PATTERNS.md` — recipes (how to add a migration, admin page, server action, etc.)
 - `docs/AI_TOOLKIT.md` — provider routing rules + when to use Claude vs Gemini vs Ollama vs Groq
+- `docs/AI_PROVIDERS.md` — **every free provider key: what it is, where to get it, where to set it.** Read this before touching the router or debugging "enrichment is failing in bulk".
 - `docs/RUNBOOK_owner_ops.md` — how the OWNER runs the platform with zero developer access (AI Editor-in-Chief, moderation hub, master-edit, self-healing). Keep it current when you change an admin surface.
 
 ---
@@ -122,6 +125,35 @@ npm run build           # full Next.js build, ~33s  ← only when checking deplo
 
 `verify` excludes `tests/rls.test.ts` because that test creates real Supabase users via service role — works in CI with a dedicated test project, fails locally because dev `.env.local` points at prod which rate-limits user creation. Run it explicitly when needed: `npx vitest run tests/rls.test.ts`.
 
+### Coverage is a number now, not a claim
+
+```bash
+npm run coverage            # the suite + line coverage of the logic layer
+npm run coverage:baseline   # re-record tests/coverage-baseline.json
+```
+
+The measured surface is `src/lib/**/*.ts`, `src/modules/**/*.ts` and
+`scripts/lib/**/*.mjs` — declared once in `scripts/lib/coverage-surface.mjs`,
+which also records what is deliberately outside it and what covers that
+instead. `src/app/**` and components are not in it on purpose: nothing
+unit-tests them, so including them would report ~10% forever and move mainly
+when someone adds a page.
+
+First reading, 2026-09-18: **20.96%** of lines, and **208 of 291 modules are
+never loaded by any test** — overwhelmingly the `actions.ts` server actions,
+i.e. the mutation surface.
+
+CI runs this inside the existing "Typecheck + tests" job. **The floor is on
+COVERED LINES, not on the percentage**: it fails when tests stop covering ~50+
+lines, which is what a removed or broken suite looks like. Adding a module with
+no tests dilutes the percentage (one 260-line server action is 2pp) but moves
+covered lines not at all, so that is a warning, never a block — a gate that
+goes red for writing new code gets deleted. `tests/coverage-surface.test.ts`
+guards the surface itself, because the one way to beat a coverage floor is to
+measure less. **Re-record the baseline without `.env.local` in the
+environment** — with DB credentials present, `rate-limit.test.ts` runs and the
+number comes out higher than CI can ever reach.
+
 Repo-level merge settings (post-PR #254):
 - ✅ `delete_branch_on_merge` — merged branches auto-delete on GitHub
 - ✅ `squash_merge_commit_title: PR_TITLE` — clean main history
@@ -153,7 +185,7 @@ Repo-level merge settings (post-PR #254):
 3. **`e.currentTarget` in async transitions:** capture the element synchronously before `startTransition` — React nullifies `currentTarget` after the handler returns.
 4. **Profile reads:** profiles SELECT RLS only allows admin or self. To read other users' public fields, call the `get_public_profile(uuid)` or `get_public_profiles(uuid[])` SECURITY DEFINER RPC.
 5. **Vercel Hobby cron:** only daily intervals allowed. Sub-daily jobs go in `.github/workflows/cron-hourly.yml`.
-6. **pdf-parse v2:** ESM-incompatible. Use `createRequire(import.meta.url)('pdf-parse')` then `new PDFParse(buf)`.
+6. **pdf-parse v2:** ESM-incompatible. Use `createRequire(import.meta.url)('pdf-parse')` then `new PDFParse(new Uint8Array(buf))` — its engine REJECTS Node Buffers (since ~2026-07; the error is swallowed by catch-blocks, so it looks like "docs undecodable"). Always wrap in `Uint8Array`.
 7. **Service worker push:** payloads with a `tag` field deduplicate at the OS level. Use `tag` for replaceable notifications, omit for stacking.
 8. **Slug fields are immutable in production.** Once a partner / campaign slug is printed in the wild (QR codes, share links), changing it breaks every existing link.
 
@@ -256,6 +288,16 @@ These were established over many sessions. They are not per-task; they always ap
 4. **Public repo hygiene.** The GitHub repo is PUBLIC. Never commit secrets, service-role keys, `.env*` (only `.env.local.example`), or anyone's personal info. Keep owner PII out of tracked code — prefer a role address (e.g. `contact@ikratom.org`) over a personal email in User-Agent strings / NOTICE / docs. `private/` is gitignored — working notes, plans, and anything sensitive live there.
 5. **Keep the brief current.** Update `private/V2_KICKOFF.md` whenever you ship something or learn something material, so the next session starts with perfect context and never re-does done work. It is the single source of truth.
 6. **Self-monitoring + self-healing by default.** New cron sources get registered in `check-cron-staleness.mjs`. Scripts self-heal transient errors (retry, skip-bad-item) and write `scraper_runs` telemetry. If something can't be auto-fixed, surface it (push/alert) and note it in V2_KICKOFF — don't let it fail silently.
-7. **One focused PR per task. Verify with `npx tsc --noEmit`. Squash-merge. Migrations via `npm run db:push`** (next number tracked in V2_KICKOFF).
+7. **Every merge to `main` costs 15 Netlify credits — batch them.** A squash-merge triggers a production build, so the merge *is* the spend. 15 deploys in nine days spent 225 credits and the site was disabled on 2026-07-30. Still one focused PR per task, but **land related PRs in one merge window**, and run `npm run credits` before merging (CI's "Netlify credit budget" check brakes at 85%).
+   **The monthly allowance is 1000 credits, not the 300 this rule claimed until 2026-09-17.** That figure came from a comment, never from the account; the live API reading on 2026-09-17 was 369/1000 projected. `scripts/netlify-credit-gate.mjs` fetches the real number every CI run, so **trust its output over any figure written down here or in `scripts/lib/netlify-credits.mjs`** — batching is still right, but do not tell the owner he is near a ceiling without reading the gate first. **Never run `netlify deploy --prod`** — it publishes a second billable deploy on top of the git build. Verify with the PR deploy preview or a DRAFT deploy (`netlify deploy --build`, no `--prod`). **One focused PR per task. Verify with `npx tsc --noEmit`. Squash-merge. Migrations via `npm run db:push`** (next number tracked in V2_KICKOFF).
 8. **Parallel sessions: one git worktree each — NEVER share a checkout.** Multiple sessions in one working tree share one `.git/index` + `HEAD`; a commit from session A silently sweeps in files session B staged (this is how PR #608 absorbed all of PR #607, 2026-06-14). Each session works in its **own worktree** with its own index/HEAD: `git -C <repo> worktree add ../ikratom-<task> -b <branch> origin/main`, then junction `node_modules` + copy `.env.local` (both gitignored, absent in a fresh worktree — and so is `private/`, so always read/write the brief in the main checkout). Defense-in-depth even inside a worktree: **branch from `origin/main` after fetch (never local `main`); commit with an explicit pathspec — `git commit -m "…" -- <paths>` — so only those paths land; before `gh pr merge`, run `gh pr view <n> --json files` and confirm the file list matches your intent; never commit on or push `main` directly.** Full rationale + setup helper: `private/PARALLEL_SESSIONS_PLAN.md` + `scripts/new-session-worktree.ps1`.
 9. **Self-evolving by default — use every capability, keep extending them (owner ask 2026-06-22).** Use the full toolbelt already wired in: the free AI router (`scripts/lib/ai-router.mjs` auto-uses Groq/Cerebras/Gemini/Mistral/Cloudflare/SambaNova/OpenRouter/NVIDIA/GitHub-Models/Ollama — every provider whose key is set), SearXNG, Playwright/headless-Chromium, Wikidata SPARQL + Census geocoder/adjacency (keyless), and all session MCP tools. **When you discover a new capability that's FREE + open-source/free-tier and in-scope, adopt it** (a new keyless data source, a faster path, an OSS lib that removes a gap) and wire it so the router/pipeline picks it up automatically. **And proactively surface, in your report, concrete improvements the owner could unlock + exactly what he must do** (create an account, paste a key, make a decision) — he wants a platform that keeps evolving itself. This is the growth twin of rule 6 (self-monitoring) and the token-discipline norms: evolve cheaply, **verify everything you add** (rule 7), never introduce a paid dependency (free-tier-only is platform policy).
+
+10. **Before you commit, run the parallel-session preflight — `npm run preflight -- --paths <files you intend to commit>`.** Another session may be live in this checkout (or in a worktree under `.claude/worktrees/`), and you share one `.git/index` and one `HEAD` with it. **Rule 8's pathspec is not sufficient on its own:** `git commit -m "..." -- <path>` commits the **working-tree** content of that path, so if a peer has edits in the *same file*, they ride along regardless of the pathspec — that is how a peer's unfinished feature nearly shipped referencing a module they had not committed (2026-08-25). `scripts/parallel-guard.mjs` reports peer worktrees, foreign staged files, and shared dirty files, and prints the remedy for each. When a target file is shared, stage **only your version** and commit the index with **no pathspec**:
+    ```bash
+    git show HEAD:<path> > mine.tmp   # re-apply ONLY your edits to this copy
+    blob=$(git hash-object -w --path <path> mine.tmp)
+    git update-index --cacheinfo 100644,$blob,<path>
+    git diff --cached --name-only     # confirm, then `git commit` (NO pathspec, NO -a)
+    ```
+    Use `npm run preflight:status` any time to see who else is in the repo, and `node scripts/parallel-guard.mjs snapshot` / `verify` around long tasks to catch `HEAD` moving under you — **never `git commit --amend` after HEAD moves, or you rewrite THEIR commit.** Never `git stash` in a shared checkout: it yanks the peer's work out from under them. Abandoned worktrees are a hazard too — a stale `.next/` inside one made `npm run lint` report 18,583 problems in generated code while CI stayed green (now ignored in `eslint.config.mjs`); and before `git worktree remove --force`, delete **every reparse point in the worktree, recursively** — `Get-ChildItem <wt> -Recurse -Force -Attributes ReparsePoint | ForEach-Object { $_.Delete() }` — because the junction is often NESTED, not the top-level `node_modules`. Checking only the top level is not enough: on 2026-08-25 that check passed, the removal still emptied packages inside the MAIN `node_modules`, and the dev server died with `Cannot find module 'require-in-the-middle'`. **An entry count does not prove survival** — emptied package directories still count as entries. Prove it instead (`node -e "require.resolve('require-in-the-middle')"` plus `npm run verify`) and run `npm ci` if anything fails to resolve.

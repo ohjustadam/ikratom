@@ -14,7 +14,7 @@ import { applyCampaignReviewTransition } from "./campaign-review-shared";
  * set active=true so the existing trigger logic catches it.
  */
 export async function approvePendingCampaign(campaignId: string) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "approve_campaigns" });
   if (!ctx.ok) return { error: "Admin or leader only." };
   // Approving PUBLISHES a campaign — including ones the AI stance-screen flagged
   // for human review. The review gate is meaningless if the leader who authored
@@ -51,7 +51,7 @@ export async function approvePendingCampaign(campaignId: string) {
  * their mind.
  */
 export async function rejectPendingCampaign(input: { campaignId: string; reason?: string }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "approve_campaigns" });
   if (!ctx.ok) return { error: "Admin or leader only." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };
@@ -110,7 +110,7 @@ export async function bulkReviewCampaigns(input: {
   action: BulkAction;
   reason?: string;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "approve_campaigns" });
   if (!ctx.ok) return { error: "Admin or leader only." };
   const mfaErr = requireMfaForMutation(ctx);
   if (mfaErr) return { error: mfaErr };

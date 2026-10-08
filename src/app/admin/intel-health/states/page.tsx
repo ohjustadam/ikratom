@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 
@@ -60,7 +60,7 @@ type StateStat = {
 };
 
 export default async function PerStateIntelHealthPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) redirect("/dashboard");
 
   const supabase = await createClient();

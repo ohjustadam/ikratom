@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAnonClient } from "@/lib/supabase/anon";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 
@@ -31,7 +31,12 @@ const GROUPS: Array<{ label: string; roles: string[] }> = [
 ];
 
 export async function StateOfficials({ state, stateName }: { state: string; stateName: string }) {
-  const supabase = await createClient();
+  // Cookie-LESS on purpose (2026-09-08). Everything here is public record —
+  // officials and their votes — and anon RLS returns exactly the same rows
+  // (verified: legislators 9,345 and bill_vote_members 13,222 under both anon
+  // and service role). Not reading cookies is what lets the State HQ page be a
+  // cached static file instead of re-querying Supabase on every crawler hit.
+  const supabase = createAnonClient();
   const { data, error } = await supabase
     .from("legislators")
     .select("id, full_name, role, party, district, email, phone, title, portrait_url, website")

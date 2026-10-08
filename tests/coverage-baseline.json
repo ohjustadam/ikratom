@@ -1,0 +1,15 @@
+{
+  "_comment": "Recorded coverage of the surface declared in scripts/lib/coverage-surface.mjs. Regenerate with `npm run coverage:baseline`. scripts/report-coverage.mjs fails CI if lines_covered falls more than 50 lines below this, and tests/coverage-surface.test.ts fails if `surface` stops matching the declaration — so the number cannot be raised by measuring less.",
+  "measured_on": "2026-09-18",
+  "surface": [
+    "src/lib/**/*.ts",
+    "src/modules/**/*.ts",
+    "scripts/lib/**/*.mjs"
+  ],
+  "db_env": false,
+  "files_measured": 291,
+  "lines_total": 12638,
+  "lines_covered": 2649,
+  "lines_pct": 20.96,
+  "files_untested": 208
+}

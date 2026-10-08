@@ -22,7 +22,7 @@ export default async function NewLibraryItemQuickPage({
 }: {
   searchParams?: SP;
 }) {
-  const ctx = await getCreatorContext();
+  const ctx = await getCreatorContext({ require: "edit_library" });
   if (!ctx.ok) redirect("/dashboard");
   const sp = searchParams ? await searchParams : {};
   const preselectedType = sp.type ?? null;

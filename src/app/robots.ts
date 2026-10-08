@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { COST_CONTROL_PATHS, PRIVATE_PATHS, costControlActive } from "@/lib/crawl-policy";
 
 /**
  * robots.txt — allow ordinary search engines + AI CITATION crawlers,
@@ -22,11 +23,138 @@ import type { MetadataRoute } from "next";
  * Honor-system; combined with TOS + auth-required pages + rate limits
  * + CSP for stuff that matters.
  */
+/**
+ * Re-rendered hourly so the cost-control expiry below takes effect on its own.
+ * Without this the file is generated once at build time, Date.now() freezes at
+ * the build date, and the "temporary" disallow would outlive its reset until
+ * someone happened to deploy. The route touches no database, so an hourly
+ * re-render costs nothing.
+ */
+export const revalidate = 3600;
+
 export default function robots(): MetadataRoute.Robots {
   const base = process.env.APP_URL ?? "https://www.ikratom.org";
 
-  // Private surfaces — never index regardless of crawler
-  const PRIVATE_PATHS = ["/admin/", "/api/", "/account/", "/messages/", "/dashboard/", "/pitch"];
+
+  // Cost-control disallow, added 2026-09-01. NOT a privacy or quality call.
+  //
+  // Every crawl of a legislator DETAIL page is a full server render — uncached
+  // DB read-set, billed Netlify request, billed compute, billed bandwidth.
+  // There are 1,001 of them and measured traffic was 99.97% bots (Supabase
+  // edge logs: 19,833 server-side reads/day from Netlify vs 11 from consumer
+  // ISPs). That burned 3.9 credits/day with ZERO deploys and put the 300-credit
+  // cap at ~2026-09-09, ten days before the 09-19 reset. Netlify disables the
+  // whole site at the cap; that is what happened on 2026-07-30.
+  //
+  // Note the trailing slash: this blocks /legislators/<id> but NOT the
+  // /legislators index, which stays indexed along with bills, campaigns,
+  // briefings and states. The pages remain fully reachable in-app and by
+  // direct link — we are only declining to invite a 1,001-page sweep.
+  //
+  // REVISIT after the credit reset: once these routes are CDN-cacheable (needs
+  // the signedIn signup-wall moved client-side, the /api/me pattern the root
+  // layout already uses) a crawl costs almost nothing and this should be lifted.
+  //
+  // ⚠ TEMPORARY — REMOVE AFTER THE 2026-09-19 CREDIT RESET. ⚠
+  // /bills/ is here reluctantly. Bill detail pages are the platform's most
+  // valuable indexed content ("what is TN HB 1649?") and giving that up hurts
+  // the mission. But the arithmetic left no room: after a 15-credit deploy the
+  // budget allows 0.87 credits/day for 17 days and the measured idle burn was
+  // 3.9/day, so a ~78% cut was required and legislators alone (70% of URLs)
+  // was not enough — bills are advertised changeFrequency:daily/priority:0.8
+  // against legislators' monthly/0.4, so they are crawled harder per URL.
+  // Being disabled is a 100% outage, which is strictly worse than being
+  // temporarily less discoverable.
+  // Restoring /bills/ is a one-line delete here; do it in the first deploy
+  // after the reset, ideally together with CDN-caching these routes.
+  //
+  // ── SELF-EXPIRING (owner ask 2026-09-08) ──────────────────────────────
+  // Every previous cost-control disallow relied on someone REMEMBERING to
+  // delete it, and the comments above show how that goes: this block still
+  // carries a "REMOVE AFTER THE 2026-09-19 CREDIT RESET" note for a Netlify
+  // constraint that no longer binds (that plan is now $9/1000 credits, at 9%).
+  // A temporary measure with no expiry is just a permanent one nobody decided
+  // on. So the date is in the CODE and it lifts itself.
+  //
+  // WHY THESE PATHS, 2026-09-08. Supabase free-tier egress sat at 96.3% with
+  // the cycle resetting 09-16, and exceeding it RESTRICTS the project — the
+  // API stops answering and the site goes down (it did on 2026-07-16). The
+  // public pages that could be made static were (news, campaigns index, the
+  // 51 state hubs); a static page costs nothing to crawl. What is left is ~28
+  // high-cardinality DYNAMIC routes where every bot hit is a live DB render,
+  // led by /alerts/ (5,687 rows) and /campaigns/<slug> (2,818). Measured
+  // traffic on this class of page was 99.97% bots.
+  //
+  // Trailing slashes matter: "/campaigns/" blocks /campaigns/<slug> but NOT
+  // the /campaigns index. Every page stays reachable in-app and by direct
+  // link; we are only declining to invite a multi-thousand-URL sweep.
+  //
+  // CORRECTION 2026-09-18. This comment used to go on to say the index pages
+  // are "now static" and therefore free to crawl, naming /alerts, /forum and
+  // /research. An audit of all 214 routes says otherwise, and a wrong comment
+  // beside a cost decision is how the next reader inherits the mistake.
+  //
+  // True for /campaigns (ISR 900s), /news (1800s) and the state hubs (SSG).
+  // NOT true for nine indexes this list leaves crawlable:
+  //   /academy /coalitions /intel /research /topics   — force-dynamic
+  //   /alerts /forum /legislators /library            — dynamic in practice
+  // The second group has no directive but awaits searchParams and/or builds a
+  // cookie-scoped Supabase client, which makes the render per-request anyway.
+  //
+  // They are NOT a drop-in ISR fix, which is the tempting conclusion. Seven of
+  // the nine render per-user or per-role (/intel and /library gate admin-only
+  // sections on getAdminContext/getCreatorContext, so a shared cache would be
+  // a leak, not a slow page). /topics is viewer-independent but stays dynamic
+  // for the build-time-secrets reason in its own comment. /research is already
+  // cheap despite being force-dynamic: its reads go through unstable_cache with
+  // a service-role client, so a crawl of it does not touch the database.
+  //
+  // Scale, so nobody over-corrects: 45 uncovered live-render route patterns,
+  // 44 of them single URLs — only /states/[code]/briefing is parameterised, at
+  // ~51. Call it ~95 crawlable live-render URLs against the ~10,000 this list
+  // covers. Worth fixing, nowhere near a reason to distrust the block.
+  //
+  // The trade, in the words of the 09-01 note that set this precedent: being
+  // disabled is a 100% outage, which is strictly worse than being temporarily
+  // less discoverable.
+  // RE-ARMED 2026-09-17, one day after it lifted, because lifting it is what
+  // started the burn it was created to prevent.
+  //
+  // The expiry fired at 2026-09-16T00:00Z — the same instant the egress cycle
+  // reset — and the hourly re-render above put the permissive robots.txt live
+  // without a deploy, exactly as designed. What the design missed is that only
+  // HALF the 09-08 plan was automated. The note above says restoring these
+  // paths should happen "ideally together with CDN-caching these routes"; the
+  // discoverability half self-executed on schedule and the cost half never
+  // shipped, so ~28 high-cardinality route families went back to being
+  // crawled while every hit is still a live DB render.
+  //
+  // What that cost, measured: within ~36 hours the cycle was at 0.321 GB with
+  // a burn of ~189 MB/day against a sustainable 167, projecting a breach on
+  // ~2026-10-11, five days before the 10-16 reset. The last cycle spent with
+  // these paths open peaked at 96.3%, and the cycle before that breached and
+  // RESTRICTED the project (2026-07-16). This is not a cron problem and the
+  // load-shedding gate cannot help: the gate sheds GitHub Actions jobs, and
+  // measured traffic on this class of page is 99.97% bots hitting page
+  // renders, which nothing in the cron fleet controls.
+  //
+  // The date is now past the owner's 60-day-untouched window (2026-11-16, a
+  // cycle boundary) rather than the next reset, because a measure that lapses
+  // inside that window is a measure that lapses while nobody is watching.
+  // Re-arming is reversible in one line and it restores a protection that was
+  // measured to work; it is NOT the permanent answer. The permanent answer is
+  // still the one the 09-01 note named: make these routes CDN-cacheable (move
+  // the signed-in signup wall client-side, per the /api/me pattern the root
+  // layout already uses) so a crawl costs nothing, then delete this block for
+  // good instead of dating it again. tests/robots-cost-control.test.ts now
+  // goes red two weeks BEFORE this date, so the next lapse is a decision
+  // rather than a discovery.
+  // The expiry date, the prefix list and the private list all live in
+  // src/lib/crawl-policy.ts so sitemap.ts reads exactly the same policy and
+  // cannot advertise what this file forbids.
+  const costControl = costControlActive() ? [...COST_CONTROL_PATHS] : [];
+
+  const DISALLOW = [...PRIVATE_PATHS, ...costControl];
 
   // ALLOW: AI search/citation crawlers — query-time fetchers that
   // attribute back to the source URL. Sending them to our structured
@@ -64,20 +192,63 @@ export default function robots(): MetadataRoute.Robots {
     "Amazonbot",           // Amazon training / Alexa
   ];
 
+  // BLOCK: commercial SEO / backlink / market-intel crawlers. These are
+  // reputable (they DO honor robots.txt) but crawl aggressively and give a
+  // nonprofit advocacy site ZERO value — no search referrals, no citations,
+  // just repeated hits against uncached dynamic pages that each run DB reads.
+  // Added 2026-07-16 as part of the egress-survival diet: with ~10 MAU the
+  // free-tier 5GB/mo Supabase egress cap was blown by bot + cron reads, and
+  // these SEO crawlers are pure DB-egress cost. Complements the read-caching
+  // work; robots.txt is honor-system, so it only stops the compliant ones,
+  // but the compliant ones are exactly the heavy-yet-useless SEO fleet.
+  const BLOCK_SEO_SCRAPER_BOTS = [
+    "AhrefsBot",           // Ahrefs backlink index — very aggressive
+    "SemrushBot",          // Semrush SEO audit crawler
+    "MJ12bot",             // Majestic backlink crawler
+    "DotBot",              // Moz / OpenSiteExplorer
+    "rogerbot",            // Moz (legacy UA)
+    "BLEXBot",             // WebMeUp backlink crawler
+    "PetalBot",            // Huawei Petal search — heavy, low referral value
+    "MegaIndex.ru",        // MegaIndex SEO
+    "SeekportBot",         // Seekport
+    "serpstatbot",         // Serpstat SEO
+    "Barkrowler",          // Babbar.tech backlink crawler
+    "ZoominfoBot",         // ZoomInfo B2B data resale
+    "magpie-crawler",      // Brandwatch
+    "DataForSeoBot",       // SEO data resale (also listed above for AI; explicit here)
+  ];
+
   return {
     rules: [
-      // Default: ordinary search engines allowed everywhere except private paths
-      { userAgent: "*", allow: "/", disallow: PRIVATE_PATHS },
+      // Default: ordinary search engines allowed everywhere except private paths.
+      //
+      // crawlDelay added 2026-08-30. The sitemap advertises ~1,430 URLs and 94%
+      // of them are /legislators/[id] (1,001) and /bills/[id] (341). Every sweep
+      // of that surface is billed TWICE on Netlify's credit-free tier — once as
+      // web requests, once as compute — and those are the two meters the API
+      // does not expose, so they burned ~57% of the month's credits invisibly.
+      // Caching those routes is the real fix (same commit); this just stops a
+      // single crawler from sweeping the whole surface in one burst.
+      // Google ignores crawlDelay (use Search Console), but Bing, Yandex and
+      // most of the long tail honour it.
+      { userAgent: "*", allow: "/", disallow: DISALLOW, crawlDelay: 10 },
 
-      // Explicit allow for citation crawlers — same scope as default
+      // Explicit allow for citation crawlers — same scope as default.
+      // These stay ALLOWED on purpose: when someone asks an assistant "what is
+      // TN HB 1649?", we want our page cited with attribution. That is the
+      // mission. They get the same crawlDelay, not a block.
       ...ALLOW_AI_CITATION_BOTS.map((bot) => ({
         userAgent: bot,
         allow: "/",
-        disallow: PRIVATE_PATHS,
+        disallow: DISALLOW,
+        crawlDelay: 10,
       })),
 
       // Explicit block for training crawlers
       ...BLOCK_AI_TRAINING_BOTS.map((bot) => ({ userAgent: bot, disallow: "/" })),
+
+      // Explicit block for aggressive SEO / market-intel crawlers (egress diet)
+      ...BLOCK_SEO_SCRAPER_BOTS.map((bot) => ({ userAgent: bot, disallow: "/" })),
     ],
     sitemap: `${base}/sitemap.xml`,
     host: base,

@@ -1,14 +1,10 @@
-import Link from "next/link";
+import { Suspense } from "react";
+import Link from "@/components/Link";
 import { siteConfig } from "@/config/site.config";
 import { AuthForm } from "@/modules/auth/components/AuthForm";
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ redirect?: string }>;
-}) {
-  const { redirect } = await searchParams;
-
+// Static: nothing here varies per visitor. AuthForm reads ?redirect= itself.
+export default function LoginPage() {
   return (
     <div className="flex flex-1 items-center justify-center py-16">
       <div className="w-full max-w-md px-4">
@@ -24,7 +20,11 @@ export default async function LoginPage({
             </Link>
           </p>
         </div>
-        <AuthForm redirectTo={redirect} />
+        {/* Suspense is required: AuthForm calls useSearchParams(), and Next
+            refuses to prerender a page that reads them outside a boundary. */}
+        <Suspense fallback={<div className="h-80" />}>
+          <AuthForm />
+        </Suspense>
       </div>
     </div>
   );

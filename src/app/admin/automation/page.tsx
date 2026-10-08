@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -121,7 +121,7 @@ type Run = {
 };
 
 export default async function AutomationDashboard() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_ops_console" });
   if (!ctx.ok) redirect("/dashboard");
 
   const sb = await createClient();

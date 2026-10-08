@@ -81,17 +81,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // LegiScan status code → our status string
 // docs: https://legiscan.com/misc/LegiScan_API_User_Manual.pdf p.34
+// LegiScan bill.status enum: 1=Introduced 2=Engrossed 3=Enrolled 4=Passed
+// 5=Vetoed 6=Failed. CORRECTED 2026-07-16: the old map had 5→passed_chamber
+// and 6→enacted — inverted vs the real enum, so a FAILED bill could be
+// published as "became law" and (being terminal) never self-correct; a
+// VETOED bill read as merely passed. Empirical anchor: enacted bills report
+// code 4 with enactment only in the action text (see PR #729 / the override
+// below), confirming 4=Passed-not-enacted and that no second "enacted" code
+// exists. Codes 7-10 belong to LegiScan's progress-EVENT space, not
+// bill.status — removed (they fall through to the action-text override).
+// 2/3 (Engrossed/Enrolled) deliberately stay at the conservative
+// "in_committee" floor to avoid an unreviewed mass status shift; the action
+// text promotes them when it says so.
 const STATUS_MAP = {
   1: "introduced",
   2: "in_committee",
   3: "in_committee",
   4: "passed_chamber",
-  5: "passed_chamber",
-  6: "enacted",
-  7: "vetoed",
-  8: "dead",
-  9: "dead",
-  10: "dead",
+  5: "vetoed",
+  6: "dead",
 };
 
 async function legiscanFetch(op, params) {
@@ -334,10 +342,32 @@ async function syncOne(bill) {
   // the action text explicitly indicates a terminal state and the numeric code is
   // still non-terminal, the action wins (identical rule to the backfill).
   const lsCodeStatus = STATUS_MAP[Number(detail.status)] ?? null;
-  const actionTerminal = terminalStatusFromAction(lsLastAction?.action ?? bill.last_action);
-  const lsStatus = actionTerminal && !["enacted", "vetoed", "dead"].includes(lsCodeStatus ?? "")
+  const TERMINAL = ["enacted", "vetoed", "dead"];
+  // Scan the FULL history newest→oldest for a terminal action — not just the
+  // single latest action. Post-enactment procedural notes ("Filed with
+  // Secretary of State", "Effective date 08/01/2025") used to null the
+  // override, letting the numeric code silently DOWNGRADE an enacted bill
+  // back to passed_chamber every night (the exact regression class
+  // backfill-bill-status.mjs guards against).
+  const sortedHistory = (detail.history ?? [])
+    .filter((h) => h?.date)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  let actionTerminal = null;
+  for (let i = sortedHistory.length - 1; i >= 0; i--) {
+    actionTerminal = terminalStatusFromAction(sortedHistory[i]?.action);
+    if (actionTerminal) break;
+  }
+  if (!actionTerminal) actionTerminal = terminalStatusFromAction(bill.last_action);
+  let lsStatus = actionTerminal && !TERMINAL.includes(lsCodeStatus ?? "")
     ? actionTerminal
     : lsCodeStatus;
+  // NEVER downgrade a terminal DB status on a quiet sync: if the DB already
+  // says enacted/vetoed/dead and neither the action text nor the numeric code
+  // asserts a terminal state, keep the DB value (mirror of the backfill's
+  // conservative rule).
+  if (TERMINAL.includes(bill.status) && lsStatus && !TERMINAL.includes(lsStatus)) {
+    lsStatus = null;
+  }
   const patch = {};
 
   // Extract current committee from the most-recent committee-mentioning

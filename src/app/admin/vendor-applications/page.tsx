@@ -6,7 +6,7 @@ import { VendorApplicationsPanel } from "./VendorApplicationsPanel";
 export const metadata = { title: "Vendor applications" };
 
 export default async function VendorApplicationsPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "review_vendor_applications" });
   if (!ctx.ok) redirect("/dashboard");
 
   const r = await listPendingVendorApplications();

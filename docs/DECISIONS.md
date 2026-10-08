@@ -216,3 +216,15 @@ Campaign de-duplication is enforced in three places that **do not share a key fo
 **Why:** Field report (2026-07-09): an advocate in a felony-status state deleted his street from his profile specifically to keep it out of campaign emails ("not tryin to get swatted") — which also silently broke his district auto-matching, the worse outcome. 139+ active campaign templates (the per-state trio) embedded `{{street}}` in signatures via the old wizard default. Fixing at the renderer covers every template, past and future, with no DB rewrite; legacy `{{street}}` lines collapse cleanly.
 
 **Don't** re-add street to `TemplateVars` output or "fix" the empty street var — it's load-bearing privacy, pinned by `tests/compose-uniform.test.ts`. The AI paths (`actions-personalize.ts`, `compose/actions.ts`, `rebuttal-actions.ts`) already strip street/zip from prompts; keep it that way.
+
+---
+
+## Cost-control crawl blocks are re-armed past the unattended window, not just to the next reset (2026-09-17)
+
+**Decision:** `COST_CONTROL_EXPIRES_AT` in `src/app/robots.ts` is set to **2026-11-16**, beyond the owner's 60-day-untouched requirement, rather than to the next egress reset. `tests/robots-cost-control.test.ts` now goes red **two weeks before** that date instead of only after it passes.
+
+**Why:** the 09-08 plan was two halves — block the ~28 high-cardinality dynamic route families now, and make them CDN-cacheable so the block could be deleted for good. Only the first half was automated. The expiry fired at 2026-09-16T00:00Z, the hourly `revalidate` put the permissive robots.txt live with no deploy exactly as designed, the caching work had never shipped, and within ~36 hours egress was running ~189 MB/day against a sustainable 167 — projecting a breach on ~2026-10-11, five days before the 10-16 reset. The prior cycle with these paths open peaked at 96.3%; the one before it breached and restricted the project (2026-07-16).
+
+The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, and measured traffic on this class of page is **99.97% bots** hitting live page renders. The gate has no lever on a crawl, so a date-based measure that lapses inside the unattended window has no backstop behind it.
+
+**Don't** treat a future red from that test as a date bump. The two legitimate fixes are: ship the CDN caching (move the signed-in signup wall client-side, per the `/api/me` pattern the root layout already uses) and delete the block, or re-arm deliberately and say why in the comment. Blocking `/bills/` costs the platform its most valuable indexed content, so the caching route is the one worth paying for.

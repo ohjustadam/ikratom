@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
 import { recordAdminAction } from "@/lib/audit";
-import { PERMISSION_BY_KEY } from "./permissions";
+import { PERMISSION_BY_KEY, isOwnerOnly } from "./permissions";
 
 /**
  * Owner-only server actions for editing per-user granular permissions.
@@ -18,13 +18,37 @@ export async function setUserPermissionOverride(input: {
   granted: boolean | null;  // null = remove the override entirely (fall back to role default)
   reason?: string;
 }) {
-  const ctx = await getAdminContext();
-  if (!ctx.ok) return { error: "Admin only." };
-  if (!ctx.isOwner) return { error: "Owner only — only the owner can edit permission overrides." };
+  // manage_permissions is itself owner-reserved, so this resolves to "owner"
+  // — but going through the permission system keeps one code path, and means
+  // the matrix describes its own access rule accurately.
+  const ctx = await getAdminContext({ require: "manage_permissions" });
+  if (!ctx.ok) return { error: "Owner only — only the owner can edit permission overrides." };
   if (!input.userId) return { error: "Missing user id." };
 
   const perm = PERMISSION_BY_KEY[input.permission];
   if (!perm) return { error: `Unknown permission: ${input.permission}` };
+
+  // Owner-reserved keys are not delegable. resolvePermissions() already
+  // ignores override rows for them, so writing one would be a lie stored in
+  // the DB — refuse it at the door instead, and say why.
+  if (isOwnerOnly(input.permission)) {
+    return {
+      error: `"${perm.label}" is owner-reserved and cannot be granted to anyone. ${perm.description}`,
+    };
+  }
+
+  // Overrides against the owner are meaningless (the owner short-circuits to
+  // "everything" so a deny would never apply) and dangerously misleading in
+  // the UI. Refuse rather than store a row that does nothing.
+  const supabaseCheck = await createClient();
+  const { data: target } = await supabaseCheck
+    .from("profiles")
+    .select("is_owner")
+    .eq("id", input.userId)
+    .single();
+  if (target?.is_owner) {
+    return { error: "The owner always holds every permission — overrides don't apply to the owner account." };
+  }
 
   const supabase = await createClient();
 

@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 export const metadata = { title: "Admin · Audit log" };
 
 export default async function AuditLogPage() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "view_audit_log" });
   if (!ctx.ok) redirect("/dashboard");
 
   const supabase = await createClient();
