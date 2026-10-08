@@ -12,7 +12,8 @@ export type AttemptReason =
   | "no-extract"
   | "no-gov-candidate"
   | "searxng-empty"
-  | "no-officials";
+  | "no-officials"
+  | "partial-roster";
 
 export type AttemptNote = {
   text: string;
@@ -38,6 +39,11 @@ export function describeLastAttempt(reason: string | null | undefined, detail?: 
     case "no-gov-candidate":
       return {
         text: "Web search found no official city or county website. Add the officials by hand, or reject the request if this place has no local government.",
+        needsHuman: true,
+      };
+    case "partial-roster":
+      return {
+        text: `The re-check only found ${site ?? "part"} of the officials on file, so it can't tell who left. Check the roster by hand and retire anyone who's gone.`,
         needsHuman: true,
       };
     case "searxng-empty":

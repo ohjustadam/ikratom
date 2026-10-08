@@ -16,6 +16,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { findAndExtractOfficials } from "./lib/officials-extract.mjs";
 import { fetchPageText } from "./lib/page-text.mjs";
+import { noCountyGovernment } from "./lib/no-county-government.mjs";
+import { sameOfficial } from "./lib/official-names.mjs";
 
 const t0 = Date.now();
 const args = process.argv.slice(2);
@@ -140,6 +142,23 @@ for (const req of pending ?? []) {
   console.log(`\n--- ${req.locality} (${req.level}) ---`);
   const city = req.locality.replace(/,\s*[A-Z]{2}$/, "");
 
+  // A county with no county government (CT, RI, most of MA) can never be
+  // fulfilled — reject it with the reason instead of churning no-extract
+  // forever. Only for NEW coverage: a county that already has officers on file
+  // (Middlesex MA keeps its sheriff/DA rows) is never auto-rejected.
+  const noGov = req.level === "county" ? noCountyGovernment(req.state, req.locality) : null;
+  if (noGov) {
+    const { count: onFile } = await sb.from("legislators").select("id", { count: "exact", head: true })
+      .eq("locality", req.locality).eq("level", "county").eq("active", true);
+    if (!onFile) {
+      console.log(`  ⊘ no county government — marking rejected`);
+      await sb.from("local_rep_requests")
+        .update({ status: "rejected", resolved_at: new Date().toISOString(), reject_reason: noGov })
+        .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");
+      continue;
+    }
+  }
+
   const res = await findAndExtractOfficials({
     sb, city, state: req.state, locality: req.locality, level: req.level, caller: "auto-fulfill-pending-cli",
   });
@@ -188,7 +207,11 @@ for (const req of pending ?? []) {
   console.log(`  ${fromLegistar ? "Legistar (clerk)" : res.source}: ${res.officials.length} official(s)`);
 
   const { data: existing } = await sb.from("legislators").select("id, full_name, term_end_date").eq("level", req.level).eq("locality", req.locality).eq("active", true);
-  const existingNames = new Set((existing ?? []).map((r) => r.full_name.toLowerCase()));
+  // Spelling-tolerant matching ("Pilar Faulkner" = "Pilar F.H. Faulkner",
+  // "Kenneth" = "Ken"): exact-string matching inserted duplicates AND left the
+  // real row un-re-confirmed (2026-10-07: Santa Fe, Trenton, Westchester).
+  const onRoster = (name) => res.officials.some((o) => sameOfficial(o.full_name, name));
+  const alreadyInDb = (name) => (existing ?? []).some((r) => sameOfficial(r.full_name, name));
 
   // REFRESH (2026-10-03): a locality re-queued by refresh-local-rosters.mjs
   // already has officials. Members still on the fresh roster get their check
@@ -196,13 +219,12 @@ for (const req of pending ?? []) {
   // retired only on strong evidence — the clerk's own system (Legistar) no
   // longer lists them, or their recorded term has ended — and never when the
   // fresh roster looks partial (an AI extract that found 3 of 9 members).
-  const freshNames = new Set(res.officials.map((o) => o.full_name.toLowerCase()));
-  const stillThere = (existing ?? []).filter((r) => freshNames.has(r.full_name.toLowerCase()));
+  const stillThere = (existing ?? []).filter((r) => onRoster(r.full_name));
   if (stillThere.length) {
     await sb.from("legislators").update({ last_synced_at: new Date().toISOString() }).in("id", stillThere.map((r) => r.id));
     console.log(`  ↻ re-confirmed ${stillThere.length} existing official(s)`);
   }
-  const gone = (existing ?? []).filter((r) => !freshNames.has(r.full_name.toLowerCase()));
+  const gone = (existing ?? []).filter((r) => !onRoster(r.full_name));
   const looksComplete = res.officials.length >= Math.ceil((existing ?? []).length * 0.6);
   for (const r of gone) {
     const termEnded = r.term_end_date && Date.parse(r.term_end_date) < Date.now();
@@ -216,7 +238,7 @@ for (const req of pending ?? []) {
 
   const rows = [];
   for (const o of res.officials) {
-    if (existingNames.has(o.full_name.toLowerCase())) { console.log(`    = ${o.full_name}: already in DB`); continue; }
+    if (alreadyInDb(o.full_name)) { console.log(`    = ${o.full_name}: already in DB`); continue; }
     let md;
     if (fromLegistar) {
       md = [
@@ -262,7 +284,15 @@ for (const req of pending ?? []) {
 
   // Fulfill only when the locality now has officials (inserted or already
   // present). If every extracted official failed verification, leave pending.
+  // A REFRESH whose fresh roster is partial is not done either: 2026-10-07 the
+  // batch closed Westchester (1 of 18 re-confirmed), Hartford, Dover, DC and
+  // Springfield IL after reading one person each, leaving the rest unchecked.
   const covered = rows.length > 0 || (existing ?? []).length > 0;
+  if (covered && (existing ?? []).length > 0 && !looksComplete) {
+    console.log(`  ⏳ partial roster (${res.officials.length} found vs ${existing.length} on file) — left pending`);
+    await recordAttempt(req, "partial-roster", `${res.officials.length} of ${existing.length}`);
+    continue;
+  }
   if (covered) {
     await sb.from("local_rep_requests").update({ status: "fulfilled", resolved_at: new Date().toISOString() })
       .eq("state", req.state).eq("locality", req.locality).eq("level", req.level).eq("status", "pending");

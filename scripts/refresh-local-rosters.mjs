@@ -21,6 +21,7 @@
  *   node --env-file=.env.local scripts/refresh-local-rosters.mjs --dry-run [--max 8]
  */
 import { createClient } from "@supabase/supabase-js";
+import { noCountyGovernment } from "./lib/no-county-government.mjs";
 
 const DRY = process.argv.includes("--dry-run");
 const maxAt = process.argv.indexOf("--max");
@@ -65,7 +66,9 @@ const due = [...locs.values()].map((l) => {
   // Order: ended terms first, then upcoming hearings, then plain staleness (oldest first).
   const rank = l.termEnded > 0 ? 0 : hearingSoon.has(l.locality) ? 1 : 2;
   return { ...l, reason, rank };
-}).filter((l) => l.reason).sort((a, b) => a.rank - b.rank || b.ageDays - a.ageDays);
+  // No county government (Middlesex MA keeps a sheriff/DA on file): there is no
+  // roster page for the batch to re-read, so re-queueing just churns. Hand-kept.
+}).filter((l) => l.reason && !(l.level === "county" && noCountyGovernment(l.state, l.locality))).sort((a, b) => a.rank - b.rank || b.ageDays - a.ageDays);
 
 const { data: owner } = await sb.from("profiles").select("id").eq("is_owner", true).single();
 const { data: open } = await sb.from("local_rep_requests").select("state, locality, level").eq("status", "pending").limit(2000);

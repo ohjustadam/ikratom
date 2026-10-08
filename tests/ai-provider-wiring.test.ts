@@ -81,7 +81,7 @@ const AI_SCRIPTS = scriptsUsingAI();
 const workflowsRunningAI = fs
   .readdirSync(WORKFLOW_DIR)
   .filter((f) => f.endsWith(".yml"))
-  .map((f) => ({ file: f, src: fs.readFileSync(path.join(WORKFLOW_DIR, f), "utf8") }))
+  .map((f) => ({ file: f, src: fs.readFileSync(path.join(WORKFLOW_DIR, f), "utf8").replace(/\r\n/g, "\n") })) // CRLF on Windows checkouts
   .map((w) => ({ ...w, scripts: [...AI_SCRIPTS].filter((s) => w.src.includes(s)) }))
   .filter((w) => w.scripts.length > 0);
 
