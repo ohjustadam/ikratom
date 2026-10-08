@@ -23,7 +23,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { LEGISTAR_TENANTS } from "./lib/legistar-tenants.mjs";
 import { webapiClientFor } from "./lib/legistar-officials.mjs";
-import { kratomItems, buildMeetingRow, mergeTenants } from "./lib/legistar-events.mjs";
+import { kratomItems, buildMeetingRow, mergeTenants, scanIsBroken } from "./lib/legistar-events.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -82,7 +82,10 @@ const until = new Date(Date.parse(today) + DAYS * 86_400_000).toISOString().slic
 console.log(`Scanning ${tenants.length} Legistar tenant(s), meetings ${today} → ${until}${DRY_RUN ? " [DRY RUN]" : ""}…\n`);
 
 const outcome = {}; // fail reason / "ok" → count
-let events = 0, itemCalls = 0, hits = 0, inserted = 0, dupes = 0, budgetHit = false;
+// Liveness counters. "0 kratom items" is the normal answer, so the run must also
+// prove it READ something: a quiet week is "28 answered, 100 meetings, 900 items
+// parsed, 0 matches"; a broken scan is "0 answered" or "0 agendas parsed".
+let events = 0, agendaOk = 0, agendaFail = 0, itemsParsed = 0, hits = 0, inserted = 0, dupes = 0, budgetHit = false;
 const goneClients = []; // live in legistar_tenants, but the webapi says the client no longer exists
 
 for (const t of tenants) {
@@ -95,16 +98,22 @@ for (const t of tenants) {
     if (ev.fail === "gone" && t.fromDb) goneClients.push(t.client);
     console.log(`✗ ${ev.fail}`); await sleep(300); continue;
   }
+  if (!Array.isArray(ev.data)) {
+    // The webapi answered but not with a list — a shape change, not "no meetings".
+    outcome["bad-shape"] = (outcome["bad-shape"] ?? 0) + 1;
+    console.log("✗ bad-shape"); await sleep(300); continue;
+  }
   outcome.ok = (outcome.ok ?? 0) + 1;
-  const list = Array.isArray(ev.data) ? ev.data : [];
+  const list = ev.data;
   events += list.length;
   let tHits = 0;
   for (const e of list) {
     if (overBudget()) { budgetHit = true; break; }
     await sleep(250);
     const it = await getJson(`/${t.client}/events/${e.EventId}/eventitems?AgendaNote=1&MinutesNote=0&Attachments=0`);
-    itemCalls++;
-    if (it.fail || !Array.isArray(it.data)) continue;
+    if (it.fail || !Array.isArray(it.data)) { agendaFail++; continue; }
+    agendaOk++;
+    itemsParsed += it.data.length;
     const found = kratomItems(it.data);
     if (!found.length) continue;
     const row = buildMeetingRow(t, e, found);
@@ -122,7 +131,11 @@ for (const t of tenants) {
 }
 
 const outcomes = Object.entries(outcome).map(([k, v]) => `${v} ${k}`).join(", ");
-const notes = `${tenants.length} tenants (${outcomes}) · ${events} meetings (${itemCalls} agendas read) · ${hits} with kratom items · ${inserted} new` +
+const answered = outcome.ok ?? 0;
+// Broken, not quiet: nobody answered, or there were meetings but no agenda parsed.
+const broken = scanIsBroken({ answered, events, agendaOk });
+const notes = `${broken ? "BROKEN SCAN — " : ""}${tenants.length} tenants (${outcomes}) · ${events} meetings · ` +
+  `agendas ${agendaOk} parsed/${agendaFail} failed · ${itemsParsed} agenda items read · ${hits} with kratom items · ${inserted} new` +
   `${dupes ? ` · ${dupes} already filed` : ""}${budgetHit ? " · budget-hit" : ""}`;
 console.log(`\nDone in ${((Date.now() - t0) / 60_000).toFixed(1)} min — ${notes}`);
 
@@ -145,8 +158,9 @@ if (!DRY_RUN) {
       source: "scan_legistar_tenants",
       started_at: new Date(t0).toISOString(),
       finished_at: new Date().toISOString(),
-      // No tenant answered = the scan itself is broken, not a quiet week.
-      status: (outcome.ok ?? 0) === 0 ? "fail" : inserted > 0 ? "success" : "empty",
+      // "error" (the repo's usual failure word) only when the scan is broken;
+      // "empty" means it read agendas and none mentioned kratom.
+      status: broken ? "error" : inserted > 0 ? "success" : "empty",
       rows_added: inserted,
       notes: notes.slice(0, 500),
     });

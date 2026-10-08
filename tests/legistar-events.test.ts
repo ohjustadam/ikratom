@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  kratomItems, parseEventTime, eventMeetingAt, buildMeetingRow, mergeTenants, CONF_STRONG, CONF_WEAK,
+  kratomItems, parseEventTime, eventMeetingAt, buildMeetingRow, mergeTenants, scanIsBroken, CONF_STRONG, CONF_WEAK,
 } from "../scripts/lib/legistar-events.mjs";
 import { AUTOPUBLISH_FLOOR } from "../scripts/lib/meeting-discover.mjs";
 import { VERIFIED_VIA } from "../scripts/lib/meeting-autoapprove.mjs";
@@ -86,6 +86,19 @@ describe("buildMeetingRow", () => {
   it("files nothing without hits or without a date", () => {
     expect(buildMeetingRow(tenant, event, [])).toBeNull();
     expect(buildMeetingRow(tenant, { ...event, EventDate: null }, [{ title: "kratom", strong: true }])).toBeNull();
+  });
+});
+
+describe("scanIsBroken — a quiet week must not look like a dead scan", () => {
+  it("quiet: tenants answered and agendas parsed, nothing matched", () => {
+    expect(scanIsBroken({ answered: 28, events: 100, agendaOk: 100 })).toBe(false);
+    expect(scanIsBroken({ answered: 3, events: 0, agendaOk: 0 })).toBe(false); // nothing scheduled yet
+  });
+  it("broken: nobody answered (auth wall, outage, endpoint gone)", () => {
+    expect(scanIsBroken({ answered: 0, events: 0, agendaOk: 0 })).toBe(true);
+  });
+  it("broken: meetings listed but not one agenda parsed (eventitems shape change)", () => {
+    expect(scanIsBroken({ answered: 28, events: 100, agendaOk: 0 })).toBe(true);
   });
 });
 

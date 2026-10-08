@@ -87,6 +87,16 @@ export function buildMeetingRow(tenant, event, hits) {
 }
 
 /**
+ * A run that finds no kratom items is normal; a run that READ nothing is
+ * broken, and the two must not share a status. Broken = no tenant answered,
+ * or there were meetings but not one agenda parsed (an /eventitems shape change
+ * or auth wall would look exactly like a quiet week otherwise).
+ */
+export function scanIsBroken({ answered, events, agendaOk }) {
+  return answered === 0 || (events > 0 && agendaOk === 0);
+}
+
+/**
  * Merge the live DB tenants with the static list, one entry per webapi client.
  * DB rows win: they were probed against the webapi itself.
  */
