@@ -1266,16 +1266,15 @@ jobs:
   scan-legistar-tenants:
     needs: budget
     if: needs.budget.outputs.run == 'true'
-    # Proactive scan of ~22 major US Legistar tenants (NYC, SF, LA
-    # County, Chicago, Philadelphia, San Antonio, Atlanta, Miami,
-    # Seattle, etc.) for kratom-relevant agenda items.
+    # Reads upcoming agendas for every Legistar tenant we know (live rows in
+    # legistar_tenants + the static big-city list) through the KEYLESS
+    # webapi (/events + /eventitems) and files meetings with a kratom
+    # agenda item. Rewritten 2026-10-08: the old Calendar.aspx scrape found
+    # "no meeting links" on every tenant (the page renders client-side).
     #
-    # Parallel to scan-granicus-tenants — Legistar is the third major
-    # US municipal-meeting platform (after CivicPlus + Granicus), runs
-    # ~500 large cities + counties incl. NYC City Council.
-    #
-    # Free — static HTTP fetches, ~1 req/sec per tenant. Hits land
-    # in pending_review for admin moderation.
+    # Free — structured JSON, ~4 req/sec. Rows go in as legistar_scan, which
+    # auto-approve-meetings may publish; a bare "7-OH" match is held for a
+    # human. Self-limits with --max-minutes 30 (default) under this timeout.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
