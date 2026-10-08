@@ -35,7 +35,15 @@ async function loadRouter(extraEnv: Record<string, string> = {}) {
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; vi.unstubAllEnvs(); });
-beforeEach(() => { vi.unstubAllEnvs(); });
+// tests/setup.ts loads .env.local, so on a dev machine every REAL provider key
+// is in process.env — the router saw ~10 providers instead of the 3 stubbed
+// here and these tests failed locally while CI (no .env.local) stayed green.
+// Blank them so each test sees exactly the pool it sets up.
+const REAL_PROVIDER_ENV = /^(AI_GATEWAY_API_KEY|AI_PROVIDER_ORDER|CEREBRAS_API_KEY|CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_AI_TOKEN|GEMINI_API_KEY(_\d+)?|GH_MODELS_TOKEN|GITHUB_MODELS_TOKEN|GROQ_API_KEY|MISTRAL_API_KEY|NVIDIA_API_KEY|OPENROUTER_API_KEY|SAMBANOVA_API_KEY)$/;
+beforeEach(() => {
+  vi.unstubAllEnvs();
+  for (const k of Object.keys(process.env)) if (REAL_PROVIDER_ENV.test(k)) vi.stubEnv(k, "");
+});
 
 describe("ai-router under a throttled pool", () => {
   it("does not re-hit a provider that a parallel call already found throttled", async () => {

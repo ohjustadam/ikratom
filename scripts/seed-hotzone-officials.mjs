@@ -27,6 +27,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { classifyUsPlace } from "./lib/place-classify.mjs";
 import { countyForPlace, neighborCounties } from "./lib/census-geo.mjs";
+import { noCountyGovernment } from "./lib/no-county-government.mjs";
 
 const DRY = process.argv.includes("--dry-run");
 const argAt = process.argv.indexOf("--max-ring2");
@@ -96,9 +97,12 @@ const { data: open } = await sb.from("local_rep_requests").select("state, locali
   .eq("user_id", owner.id).in("status", ["pending", "rejected"]).limit(1000);
 const alreadyOpen = new Set((open ?? []).map((r) => `${r.state}|${r.locality}|${r.level}`));
 
-let filed = 0, alreadyCovered = 0, queued = 0, ring2New = 0, deferred = 0;
+let filed = 0, alreadyCovered = 0, queued = 0, ring2New = 0, deferred = 0, noGov = 0;
 const ordered = [...targets.entries()].sort((a, b) => a[1].ring - b[1].ring || a[1].pri - b[1].pri);
 for (const [key, t] of ordered) {
+  // CT / RI / most of MA have no county government — a county roster request
+  // there can never be filled (6 rejected by hand on 2026-10-08).
+  if (t.level === "county" && noCountyGovernment(t.state, t.locality)) { noGov++; continue; }
   if (await covered(t.state, t.locality, t.level)) { alreadyCovered++; continue; }
   if (alreadyOpen.has(key)) { queued++; continue; }
   if (t.ring === 2) {
@@ -114,6 +118,6 @@ for (const [key, t] of ordered) {
   if (!e) filed++; else console.log(`  ✗ ${e.message}`);
 }
 
-const summary = `${meetings.length} meeting rows · ${targets.size} localities (${hotCounties.size} hot counties) · ${filed} roster requests filed · ${queued} already queued · ${alreadyCovered} already covered · ${deferred} ring-2 deferred to later runs`;
+const summary = `${meetings.length} meeting rows · ${targets.size} localities (${hotCounties.size} hot counties) · ${filed} roster requests filed · ${queued} already queued · ${alreadyCovered} already covered · ${deferred} ring-2 deferred to later runs · ${noGov} skipped (no county government)`;
 console.log(summary);
 if (!DRY) await sb.from("scraper_runs").insert({ source: "seed_hotzone_officials", started_at: startedAt, finished_at: new Date().toISOString(), status: "success", rows_updated: filed, notes: summary });
