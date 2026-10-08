@@ -1,230 +1,137 @@
 #!/usr/bin/env node
 /**
- * Proactive scan of major-city Legistar tenants for kratom-relevant
- * agenda items. Parallel to scan-granicus-tenants.mjs.
+ * Scan upcoming Legistar agendas for kratom items — via the keyless webapi.
  *
- * Strategy per tenant:
- *   1. Fetch Calendar.aspx → list of upcoming meetings
- *   2. Extract MeetingDetail.aspx links
- *   3. For each meeting, fetch detail page + check kratom keywords
- *   4. Hits land in municipal_meetings as pending_review
+ * For every Legistar tenant we know (live rows in `legistar_tenants` plus the
+ * static big-city list), read the meetings in the next --days days and their
+ * agenda items, and file any meeting with a kratom item into municipal_meetings.
+ * Structured clerk data end to end — no model, no page scraping — so rows go in
+ * as `discovered_via: "legistar_scan"`, which auto-approve-meetings is allowed
+ * to publish (scripts/lib/meeting-autoapprove.mjs). A match on a bare "7-OH"
+ * alone is held below the publish floor for a human.
  *
- * Legistar pages are ASP.NET WebForms with __VIEWSTATE — but the
- * Calendar.aspx default view is static HTML accessible to plain GET.
- *
- * Rate-limited at ~1 req/sec per tenant to be polite.
+ * REWRITTEN 2026-10-08. The previous version scraped Calendar.aspx, which is
+ * rendered client-side: every tenant printed "no meeting links found" and the
+ * job logged "0 hits" every night while having read nothing. This version also
+ * reports per-tenant API outcomes, so an empty night and a broken scan no longer
+ * look the same.
  *
  * Run:
- *   node --env-file=.env.local scripts/scan-legistar-tenants.mjs
  *   node --env-file=.env.local scripts/scan-legistar-tenants.mjs --dry-run
- *   node --env-file=.env.local scripts/scan-legistar-tenants.mjs --tenant chicago
+ *   node --env-file=.env.local scripts/scan-legistar-tenants.mjs --tenant seattle --days 90
  */
 import { createClient } from "@supabase/supabase-js";
-import { hasKratomKeyword } from "./lib/kratom-keywords.mjs";
 import { LEGISTAR_TENANTS } from "./lib/legistar-tenants.mjs";
+import { webapiClientFor } from "./lib/legistar-officials.mjs";
+import { kratomItems, buildMeetingRow, mergeTenants } from "./lib/legistar-events.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
+const num = (flag, dflt) => { const n = Number(arg(flag)); return Number.isFinite(n) && n > 0 ? n : dflt; };
 const TENANT_FILTER = arg("--tenant");
 const DRY_RUN = args.includes("--dry-run");
+const DAYS = num("--days", 45);
+const MAX_MINUTES = num("--max-minutes", 30);
+const MAX_EVENTS_PER_TENANT = num("--max-events", 60);
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1); }
 const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+const WEBAPI = "https://webapi.legistar.com/v1";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function stripHtml(html) {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-async function fetchText(url) {
-  try {
-    const r = await fetch(url, {
-      headers: { "User-Agent": UA, Accept: "text/html" },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!r.ok) return null;
-    return await r.text();
-  } catch {
-    return null;
-  }
-}
-
-// Extract MeetingDetail.aspx links from a Legistar Calendar.aspx page.
-// Legistar lists meetings in a Telerik RadGrid; agenda links look like:
-//   <a href="MeetingDetail.aspx?ID=12345&GUID=...&...">Meeting details</a>
-// or as absolute URLs.
-function extractMeetingLinks(html, base) {
-  const links = new Set();
-  const rx = /href=["']([^"']*MeetingDetail\.aspx\?[^"']+)["']/gi;
-  let m;
-  while ((m = rx.exec(html))) {
-    let href = m[1].replace(/&amp;/g, "&");
-    if (!/^https?:/.test(href)) {
-      href = href.startsWith("/") ? `${base}${href}` : `${base}/${href}`;
-    }
-    links.add(href);
-  }
-  return [...links];
-}
-
-// Extract row context near a MeetingDetail.aspx href so we can read
-// the meeting date from the row.
-function extractRowContext(html, agendaUrl) {
-  const escaped = agendaUrl.replace(/&/g, "&amp;").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const rx = new RegExp(`<tr[^>]*>([\\s\\S]{0,4000}?${escaped}[\\s\\S]{0,1500}?)<\\/tr>`, "i");
-  const m = html.match(rx);
-  return m ? stripHtml(m[1]) : null;
-}
-
-function parseDateFromRow(rowText) {
-  if (!rowText) return null;
-  // "5/12/2026 6:00 PM"
-  const shortRx = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})\s*(AM|PM)?)?/i;
-  const sm = rowText.match(shortRx);
-  if (sm) {
-    let hour = sm[4] ? parseInt(sm[4], 10) : 18;
-    const mm = sm[5] ? parseInt(sm[5], 10) : 0;
-    if (sm[6]?.toUpperCase() === "PM" && hour < 12) hour += 12;
-    if (sm[6]?.toUpperCase() === "AM" && hour === 12) hour = 0;
-    return new Date(parseInt(sm[3]), parseInt(sm[1]) - 1, parseInt(sm[2]), hour, mm);
-  }
-  // "May 12, 2026"
-  const longRx = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s+(\d{4})(?:\s+(\d{1,2}):(\d{2})\s*(AM|PM)?)?/i;
-  const lm = rowText.match(longRx);
-  if (lm) {
-    const months = { january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11 };
-    const monthIdx = months[lm[1].toLowerCase()];
-    let hour = lm[4] ? parseInt(lm[4], 10) : 18;
-    const mm = lm[5] ? parseInt(lm[5], 10) : 0;
-    if (lm[6]?.toUpperCase() === "PM" && hour < 12) hour += 12;
-    if (lm[6]?.toUpperCase() === "AM" && hour === 12) hour = 0;
-    return new Date(parseInt(lm[3]), monthIdx, parseInt(lm[2]), hour, mm);
-  }
-  return null;
-}
-
-function findKratomExcerpt(html) {
-  const stripped = stripHtml(html);
-  if (!hasKratomKeyword(stripped)) return null;
-  const idx = stripped.toLowerCase().search(/(kratom|mitragyn|7[- ]?oh|gas[- ]?station\s+(?:drug|heroin|opioid)|tianeptine)/i);
-  return stripped.slice(Math.max(0, idx - 200), idx + 600);
-}
-
-async function scanTenant(tenant) {
-  process.stdout.write(`  ${tenant.locality.padEnd(28)} `);
-
-  const listHtml = await fetchText(tenant.calendarUrl);
-  if (!listHtml) {
-    console.log(`✗ calendar 404/timeout`);
-    return { tenant: tenant.subdomain, status: "list_404" };
-  }
-  // Derive base host
-  const baseMatch = tenant.calendarUrl.match(/^(https?:\/\/[^/]+)/i);
-  const base = baseMatch ? baseMatch[1] : tenant.calendarUrl;
-
-  const links = extractMeetingLinks(listHtml, base).slice(0, 30);
-  if (links.length === 0) {
-    console.log(`· no meeting links found`);
-    return { tenant: tenant.subdomain, status: "no_links" };
-  }
-
-  let scanned = 0, hits = 0, inserted = 0;
-  for (const meetingUrl of links) {
-    const html = await fetchText(meetingUrl);
-    scanned++;
-    if (!html) { await sleep(800); continue; }
-
-    const excerpt = findKratomExcerpt(html);
-    if (!excerpt) { await sleep(800); continue; }
-
-    hits++;
-    const rowText = extractRowContext(listHtml, meetingUrl);
-    const meetingAt = parseDateFromRow(rowText);
-
-    if (!meetingAt || meetingAt.getTime() < Date.now() - 86_400_000) {
-      await sleep(800);
-      continue;
-    }
-
-    if (DRY_RUN) {
-      console.log(`\n    🎯 HIT (dry-run): ${tenant.locality} · ${meetingAt.toISOString()}`);
-      console.log(`        ${excerpt.slice(0, 200)}…`);
-      await sleep(800);
-      continue;
-    }
-
-    const { error } = await sb.from("municipal_meetings").insert({
-      state: tenant.state,
-      locality: tenant.locality,
-      body_name: tenant.body ?? null,
-      meeting_at: meetingAt.toISOString(),
-      format: "hybrid",
-      agenda_url: meetingUrl,
-      agenda_text: excerpt.slice(0, 4000),
-      discovered_via: "legistar_scan",
-      source_url: meetingUrl,
-      ai_confidence: 0.9,
-      kratom_relevance: "confirmed",
-      moderation_status: "pending_review",
-    });
-    if (error && error.code !== "23505") {
-      console.log(`\n    ✗ DB: ${error.message?.slice(0, 100)}`);
-    } else if (!error) {
-      inserted++;
-    }
-    await sleep(800);
-  }
-  console.log(`✓ ${scanned} scanned, ${hits} hits, ${inserted} new`);
-  return { tenant: tenant.subdomain, status: "ok", scanned, hits, inserted };
-}
-
-// ---------- main ----------
-const targets = TENANT_FILTER
-  ? LEGISTAR_TENANTS.filter((t) => t.subdomain === TENANT_FILTER)
-  : LEGISTAR_TENANTS;
-
-if (targets.length === 0) {
-  console.error(`No matching tenant: ${TENANT_FILTER}`);
-  process.exit(1);
-}
-
-console.log(`Scanning ${targets.length} Legistar tenant(s)${DRY_RUN ? " [DRY RUN]" : ""}…\n`);
 const t0 = Date.now();
-let totalInserted = 0;
-let totalHits = 0;
-const results = [];
-for (const tenant of targets) {
-  const r = await scanTenant(tenant);
-  results.push(r);
-  if (r.status === "ok") {
-    totalHits += r.hits ?? 0;
-    totalInserted += r.inserted ?? 0;
+const overBudget = () => Date.now() - t0 > MAX_MINUTES * 60_000;
+
+/** GET JSON; classifies the failures a tenant can have. */
+async function getJson(path) {
+  try {
+    const res = await fetch(`${WEBAPI}${path}`, {
+      signal: AbortSignal.timeout(20_000),
+      headers: { "User-Agent": "iKratom Civic Data (contact@ikratom.org)", Accept: "application/json" },
+    });
+    const text = await res.text();
+    if (res.status === 401 || res.status === 403) return { fail: "token" };   // tenant requires an API token
+    if (/not set up in InSite/i.test(text)) return { fail: "gone" };          // client no longer on Legistar
+    if (!res.ok) return { fail: `http-${res.status}` };
+    return { data: JSON.parse(text) };
+  } catch (e) {
+    return { fail: e?.name === "TimeoutError" ? "timeout" : "error" };
   }
-  await sleep(1500);
 }
 
-const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
-console.log(`\nDone in ${elapsed} min — ${totalHits} kratom mentions across ${targets.length} tenants, ${totalInserted} new meetings.`);
+// ---------- tenants ----------
+const { data: dbRows, error: dbErr } = await sb.from("legistar_tenants")
+  .select("state, locality, webapi_client, body").eq("probe_status", "live");
+if (dbErr) console.log(`⚠ legistar_tenants read failed (${dbErr.message}) — static list only`);
+let tenants = mergeTenants(dbRows ?? [], LEGISTAR_TENANTS, webapiClientFor);
+if (TENANT_FILTER) tenants = tenants.filter((t) => t.client === TENANT_FILTER);
+if (tenants.length === 0) { console.error(`No matching tenant: ${TENANT_FILTER}`); process.exit(1); }
 
-try {
-  await sb.from("scraper_runs").insert({
-    source: "scan_legistar_tenants",
-    started_at: new Date(t0).toISOString(),
-    finished_at: new Date().toISOString(),
-    status: totalInserted > 0 ? "success" : "empty",
-    rows_added: totalInserted,
-    notes: `${targets.length} tenants · ${totalHits} hits · ${totalInserted} new`,
-  });
-} catch { /* best-effort */ }
+// --from lets a dry run replay a past window to prove the detector still finds
+// a known kratom agenda (Naperville passed one 2026-08-10/21). Never writes past
+// meetings: the calendar and reminders are for upcoming ones.
+const realToday = new Date().toISOString().slice(0, 10);
+const FROM = arg("--from");
+if (FROM && (!/^\d{4}-\d{2}-\d{2}$/.test(FROM) || (FROM < realToday && !DRY_RUN))) {
+  console.error("--from must be YYYY-MM-DD, and a past date needs --dry-run"); process.exit(2);
+}
+const today = FROM ?? realToday;
+const until = new Date(Date.parse(today) + DAYS * 86_400_000).toISOString().slice(0, 10);
+console.log(`Scanning ${tenants.length} Legistar tenant(s), meetings ${today} → ${until}${DRY_RUN ? " [DRY RUN]" : ""}…\n`);
+
+const outcome = {}; // fail reason / "ok" → count
+let events = 0, itemCalls = 0, hits = 0, inserted = 0, dupes = 0, budgetHit = false;
+
+for (const t of tenants) {
+  if (overBudget()) { budgetHit = true; break; }
+  process.stdout.write(`  ${t.locality.padEnd(30)} `);
+  const filter = encodeURIComponent(`EventDate ge datetime'${today}' and EventDate le datetime'${until}'`);
+  const ev = await getJson(`/${t.client}/events?$filter=${filter}&$orderby=EventDate&$top=${MAX_EVENTS_PER_TENANT}`);
+  if (ev.fail) { outcome[ev.fail] = (outcome[ev.fail] ?? 0) + 1; console.log(`✗ ${ev.fail}`); await sleep(300); continue; }
+  outcome.ok = (outcome.ok ?? 0) + 1;
+  const list = Array.isArray(ev.data) ? ev.data : [];
+  events += list.length;
+  let tHits = 0;
+  for (const e of list) {
+    if (overBudget()) { budgetHit = true; break; }
+    await sleep(250);
+    const it = await getJson(`/${t.client}/events/${e.EventId}/eventitems?AgendaNote=1&MinutesNote=0&Attachments=0`);
+    itemCalls++;
+    if (it.fail || !Array.isArray(it.data)) continue;
+    const found = kratomItems(it.data);
+    if (!found.length) continue;
+    const row = buildMeetingRow(t, e, found);
+    if (!row) continue;
+    hits++; tHits++;
+    console.log(`\n    🎯 ${row.body_name} · ${row.meeting_at} · conf ${row.ai_confidence}\n       ${found[0].title.slice(0, 160)}`);
+    if (DRY_RUN) continue;
+    const { error } = await sb.from("municipal_meetings").insert(row);
+    if (!error) inserted++;
+    else if (error.code === "23505") dupes++; // already filed (state + locality + meeting_at)
+    else console.log(`    ✗ DB: ${error.message?.slice(0, 120)}`);
+  }
+  console.log(`${tHits ? "" : "· "}${list.length} meeting(s)${tHits ? `, ${tHits} with kratom items` : ""}`);
+  await sleep(300);
+}
+
+const outcomes = Object.entries(outcome).map(([k, v]) => `${v} ${k}`).join(", ");
+const notes = `${tenants.length} tenants (${outcomes}) · ${events} meetings (${itemCalls} agendas read) · ${hits} with kratom items · ${inserted} new` +
+  `${dupes ? ` · ${dupes} already filed` : ""}${budgetHit ? " · budget-hit" : ""}`;
+console.log(`\nDone in ${((Date.now() - t0) / 60_000).toFixed(1)} min — ${notes}`);
+
+if (!DRY_RUN) {
+  try {
+    await sb.from("scraper_runs").insert({
+      source: "scan_legistar_tenants",
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      // No tenant answered = the scan itself is broken, not a quiet week.
+      status: (outcome.ok ?? 0) === 0 ? "fail" : inserted > 0 ? "success" : "empty",
+      rows_added: inserted,
+      notes: notes.slice(0, 500),
+    });
+  } catch { /* best-effort telemetry */ }
+}
 process.exit(0);
