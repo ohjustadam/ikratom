@@ -63,7 +63,7 @@ export async function MyDistrictWidget({
   const oh = status?.admin_7oh_status ?? status?.derived_7oh_status ?? null;
 
   return (
-    <section className="rounded-lg border border-zinc-800 bg-zinc-950/40">
+    <section className="rounded-xl border border-zinc-800 bg-zinc-950/40">
       <div className="flex items-end justify-between border-b border-zinc-900 px-4 py-2.5">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">your district</p>

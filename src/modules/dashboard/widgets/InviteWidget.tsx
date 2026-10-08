@@ -15,7 +15,7 @@ export async function InviteWidget() {
   const inviteUrl = await buildInviteUrl(summary.invite_code);
 
   return (
-    <section className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+    <section className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
       <header className="flex items-baseline justify-between">
         <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
           Invite friends

@@ -313,7 +313,7 @@ function Card({ legislator: l, mine, agg }: { legislator: Legislator; mine: bool
 
   return (
     <li
-      className={`relative rounded-lg border p-4 transition ${
+      className={`ik-lift relative rounded-xl border p-4 ${
         mine
           ? "border-emerald-700/50 bg-emerald-950/10 ring-1 ring-emerald-700/30"
           : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700"

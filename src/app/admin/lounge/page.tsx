@@ -91,7 +91,7 @@ export default async function AdminLoungePage() {
                   </form>
                   <form action={dismissHeldMessage}>
                     <input type="hidden" name="id" value={h.id} />
-                    <button className="rounded bg-zinc-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-zinc-600">
+                    <button className="rounded bg-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-100 hover:bg-zinc-600">
                       Dismiss
                     </button>
                   </form>
