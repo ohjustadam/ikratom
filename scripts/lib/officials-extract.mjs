@@ -197,8 +197,13 @@ async function logExtract(sb, { caller, provider, status, city, state, count }) 
  *
  * @returns one of:
  *   { ok:true, source, provider, officials:[…], sources:[…] }
- *   { queued:true, reason }   — couldn't resolve deterministically and the
- *                               long-tail infra is unavailable; leave pending.
+ *   { queued:true, reason, detail? } — couldn't resolve; leave pending.
+ *                               reason: site-blocked (top page refused us with
+ *                               a bot check — needs a human) | no-extract |
+ *                               no-gov-candidate | searxng-empty |
+ *                               searxng-unconfigured | unincorporated-cdp.
+ *                               detail = hostname tried. Rendered for admins by
+ *                               src/lib/local-rep-attempt.ts.
  *   { error }                 — unexpected failure.
  */
 export async function findAndExtractOfficials({ sb, city, state, locality, level, caller = "officials-extract" }) {
@@ -256,10 +261,22 @@ export async function findAndExtractOfficials({ sb, city, state, locality, level
   const bareName = cityName.toLowerCase().replace(/\b(county|parish|borough|village|township|city|town|of)\b/gi, " ").replace(/\s+/g, " ").trim();
   const squashedName = bareName.replace(/[^a-z0-9]/g, "");
 
+  // Outcome detail for the admin queue: the hostname we tried, and whether the
+  // BEST-ranked candidate (almost always the official site) refused us with a
+  // bot check. That case can never self-resolve — a human has to read the page
+  // (Elk Grove, CA: elkgrove.gov behind a Cloudflare challenge, 2026-10-07).
+  const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return null; } };
+  let topBlocked = false;
+  let readHost = null;
+
   let lastProvider = null;
-  for (const url of candidates) {
-    const text = await fetchPageText(url);
-    if (!text) continue;
+  for (const [i, url] of candidates.entries()) {
+    const diag = {};
+    const text = await fetchPageText(url, { diag });
+    if (!text) {
+      if (i === 0 && diag.blocked) topBlocked = true;
+      continue;
+    }
     // STATE gate: the fetched page must not belong to a same-named place in
     // another state (Hamilton, MI query → cityofhamilton.com = Hamilton,
     // OHIO). The gazetteer resolver pins the page's state from its own text;
@@ -276,6 +293,7 @@ export async function findAndExtractOfficials({ sb, city, state, locality, level
         continue; // page never names the locality it would be governing
       }
     }
+    readHost ??= hostOf(url); // passed every gate — this is the page we actually read
     const { officials, provider } = await extractFromText({ text, city: cityName, state, level: lvl, sourceUrl: url });
     lastProvider = provider;
     if (officials.length > 0) {
@@ -284,5 +302,6 @@ export async function findAndExtractOfficials({ sb, city, state, locality, level
     }
   }
   await logExtract(sb, { caller, provider: lastProvider, status: "empty", city: cityName, state, count: 0 });
-  return { queued: true, reason: "no-extract" };
+  if (topBlocked) return { queued: true, reason: "site-blocked", detail: hostOf(candidates[0]) };
+  return { queued: true, reason: "no-extract", detail: readHost ?? hostOf(candidates[0]) };
 }

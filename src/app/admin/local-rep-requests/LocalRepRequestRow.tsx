@@ -16,6 +16,7 @@ import {
  */
 export function LocalRepRequestRow({
   request,
+  attemptNote,
   rejectButton,
 }: {
   request: {
@@ -24,6 +25,8 @@ export function LocalRepRequestRow({
     level: "municipal" | "county";
     user_count: number;
   };
+  /** Server-rendered "last batch try" line (LastAttemptNote). */
+  attemptNote?: ReactNode;
   /** Server-rendered Reject button slot. Lets us keep server actions
    *  in a server component while the row itself is client-side. */
   rejectButton?: ReactNode;
@@ -31,7 +34,7 @@ export function LocalRepRequestRow({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ text: string; info: boolean } | null>(null);
   const [data, setData] = useState<{ officials: SuggestionWithTier[]; sources: string[] } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [saving, startSaving] = useTransition();
@@ -49,7 +52,7 @@ export function LocalRepRequestRow({
       });
       setLoading(false);
       if (!r.ok) {
-        setError(r.error);
+        setError({ text: r.error, info: !!r.info });
         return;
       }
       setData({ officials: r.officials, sources: r.sources });
@@ -75,7 +78,7 @@ export function LocalRepRequestRow({
     if (!data) return;
     const selected = data.officials.filter((o) => picked.has(o.full_name) && !o.already_exists);
     if (selected.length === 0) {
-      setError("Pick at least one official to accept.");
+      setError({ text: "Pick at least one official to accept.", info: false });
       return;
     }
     startSaving(async () => {
@@ -90,7 +93,7 @@ export function LocalRepRequestRow({
         setResult({ inserted: r.inserted, alreadyExisted: r.alreadyExisted });
         setTimeout(() => router.refresh(), 1200);
       } else {
-        setError(r.error);
+        setError({ text: r.error, info: false });
       }
     });
   }
@@ -125,6 +128,7 @@ export function LocalRepRequestRow({
           {rejectButton}
         </div>
       </div>
+      {attemptNote}
 
       {open && (
         <div className="border-t border-zinc-800 bg-zinc-950/60 p-4">
@@ -134,8 +138,10 @@ export function LocalRepRequestRow({
             </p>
           )}
           {error && (
-            <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-              {error}
+            <p className={error.info
+              ? "rounded-md border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300"
+              : "rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300"}>
+              {error.text}
             </p>
           )}
           {result && (

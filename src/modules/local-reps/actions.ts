@@ -218,22 +218,33 @@ export async function listPendingCoverageRequests() {
   // can prioritize areas with multiple pending users.
   const { data, error } = await supabase
     .from("local_rep_requests")
-    .select("state, locality, level, user_id")
+    .select("state, locality, level, user_id, last_attempt_at, last_attempt_reason, last_attempt_detail")
     .eq("status", "pending")
     .order("created_at", { ascending: true });
 
   if (error) return { error: error.message };
 
-  type Row = { state: string; locality: string; level: string; user_id: string };
-  const grouped = new Map<string, { state: string; locality: string; level: string; user_count: number; user_ids: string[] }>();
+  type Attempt = { at: string; reason: string | null; detail: string | null };
+  type Row = {
+    state: string; locality: string; level: string; user_id: string;
+    last_attempt_at: string | null; last_attempt_reason: string | null; last_attempt_detail: string | null;
+  };
+  const grouped = new Map<string, {
+    state: string; locality: string; level: string; user_count: number; user_ids: string[];
+    last_attempt: Attempt | null;
+  }>();
   for (const r of (data ?? []) as Row[]) {
     const key = `${r.state}::${r.locality}::${r.level}`;
     if (!grouped.has(key)) {
-      grouped.set(key, { state: r.state, locality: r.locality, level: r.level, user_count: 0, user_ids: [] });
+      grouped.set(key, { state: r.state, locality: r.locality, level: r.level, user_count: 0, user_ids: [], last_attempt: null });
     }
     const g = grouped.get(key)!;
     g.user_count++;
     g.user_ids.push(r.user_id);
+    // The batch stamps every pending row for the locality at once; keep the newest.
+    if (r.last_attempt_at && (!g.last_attempt || r.last_attempt_at > g.last_attempt.at)) {
+      g.last_attempt = { at: r.last_attempt_at, reason: r.last_attempt_reason, detail: r.last_attempt_detail };
+    }
   }
   return {
     ok: true,
