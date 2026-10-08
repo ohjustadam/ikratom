@@ -40,6 +40,21 @@ const JURIS_NAME_TO_ABBR = new Map(
   Object.entries(STATE_NAMES).map(([abbr, name]) => [name.toLowerCase(), abbr]),
 );
 const JURIS_NAME_ENTRIES = [...JURIS_NAME_TO_ABBR.entries()].sort((a, b) => b[0].length - a[0].length);
+/**
+ * Drop a term end the model invented from "Next election YYYY" (2026-10-07,
+ * Middlesex MA: "Next election 2026" became term_end 2026-01-01, so the refresh
+ * job saw three sitting officers as "term ended" and re-queued them daily).
+ * A bare YYYY-01-01 is how that guess comes out; keep it only when the page
+ * doesn't tie that year to an upcoming election.
+ */
+export function termEndOrNull(value, pageText) {
+  const v = typeof value === "string" ? value.trim() : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const m = /^(\d{4})-01-01$/.exec(v);
+  if (m && new RegExp(`(next|upcoming)\\s+election[^0-9]{0,20}${m[1]}`, "i").test(String(pageText ?? ""))) return null;
+  return v;
+}
+
 export function stateFromJurisdiction(pageJurisdiction) {
   const raw = String(pageJurisdiction ?? "").trim();
   if (!raw) return null;
@@ -82,7 +97,7 @@ Rules:
 - THE JURISDICTION MUST MATCH. If the page is about a DIFFERENT government than the one named in the prompt — a same-named city in another state, a NEIGHBORING city, the county when asked for the city, a school/water/special district, or a facility/department/authority board (medical care community, road commission, DHHS, housing authority) — return {"officials":[]}.
 - full_name MUST be the person's actual name ("Jane Doe"), NEVER a title + surname ("Commissioner Doe"). If the page only gives "Commissioner Doe", omit that entry.
 - Never fabricate emails or phones — leave unknown fields null.
-- term_end_date as YYYY-MM-DD only if the page states it; else null.
+- term_end_date as YYYY-MM-DD only if the page states when the term ENDS; else null. A "next election" year or an election date is NOT a term end — return null for it.
 - Output ONLY the JSON object.`;
 
 /** Rank SearXNG results, preferring official government domains. */
@@ -165,7 +180,7 @@ async function extractFromText({ text, city, state, level, sourceUrl }) {
       phone: o.phone ?? null,
       website: o.website ?? null,
       party: o.party ?? null,
-      term_end_date: o.term_end_date ?? null,
+      term_end_date: termEndOrNull(o.term_end_date, text),
       source_url: sourceUrl,
       source_note: `Extracted from ${new URL(sourceUrl).hostname} via SearXNG + ${result.provider}, ${new Date().toISOString().slice(0, 10)}`,
       source_kind: "search",

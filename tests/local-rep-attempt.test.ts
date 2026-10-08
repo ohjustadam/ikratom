@@ -25,7 +25,7 @@ describe("describeLastAttempt", () => {
   });
 
   it("covers every code the batch writes", () => {
-    for (const code of ["site-blocked", "no-extract", "no-gov-candidate", "searxng-empty", "no-officials"]) {
+    for (const code of ["site-blocked", "no-extract", "no-gov-candidate", "searxng-empty", "no-officials", "partial-roster"]) {
       const n = describeLastAttempt(code, null);
       expect(n, code).not.toBeNull();
       expect(n!.text, code).not.toContain(`(${code})`); // not the unknown-code fallback
