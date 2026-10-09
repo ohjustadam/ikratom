@@ -38,15 +38,17 @@ let failed = false;
 
 for (const [state, cfg] of Object.entries(COUNTY_DIRECTORIES)) {
   if (ONLY && state !== ONLY) continue;
-  let html;
+  const parsed = [];
   try {
-    const r = await fetch(cfg.url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(30_000) });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    html = await r.text();
+    for (const url of cfg.urls ?? [cfg.url]) {
+      const r = await fetch(url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(60_000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
+      parsed.push(...cfg.parse(await r.text()));
+    }
   } catch (e) {
     failed = true; notes.push(`${state}: fetch failed (${e.message})`); console.log(`✗ ${state}: ${e.message}`); continue;
   }
-  const people = boardOnly(cfg.parse(html));
+  const people = boardOnly(parsed);
   const byCounty = new Map();
   for (const p of people) byCounty.set(p.county, [...(byCounty.get(p.county) ?? []), p]);
   if (byCounty.size < Math.ceil(cfg.counties * 0.9)) {
@@ -68,7 +70,7 @@ for (const [state, cfg] of Object.entries(COUNTY_DIRECTORIES)) {
     const dirKeys = new Set(members.map((m) => nameKey(m.full_name)));
 
     const rows = members.filter((m) => !have.has(nameKey(m.full_name))).map((m) => ({
-      state, role: "county_commissioner", district: null, full_name: m.full_name,
+      state, role: m.role ?? "county_commissioner", district: null, full_name: m.full_name,
       party: cfg.party ?? null, email: m.email, phone: m.phone, website: cfg.url, title: m.title,
       level: "county", locality, body: "county_commission", active: true, term_end_date: null,
       verified_sources_md: `- Source: ${cfg.url}\n- ${cfg.label}, read ${today} (deterministic parse of the official directory, no AI).`,

@@ -64,6 +64,28 @@ export function parseNdacoDirectory(html) {
   return out;
 }
 
+/**
+ * Kentucky Association of Counties — county officials directory. The page
+ * server-renders every official it is asked for (?title=...), one entry per
+ * person: county, name, title, a mailing address (often a HOME address — never
+ * stored) and a phone. Kentucky's governing body is the fiscal court: the
+ * County Judge/Executive presides over the magistrates or commissioners.
+ */
+export function parseKacoDirectory(html) {
+  const out = [];
+  for (const e of String(html ?? "").split(/<div class="pt-2 pb-4 /).slice(1)) {
+    const county = textOf((e.match(/title-county-name-all[^>]*>([^<]+)</) || [])[1]);
+    const full_name = textOf((e.match(/official-name">\s*<h3>([\s\S]*?)<\/h3>/) || [])[1]);
+    const title = textOf((e.match(/official-title">([\s\S]*?)<\/div>/) || [])[1]);
+    const phone = (e.match(/href="tel:([^"]+)"/) || [])[1]?.trim() || null;
+    const email = (e.match(/href="mailto:([^"]+)"/) || [])[1]?.trim() || null;
+    if (!/ County$/.test(county) || full_name.split(" ").length < 2) continue;
+    const role = /judge\s*\/\s*exec/i.test(title) ? "county_executive" : "county_commissioner";
+    out.push({ county, full_name, title, phone, email, role });
+  }
+  return out;
+}
+
 /** The registry the seeder walks. counties = how many a full parse must name. */
 export const COUNTY_DIRECTORIES = {
   ND: {
@@ -72,6 +94,16 @@ export const COUNTY_DIRECTORIES = {
     counties: 53,
     party: "Nonpartisan", // ND county offices are elected on a nonpartisan ballot
     parse: parseNdacoDirectory,
+  },
+  KY: {
+    url: "https://kaco.org/county-information/county-officials-directory/",
+    urls: [
+      "https://kaco.org/county-information/county-officials-directory/?coId=All&title=County+Judge%2FExecutive",
+      "https://kaco.org/county-information/county-officials-directory/?coId=All&title=County+Magistrate%2FCommissioner",
+    ],
+    label: "Kentucky Association of Counties county officials directory",
+    counties: 120,
+    parse: parseKacoDirectory,
   },
 };
 

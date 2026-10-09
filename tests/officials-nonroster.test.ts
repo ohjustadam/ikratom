@@ -41,12 +41,14 @@ describe("isNonGoverningCountyTitle", () => {
   it("flags election and administrative offices", () => {
     for (const t of ["Auditor", "County Auditor", "Election Commissioner", "Commissioner, Board of Elections",
       "Clerk of the Board", "County Clerk", "County Treasurer", "Sheriff, MIDDLESEX COUNTY", "Register of Deeds",
-      "State's Attorney", "Coroner"]) expect(isNonGoverningCountyTitle(t)).toBe(true);
+      "State's Attorney", "Coroner", "Circuit Judge", "District Judge", "Probate Judge"])
+      expect(isNonGoverningCountyTitle(t)).toBe(true);
   });
 
   it("keeps governing-board titles", () => {
     for (const t of ["Commissioner", "Commission Chair", "County Board Member", "County Legislator",
-      "Chairman of the Board of Supervisors", "Commissioner, District 3", "County Executive", null, undefined])
+      "Chairman of the Board of Supervisors", "Commissioner, District 3", "County Executive",
+      "County Judge", "County Judge/Executive", "County Judge / Executive", null, undefined])
       expect(isNonGoverningCountyTitle(t)).toBe(false);
   });
 });

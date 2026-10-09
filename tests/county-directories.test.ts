@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseNdacoDirectory, nameKey, decodeEntities, COUNTY_DIRECTORIES } from "../scripts/lib/county-directories.mjs";
+import { parseNdacoDirectory, parseKacoDirectory, nameKey, decodeEntities, COUNTY_DIRECTORIES } from "../scripts/lib/county-directories.mjs";
 
 // Trimmed from the live page (2026-10-09): two county blocks, real markup.
 const person = (pos: string, nameHtml: string, office: string, cell: string, home: string, email: string) => `
@@ -47,6 +47,25 @@ describe("parseNdacoDirectory", () => {
 
   it("returns nothing for a page that changed shape", () => {
     expect(parseNdacoDirectory("<html><body>Maintenance</body></html>")).toEqual([]);
+  });
+});
+
+// Trimmed from kaco.org (2026-10-09): one magistrate, one judge/executive.
+const ky = (county: string, name: string, title: string, tel: string) => `<div class="pt-2 pb-4 col-12 col-lg-6 contact_county_1 contact-county"> <div class="row"> <div class="col-12 py-1 official-county-name"> <span class="title-county-name-all fs-xl" style="display: none;">${county}</span> </div> <div class="col-12 official-name"> <h3>${name} </h3> </div> <div class="col-12 official-title"> ${title} </div> <div class="col-12"> 2999 Melson Ridge Rd. </div> <div class="col-12"> Columbia, KY 42728 </div> <div class="col-12"> <a href="tel:${tel}">${tel}</a> </div> </div> </div>`;
+
+describe("parseKacoDirectory", () => {
+  const rows = parseKacoDirectory(ky("Adair County", "Sammy Baker", "County Magistrate", "270-378-1536") + ky("Adair County", "Larry Russell", "County Judge/Executive", "270-384-4703"));
+
+  it("reads county, name, title and phone; magistrates sit on the fiscal court", () => {
+    expect(rows[0]).toEqual({ county: "Adair County", full_name: "Sammy Baker", title: "County Magistrate", phone: "270-378-1536", email: null, role: "county_commissioner" });
+  });
+
+  it("the County Judge/Executive is the county executive", () => {
+    expect(rows[1].role).toBe("county_executive");
+  });
+
+  it("never carries the mailing address (often a home address)", () => {
+    expect(JSON.stringify(rows)).not.toMatch(/Melson|42728/);
   });
 });
 
