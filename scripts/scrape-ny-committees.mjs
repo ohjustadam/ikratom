@@ -60,7 +60,7 @@ async function loadStateLegislators(state) {
     const { data } = await sb.from("legislators")
       .select("id, full_name, role, district")
       .eq("state", state)
-      .eq("active", true)
+      .eq("active", true).in("level", ["state", "federal"])
       .range(from, from + 999);
     if (!data || data.length === 0) break;
     all = all.concat(data);

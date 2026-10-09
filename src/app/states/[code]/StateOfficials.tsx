@@ -42,11 +42,18 @@ export async function StateOfficials({ state, stateName }: { state: string; stat
     .select("id, full_name, role, party, district, email, phone, title, portrait_url, website")
     .eq("state", state)
     .eq("active", true)
+    // State + federal only. Whole states of county boards are on file since
+    // 2026-10-09 (Tennessee 1,678); listed here they sorted ahead of the
+    // legislature ("county_…" < "state_…") and pushed it past this limit.
+    .in("level", ["state", "federal"])
     .order("role")
     .order("full_name")
     .limit(500);
   if (error || !data?.length) return null;
   const officials = data as Official[];
+  const { data: placeRows } = await supabase.rpc("local_official_places", { p_state: state });
+  const places = (placeRows ?? []) as Array<{ locality: string; level: string; n: number }>;
+  const localTotal = places.reduce((n, p) => n + p.n, 0);
 
   // Per-official kratom-vote aggregate (post-P1 vote-linkage). One batched query, no N+1.
   const ids = officials.map((o) => o.id);
@@ -148,6 +155,14 @@ export async function StateOfficials({ state, stateName }: { state: string; stat
               </ul>
             </details>
           ))}
+          {localTotal > 0 && (
+            <p className="rounded-md border border-zinc-800/70 bg-zinc-950/30 p-2.5 text-xs text-zinc-400">
+              📍 Local officials · {localTotal.toLocaleString()} in {places.length.toLocaleString()} counties &amp; cities —{" "}
+              <a href={`/legislators?state=${state}&tab=local`} className="text-emerald-400 hover:underline">
+                browse by county or city →
+              </a>
+            </p>
+          )}
         </div>
       </details>
     </section>

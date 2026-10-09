@@ -87,6 +87,7 @@ export default async function ThreatMatrixPage({
         .from("legislators")
         .select("id, full_name, state, role, district, party")
         .eq("active", true)
+        .in("level", ["state", "federal"]) // legislators, not county boards
         .order("id", { ascending: true })
         .range(i * CHUNK, (i + 1) * CHUNK - 1);
       if (stateFilter) q = q.eq("state", stateFilter);

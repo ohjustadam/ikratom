@@ -234,6 +234,9 @@ const getStateHub = unstable_cache(
         .select("id, role")
         .eq("state", codeUpper)
         .eq("active", true)
+        // Legislators only: county boards (whole states since 2026-10-09)
+        // have no sponsorships or committee seats and would flood the tiers.
+        .in("level", ["state", "federal"])
         .limit(2000),
       // Scope stances to THIS state's legislators via the FK join — an unscoped
       // select hits the PostgREST 1000-row cap (~4k kratom stance rows exist) and

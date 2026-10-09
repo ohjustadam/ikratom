@@ -42,13 +42,42 @@ export async function getUserLegislators(
 ): Promise<Legislator[]> {
   if (!profile.state) return [];
 
-  const { data: stateLegs } = await supabase
-    .from("legislators")
-    .select("id,state,role,district,full_name,party,email,phone,office_address,website,portrait_url,level,locality,body,title")
-    .eq("state", profile.state)
-    .eq("active", true);
+  // Local places to match (computed first: they scope the second query).
+  const localityMatches: string[] = [];
+  if (profile.city) {
+    const norm = normalizeLocality(profile.city, profile.state);
+    if (norm) localityMatches.push(norm);
+  }
+  if (profile.county) {
+    const norm = normalizeLocality(profile.county, profile.state);
+    if (norm) localityMatches.push(norm);
+  }
 
-  if (!stateLegs) return [];
+  // Two scoped reads, never "every official in the state": since 2026-10-09
+  // whole states of county boards are on file (Tennessee 1,678), and an
+  // unscoped select ran past the 1,000-row cap in arbitrary order — a user's
+  // own legislators could silently drop out. ilike without wildcards is a
+  // case-insensitive equality (legacy rows pre-date normalizeLocality);
+  // values are double-quoted because localities contain commas.
+  const [{ data: statewide }, { data: localRows }] = await Promise.all([
+    supabase
+      .from("legislators")
+      .select("id,state,role,district,full_name,party,email,phone,office_address,website,portrait_url,level,locality,body,title")
+      .eq("state", profile.state)
+      .eq("active", true)
+      .in("level", ["state", "federal"]),
+    localityMatches.length
+      ? supabase
+          .from("legislators")
+          .select("id,state,role,district,full_name,party,email,phone,office_address,website,portrait_url,level,locality,body,title")
+          .eq("state", profile.state)
+          .eq("active", true)
+          .in("level", ["municipal", "county"])
+          .or(localityMatches.map((l) => `locality.ilike."${l.replace(/["\\%_]/g, "")}"`).join(","))
+      : Promise.resolve({ data: [] as Legislator[] }),
+  ]);
+  if (!statewide) return [];
+  const stateLegs = [...(statewide as Legislator[]), ...((localRows ?? []) as Legislator[])];
 
   const matches: Legislator[] = [];
 
@@ -90,15 +119,6 @@ export async function getUserLegislators(
   // (Cory Kilheeney) before 2026-05-17. Belt-and-suspenders: we ALSO
   // do case-insensitive fallback if the canonical form doesn't match
   // (handles legacy legislators rows that pre-date normalizeLocality).
-  const localityMatches: string[] = [];
-  if (profile.city) {
-    const norm = normalizeLocality(profile.city, profile.state);
-    if (norm) localityMatches.push(norm);
-  }
-  if (profile.county) {
-    const norm = normalizeLocality(profile.county, profile.state);
-    if (norm) localityMatches.push(norm);
-  }
   const lowerSet = new Set(localityMatches.map((l) => l.toLowerCase()));
   for (const l of stateLegs) {
     if (l.level !== "municipal" && l.level !== "county") continue;

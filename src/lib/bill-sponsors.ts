@@ -26,12 +26,15 @@ export async function upsertBillSponsors(
 ): Promise<void> {
   if (!Array.isArray(sponsorships) || sponsorships.length === 0) return;
 
-  // Pull all legislators in this state once for name-matching
+  // Pull this state's legislators once for name-matching. Sponsors are state
+  // or federal legislators: matching against county boards too (whole states
+  // since 2026-10-09) would let a same-named commissioner take the sponsor.
   const { data: legislators } = await supabase
     .from("legislators")
     .select("id, full_name, party, district")
     .eq("state", state)
-    .eq("active", true);
+    .eq("active", true)
+    .in("level", ["state", "federal"]);
 
   const byName = new Map<string, { id: string; party: string | null; district: string | null }>();
   for (const l of (legislators ?? []) as Array<{ id: string; full_name: string | null; party: string | null; district: string | null }>) {

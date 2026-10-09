@@ -76,6 +76,7 @@ export default async function StateBriefingPage({ params }: { params: Params }) 
       .select("id, full_name, state, role, district, party, phone, email")
       .eq("state", STATE)
       .eq("active", true)
+      .in("level", ["state", "federal"]) // legislators, not county boards
       .limit(2000),
     sb.from("legislator_stance")
       // State-scoped via FK join — unscoped select hits the PostgREST 1000-row

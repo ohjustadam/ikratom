@@ -170,7 +170,7 @@ async function processState(STATE_CODE) {
 const { data: legs } = await sb.from("legislators")
   .select("id, full_name, role, district, state, party")
   .eq("state", STATE_CODE)
-  .eq("active", true)
+  .eq("active", true).in("level", ["state", "federal"])
   .limit(2000);
 
 // 2. Load their kratom bill sponsorships (any kratom bill in the state)

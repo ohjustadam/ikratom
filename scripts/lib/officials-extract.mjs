@@ -95,8 +95,10 @@ export function isNonRosterPage(url) {
 /**
  * County offices that are not seats on the governing board. Counties only:
  * in Michigan townships the clerk and treasurer DO sit on the board and vote.
+ * "judge" means a COURT judge: a Texas or Arkansas "County Judge" and
+ * Kentucky's "County Judge/Executive" preside over the governing body.
  */
-const NON_GOVERNING_COUNTY_TITLE_RE = /\b(auditor|treasurer|sheriff|assessor|recorder|coroner|register of deeds|prosecut\w*|state'?s attorney|district attorney|judge|county clerk|clerk of (the )?(board|courts?)|elections?)\b/i;
+const NON_GOVERNING_COUNTY_TITLE_RE = /\b(auditor|treasurer|sheriff|assessor|recorder|coroner|register of deeds|prosecut\w*|state'?s attorney|district attorney|(?<!county )judge(?!\s*\/?\s*exec)|county clerk|clerk of (the )?(board|courts?)|elections?)\b/i;
 export function isNonGoverningCountyTitle(title) {
   return NON_GOVERNING_COUNTY_TITLE_RE.test(String(title ?? ""));
 }

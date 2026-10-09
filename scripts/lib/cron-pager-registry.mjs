@@ -118,6 +118,9 @@ export const REGISTRY = [
       // State term starts from the openstates/people roster (keyless). Added
       // 2026-09-07 — term_start_date was 0% at every tier before these two.
       "backfill_state_term_dates",
+      // Whole-state county boards from official directories (deterministic,
+      // keyless). Added 2026-10-09 with North Dakota: 7 -> 53 counties.
+      "seed_county_directories",
       // Wayback portrait recovery (portrait-sync.yml) — was unregistered.
       "portraits_wayback",
       // The weekly self-review (cron-weekly.yml). Registered from birth. It
