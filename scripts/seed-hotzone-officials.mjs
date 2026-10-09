@@ -112,7 +112,7 @@ for (const [key, t] of ordered) {
   console.log(`${DRY ? "[dry] " : ""}request ${t.level} roster: ${t.locality} (ring ${t.ring})`);
   if (DRY) { filed++; continue; }
   const { error: e } = await sb.from("local_rep_requests").upsert(
-    { user_id: owner.id, state: t.state, locality: t.locality, level: t.level, status: "pending" },
+    { user_id: owner.id, state: t.state, locality: t.locality, level: t.level, status: "pending", source: "hotzone_seed" },
     { onConflict: "user_id,state,locality,level", ignoreDuplicates: true },
   );
   if (!e) filed++; else console.log(`  ✗ ${e.message}`);

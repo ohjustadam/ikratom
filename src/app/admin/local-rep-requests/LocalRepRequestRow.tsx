@@ -8,6 +8,26 @@ import {
   type SuggestionWithTier,
 } from "@/modules/admin/local-rep-inline-actions";
 
+const AUTO_SOURCES: Record<string, { label: string; title: string }> = {
+  hotzone_seed: {
+    label: "🤖 Hot-zone watch",
+    title: "Filed automatically by the nightly job: kratom is on an agenda in or next to this place.",
+  },
+  roster_refresh: {
+    label: "🔁 Roster refresh",
+    title: "Filed automatically by the nightly job: the officials on file are due for a re-check.",
+  },
+};
+
+function AutoSourceBadge({ source }: { source: string }) {
+  const s = AUTO_SOURCES[source] ?? { label: `🤖 ${source}`, title: "Filed automatically" };
+  return (
+    <span title={s.title} className="rounded bg-sky-950/50 px-1.5 py-0.5 text-[10px] text-sky-300">
+      {s.label}
+    </span>
+  );
+}
+
 /**
  * Single row on /admin/local-rep-requests. Click "AI suggest" → expands
  * an inline panel with the suggested officials + per-official Accept
@@ -24,6 +44,8 @@ export function LocalRepRequestRow({
     locality: string;
     level: "municipal" | "county";
     user_count: number;
+    member_count: number;
+    auto_sources: string[];
   };
   /** Server-rendered "last batch try" line (LastAttemptNote). */
   attemptNote?: ReactNode;
@@ -114,9 +136,12 @@ export function LocalRepRequestRow({
         <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
           {request.level}
         </span>
-        <span className="text-xs text-zinc-500">
-          {request.user_count} {request.user_count === 1 ? "user waiting" : "users waiting"}
-        </span>
+        {request.member_count > 0 && (
+          <span className="text-xs text-zinc-500">
+            {request.member_count} {request.member_count === 1 ? "member waiting" : "members waiting"}
+          </span>
+        )}
+        {request.auto_sources.map((s) => <AutoSourceBadge key={s} source={s} />)}
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"

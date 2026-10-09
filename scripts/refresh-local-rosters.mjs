@@ -85,8 +85,8 @@ for (const l of due) {
   const { data: mine } = await sb.from("local_rep_requests").select("id")
     .eq("user_id", owner.id).eq("state", l.state).eq("locality", l.locality).eq("level", l.level).maybeSingle();
   const { error } = mine
-    ? await sb.from("local_rep_requests").update({ status: "pending", resolved_at: null }).eq("id", mine.id)
-    : await sb.from("local_rep_requests").insert({ user_id: owner.id, state: l.state, locality: l.locality, level: l.level, status: "pending" });
+    ? await sb.from("local_rep_requests").update({ status: "pending", resolved_at: null, source: "roster_refresh" }).eq("id", mine.id)
+    : await sb.from("local_rep_requests").insert({ user_id: owner.id, state: l.state, locality: l.locality, level: l.level, status: "pending", source: "roster_refresh" });
   if (error) console.log(`  ✗ ${error.message}`);
 }
 

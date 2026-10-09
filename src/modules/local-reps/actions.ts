@@ -218,7 +218,7 @@ export async function listPendingCoverageRequests() {
   // can prioritize areas with multiple pending users.
   const { data, error } = await supabase
     .from("local_rep_requests")
-    .select("state, locality, level, user_id, last_attempt_at, last_attempt_reason, last_attempt_detail")
+    .select("state, locality, level, user_id, source, last_attempt_at, last_attempt_reason, last_attempt_detail")
     .eq("status", "pending")
     .order("created_at", { ascending: true });
 
@@ -226,21 +226,27 @@ export async function listPendingCoverageRequests() {
 
   type Attempt = { at: string; reason: string | null; detail: string | null };
   type Row = {
-    state: string; locality: string; level: string; user_id: string;
+    state: string; locality: string; level: string; user_id: string; source: string;
     last_attempt_at: string | null; last_attempt_reason: string | null; last_attempt_detail: string | null;
   };
   const grouped = new Map<string, {
     state: string; locality: string; level: string; user_count: number; user_ids: string[];
+    /** People who asked (dashboard click or their own address at signup). */
+    member_count: number;
+    /** Jobs that filed it on their own (hot-zone seeder, roster refresh). */
+    auto_sources: string[];
     last_attempt: Attempt | null;
   }>();
   for (const r of (data ?? []) as Row[]) {
     const key = `${r.state}::${r.locality}::${r.level}`;
     if (!grouped.has(key)) {
-      grouped.set(key, { state: r.state, locality: r.locality, level: r.level, user_count: 0, user_ids: [], last_attempt: null });
+      grouped.set(key, { state: r.state, locality: r.locality, level: r.level, user_count: 0, user_ids: [], member_count: 0, auto_sources: [], last_attempt: null });
     }
     const g = grouped.get(key)!;
     g.user_count++;
     g.user_ids.push(r.user_id);
+    if (r.source === "member" || r.source === "signup") g.member_count++;
+    else if (!g.auto_sources.includes(r.source)) g.auto_sources.push(r.source);
     // The batch stamps every pending row for the locality at once; keep the newest.
     if (r.last_attempt_at && (!g.last_attempt || r.last_attempt_at > g.last_attempt.at)) {
       g.last_attempt = { at: r.last_attempt_at, reason: r.last_attempt_reason, detail: r.last_attempt_detail };
@@ -248,7 +254,8 @@ export async function listPendingCoverageRequests() {
   }
   return {
     ok: true,
-    rows: Array.from(grouped.values()).sort((a, b) => b.user_count - a.user_count),
+    // Places people asked for come first, then the automatic ones.
+    rows: Array.from(grouped.values()).sort((a, b) => b.member_count - a.member_count || b.user_count - a.user_count),
   };
 }
 
