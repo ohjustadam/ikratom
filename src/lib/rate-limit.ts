@@ -1,5 +1,4 @@
 import { headers } from "next/headers";
-import { createClient } from "./supabase/server";
 import { createServiceRoleClient } from "./supabase/service-role";
 
 /**
@@ -28,7 +27,12 @@ export async function checkRateLimit(
   windowSeconds: number
 ): Promise<boolean> {
   try {
-    const supabase = await createClient();
+    // Service role (2026-10-09 audit): check_rate_limit increments ANY key it is
+    // given, so while anon/authenticated could call it directly over PostgREST,
+    // anyone could exhaust another user's bucket (e.g. their daily send cap) or
+    // an IP's signup bucket. Mig 0267 locks the RPC to service_role; this call
+    // must go out first, because a refused call fails OPEN (no rate limiting).
+    const supabase = createServiceRoleClient();
     const { data, error } = await supabase.rpc("check_rate_limit", {
       p_key: key.slice(0, 256),
       p_max: max,

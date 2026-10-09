@@ -301,7 +301,7 @@ async function _legacy_callGroq_unused(systemPrompt, userPrompt, model) {
 }
 
 async function callGemini(systemPrompt, userPrompt, model) {
-  const m = model || "gemini-2.5-flash";
+  const m = model || "gemini-flash-latest";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${GEMINI_KEY}`;
   const res = await fetch(url, {
     method: "POST",

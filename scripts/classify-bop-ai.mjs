@@ -51,7 +51,7 @@ if (!GEMINI_KEY) {
   console.log("ⓘ No Gemini key — classifying UNGROUNDED via the router. Confidence will be lower.");
 }
 
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-flash-latest"; // 2.5-flash is closed to new projects (2026-10)
 const args = process.argv.slice(2);
 const arg = (flag) => {
   const i = args.indexOf(flag);
