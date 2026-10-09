@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseNdacoDirectory, parseKacoDirectory, parseCtasCsv, parseCsv, nameKey, decodeEntities, COUNTY_DIRECTORIES } from "../scripts/lib/county-directories.mjs";
+import { parseNdacoDirectory, parseKacoDirectory, parseCtasCsv, parseCsv, parseScacCountyPage, scacCountyLinks, nameKey, decodeEntities, COUNTY_DIRECTORIES } from "../scripts/lib/county-directories.mjs";
 
 // Trimmed from the live page (2026-10-09): two county blocks, real markup.
 const person = (pos: string, nameHtml: string, office: string, cell: string, home: string, email: string) => `
@@ -86,6 +86,42 @@ describe("parseCtasCsv (Tennessee)", () => {
     expect(rows[0]).toEqual({ county: "Anderson County", full_name: "Ebony Capshaw", title: "County Commissioner", phone: null, email: "ecapshaw@andersoncountytn.gov", role: "county_commissioner" });
     expect(rows[2]).toMatchObject({ county: "Anderson County", full_name: "Theresa Frank", role: "county_executive", phone: "(865) 457-5400" });
     expect(JSON.stringify(rows)).not.toMatch(/Spellman|457-6270/);
+  });
+});
+
+describe("parseScacCountyPage (South Carolina)", () => {
+  const row = (name: string, pos: string, phone: string) =>
+    `<tr class="odd"> <td>${name}</td> <td>${pos}</td> <td>${phone}</td> <td><span>1458 Moultrie Dr, Aiken, SC, 29803-5824</span> </td> </tr>`;
+  const page = `<h1 class="title">Aiken County</h1><table><thead><tr><th>Name</th><th>Position</th><th>Phone</th><th>Address</th></tr></thead><tbody>`
+    + row("Gary Bunker", "Council Chairman", "(803) 645-8388")
+    + row("Jane Roe", "Council Vice Chairwoman", "(803) 555-0100")
+    + row("Landon Ball", "County Council", "(706) 799-4768")
+    + row("Sam Supe", "Supervisor/Chairman", "(843) 555-0101")
+    + row("Kelly Clerk", "Clerk to Council", "(803) 555-0102")
+    + row("Ron Road", "Road Maintenance Supervisor", "(803) 555-0103")
+    + row("Ella Chair", "Elections Commission Chairman", "(803) 555-0104")
+    + `</tbody></table>`;
+  const rows = parseScacCountyPage(page);
+
+  it("keeps council seats, including the council-supervisor form", () => {
+    expect(rows.map((r) => r.full_name)).toEqual(["Gary Bunker", "Jane Roe", "Landon Ball", "Sam Supe"]);
+    expect(rows.every((r) => r.county === "Aiken County")).toBe(true);
+  });
+
+  it("drops staff, the clerk to council and the elections commission", () => {
+    expect(JSON.stringify(rows)).not.toMatch(/Kelly Clerk|Ron Road|Ella Chair/);
+  });
+
+  it("never carries the address", () => {
+    expect(JSON.stringify(rows)).not.toMatch(/Moultrie|29803/);
+  });
+
+  it("finds one link per county on the index page", () => {
+    const idx = '<a href="/county/abbeville-county/directory">A</a><a href="/county/aiken-county/directory">B</a><a href="/county/aiken-county/directory">dup</a>';
+    expect(scacCountyLinks(idx)).toEqual([
+      "https://www.sccounties.org/county/abbeville-county/directory",
+      "https://www.sccounties.org/county/aiken-county/directory",
+    ]);
   });
 });
 

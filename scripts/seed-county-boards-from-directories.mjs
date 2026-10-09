@@ -40,10 +40,18 @@ for (const [state, cfg] of Object.entries(COUNTY_DIRECTORIES)) {
   if (ONLY && state !== ONLY) continue;
   const parsed = [];
   try {
-    for (const url of cfg.urls ?? [cfg.url]) {
+    let urls = cfg.urls ?? [cfg.url];
+    if (cfg.linksFrom) {
+      // An index page that links one directory page per county.
+      const r = await fetch(cfg.url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(60_000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${cfg.url}`);
+      urls = cfg.linksFrom(await r.text());
+    }
+    for (const url of urls) {
       const r = await fetch(url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(60_000) });
       if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
       parsed.push(...cfg.parse(await r.text()));
+      if (urls.length > 3) await new Promise((res) => setTimeout(res, 800)); // polite pacing
     }
   } catch (e) {
     failed = true; notes.push(`${state}: fetch failed (${e.message})`); console.log(`✗ ${state}: ${e.message}`); continue;
