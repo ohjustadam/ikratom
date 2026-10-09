@@ -570,11 +570,14 @@ async function callMistral(sys, user, maxTokens) {
 }
 
 async function callCloudflare(sys, user, maxTokens) {
-  // Cloudflare Workers AI — 10k neurons/day free. Hosts Llama 3.3 70b
-  // with fp8 quantization for speed. Endpoint shape is OpenAI-compatible
-  // for chat completions but URL path is custom. Override model via
-  // CLOUDFLARE_AI_MODEL env var.
-  const model = process.env.CLOUDFLARE_AI_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+  // Cloudflare Workers AI — 10k neurons/day free, and neurons track each
+  // model's price. The old default (Llama 3.3 70B fp8-fast, $0.293/M input)
+  // used up the whole day's allocation within about an hour of the 00:00 UTC
+  // reset (2026-10-09: "used up your daily free allocation"), so the provider
+  // was effectively dead. Gemma 4 26B-A4B is $0.10/M, ~3x the calls, a
+  // non-thinking instruct model (no <think> tags to break JSON parsing).
+  // Override via CLOUDFLARE_AI_MODEL.
+  const model = process.env.CLOUDFLARE_AI_MODEL || "@cf/google/gemma-4-26b-a4b-it";
   const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${model}`;
   const r = await fetch(url, {
     method: "POST",
