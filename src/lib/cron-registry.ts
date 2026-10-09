@@ -509,6 +509,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-weekly", cadence: "weekly", runs_per_day: 1 / 7, category: "legislators",
   },
   {
+    source: "seed_county_directories",
+    label: "County boards from state directories",
+    purpose: "Fill and refresh county commissions from official statewide directories (no AI)",
+    system: "gh-weekly", cadence: "weekly", runs_per_day: 1 / 7, category: "legislators",
+  },
+  {
     source: "sync_nonprofit_990s",
     label: "Nonprofit 990 filings",
     purpose: "Sync IRS 990 filings for tracked kratom-industry nonprofits",

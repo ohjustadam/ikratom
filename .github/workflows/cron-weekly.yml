@@ -130,6 +130,17 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-state-term-dates.mjs
 
+      # Whole-state county boards from official directories
+      # (scripts/lib/county-directories.mjs): one fetch per state, markup
+      # parsing, no AI. Weekly so rosters follow elections; it only ever
+      # deactivates rows it inserted itself.
+      - name: Seed county boards from statewide directories
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/seed-county-boards-from-directories.mjs
+
   sync-committees-all-states:
     needs: budget
     if: needs.budget.outputs.run == 'true'
