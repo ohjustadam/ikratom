@@ -131,6 +131,34 @@ export function parseCtasCsv(csv) {
     }));
 }
 
+/**
+ * South Carolina Association of Counties — one directory page per county
+ * (Name | Position | Phone | Address), linked from county-directory-pages.
+ * Each page mixes the council with ~35 staff roles, so only council seats are
+ * kept: chair / vice chair (-man or -woman), "County Council", "Council
+ * Member", and "Supervisor/Chairman" where a county uses the council-supervisor
+ * form. Addresses (often homes) are never stored.
+ */
+export const SC_COUNCIL_RE = /^(county council|council (member|chair(man|woman|person)?|vice[- ]chair(man|woman|person)?)|supervisor\/chair(man|woman|person)?|county supervisor)$/i;
+
+export function scacCountyLinks(indexHtml, base = "https://www.sccounties.org") {
+  return [...new Set([...String(indexHtml ?? "").matchAll(/href="(\/county\/[a-z-]+\/directory)"/g)].map((m) => base + m[1]))];
+}
+
+export function parseScacCountyPage(html) {
+  const s = String(html ?? "");
+  const county = textOf((s.match(/<h1[^>]*>([\s\S]*?)<\/h1>/) || [])[1]);
+  if (!/ County$/.test(county)) return [];
+  const body = (s.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/) || [])[1] ?? "";
+  const out = [];
+  for (const tr of body.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
+    const [full_name, title, phone] = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => textOf(m[1]));
+    if (!full_name || full_name.split(" ").length < 2 || !SC_COUNCIL_RE.test(title ?? "")) continue;
+    out.push({ county, full_name, title, phone: phone || null, email: null, role: "county_commissioner" });
+  }
+  return out;
+}
+
 /** The registry the seeder walks. counties = how many a full parse must name. */
 export const COUNTY_DIRECTORIES = {
   ND: {
@@ -159,6 +187,14 @@ export const COUNTY_DIRECTORIES = {
     label: "CTAS (University of Tennessee) county officials directory",
     counties: 95,
     parse: parseCtasCsv,
+  },
+  SC: {
+    url: "https://www.sccounties.org/county-information/county-directory-pages",
+    // One page per county, discovered from the index page.
+    linksFrom: scacCountyLinks,
+    label: "South Carolina Association of Counties county directory",
+    counties: 46,
+    parse: parseScacCountyPage,
   },
 };
 
