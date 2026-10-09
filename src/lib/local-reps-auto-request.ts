@@ -65,6 +65,7 @@ export async function autoRequestLocalCoverageIfMissing(input: {
             locality: cityLocality,
             level: "municipal",
             status: "pending",
+            source: "signup",
           },
           { onConflict: "user_id,state,locality,level" },
         );
@@ -88,6 +89,7 @@ export async function autoRequestLocalCoverageIfMissing(input: {
             locality: countyLocality,
             level: "county",
             status: "pending",
+            source: "signup",
           },
           { onConflict: "user_id,state,locality,level" },
         );
