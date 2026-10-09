@@ -2,7 +2,30 @@
 
 iKratom orchestrates multiple AI providers because no single model is best at everything we do, and most of what we do is bulk work that doesn't need the smartest model. This doc is the routing rulebook.
 
-**Current status:** design + scaffolding. Implementation in `src/lib/ai/` is wired but not yet called from production paths. Migration plan: see "Rollout" at the bottom.
+**Current status (2026-10-09):** the live router is `scripts/lib/ai-router.mjs` (crons) with automatic fallback across every free provider whose key is set; `src/lib/ai/` serves the site. The sections after "Layered priority scale" are the original 2026-05 design, kept as history — where they disagree, the scale below wins. Keys and where to get them: `docs/AI_PROVIDERS.md`. Live health: `npm run ai:smoke`.
+
+---
+
+## Layered priority scale (2026-10) — prioritized, NOT exclusive
+
+**Rule:** every tool and model may do any task it is capable of. The layer order only decides **who goes first**; on a failure, rate limit or empty answer the work falls to the next capable layer automatically. Never hard-wire a task to one provider — that is how one retirement silently kills a pipeline.
+
+| Layer | What | Cost / ceiling | Goes first for |
+|---|---|---|---|
+| **L0 — deterministic** | Structured APIs + code: Legistar webapi, LegiScan, OpenStates bulk, Census, Wikidata SPARQL, FEC, Regulations.gov, keyword/regex classifiers, SQL | Free, exact, no model | Anything that already exists as data. Use a model only when the answer has to be *read out of* text |
+| **L1 — local** | Ollama on the owner's PC | Free, unlimited, slow; protect the box (cap minutes) | Privacy-sensitive work (DMs, PII, raw member content) — **fails closed**, never leaves the machine |
+| **L2 — free cloud pool** | Router fallback order: Groq → Gemini (key pool; each Google Cloud *project* = its own quota; plain generation only, grounding has no free quota on new projects) → NVIDIA → Mistral → Cloudflare Workers AI (Gemma 4 26B, 10k neurons/day) → OpenRouter (`openrouter/free`; 1,000/day after a one-time $10 credit) → SambaNova / Vercel AI Gateway when their keys are valid | Free tiers; see `ai:smoke` | Bulk classify, summarize, translate, extract, draft, diff review |
+| **L3 — search + read** | SearXNG (in-job container on GitHub Actions), Tavily (1,000/month), headless Chromium + `page-text.mjs`, Wayback | Free | Fresh facts: fetch the source page FIRST, then hand the text to L2 with the URL to cite. This replaces paid search grounding |
+| **L4 — Claude (this seat)** | Judgment, architecture, security, code that must be right first time, final pass on user-facing copy, uniformity | Scarce (5-hour + weekly limits) | Decisions and verification — **never bulk** |
+
+**Offloading rules for Claude sessions** (save the scarce layer):
+- Large text (logs, transcripts, long docs, scraped pages) → condense through L2 first; Claude reads the summary, then only the parts that matter.
+- Diff review → `scripts/review-diff.mjs` (L2) first; Claude checks what it flags plus security-sensitive files.
+- Data questions → an L0 script or SQL that prints counts/samples, never Claude paging through rows.
+- No agent fan-outs unless the owner names one (they spend the same scarce budget).
+- Repetitive or mechanical edits → a script, verified by tests.
+
+**Free design / visual lane** (images, illustrations, motion): see `private/FREE_TOOLS_SCAN_2026-10.md` — Gemini image models on the free key, Cloudflare Workers AI image models, plus open-source motion libraries. Same rule: prioritized, never exclusive.
 
 ---
 
