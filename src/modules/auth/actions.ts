@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient, getCachedUser } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { getDistrictsForAddress } from "@/lib/civic";
 import { autoRequestLocalCoverageIfMissing } from "@/lib/local-reps-auto-request";
@@ -290,7 +291,10 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
       const cookieJar = await cookies();
       const inviteCode = cookieJar.get("invite_ref")?.value;
       if (inviteCode) {
-        await supabase.rpc("record_invite_redemption", {
+        // Service role, not the visitor's session: the RPC is locked to
+        // service_role (mig 0267) so nobody can record fake redemptions for an
+        // arbitrary invitee. data.user.id comes from auth.signUp, not the client.
+        await createServiceRoleClient().rpc("record_invite_redemption", {
           p_invitee: data.user.id,
           p_invite_code: inviteCode,
         });
