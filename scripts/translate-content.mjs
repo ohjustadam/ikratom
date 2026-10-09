@@ -218,6 +218,26 @@ for (const src of targetSources) {
   if (error) { console.error(`Fetch failed for ${src.type}:`, error.message); continue; }
   console.log(`── ${src.label} (${(rows ?? []).length} rows) ──`);
 
+  // EGRESS (2026-10-09): the cache check used to be one request per row per
+  // language — ~1,000 round trips a run (1,960/day in the edge logs) to learn
+  // that nearly everything was already translated. One batched read per 100
+  // ids answers the same question. ≤100 ids × 6 langs stays under PostgREST's
+  // 1,000-row cap per request.
+  const cachedHash = new Map(); // `${entity_id}|${lang}` → source_hash
+  if (!REFRESH) {
+    const ids = (rows ?? []).map((r) => r[src.idField]).filter(Boolean);
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data: hits, error: cErr } = await supabase
+        .from("content_translations")
+        .select("entity_id, target_lang, source_hash")
+        .eq("entity_type", src.type)
+        .in("entity_id", ids.slice(i, i + 100))
+        .in("target_lang", TARGET_LANGS);
+      if (cErr) { console.error(`Cache read failed for ${src.type}:`, cErr.message); break; }
+      for (const h of hits ?? []) cachedHash.set(`${h.entity_id}|${h.target_lang}`, h.source_hash);
+    }
+  }
+
   for (const row of rows ?? []) {
     if (overBudget()) { budgetHit = true; break; }
     const text = row[src.textField];
@@ -226,18 +246,9 @@ for (const src of targetSources) {
 
     for (const lang of TARGET_LANGS) {
       // Skip if cached + source unchanged + not refreshing
-      if (!REFRESH) {
-        const { data: existing } = await supabase
-          .from("content_translations")
-          .select("id, source_hash")
-          .eq("entity_type", src.type)
-          .eq("entity_id", row[src.idField])
-          .eq("target_lang", lang)
-          .maybeSingle();
-        if (existing && existing.source_hash === hash) {
-          totalSkipped++;
-          continue;
-        }
+      if (!REFRESH && cachedHash.get(`${row[src.idField]}|${lang}`) === hash) {
+        totalSkipped++;
+        continue;
       }
 
       try {
