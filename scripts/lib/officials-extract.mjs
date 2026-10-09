@@ -79,6 +79,28 @@ export function stateFromJurisdiction(pageJurisdiction) {
   return hits.size === 1 ? [...hits][0] : null;
 }
 
+/**
+ * Pages that list ELECTION or records officials are never a governing-body
+ * roster. 2026-10-09 the batch filed Kidder County ND's Auditor (read off the
+ * ND Secretary of State's "county election officials" list) and Greene County
+ * NY's two Board of Elections commissioners (titled just "Commissioner") as
+ * those counties' representatives. A title check can't catch the second case,
+ * so the page is rejected by its URL before any model reads it.
+ */
+const NON_ROSTER_PATH_RE = /(board[-_]?of[-_]?elections|election[-_]?(officials|commission|office|board)|\/elections?(\/|$)|\/voter|\/auditor|\/treasurer|\/sheriff|\/assessor|\/recorder)/i;
+export function isNonRosterPage(url) {
+  try { return NON_ROSTER_PATH_RE.test(new URL(url).pathname); } catch { return false; }
+}
+
+/**
+ * County offices that are not seats on the governing board. Counties only:
+ * in Michigan townships the clerk and treasurer DO sit on the board and vote.
+ */
+const NON_GOVERNING_COUNTY_TITLE_RE = /\b(auditor|treasurer|sheriff|assessor|recorder|coroner|register of deeds|prosecut\w*|state'?s attorney|district attorney|judge|county clerk|clerk of (the )?(board|courts?)|elections?)\b/i;
+export function isNonGoverningCountyTitle(title) {
+  return NON_GOVERNING_COUNTY_TITLE_RE.test(String(title ?? ""));
+}
+
 const EXTRACT_SYSTEM = `You extract CURRENT elected local-government officials from the text of ONE government web page that was already fetched for you. Work ONLY from the page text provided — do NOT use outside knowledge and do NOT invent anyone.
 
 Return STRICT JSON only (no prose, no markdown fences):
@@ -92,6 +114,7 @@ Return STRICT JSON only (no prose, no markdown fences):
 Rules:
 - ALWAYS fill page_jurisdiction with the government the PAGE is about (from its header/title/footer), even when returning zero officials. It is compared against the requested jurisdiction by code.
 - For a city: the Mayor + ALL current city council members. For a county: the county executive + ALL current commissioners/supervisors.
+- For a county, EXCLUDE election officials (Board of Elections commissioners, election administrators), the auditor, clerk, treasurer, sheriff, assessor, recorder, coroner, prosecutor and judges. Only the governing board (commissioners / supervisors / legislators) and the county executive count.
 - Village/town boards count as municipal: Village President / Town Supervisor → role "mayor"; Trustees / Select Board members → role "city_council".
 - Include ONLY people the page itself names as CURRENT officials. If the page is not a current roster (or names none), return {"officials":[]}.
 - THE JURISDICTION MUST MATCH. If the page is about a DIFFERENT government than the one named in the prompt — a same-named city in another state, a NEIGHBORING city, the county when asked for the city, a school/water/special district, or a facility/department/authority board (medical care community, road commission, DHHS, housing authority) — return {"officials":[]}.
@@ -126,6 +149,7 @@ function pickCandidateUrls(results, city) {
 // fetchPageText moved to ./page-text.mjs (shared with ban-verify.mjs).
 
 async function extractFromText({ text, city, state, level, sourceUrl }) {
+  if (isNonRosterPage(sourceUrl)) return { officials: [], provider: null, nonRosterPage: true };
   const user = `Page URL: ${sourceUrl}\nJurisdiction: ${city}, ${state} (${level})\n\nPAGE TEXT:\n${text}`;
   let result;
   try {
@@ -171,6 +195,7 @@ async function extractFromText({ text, city, state, level, sourceUrl }) {
   const officials = raw
     .map((o) => (o && typeof o.full_name === "string" ? { ...o, full_name: cleanName(o.full_name) } : o))
     .filter((o) => o && typeof o.full_name === "string" && o.full_name.length >= 5 && /\s/.test(o.full_name))
+    .filter((o) => !(level === "county" && isNonGoverningCountyTitle(o.title)))
     .map((o) => ({
       full_name: o.full_name.trim(),
       role: VALID_ROLES.has(o.role) ? o.role : (level === "county" ? "county_commissioner" : "city_council"),
