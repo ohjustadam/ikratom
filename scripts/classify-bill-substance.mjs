@@ -187,7 +187,16 @@ async function fetchTargets() {
   // Try with the provenance column (post-0170). If it doesn't exist yet
   // (migration not pushed — dry-run before db:push), fall back without it.
   let withSource = true;
-  let res = await baseQuery(true).limit(2000);
+  // EGRESS (2026-10-09): bills this pass already classified used to be
+  // downloaded in full — summary, summary_ai, summary_long and the
+  // bill_text_versions jsonb — and then dropped by the filter below. That was
+  // 4.2 MB/run, the single largest cron reader. Excluding them in the query
+  // means they never leave the database. The client-side filter stays as a
+  // second guard. (`neq` alone would also drop NULL rows, hence the or.)
+  const skipOwned = !REFRESH && !SPECIFIC_BILL;
+  let q = baseQuery(true);
+  if (skipOwned) q = q.or(`substance_targeting_source.is.null,substance_targeting_source.neq.${SOURCE_TAG}`);
+  let res = await q.limit(2000);
   if (res.error && /substance_targeting_source/.test(res.error.message || "")) {
     withSource = false;
     res = await baseQuery(false).limit(2000);
