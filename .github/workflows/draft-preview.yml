@@ -27,8 +27,8 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         run: |
-          npx -y netlify-cli@27.12.0 deploy --build --site ikratom \
-            --message "Draft preview: ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}" --json > deploy.json
-          url=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("deploy.json","utf8")).deploy_url)')
+          set -o pipefail
+          npx -y netlify-cli@27.12.0 deploy --build --site ikratom             --message "Draft preview: ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}" 2>&1 | tee deploy.log
+          url=$(grep -oE 'https://[0-9a-f]{24}--ikratom\.netlify\.app' deploy.log | head -1)
           echo "Draft URL: $url"
           echo "### Draft preview: $url" >> "$GITHUB_STEP_SUMMARY"
