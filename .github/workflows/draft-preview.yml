@@ -1,0 +1,34 @@
+# Draft preview deploy: builds a branch on Linux and publishes it as a Netlify
+# DRAFT (its own URL, noindex, never production). Push any branch named
+# preview/<something> to run it. A local Windows build is not usable on
+# Netlify's Linux functions, which is why this runs here.
+name: Draft preview deploy
+
+on:
+  push:
+    branches: ["preview/**"]
+
+concurrency:
+  group: draft-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build + publish as a draft (no --prod)
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          npx -y netlify-cli@27.12.0 deploy --build --site ikratom \
+            --message "Draft preview: ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}" --json > deploy.json
+          url=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("deploy.json","utf8")).deploy_url)')
+          echo "Draft URL: $url"
+          echo "### Draft preview: $url" >> "$GITHUB_STEP_SUMMARY"
