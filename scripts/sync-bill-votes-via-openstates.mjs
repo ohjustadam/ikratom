@@ -204,7 +204,7 @@ async function persistVotes(bill, votes) {
     .from("legislators")
     .select("id, full_name")
     .eq("state", bill.state)
-    .eq("active", true);
+    .eq("active", true).in("level", ["state", "federal"]);
   const legByLower = new Map();
   for (const l of legs ?? []) legByLower.set((l.full_name ?? "").toLowerCase().trim(), l.id);
 

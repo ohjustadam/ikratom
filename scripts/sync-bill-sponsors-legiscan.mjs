@@ -84,7 +84,7 @@ async function nameIndexFor(state) {
   if (stateNormCache.has(state)) return stateNormCache.get(state);
   const byNorm = new Map();
   for (let from = 0; ; from += 1000) {
-    const { data } = await sb.from("legislators").select("id, full_name").eq("state", state).eq("active", true).range(from, from + 999);
+    const { data } = await sb.from("legislators").select("id, full_name").eq("state", state).eq("active", true).in("level", ["state", "federal"]).range(from, from + 999);
     if (!data?.length) break;
     for (const r of data) { const n = normName(r.full_name); if (n && !byNorm.has(n)) byNorm.set(n, r.id); }
     if (data.length < 1000) break;

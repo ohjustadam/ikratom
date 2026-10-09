@@ -86,6 +86,51 @@ export function parseKacoDirectory(html) {
   return out;
 }
 
+/** RFC-4180-ish CSV: quoted fields, doubled quotes, CRLF or LF. */
+export function parseCsv(text) {
+  const rows = [];
+  let row = [], field = "", quoted = false;
+  const t = String(text ?? "").replace(/^\uFEFF/, "");
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (quoted) {
+      if (c === '"') { if (t[i + 1] === '"') { field += '"'; i++; } else quoted = false; }
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && t[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      if (row.some((x) => x !== "")) rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field !== "" || row.length) { row.push(field); if (row.some((x) => x !== "")) rows.push(row); }
+  if (!rows.length) return [];
+  const head = rows[0].map((h) => h.trim());
+  return rows.slice(1).map((r) => Object.fromEntries(head.map((h, i) => [h, (r[i] ?? "").trim()])));
+}
+
+/**
+ * Tennessee — CTAS (UT Institute for Public Service) publishes official CSV
+ * exports of every county's commissioners and of every county mayor /
+ * executive. Columns: County, Name, Title, Address, City, Zip Code, Fax,
+ * [Main Phone], Email Address. Addresses are never stored. Davidson's
+ * governing body is the Metro Council, listed as "Metro Councilmember".
+ */
+export function parseCtasCsv(csv) {
+  return parseCsv(csv)
+    .filter((r) => r.County && r.Name && r.Name.split(/\s+/).length >= 2)
+    .map((r) => ({
+      county: `${r.County.replace(/\s+County$/i, "")} County`,
+      full_name: r.Name.replace(/\s+/g, " "),
+      title: r.Title || "County Commissioner",
+      phone: r["Main Phone"] || null,
+      email: r["Email Address"] || null,
+      role: /mayor|executive/i.test(r.Title ?? "") ? "county_executive" : "county_commissioner",
+    }));
+}
+
 /** The registry the seeder walks. counties = how many a full parse must name. */
 export const COUNTY_DIRECTORIES = {
   ND: {
@@ -104,6 +149,16 @@ export const COUNTY_DIRECTORIES = {
     label: "Kentucky Association of Counties county officials directory",
     counties: 120,
     parse: parseKacoDirectory,
+  },
+  TN: {
+    url: "https://www.ctas.tennessee.edu/county-commissioners",
+    urls: [
+      "https://www.ctas.tennessee.edu/csv-county-commissioners",
+      "https://www.ctas.tennessee.edu/csv-county-executives-and-mayors",
+    ],
+    label: "CTAS (University of Tennessee) county officials directory",
+    counties: 95,
+    parse: parseCtasCsv,
   },
 };
 

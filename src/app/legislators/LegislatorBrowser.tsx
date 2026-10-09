@@ -9,6 +9,9 @@ import { httpUrlOrNull } from "@/modules/compose/send-links";
 type Role = "all" | "us_senate" | "us_house" | "state_senate" | "state_house" | "local";
 type Party = "all" | "D" | "R" | "I" | "Other";
 
+/** A county or city with local officials on file (rpc local_official_places). */
+export type LocalPlace = { locality: string; level: string; n: number };
+
 const PARTY_COLOR: Record<string, string> = {
   Democratic: "bg-blue-950/40 text-blue-300 border-blue-900/40",
   Republican: "bg-red-950/40 text-red-300 border-red-900/40",
@@ -20,6 +23,9 @@ export function LegislatorBrowser({
   stateName,
   states,
   legislators,
+  localPlaces,
+  place,
+  initialTab,
   myRepIds,
   isSignedIn,
   voteAgg,
@@ -28,12 +34,16 @@ export function LegislatorBrowser({
   stateName: string;
   states: { abbr: string; name: string }[];
   legislators: Legislator[];
+  /** Every place in the state with local officials; only the chosen one is loaded. */
+  localPlaces: LocalPlace[];
+  place: string | null;
+  initialTab?: "all" | "local";
   myRepIds: string[];
   isSignedIn: boolean;
   voteAgg: Record<string, { restrict: number; total: number }>;
 }) {
   const [query, setQuery] = useState("");
-  const [role, setRole] = useState<Role>("all");
+  const [role, setRole] = useState<Role>(initialTab ?? "all");
   const [party, setParty] = useState<Party>("all");
   const [onlyMine, setOnlyMine] = useState(false);
 
@@ -57,8 +67,12 @@ export function LegislatorBrowser({
         c.local++;
       }
     }
+    // Local officials load one place at a time, so the tab counts the whole state.
+    const localTotal = localPlaces.reduce((n, p) => n + p.n, 0);
+    if (localTotal > c.local) c.local = localTotal;
     return c;
-  }, [legislators]);
+  }, [legislators, localPlaces]);
+  const statewideCount = legislators.filter((l) => l.level !== "county" && l.level !== "municipal").length;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -106,8 +120,10 @@ export function LegislatorBrowser({
           </p>
           <h1 className="mt-1 text-3xl font-bold">{stateName}</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            {legislators.length.toLocaleString()} active officials · synced from
-            OpenStates
+            {statewideCount.toLocaleString()} state &amp; federal officials
+            {counts.local > 0 && (
+              <> · {counts.local.toLocaleString()} local officials in {localPlaces.length.toLocaleString()} counties &amp; cities</>
+            )}
           </p>
         </div>
 
@@ -210,7 +226,23 @@ export function LegislatorBrowser({
       )}
 
       {/* Results */}
-      {filtered.length === 0 ? (
+      {role === "local" ? (
+        // Local — pick a place, then its officials (grouped by locality)
+        <div className="space-y-8">
+          <LocalPlacePicker state={state} places={localPlaces} place={place} />
+          {Object.keys(grouped)
+            .sort()
+            .map((k) => (
+              <RoleSection
+                key={k}
+                title={k.replace("local:", "")}
+                legislators={grouped[k]}
+                myRepSet={myRepSet}
+                voteAgg={voteAgg}
+              />
+            ))}
+        </div>
+      ) : filtered.length === 0 ? (
         <EmptyState query={query} />
       ) : role === "all" ? (
         // Grouped by role (federal+state) then by locality (local)
@@ -240,26 +272,51 @@ export function LegislatorBrowser({
               />
             ))}
         </div>
-      ) : role === "local" ? (
-        // Local — group by locality
-        <div className="space-y-8">
-          {Object.keys(grouped)
-            .sort()
-            .map((k) => (
-              <RoleSection
-                key={k}
-                title={k.replace("local:", "")}
-                legislators={grouped[k]}
-                myRepSet={myRepSet}
-                voteAgg={voteAgg}
-              />
-            ))}
-        </div>
       ) : (
         // Flat grid
         <Grid legislators={filtered} myRepSet={myRepSet} voteAgg={voteAgg} />
       )}
     </div>
+  );
+}
+
+function LocalPlacePicker({ state, places, place }: { state: string; places: LocalPlace[]; place: string | null }) {
+  if (places.length === 0) {
+    return <p className="text-sm text-zinc-500">No local officials on file for this state yet.</p>;
+  }
+  const groups = [
+    { label: "Counties", items: places.filter((p) => p.level === "county") },
+    { label: "Cities & towns", items: places.filter((p) => p.level === "municipal") },
+  ].filter((g) => g.items.length > 0);
+  return (
+    <section className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+      <p className="mb-3 text-sm text-zinc-400">
+        {place ? "Pick another place:" : "Pick a county or city to see its officials:"}
+      </p>
+      {groups.map((g) => (
+        <div key={g.label} className="mb-3 last:mb-0">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+            {g.label} · {g.items.length}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {g.items.map((p) => (
+              <a
+                key={`${p.level}:${p.locality}`}
+                href={`/legislators?state=${state}&tab=local&place=${encodeURIComponent(p.locality)}`}
+                aria-current={p.locality === place ? "page" : undefined}
+                className={`rounded-md border px-2 py-1 text-xs ${
+                  p.locality === place
+                    ? "border-emerald-500 text-emerald-300"
+                    : "border-zinc-800 text-zinc-300 hover:border-emerald-600"
+                }`}
+              >
+                {p.locality.replace(/, [A-Z]{2}$/, "")} <span className="text-zinc-500">{p.n}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
 

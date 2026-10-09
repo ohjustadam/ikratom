@@ -142,7 +142,7 @@ async function syncState(stateCode) {
   const { data: legs } = await sb.from("legislators")
     .select("id, full_name, openstates_id")
     .eq("state", stateCode)
-    .eq("active", true);
+    .eq("active", true).in("level", ["state", "federal"]);
   // index by openstates id (preferred) AND lowercase full name
   const legByOsId = new Map();
   const legByName = new Map();

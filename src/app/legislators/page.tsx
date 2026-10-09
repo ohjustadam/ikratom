@@ -1,15 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators, type Legislator } from "@/lib/legislators";
-import { LegislatorBrowser } from "./LegislatorBrowser";
+import { LegislatorBrowser, type LocalPlace } from "./LegislatorBrowser";
 
 export const metadata = { title: "Legislators" };
 
 export default async function LegislatorsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ state?: string }>;
+  searchParams: Promise<{ state?: string; place?: string; tab?: string }>;
 }) {
-  const { state: stateParam } = await searchParams;
+  const { state: stateParam, place: placeParam, tab } = await searchParams;
   const supabase = await createClient();
 
   // Default to user's state if signed in, else OK.
@@ -39,15 +39,40 @@ export default async function LegislatorsPage({
     .select("abbr, name")
     .order("name");
 
-  // All legislators for this state (federal + state + local)
-  const { data: legislators } = await supabase
+  // State + federal officials. Local officials load one place at a time
+  // (?place=): since 2026-10-09 whole states of county boards are on file
+  // (Tennessee 1,678), and loading them all ran past the 1,000-row cap, which
+  // silently cut off whoever sorted last — state legislators included.
+  const COLS = "id,state,role,district,full_name,party,email,phone,office_address,website,portrait_url,level,locality,body,title";
+  const { data: statewide } = await supabase
     .from("legislators")
-    .select(
-      "id,state,role,district,full_name,party,email,phone,office_address,website,portrait_url,level,locality,body,title"
-    )
+    .select(COLS)
     .eq("state", state)
     .eq("active", true)
+    .in("level", ["state", "federal"])
     .order("full_name");
+
+  const { data: placeRows } = await supabase.rpc("local_official_places", { p_state: state });
+  const localPlaces = (placeRows ?? []) as LocalPlace[];
+  const place = placeParam && localPlaces.some((p) => p.locality === placeParam) ? placeParam : null;
+  let placeOfficials: Legislator[] = [];
+  if (place) {
+    const { data } = await supabase
+      .from("legislators")
+      .select(COLS)
+      .eq("state", state)
+      .eq("active", true)
+      .in("level", ["county", "municipal"])
+      .eq("locality", place)
+      .order("full_name")
+      .limit(300);
+    placeOfficials = (data ?? []) as Legislator[];
+  }
+  // The viewer's own local reps always come along, so "Only mine" still works.
+  const mineLocal = myReps.filter((l) => l.state === state && (l.level === "county" || l.level === "municipal"));
+  const seen = new Set<string>();
+  const legislators = [...((statewide ?? []) as Legislator[]), ...placeOfficials, ...mineLocal]
+    .filter((l) => (seen.has(l.id) ? false : (seen.add(l.id), true)));
 
   const myRepIds = new Set(myReps.map((l) => l.id));
 
@@ -89,7 +114,10 @@ export default async function LegislatorsPage({
       state={state}
       stateName={allStates?.find((s) => s.abbr === state)?.name ?? state}
       states={allStates ?? []}
-      legislators={(legislators ?? []) as Legislator[]}
+      legislators={legislators}
+      localPlaces={localPlaces}
+      place={place}
+      initialTab={tab === "local" || place ? "local" : "all"}
       myRepIds={Array.from(myRepIds)}
       isSignedIn={!!user}
       voteAgg={voteAgg}

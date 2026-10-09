@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseNdacoDirectory, parseKacoDirectory, nameKey, decodeEntities, COUNTY_DIRECTORIES } from "../scripts/lib/county-directories.mjs";
+import { parseNdacoDirectory, parseKacoDirectory, parseCtasCsv, parseCsv, nameKey, decodeEntities, COUNTY_DIRECTORIES } from "../scripts/lib/county-directories.mjs";
 
 // Trimmed from the live page (2026-10-09): two county blocks, real markup.
 const person = (pos: string, nameHtml: string, office: string, cell: string, home: string, email: string) => `
@@ -66,6 +66,26 @@ describe("parseKacoDirectory", () => {
 
   it("never carries the mailing address (often a home address)", () => {
     expect(JSON.stringify(rows)).not.toMatch(/Melson|42728/);
+  });
+});
+
+describe("parseCtasCsv (Tennessee)", () => {
+  // Header + rows exactly as the CTAS exports return them (2026-10-09).
+  const comm = 'County,Name,Title,Address,City,"Zip Code",Fax,"Email Address"\r\n'
+    + 'Anderson,"Ebony Capshaw","County Commissioner","125 Spellman Ave","Oak Ridge",37830,,ecapshaw@andersoncountytn.gov\r\n'
+    + 'Davidson,"Jane ""JJ"" Doe","Metro Councilmember","1 Public Sq, Suite 204",Nashville,37201,,\r\n';
+  const exec = 'County,Name,Title,Address,City,"Zip Code",Fax,"Main Phone","Email Address"\n'
+    + 'Anderson,"Theresa Frank","County Mayor","100 North Main Street, Room 208",Clinton,37716-3687,"(865) 457-6270","(865) 457-5400",tfrank@andersoncountytn.gov\n';
+
+  it("reads quoted fields with commas and doubled quotes", () => {
+    expect(parseCsv(comm)[1]).toMatchObject({ County: "Davidson", Name: 'Jane "JJ" Doe', Address: "1 Public Sq, Suite 204" });
+  });
+
+  it("maps commissioners and mayors, never the address or fax", () => {
+    const rows = [...parseCtasCsv(comm), ...parseCtasCsv(exec)];
+    expect(rows[0]).toEqual({ county: "Anderson County", full_name: "Ebony Capshaw", title: "County Commissioner", phone: null, email: "ecapshaw@andersoncountytn.gov", role: "county_commissioner" });
+    expect(rows[2]).toMatchObject({ county: "Anderson County", full_name: "Theresa Frank", role: "county_executive", phone: "(865) 457-5400" });
+    expect(JSON.stringify(rows)).not.toMatch(/Spellman|457-6270/);
   });
 });
 
