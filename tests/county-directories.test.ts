@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseNdacoDirectory, parseKacoDirectory, parseCtasCsv, parseCsv, parseScacCountyPage, scacCountyLinks, nameKey, decodeEntities, COUNTY_DIRECTORIES } from "../scripts/lib/county-directories.mjs";
+import { parseNdacoDirectory, parseKacoDirectory, parseCtasCsv, parseCsv, parseScacCountyPage, scacCountyLinks, parseNmcDirectory, nmcPageLinks, emailOrNull, nameKey, decodeEntities, COUNTY_DIRECTORIES } from "../scripts/lib/county-directories.mjs";
 
 // Trimmed from the live page (2026-10-09): two county blocks, real markup.
 const person = (pos: string, nameHtml: string, office: string, cell: string, home: string, email: string) => `
@@ -122,6 +122,47 @@ describe("parseScacCountyPage (South Carolina)", () => {
       "https://www.sccounties.org/county/abbeville-county/directory",
       "https://www.sccounties.org/county/aiken-county/directory",
     ]);
+  });
+});
+
+describe("parseNmcDirectory (New Mexico)", () => {
+  const block = (name: string, pos: string, county: string, email: string) =>
+    `<div class="directory-block"> <h3>${name}</h3> <!-- Linked Title <h3><a href="x">${name}</a></h3> --> <p><strong></strong></p> <p> ${pos}<br /> <a href="tel:505-986-6200" class="phone">505-986-6200</a><br /> <a href="mailto:${email}">Email ${name}</a><br /> <br /> <span class="type">${county}</span> <span class="type">Commissioner</span> </p> </div>`;
+  const rows = parseNmcDirectory(
+    block("Adriann Barboa", "Commissioner - District 3", "Bernalillo County", "abarboa@bernco.gov")
+    + block("Jane Chair", "Commissioner - District 2 - Chair", "Lea County", "district2@leacounty.net")
+    + block("Theresa Cull", "Councilor", "Los Alamos County", "tcull@lacnm.us")
+    + block("James &#8220;Bo&#8221; Bowen", "Commissioner - District 1", "Sierra County", "x@sierra.gov")
+    + block("Al Staff", "911 Supervisor", "Valencia County", "a@v.gov"),
+  );
+
+  it("reads name, district, title and county; skips non-commissioners", () => {
+    expect(rows.map((r) => r.full_name)).toEqual(["Adriann Barboa", "Jane Chair", "Theresa Cull", 'James "Bo" Bowen']);
+    expect(rows[0]).toMatchObject({ county: "Bernalillo County", district: "3", title: "County Commissioner", phone: "505-986-6200" });
+    expect(rows[1].title).toBe("Commission Chair");
+    expect(rows[2].title).toBe("County Councilor");
+  });
+
+  it("builds every page link from 'Page 1 of N'", () => {
+    const links = nmcPageLinks("<div class=\"page\">Page 1 of 3</div>");
+    expect(links).toHaveLength(3);
+    expect(links[2]).toMatch(/sf_paged=3$/);
+  });
+});
+
+describe("emailOrNull", () => {
+  it("keeps office and district mailboxes", () => {
+    expect(emailOrNull("district2@bernco.gov", "Frank Baca")).toBe("district2@bernco.gov");
+  });
+  it("keeps personal webmail that carries the person's name", () => {
+    expect(emailOrNull("frieznick@gmail.com", 'Nicholas "Nick" Friez')).toBe("frieznick@gmail.com");
+  });
+  it("drops webmail that belongs to someone else", () => {
+    expect(emailOrNull("svmccutch@gmail.com", 'James "Bo" Bowen')).toBeNull();
+  });
+  it("drops junk", () => {
+    expect(emailOrNull("", "Ann Gill")).toBeNull();
+    expect(emailOrNull("not an email", "Ann Gill")).toBeNull();
   });
 });
 
