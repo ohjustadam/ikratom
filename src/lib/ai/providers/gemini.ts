@@ -21,7 +21,7 @@ import type {
 } from "../types";
 
 const KEY = process.env.GEMINI_API_KEY;
-const DEFAULT_MODEL = process.env.GEMINI_DEFAULT_MODEL ?? "gemini-2.5-flash";
+const DEFAULT_MODEL = process.env.GEMINI_DEFAULT_MODEL ?? "gemini-flash-latest"; // 2.5-flash is closed to new projects (2026-10)
 
 function flattenPrompt(p: PromptInput): {
   contents: { role: string; parts: { text: string }[] }[];
