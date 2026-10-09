@@ -1,5 +1,3 @@
-"use server";
-
 /**
  * AI-summarize a phone-call transcript.
  *
@@ -12,11 +10,15 @@
  *   3. legislator_position — the stated position as a queryable enum, so the
  *                        board can roll up "what is government saying" by state.
  *
- * Uses the same multi-provider chain as the briefing generator —
- * Groq/Cerebras/Gemini, JSON mode. Returns nulls on total provider failure;
+ * Provider chain: Groq, then each configured Gemini key, JSON mode.
+ *
+ * A plain server-only module, NOT "use server": it is called only from
+ * actions.ts, and as a server action every export would be an endpoint
+ * anyone could call to spend our AI quotas. Returns nulls on total provider failure;
  * calls never block on summary generation, and the raw transcript stays.
  */
 
+import "server-only";
 import {
   formatSummaryMd,
   formatPublicSummaryMd,
@@ -25,13 +27,12 @@ import {
   type SummaryParsed,
 } from "./summary-format";
 
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 const GROQ_KEY = process.env.GROQ_API_KEY;
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY;
-const MISTRAL_KEY = process.env.MISTRAL_API_KEY;
-const CLOUDFLARE_AI_TOKEN = process.env.CLOUDFLARE_AI_TOKEN;
-const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+// Each Google Cloud project has its own free quota, so a depleted key falls
+// through to the next one.
+const GEMINI_KEYS = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2].filter(
+  (k): k is string => Boolean(k),
+);
 
 const SYSTEM = `You summarize a single phone call between a kratom advocate and a US legislator (or their staff).
 The transcript is rough — speech recognition introduces typos, dropped words, speaker switches mid-sentence.
@@ -85,11 +86,10 @@ async function callGroq(transcript: string, ctx: string): Promise<{ parsed: Summ
   }
 }
 
-async function callGemini(transcript: string, ctx: string): Promise<{ parsed: SummaryParsed; provider: string } | null> {
-  if (!GEMINI_KEY) return null;
+async function callGemini(transcript: string, ctx: string, key: string): Promise<{ parsed: SummaryParsed; provider: string } | null> {
   try {
     const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${key}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -115,34 +115,6 @@ async function callGemini(transcript: string, ctx: string): Promise<{ parsed: Su
   }
 }
 
-async function callCerebras(transcript: string, ctx: string): Promise<{ parsed: SummaryParsed; provider: string } | null> {
-  if (!CEREBRAS_KEY) return null;
-  try {
-    const r = await fetch("https://api.cerebras.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${CEREBRAS_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "llama-3.3-70b",
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: `${ctx}\n\nTRANSCRIPT:\n${transcript}` },
-        ],
-        temperature: 0.2,
-        max_tokens: 800,
-        response_format: { type: "json_object" },
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
-    const raw = data.choices?.[0]?.message?.content;
-    if (!raw) return null;
-    return { parsed: JSON.parse(raw) as SummaryParsed, provider: "cerebras" };
-  } catch {
-    return null;
-  }
-}
-
 export async function aiSummarizeCall(args: {
   transcript_md: string;
   recipient_name: string | null;
@@ -162,8 +134,7 @@ export async function aiSummarizeCall(args: {
 
   const providers: Array<() => Promise<{ parsed: SummaryParsed; provider: string } | null>> = [
     () => callGroq(args.transcript_md, ctx),
-    () => callCerebras(args.transcript_md, ctx),
-    () => callGemini(args.transcript_md, ctx),
+    ...GEMINI_KEYS.map((key) => () => callGemini(args.transcript_md, ctx, key)),
   ];
   for (const fn of providers) {
     const r = await fn();
@@ -178,6 +149,3 @@ export async function aiSummarizeCall(args: {
   }
   return { summary_md: null, public_summary_md: null, legislator_position: null, provider: null };
 }
-
-// Cloudflare/Anthropic/Mistral references appear for future expansion
-void ANTHROPIC_KEY; void MISTRAL_KEY; void CLOUDFLARE_AI_TOKEN; void CLOUDFLARE_ACCOUNT_ID;
