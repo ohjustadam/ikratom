@@ -36,7 +36,7 @@ const STATE_NAMES = {
   WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
 };
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-flash-latest"; // 2.5-flash is closed to new projects (2026-10)
 const GEMINI_API = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const SYSTEM = `You are a news researcher tracking kratom-related news in the United States.

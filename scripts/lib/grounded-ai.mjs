@@ -95,7 +95,7 @@ export async function groundedGenerate({
   system,
   user,
   maxTokens = 1024,
-  model = "gemini-2.5-flash",
+  model = "gemini-flash-latest", // 2.5-flash is closed to new projects (2026-10)
   json = true,
   timeoutMs = 60_000,
   // Opt-in. false = grounding is REQUIRED; throw rather than guess.

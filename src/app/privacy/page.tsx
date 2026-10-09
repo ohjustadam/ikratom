@@ -65,7 +65,18 @@ export default function PrivacyPage() {
               <strong>Gmail OAuth refresh token</strong> (only if you connect Gmail) — encrypted at
               rest in our database, used solely to send campaign emails on your behalf via Gmail&apos;s
               API. We never read your Gmail. Only the <code className="text-xs">gmail.send</code>{" "}
-              scope is requested.
+              scope is requested. iKratom&apos;s use and transfer to any other app of information
+              received from Google APIs will adhere to the{" "}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                className="underline"
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Google API Services User Data Policy
+              </a>
+              , including the Limited Use requirements. You can disconnect Gmail at any time from
+              your account settings, which deletes the stored token.
             </li>
             <li>
               <strong>Web push subscription</strong> (only if you enable notifications) — the browser

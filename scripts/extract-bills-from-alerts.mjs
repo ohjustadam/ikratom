@@ -181,24 +181,52 @@ for (const b of existingBills ?? []) {
 }
 console.log(`  ${existingKeys.size} existing (state, bill_number) keys`);
 
+// EGRESS (2026-10-09): every hourly run used to re-read the newest 500 alerts
+// (full body text) and 500 news items and find "0 new bills" — 3.2 MB/day for
+// nothing. Now a run reads only what arrived since the last run (2h overlap),
+// and once a day it does the old full sweep so an edited older item is still
+// caught. The sweep is recorded in the run notes, which is how the next run
+// knows when the last one happened. --full forces it.
+const OVERLAP_MS = 2 * 3600e3;
+const FULL_EVERY_MS = 24 * 3600e3;
+const { data: lastRuns } = await sb
+  .from("scraper_runs")
+  .select("started_at, notes")
+  .eq("source", "extract_bills_from_alerts")
+  .in("status", ["success", "empty"])
+  .order("started_at", { ascending: false })
+  .limit(30);
+const lastRun = lastRuns?.[0]?.started_at ?? null;
+const lastFull = (lastRuns ?? []).find((r) => String(r.notes ?? "").includes("full sweep"))?.started_at ?? null;
+const fullSweep = flag("--full") || !lastRun || !lastFull || Date.now() - Date.parse(lastFull) > FULL_EVERY_MS;
+const since = fullSweep ? null : new Date(Date.parse(lastRun) - OVERLAP_MS).toISOString();
+console.log(`  mode: ${fullSweep ? "full sweep" : `incremental since ${since}`}`);
+
 // Pull policy_alerts — these have explicit locality + are kratom-tagged.
-const { data: alerts } = await sb
+let alertsQ = sb
   .from("policy_alerts")
   .select("id, title, body, locality, source_url, created_at")
   .eq("moderation_status", "approved")
   .order("created_at", { ascending: false })
   .limit(LIMIT);
+if (since) alertsQ = alertsQ.gte("created_at", since);
+const { data: alerts } = await alertsQ;
 console.log(`  ${alerts?.length ?? 0} approved policy_alerts to scan`);
 
 // Pull news_items — title + summary + body_extract_excerpt, state column.
-const { data: news } = await sb
+// Incremental runs key on scraped_at (when WE got it), not published_at: an
+// old article scraped today is new to this job.
+let newsQ = sb
   .from("news_items")
   .select("id, title, summary, body_extract_excerpt, state, url, published_at")
   .eq("active", true)
   .not("body_has_kratom_keyword", "is", false)
   .order("published_at", { ascending: false })
   .limit(LIMIT);
+if (since) newsQ = newsQ.gte("scraped_at", since);
+const { data: news } = await newsQ;
 console.log(`  ${news?.length ?? 0} active body-verified news_items to scan`);
+const modeNote = fullSweep ? "full sweep" : "incremental";
 
 const toCreate = new Map(); // key: state|bill_number, value: row
 let scannedAlerts = 0, scannedNews = 0, alreadyTracked = 0;
@@ -283,7 +311,7 @@ if (DRY_RUN || rows.length === 0) {
         source: "extract_bills_from_alerts",
         started_at: new Date(t0).toISOString(), finished_at: new Date().toISOString(),
         status: "empty", rows_added: 0,
-        notes: `scanned ${scannedAlerts} alerts + ${scannedNews} news · 0 new bills`,
+        notes: `${modeNote} · scanned ${scannedAlerts} alerts + ${scannedNews} news · 0 new bills`,
       });
     } catch { /* best-effort */ }
   }
@@ -323,6 +351,6 @@ try {
     finished_at: new Date().toISOString(),
     status: written > 0 ? "success" : "empty",
     rows_added: written,
-    notes: `scanned ${scannedAlerts} alerts + ${scannedNews} news · ${rows.length} candidates`,
+    notes: `${modeNote} · scanned ${scannedAlerts} alerts + ${scannedNews} news · ${rows.length} candidates`,
   });
 } catch { /* best-effort */ }
