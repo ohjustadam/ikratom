@@ -33,7 +33,8 @@ export default async function LocalRepRequestsPage() {
       <header className="mt-2 mb-6">
         <h1 className="text-3xl font-bold">Local rep requests</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Areas where users have asked us to add local reps. Click{" "}
+          Areas where users have asked us to add local reps, plus places the nightly jobs
+          filed on their own (marked 🤖 or 🔁, not a person). Click{" "}
           <strong>AI suggest</strong> on any row to expand a panel inline — review the
           AI&apos;s suggestions, click the source URLs to spot-check, tick the boxes
           for officials to accept, and save. The request closes automatically and
@@ -65,6 +66,8 @@ export default async function LocalRepRequestsPage() {
                 locality: row.locality,
                 level: row.level as "municipal" | "county",
                 user_count: row.user_count,
+                member_count: row.member_count,
+                auto_sources: row.auto_sources,
               }}
               attemptNote={
                 <LastAttemptNote
