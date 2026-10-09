@@ -159,6 +159,53 @@ export function parseScacCountyPage(html) {
   return out;
 }
 
+/**
+ * New Mexico Counties — member directory filtered to commissioners (a
+ * WordPress search-and-filter list, ~16 pages). One block per person: name,
+ * "Commissioner - District 4[ - Chair]" (Los Alamos: "Councilor"), phone,
+ * email, county.
+ */
+const NMC_DIRECTORY = "https://www.nmcounties.org/member-directory/?_sft_directory_position=commissioner";
+export function nmcPageLinks(firstPageHtml) {
+  const pages = Number((String(firstPageHtml ?? "").match(/Page \d+ of (\d+)/) || [])[1] ?? 1);
+  return Array.from({ length: Math.min(Math.max(pages, 1), 60) }, (_, i) => (i === 0 ? NMC_DIRECTORY : `${NMC_DIRECTORY}&sf_paged=${i + 1}`));
+}
+export function parseNmcDirectory(html) {
+  const out = [];
+  const s = String(html ?? "").replace(/<!--[\s\S]*?-->/g, " ");
+  for (const b of s.split(/<div class="directory-block">/).slice(1)) {
+    const full_name = textOf((b.match(/<h3>([\s\S]*?)<\/h3>/) || [])[1]).replace(/[“”]/g, '"');
+    const position = textOf((b.match(/<p>\s*([^<]+?)\s*<br/) || [])[1]);
+    const county = textOf((b.match(/<span class="type">([^<]*County)<\/span>/) || [])[1]);
+    if (!/ County$/.test(county) || full_name.split(" ").length < 2 || !/commissioner|councilor/i.test(position)) continue;
+    const district = (position.match(/District\s+([\w-]+)/i) || [])[1] ?? null;
+    const title = /chair/i.test(position) ? "Commission Chair" : /councilor/i.test(position) ? "County Councilor" : "County Commissioner";
+    out.push({
+      county, full_name, title, district,
+      phone: (b.match(/href="tel:([^"]+)"/) || [])[1]?.trim() || null,
+      email: (b.match(/href="mailto:([^"]+)"/) || [])[1]?.trim() || null,
+      role: "county_commissioner",
+    });
+  }
+  return out;
+}
+
+const WEBMAIL = /@(gmail|yahoo|hotmail|outlook|live|aol|icloud|me|msn|comcast|att|sbcglobal|bellsouth|verizon|charter|cox|earthlink|protonmail|ymail)\./i;
+/**
+ * A free-webmail address that shares nothing with the person's name is most
+ * likely someone else's (2026-10-09: an NM directory listed a commissioner with
+ * another person's gmail). Sending a member's message there is worse than
+ * having no address, so it becomes null. Office and district mailboxes pass.
+ */
+export function emailOrNull(email, fullName) {
+  const e = String(email ?? "").trim();
+  if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e)) return null;
+  if (!WEBMAIL.test(e)) return e;
+  const local = e.split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
+  const parts = decodeEntities(fullName).toLowerCase().replace(/"[^"]*"/g, " ").replace(/[^a-z\s]/g, " ").split(/\s+/).filter((p) => p.length >= 3);
+  return parts.some((p) => local.includes(p.slice(0, 4))) ? e : null;
+}
+
 /** The registry the seeder walks. counties = how many a full parse must name. */
 export const COUNTY_DIRECTORIES = {
   ND: {
@@ -195,6 +242,13 @@ export const COUNTY_DIRECTORIES = {
     label: "South Carolina Association of Counties county directory",
     counties: 46,
     parse: parseScacCountyPage,
+  },
+  NM: {
+    url: "https://www.nmcounties.org/member-directory/?_sft_directory_position=commissioner",
+    linksFrom: nmcPageLinks,
+    label: "New Mexico Counties member directory (commissioners)",
+    counties: 33,
+    parse: parseNmcDirectory,
   },
 };
 

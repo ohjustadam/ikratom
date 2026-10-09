@@ -23,7 +23,7 @@
  *   node --env-file=.env.local scripts/seed-county-boards-from-directories.mjs --dry-run [--state ND]
  */
 import { createClient } from "@supabase/supabase-js";
-import { COUNTY_DIRECTORIES, boardOnly, nameKey } from "./lib/county-directories.mjs";
+import { COUNTY_DIRECTORIES, boardOnly, emailOrNull, nameKey } from "./lib/county-directories.mjs";
 
 const DRY = process.argv.includes("--dry-run");
 const stAt = process.argv.indexOf("--state");
@@ -78,8 +78,8 @@ for (const [state, cfg] of Object.entries(COUNTY_DIRECTORIES)) {
     const dirKeys = new Set(members.map((m) => nameKey(m.full_name)));
 
     const rows = members.filter((m) => !have.has(nameKey(m.full_name))).map((m) => ({
-      state, role: m.role ?? "county_commissioner", district: null, full_name: m.full_name,
-      party: cfg.party ?? null, email: m.email, phone: m.phone, website: cfg.url, title: m.title,
+      state, role: m.role ?? "county_commissioner", district: m.district ?? null, full_name: m.full_name,
+      party: cfg.party ?? null, email: emailOrNull(m.email, m.full_name), phone: m.phone, website: cfg.url, title: m.title,
       level: "county", locality, body: "county_commission", active: true, term_end_date: null,
       verified_sources_md: `- Source: ${cfg.url}\n- ${cfg.label}, read ${today} (deterministic parse of the official directory, no AI).`,
       last_synced_at: new Date().toISOString(),
