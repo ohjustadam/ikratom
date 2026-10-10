@@ -54,7 +54,7 @@ const TRADE_COLS = "id, transaction_date, filing_date, transaction_type, ticker,
  * WHY: one robots.txt-ignoring crawler made 100% of origin hits on
  * /legislators/* (Cloudflare analytics, 2026-10-09), and this page ran ~15
  * queries on every render. Everything here is identical for every viewer, so
- * it is now read once per legislator per 15 minutes.
+ * it is now read once per legislator per 6 hours.
  *
  * ANONYMOUS client, same contract as ../page.tsx: RLS makes the snapshot
  * exactly what a logged-out visitor may see. Verified 2026-10-09 that anon and
@@ -65,6 +65,27 @@ const TRADE_COLS = "id, transaction_date, filing_date, transaction_type, ticker,
  * Shares the "legislator-detail" tag, so whatever refreshes the profile page
  * refreshes this too.
  */
+/**
+ * Active bills sitting in a committee, per STATE (up to 200, about 50 KB).
+ * Every legislator in a state shares this list, so a crawler sweeping a
+ * state's briefings reads it once instead of once per legislator.
+ */
+const getStateCommitteeBills = unstable_cache(
+  async (state: string) => {
+    const { data } = await createAnonClient()
+      .from("bills")
+      .select("id, bill_number, title, kratom_relevance, current_committee_name")
+      .eq("state", state)
+      .eq("active", true)
+      .not("current_committee_name", "is", null)
+      .order("last_action_at", { ascending: false, nullsFirst: false })
+      .limit(200);
+    return (data ?? []) as Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null }>;
+  },
+  ["briefing-state-committee-bills"],
+  { revalidate: 21600, tags: ["legislator-detail"] },
+);
+
 const getBriefingPublic = unstable_cache(
   async (id: string) => {
     const sb = createAnonClient();
@@ -120,14 +141,7 @@ const getBriefingPublic = unstable_cache(
     let currentlyDeciding: Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; committee: string; role: string; clusters: Array<{ slug: string; name: string }> }> = [];
     try {
       if (committees.length > 0) {
-        const { data: stateBills } = await sb
-          .from("bills")
-          .select("id, bill_number, title, kratom_relevance, current_committee_name")
-          .eq("state", leg.state)
-          .eq("active", true)
-          .not("current_committee_name", "is", null)
-          .order("last_action_at", { ascending: false, nullsFirst: false })
-          .limit(200);
+        const stateBills = await getStateCommitteeBills(leg.state);
         for (const b of (stateBills ?? []) as Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null }>) {
           if (!b.current_committee_name) continue;
           const match = committees.find((c) => committeesMatch(b.current_committee_name!, c.committee_name));
@@ -228,7 +242,10 @@ const getBriefingPublic = unstable_cache(
     };
   },
   ["legislator-briefing-public"],
-  { revalidate: 900, tags: ["legislator-detail"] },
+  // 6 hours: sponsorships, votes, committees and news mentions sync daily, and
+  // the CDN cannot cache this page (it reads cookies). The legislator-detail
+  // tag refreshes it on demand through /api/revalidate.
+  { revalidate: 21600, tags: ["legislator-detail"] },
 );
 
 /**
