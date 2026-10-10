@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { unstable_cache } from "next/cache";
+import { publicSnapshot } from "@/lib/public-snapshots";
 import { getUserLegislators } from "@/lib/legislators";
 import { committeesMatch } from "@/lib/bill-committee";
 import {
@@ -70,31 +71,35 @@ const TRADE_COLS = "id, transaction_date, filing_date, transaction_type, ticker,
  * Every legislator in a state shares this list, so a crawler sweeping a
  * state's briefings reads it once instead of once per legislator.
  */
+type StateCommitteeBill = { id: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null };
 const getStateCommitteeBills = unstable_cache(
-  async (state: string) => {
-    const { data } = await createAnonClient()
-      .from("bills")
-      .select("id, bill_number, title, kratom_relevance, current_committee_name")
-      .eq("state", state)
-      .eq("active", true)
-      .not("current_committee_name", "is", null)
-      .order("last_action_at", { ascending: false, nullsFirst: false })
-      .limit(200);
-    return (data ?? []) as Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null }>;
-  },
+  async (state: string) =>
+    (await publicSnapshot("state-committee-bills", "v1", state, 6 * 3600, async () => {
+      const { data, error } = await createAnonClient()
+        .from("bills")
+        .select("id, bill_number, title, kratom_relevance, current_committee_name")
+        .eq("state", state)
+        .eq("active", true)
+        .not("current_committee_name", "is", null)
+        .order("last_action_at", { ascending: false, nullsFirst: false })
+        .limit(200);
+      return { data: (data ?? []) as StateCommitteeBill[], cacheable: !error };
+    })) ?? [],
   ["briefing-state-committee-bills"],
   { revalidate: 21600, tags: ["legislator-detail"] },
 );
 
-const getBriefingPublic = unstable_cache(
-  async (id: string) => {
+async function loadBriefingPublic(id: string) {
     const sb = createAnonClient();
-    const { data: legRaw } = await sb
+    const { data: legRaw, error: legErr } = await sb
       .from("legislators")
       .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active, portrait_url")
       .eq("id", id)
       .maybeSingle();
-    if (!legRaw) return null;
+    // Supabase failing must not read as "not found": throwing lets the last
+    // good R2 snapshot serve instead.
+    if (legErr) throw legErr;
+    if (!legRaw) return { data: null, cacheable: false };
     const leg = legRaw as BriefingLeg;
     const federal = leg.role === "us_senate" || leg.role === "us_house";
 
@@ -226,7 +231,10 @@ const getBriefingPublic = unstable_cache(
       } catch { /* pre-0149 */ }
     }
 
-    return {
+    // Any failed read may have emptied a section: serve it, never store it.
+    const reads = [sponsorshipsRaw, committeesRaw, donorRow, votingRaw, newsMentionsRaw, ...(trades ?? [])] as unknown as Array<{ error?: unknown } | null | undefined>;
+    const cacheable = !reads.some((r) => Boolean(r?.error));
+    return { cacheable, data: {
       leg,
       sponsorships: (sponsorshipsRaw.data ?? []) as unknown[],
       committees,
@@ -239,8 +247,16 @@ const getBriefingPublic = unstable_cache(
       currentlyDeciding,
       clusterMembers,
       sponsoredNews,
-    };
-  },
+    } };
+}
+
+/**
+ * Layered like the profile page: unstable_cache (this deploy) over an R2 copy
+ * (12 h, survives deploys and instances) over Supabase. Bump "v1" if
+ * loadBriefingPublic's shape changes.
+ */
+const getBriefingPublic = unstable_cache(
+  (id: string) => publicSnapshot("briefing-public", "v1", id, 12 * 3600, () => loadBriefingPublic(id)),
   ["legislator-briefing-public"],
   // 6 hours: sponsorships, votes, committees and news mentions sync daily, and
   // the CDN cannot cache this page (it reads cookies). The legislator-detail
