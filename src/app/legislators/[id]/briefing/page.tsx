@@ -1,6 +1,8 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAnonClient } from "@/lib/supabase/anon";
+import { unstable_cache } from "next/cache";
 import { getUserLegislators } from "@/lib/legislators";
 import { committeesMatch } from "@/lib/bill-committee";
 import {
@@ -26,12 +28,8 @@ type Params = Promise<{ id: string }>;
 
 export async function generateMetadata({ params }: { params: Params }) {
   const { id } = await params;
-  const sb = await createClient();
-  const { data: leg } = await sb
-    .from("legislators")
-    .select("full_name, state, role, district")
-    .eq("id", id)
-    .maybeSingle();
+  // Same cached snapshot as the page: no extra query per hit.
+  const leg = (await getBriefingPublic(id))?.leg ?? null;
   if (!leg) return { title: "Intel briefing — legislator not found" };
   return {
     title: `${(leg as { full_name: string }).full_name} — kratom intel briefing`,
@@ -39,6 +37,216 @@ export async function generateMetadata({ params }: { params: Params }) {
     robots: { index: false }, // briefings are advocate-facing, not SEO
   };
 }
+
+type BriefingLeg = {
+  id: string; state: string; role: string; district: string | null;
+  full_name: string; party: string | null; email: string | null;
+  phone: string | null; office_address: string | null; website: string | null;
+  level: string | null; locality: string | null; body: string | null; title: string | null;
+  active: boolean; portrait_url: string | null;
+};
+
+const TRADE_COLS = "id, transaction_date, filing_date, transaction_type, ticker, asset_description, asset_type, amount_range, amount_lower, amount_upper, owner, is_kratom_adjacent, kratom_relevance_note, ptr_link, chamber";
+
+/**
+ * The public half of a briefing, cached per legislator (2026-10-09 egress fix).
+ *
+ * WHY: one robots.txt-ignoring crawler made 100% of origin hits on
+ * /legislators/* (Cloudflare analytics, 2026-10-09), and this page ran ~15
+ * queries on every render. Everything here is identical for every viewer, so
+ * it is now read once per legislator per 6 hours.
+ *
+ * ANONYMOUS client, same contract as ../page.tsx: RLS makes the snapshot
+ * exactly what a logged-out visitor may see. Verified 2026-10-09 that anon and
+ * the service role see identical rows on every table read here except
+ * news_items (anon = active only, which is all this page shows). Stances are
+ * NOT in here: RLS shows them to verified members only, so they stay a
+ * per-viewer read in the page. Do NOT swap in the service-role client.
+ * Shares the "legislator-detail" tag, so whatever refreshes the profile page
+ * refreshes this too.
+ */
+/**
+ * Active bills sitting in a committee, per STATE (up to 200, about 50 KB).
+ * Every legislator in a state shares this list, so a crawler sweeping a
+ * state's briefings reads it once instead of once per legislator.
+ */
+const getStateCommitteeBills = unstable_cache(
+  async (state: string) => {
+    const { data } = await createAnonClient()
+      .from("bills")
+      .select("id, bill_number, title, kratom_relevance, current_committee_name")
+      .eq("state", state)
+      .eq("active", true)
+      .not("current_committee_name", "is", null)
+      .order("last_action_at", { ascending: false, nullsFirst: false })
+      .limit(200);
+    return (data ?? []) as Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null }>;
+  },
+  ["briefing-state-committee-bills"],
+  { revalidate: 21600, tags: ["legislator-detail"] },
+);
+
+const getBriefingPublic = unstable_cache(
+  async (id: string) => {
+    const sb = createAnonClient();
+    const { data: legRaw } = await sb
+      .from("legislators")
+      .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active, portrait_url")
+      .eq("id", id)
+      .maybeSingle();
+    if (!legRaw) return null;
+    const leg = legRaw as BriefingLeg;
+    const federal = leg.role === "us_senate" || leg.role === "us_house";
+
+    const [sponsorshipsRaw, committeesRaw, donorRow, votingRaw, newsMentionsRaw, trades] = await Promise.all([
+      sb.from("bill_sponsors")
+        .select("bill_id, classification, bills(id, bill_number, title, kratom_relevance, status, last_action_at, state, current_committee_name)")
+        .eq("legislator_id", id),
+      sb.from("legislator_committees")
+        .select("committee_name, role, is_kratom_relevant")
+        .eq("legislator_id", id),
+      federal
+        ? sb.from("legislator_donors")
+            .select("cycle, total_receipts, top_industries, top_employers, kratom_relevant, resolved_status, synced_at")
+            .eq("legislator_id", id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      sb.from("bill_vote_members")
+        .select("vote_text, vote_value, bill_vote_id, bill_votes!inner(vote_date, chamber, motion, passed, yea_count, nay_count, bills!inner(id, bill_number, kratom_relevance, title, state))")
+        .eq("legislator_id", id)
+        .order("bill_votes(vote_date)", { ascending: false })
+        .limit(50),
+      sb.from("legislator_news_mentions")
+        .select("matched_field, mention_context, match_confidence, news_items!inner(id, title, source_name, url, published_at, state)")
+        .eq("legislator_id", id)
+        .order("news_items(published_at)", { ascending: false })
+        .limit(30),
+      // STOCK Act trades, federal only: every kratom-adjacent trade plus the
+      // latest 50 others, and the total count.
+      federal
+        ? Promise.all([
+            sb.from("federal_personal_trades").select(TRADE_COLS).eq("legislator_id", id).eq("is_kratom_adjacent", true)
+              .order("transaction_date", { ascending: false, nullsFirst: false }),
+            sb.from("federal_personal_trades").select(TRADE_COLS).eq("legislator_id", id).eq("is_kratom_adjacent", false)
+              .order("transaction_date", { ascending: false, nullsFirst: false }).limit(50),
+            sb.from("federal_personal_trades").select("id", { count: "exact", head: true }).eq("legislator_id", id),
+          ])
+        : Promise.resolve(null),
+    ]);
+    const committees = (committeesRaw.data ?? []) as Array<{ committee_name: string; role: string; is_kratom_relevant: boolean | null }>;
+    const sponsorshipRows = (sponsorshipsRaw.data ?? []) as Array<{ bill_id: string; classification: string }>;
+
+    // "Currently deciding": active bills in this person's state sitting in a
+    // committee they serve on, with their coordinated-operation clusters.
+    let currentlyDeciding: Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; committee: string; role: string; clusters: Array<{ slug: string; name: string }> }> = [];
+    try {
+      if (committees.length > 0) {
+        const stateBills = await getStateCommitteeBills(leg.state);
+        for (const b of (stateBills ?? []) as Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null }>) {
+          if (!b.current_committee_name) continue;
+          const match = committees.find((c) => committeesMatch(b.current_committee_name!, c.committee_name));
+          if (!match) continue;
+          currentlyDeciding.push({
+            id: b.id,
+            bill_number: b.bill_number,
+            title: b.title,
+            kratom_relevance: b.kratom_relevance,
+            committee: match.committee_name,
+            role: match.role,
+            clusters: [],
+          });
+        }
+        // Dedupe + anti-first
+        const seen = new Set<string>();
+        currentlyDeciding = currentlyDeciding
+          .filter((d) => seen.has(d.id) ? false : (seen.add(d.id), true))
+          .sort((a, b) => {
+            if (a.kratom_relevance === "anti" && b.kratom_relevance !== "anti") return -1;
+            if (b.kratom_relevance === "anti" && a.kratom_relevance !== "anti") return 1;
+            return 0;
+          })
+          .slice(0, 15);
+
+        // Enrich with cluster membership — surfaces "this legislator is
+        // on the committee deciding a KCPA bill right now" inline.
+        const decidingBillIds = currentlyDeciding.map((d) => d.id);
+        if (decidingBillIds.length > 0) {
+          try {
+            const { data: cmRows } = await sb
+              .from("bill_cluster_members")
+              .select("bill_id, bill_clusters!inner(slug, name)")
+              .in("bill_id", decidingBillIds);
+            type CJ = { slug: string; name: string };
+            const clustersByBill = new Map<string, CJ[]>();
+            for (const m of (cmRows ?? []) as Array<{
+              bill_id: string; bill_clusters: CJ | CJ[] | null;
+            }>) {
+              const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
+              if (!c) continue;
+              if (!clustersByBill.has(m.bill_id)) clustersByBill.set(m.bill_id, []);
+              clustersByBill.get(m.bill_id)!.push(c);
+            }
+            for (const d of currentlyDeciding) {
+              d.clusters = clustersByBill.get(d.id) ?? [];
+            }
+          } catch { /* pre-migration */ }
+        }
+      }
+    } catch {
+      // Pre-migration deploy — silent fallback.
+    }
+
+
+    // Cluster rows for the bills they primary-sponsor (aggregated in the page).
+    let clusterMembers: unknown[] = [];
+    const primaryIds = sponsorshipRows.filter((r) => r.classification === "primary").map((r) => r.bill_id);
+    if (primaryIds.length > 0) {
+      try {
+        const { data } = await sb
+          .from("bill_cluster_members")
+          .select("bill_id, bill_clusters!inner(slug, name, posture)")
+          .in("bill_id", primaryIds);
+        clusterMembers = data ?? [];
+      } catch { /* pre-migration */ }
+    }
+
+    // News linked to bills they sponsor (de-duplicated in the page).
+    let sponsoredNews: unknown[] = [];
+    const sponsoredIds = [...new Set(sponsorshipRows.map((r) => r.bill_id))];
+    if (sponsoredIds.length > 0) {
+      try {
+        const { data } = await sb
+          .from("news_items")
+          .select("id, title, source_name, url, published_at, bill_id, bills!inner(bill_number)")
+          .in("bill_id", sponsoredIds)
+          .eq("active", true)
+          .order("published_at", { ascending: false })
+          .limit(30);
+        sponsoredNews = data ?? [];
+      } catch { /* pre-0149 */ }
+    }
+
+    return {
+      leg,
+      sponsorships: (sponsorshipsRaw.data ?? []) as unknown[],
+      committees,
+      donor: (donorRow?.data ?? null) as unknown,
+      voting: (votingRaw?.data ?? []) as unknown[],
+      newsMentions: (newsMentionsRaw?.data ?? []) as unknown[],
+      trades: trades
+        ? { adjacent: (trades[0].data ?? []) as unknown[], other: (trades[1].data ?? []) as unknown[], total: trades[2].count ?? 0 }
+        : null,
+      currentlyDeciding,
+      clusterMembers,
+      sponsoredNews,
+    };
+  },
+  ["legislator-briefing-public"],
+  // 6 hours: sponsorships, votes, committees and news mentions sync daily, and
+  // the CDN cannot cache this page (it reads cookies). The legislator-detail
+  // tag refreshes it on demand through /api/revalidate.
+  { revalidate: 21600, tags: ["legislator-detail"] },
+);
 
 /**
  * /legislators/[id]/briefing
@@ -67,93 +275,40 @@ export async function generateMetadata({ params }: { params: Params }) {
  */
 export default async function BriefingPage({ params }: { params: Params }) {
   const { id } = await params;
+
+  // Everything the same for every viewer comes from the per-id cache above.
+  const pub = await getBriefingPublic(id);
+  if (!pub) notFound();
+  const leg = pub.leg;
+
+  // Per-viewer reads only. Stances are visible to verified members and
+  // creators under RLS, so a signed-out visitor (every crawler) would read
+  // nothing: skip both stance queries for them.
   const sb = await createClient();
-
-  const { data: legRaw } = await sb
-    .from("legislators")
-    .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active, portrait_url")
-    .eq("id", id)
-    .maybeSingle();
-  if (!legRaw) notFound();
-  const leg = legRaw as {
-    id: string; state: string; role: string; district: string | null;
-    full_name: string; party: string | null; email: string | null;
-    phone: string | null; office_address: string | null; website: string | null;
-    level: string | null; locality: string | null; body: string | null; title: string | null;
-    active: boolean; portrait_url: string | null;
-  };
-
-  // ── Parallel pulls
-  const [
-    stanceRow,
-    sponsorshipsRaw,
-    committeesRaw,
-    donorRow,
-    viewerData,
-    votingRaw,
-    newsMentionsRaw,
-    personalTradesRaw,
-  ] = await Promise.all([
-    sb.from("legislator_stance")
-      .select("stance, rationale_md, last_evidence_url, last_updated_at")
-      .eq("topic", "kratom")
-      .eq("legislator_id", id)
-      .maybeSingle(),
-    sb.from("bill_sponsors")
-      .select("bill_id, classification, bills(id, bill_number, title, kratom_relevance, status, last_action_at, state, current_committee_name)")
-      .eq("legislator_id", id),
-    sb.from("legislator_committees")
-      .select("committee_name, role, is_kratom_relevant")
-      .eq("legislator_id", id),
-    leg.role === "us_senate" || leg.role === "us_house"
-      ? sb.from("legislator_donors")
-          .select("cycle, total_receipts, top_industries, top_employers, kratom_relevant, resolved_status, synced_at")
+  const viewerData = await sb.auth.getUser();
+  const viewerSignedIn = !!viewerData.data.user;
+  const [stanceRow, allStanceRes]: [{ data: unknown }, { data: unknown }] = viewerSignedIn
+    ? await Promise.all([
+        sb.from("legislator_stance")
+          .select("stance, rationale_md, last_evidence_url, last_updated_at")
+          .eq("topic", "kratom")
           .eq("legislator_id", id)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
-    sb.auth.getUser(),
-    // Phase 3 D1: voting record. Wrapped in try-style fallback so
-    // pre-migration deploys (before 0126) render the rest of the
-    // page without erroring. Pulls every kratom-bill vote where this
-    // legislator participated, joined to the bill metadata.
-    sb.from("bill_vote_members")
-      .select("vote_text, vote_value, bill_vote_id, bill_votes!inner(vote_date, chamber, motion, passed, yea_count, nay_count, bills!inner(id, bill_number, kratom_relevance, title, state))")
-      .eq("legislator_id", id)
-      .order("bill_votes(vote_date)", { ascending: false })
-      .limit(50),
-    // Phase 3 D4 Phase 1: per-legislator news mentions. Joined to
-    // news_items for outlet + title + date. Defensive: pre-migration
-    // (before 0127) renders the rest of the page without erroring.
-    sb.from("legislator_news_mentions")
-      .select("matched_field, mention_context, match_confidence, news_items!inner(id, title, source_name, url, published_at, state)")
-      .eq("legislator_id", id)
-      .order("news_items(published_at)", { ascending: false })
-      .limit(30),
-    // STOCK Act personal trades — federal only. We split into two
-    // queries because prolific traders have many trades but few in
-    // kratom-adjacent industries — sorting by date and limiting would
-    // drop the most relevant rows. So: pull ALL kratom-adjacent +
-    // the latest N non-adjacent for context. Pre-migration deploys
-    // (before 0138) get null arrays and render no section.
-    leg.role === "us_senate" || leg.role === "us_house"
-      ? Promise.all([
-          sb.from("federal_personal_trades")
-            .select("id, transaction_date, filing_date, transaction_type, ticker, asset_description, asset_type, amount_range, amount_lower, amount_upper, owner, is_kratom_adjacent, kratom_relevance_note, ptr_link, chamber")
-            .eq("legislator_id", id)
-            .eq("is_kratom_adjacent", true)
-            .order("transaction_date", { ascending: false, nullsFirst: false }),
-          sb.from("federal_personal_trades")
-            .select("id, transaction_date, filing_date, transaction_type, ticker, asset_description, asset_type, amount_range, amount_lower, amount_upper, owner, is_kratom_adjacent, kratom_relevance_note, ptr_link, chamber")
-            .eq("legislator_id", id)
-            .eq("is_kratom_adjacent", false)
-            .order("transaction_date", { ascending: false, nullsFirst: false })
-            .limit(50),
-          sb.from("federal_personal_trades")
-            .select("id", { count: "exact", head: true })
-            .eq("legislator_id", id),
-        ])
-      : Promise.resolve(null),
-  ]);
+          .maybeSingle(),
+        sb.from("legislator_stance")
+          .select("topic, stance")
+          .eq("legislator_id", id),
+      ])
+    : [{ data: null }, { data: [] }];
+
+  // The shapes the code below already reads.
+  const sponsorshipsRaw = { data: pub.sponsorships };
+  const committeesRaw = { data: pub.committees };
+  const donorRow = { data: pub.donor };
+  const votingRaw = { data: pub.voting };
+  const newsMentionsRaw = { data: pub.newsMentions };
+  const personalTradesRaw = pub.trades
+    ? [{ data: pub.trades.adjacent }, { data: pub.trades.other }, { count: pub.trades.total }]
+    : null;
 
   const stance: Stance =
     ((stanceRow.data as { stance?: Stance } | null)?.stance) ?? "unknown";
@@ -165,10 +320,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
   // Same RLS as the kratom read (verified/creator), so unverified viewers
   // see the coverage framework but no positions. Topics without a row are
   // honestly shown as "not yet assessed" (real-data-only).
-  const { data: allStanceRows } = await sb
-    .from("legislator_stance")
-    .select("topic, stance")
-    .eq("legislator_id", id);
+  const allStanceRows = allStanceRes.data;
   const stanceByTopic = new Map<string, Stance>();
   for (const r of (allStanceRows ?? []) as Array<{ topic: string; stance: Stance }>) {
     stanceByTopic.set(r.topic, r.stance);
@@ -216,70 +368,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
 
   // ── "Currently deciding" cross-reference: which active bills in
   // this person's state are in committees they sit on right now?
-  let currentlyDeciding: Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; committee: string; role: string; clusters: Array<{ slug: string; name: string }> }> = [];
-  try {
-    if (committees.length > 0) {
-      const { data: stateBills } = await sb
-        .from("bills")
-        .select("id, bill_number, title, kratom_relevance, current_committee_name")
-        .eq("state", leg.state)
-        .eq("active", true)
-        .not("current_committee_name", "is", null)
-        .order("last_action_at", { ascending: false, nullsFirst: false })
-        .limit(200);
-      for (const b of (stateBills ?? []) as Array<{ id: string; bill_number: string; title: string | null; kratom_relevance: string | null; current_committee_name: string | null }>) {
-        if (!b.current_committee_name) continue;
-        const match = committees.find((c) => committeesMatch(b.current_committee_name!, c.committee_name));
-        if (!match) continue;
-        currentlyDeciding.push({
-          id: b.id,
-          bill_number: b.bill_number,
-          title: b.title,
-          kratom_relevance: b.kratom_relevance,
-          committee: match.committee_name,
-          role: match.role,
-          clusters: [],
-        });
-      }
-      // Dedupe + anti-first
-      const seen = new Set<string>();
-      currentlyDeciding = currentlyDeciding
-        .filter((d) => seen.has(d.id) ? false : (seen.add(d.id), true))
-        .sort((a, b) => {
-          if (a.kratom_relevance === "anti" && b.kratom_relevance !== "anti") return -1;
-          if (b.kratom_relevance === "anti" && a.kratom_relevance !== "anti") return 1;
-          return 0;
-        })
-        .slice(0, 15);
-
-      // Enrich with cluster membership — surfaces "this legislator is
-      // on the committee deciding a KCPA bill right now" inline.
-      const decidingBillIds = currentlyDeciding.map((d) => d.id);
-      if (decidingBillIds.length > 0) {
-        try {
-          const { data: cmRows } = await sb
-            .from("bill_cluster_members")
-            .select("bill_id, bill_clusters!inner(slug, name)")
-            .in("bill_id", decidingBillIds);
-          type CJ = { slug: string; name: string };
-          const clustersByBill = new Map<string, CJ[]>();
-          for (const m of (cmRows ?? []) as Array<{
-            bill_id: string; bill_clusters: CJ | CJ[] | null;
-          }>) {
-            const c = Array.isArray(m.bill_clusters) ? m.bill_clusters[0] : m.bill_clusters;
-            if (!c) continue;
-            if (!clustersByBill.has(m.bill_id)) clustersByBill.set(m.bill_id, []);
-            clustersByBill.get(m.bill_id)!.push(c);
-          }
-          for (const d of currentlyDeciding) {
-            d.clusters = clustersByBill.get(d.id) ?? [];
-          }
-        } catch { /* pre-migration */ }
-      }
-    }
-  } catch {
-    // Pre-migration deploy — silent fallback.
-  }
+  const currentlyDeciding = pub.currentlyDeciding;
 
   // ── Sponsorship signal aggregation
   const primary = sponsorships.filter((s) => s.classification === "primary");
@@ -297,10 +386,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
   const clusterInvolvement: ClusterInvolvement[] = [];
   if (primary.length > 0) {
     try {
-      const { data: clusterMembers } = await sb
-        .from("bill_cluster_members")
-        .select("bill_id, bill_clusters!inner(slug, name, posture)")
-        .in("bill_id", primary.map((p) => p.bill_id));
+      const clusterMembers = pub.clusterMembers;
       type ClusterJoined = { slug: string; name: string; posture: string };
       const agg = new Map<string, ClusterInvolvement>();
       for (const m of (clusterMembers ?? []) as Array<{
@@ -459,13 +545,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
   try {
     const sponsoredIds = [...new Set(sponsorships.map((s) => s.bill_id))];
     if (sponsoredIds.length > 0) {
-      const { data: sbnRaw } = await sb
-        .from("news_items")
-        .select("id, title, source_name, url, published_at, bill_id, bills!inner(bill_number)")
-        .in("bill_id", sponsoredIds)
-        .eq("active", true)
-        .order("published_at", { ascending: false })
-        .limit(30);
+      const sbnRaw = pub.sponsoredNews;
       const classByBill = new Map(sponsorships.map((s) => [s.bill_id, s.classification]));
       // De-dupe by news_id (an article might link to multiple sponsored bills).
       const seen = new Set<string>();
