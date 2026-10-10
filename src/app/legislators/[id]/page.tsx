@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/anon";
+import { publicSnapshot } from "@/lib/public-snapshots";
 import { PressureIndexPill, MemberVotingRecord } from "./MemberGates";
 import { ROLE_LABEL } from "@/lib/legislators";
 import { ShareButtons } from "@/components/ShareButtons";
@@ -111,15 +112,17 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
  * Member-only extras (pressure index, per-bill votes) are fetched after
  * hydration from /api/legislators/[id]/member — see ./MemberGates.
  */
-const getLegislatorPublicSnapshot = unstable_cache(
-  async (id: string) => {
+async function loadLegislatorPublic(id: string) {
     const sb = createAnonClient();
-    const { data: legRaw } = await sb
+    const { data: legRaw, error: legErr } = await sb
       .from("legislators")
       .select("id, state, role, district, full_name, party, email, phone, office_address, website, level, locality, body, title, active, portrait_url")
       .eq("id", id)
-      .single();
-    if (!legRaw) return null;
+      .maybeSingle();
+    // A failing Supabase must not read as "no such legislator": throwing lets
+    // the last good R2 snapshot serve instead of a 404.
+    if (legErr) throw legErr;
+    if (!legRaw) return { data: null, cacheable: false };
     const leg = legRaw as unknown as Legislator;
 
     // Campaigns, votes and intel all need only the legislator row, so they run
@@ -127,7 +130,7 @@ const getLegislatorPublicSnapshot = unstable_cache(
     // read). Intel uses the SAME anonymous client, so the snapshot holds exactly
     // the public view. `legislator_stance` is invisible to anon under RLS
     // (migration 0221), so no withheld stance can reach this cache.
-    const [[{ data: explicitCampaigns }, { data: roleCampaigns }, { data: voteRowsRaw }], intel] = await Promise.all([Promise.all([
+    const [[explicitRes, roleRes, votesRes], intel] = await Promise.all([Promise.all([
       sb.from("campaigns").select("id, slug, title, state, blurb").eq("active", true).contains("target_legislator_ids", [id]),
       sb.from("campaigns").select("id, slug, title, state, blurb").eq("active", true).eq("state", leg.state).contains("target_roles", [leg.role]),
       sb.from("bill_vote_members")
@@ -135,8 +138,20 @@ const getLegislatorPublicSnapshot = unstable_cache(
         .eq("legislator_id", id)
         .limit(500),
     ]), getLegislatorIntel(sb, leg as never)]);
-    return { leg, explicitCampaigns, roleCampaigns, voteRowsRaw, intel };
-  },
+    return {
+      data: { leg, explicitCampaigns: explicitRes.data, roleCampaigns: roleRes.data, voteRowsRaw: votesRes.data, intel },
+      // A failed sub-query may have emptied a section: serve it, never store it.
+      cacheable: !explicitRes.error && !roleRes.error && !votesRes.error,
+    };
+}
+
+/**
+ * The public snapshot, layered: unstable_cache (this deploy, 15 min) over an
+ * R2 copy (12 h, survives deploys and instances; see src/lib/public-snapshots.ts)
+ * over Supabase. Bump "v1" if loadLegislatorPublic's shape changes.
+ */
+const getLegislatorPublicSnapshot = unstable_cache(
+  (id: string) => publicSnapshot("legislator-public", "v1", id, 12 * 3600, () => loadLegislatorPublic(id)),
   ["legislator-public"],
   { revalidate: 900, tags: ["legislator-detail"] },
 );
