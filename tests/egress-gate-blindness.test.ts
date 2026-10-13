@@ -39,6 +39,7 @@ function stubClient(rows: Row[]) {
     gte: () => thenable,
     order: () => thenable,
     limit: () => Promise.resolve({ data: rows, error: null }),
+    range: (a: number, b: number) => Promise.resolve({ data: rows.slice(a, b + 1), error: null }),
   };
   return thenable as never;
 }
