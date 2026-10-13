@@ -23,13 +23,41 @@ const NICK = {
   ed: "edward", ted: "edward", greg: "gregory", matt: "matthew", andy: "andrew", nick: "nicholas",
   sam: "samuel", ben: "benjamin", jen: "jennifer", jenn: "jennifer", tim: "timothy", larry: "lawrence",
   jack: "john", jeff: "jeffrey", pat: "patrick", cathy: "catherine", kathy: "katherine", don: "donald",
+  // 2026-10-13 duplicates: Naperville's "Nate"/"Nathan" Wilson, Tishomingo's "Barbra"/"Barbara" Oaks.
+  nate: "nathan", charlie: "charles", chuck: "charles", barbra: "barbara",
 };
 const SUFFIX = new Set(["jr", "sr", "ii", "iii", "iv", "v", "phd", "md", "esq"]);
 const TITLE = new Set(["dr", "hon", "mr", "mrs", "ms", "rev"]);
 
+/**
+ * "Silverstein, Debra L." -> "Debra L. Silverstein". Some clerk systems
+ * (Chicago's Legistar) publish surname-first, and a member reading "Hall,
+ * William E." on their officials page is reading a database dump. A trailing
+ * suffix stays where it is: "Frank Scott, Jr." is already in reading order.
+ */
+export function readingOrderName(full) {
+  const s = String(full ?? "").trim().replace(/\s+/g, " ");
+  const parts = s.split(/\s*,\s*/).filter(Boolean);
+  const isSuffix = (p) => SUFFIX.has(p.toLowerCase().replace(/\./g, ""));
+  if (parts.length === 2 && !isSuffix(parts[1])) return `${parts[1]} ${parts[0]}`;
+  if (parts.length === 3 && !isSuffix(parts[1]) && isSuffix(parts[2])) return `${parts[1]} ${parts[0]}, ${parts[2]}`;
+  return s;
+}
+
+/**
+ * True for a title standing in for a name: "Councilmember Jones",
+ * "Alderman Hall". Philadelphia's Legistar publishes some members that way,
+ * and two rows for one person ("Councilmember Bass" beside "Cindy Bass") went
+ * live on 2026-06-03.
+ */
+export function isTitleOnlyName(full) {
+  return /^(council ?(member|man|woman|or|president)|alder(man|woman|person)|commissioner|supervisor|mayor|trustee|legislator|freeholder)\.?\s+[a-z'-]+\.?$/i
+    .test(String(full ?? "").trim());
+}
+
 /** @returns {{ first: string, last: string } | null} */
 export function nameParts(full) {
-  const tokens = String(full ?? "")
+  const tokens = readingOrderName(full)
     .normalize("NFD").replace(/[̀-ͯ]/g, "") // é → e
     .toLowerCase()
     .replace(/"[^"]*"/g, " ")       // drop quoted nicknames: Cornelius "CC" Calhoun
