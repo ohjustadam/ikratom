@@ -22,6 +22,8 @@
  * there and leave the rest null — never fabricate.
  */
 
+import { readingOrderName, isTitleOnlyName, nameParts } from "./official-names.mjs";
+
 const WEBAPI = "https://webapi.legistar.com/v1";
 
 // A handful of tenants whose Legistar webapi CLIENT code differs from the
@@ -161,8 +163,14 @@ export async function fetchLegistarOfficials({ client, bodyHint, level, subdomai
       || `https://${subdomain}.legistar.com/PersonDetail.aspx?ID=${r.OfficeRecordPersonId}`;
     const title = r.OfficeRecordTitle || (level === "county" ? "Commissioner" : "Council Member");
 
+    // Reading order, and never a title in place of a name (official-names.mjs).
+    const fromParts = `${r.OfficeRecordFirstName ?? ""} ${r.OfficeRecordLastName ?? ""}`.trim();
+    let fullName = readingOrderName(r.OfficeRecordFullName?.trim() || fromParts);
+    if (isTitleOnlyName(fullName)) fullName = isTitleOnlyName(fromParts) ? "" : fromParts;
+    if (!nameParts(fullName)) continue;
+
     officials.push({
-      full_name: r.OfficeRecordFullName?.trim() || `${r.OfficeRecordFirstName} ${r.OfficeRecordLastName}`.trim(),
+      full_name: fullName,
       role: mapRole({ level, title }),
       title,
       district: null,

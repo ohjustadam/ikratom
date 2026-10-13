@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { sameOfficial, nameParts } from "../scripts/lib/official-names.mjs";
+import { readFileSync } from "node:fs";
+import { sameOfficial, nameParts, readingOrderName, isTitleOnlyName } from "../scripts/lib/official-names.mjs";
 import { noCountyGovernment } from "../scripts/lib/no-county-government.mjs";
 import { termEndOrNull } from "../scripts/lib/officials-extract.mjs";
 
@@ -32,6 +33,57 @@ describe("sameOfficial — spelling variants are one person", () => {
   it("needs a first and last name", () => {
     expect(nameParts("Mayor")).toBeNull();
     expect(sameOfficial("Smith", "John Smith")).toBe(false);
+  });
+
+  // 2026-10-13 audit: 14 people were on file twice under these variants.
+  it.each([
+    ["Scott A. Wehrli", "Scott Wehrli"],                // Naperville
+    ["Nate Wilson", "Nathan Wilson"],                   // Naperville
+    ["Frank Scott, Jr.", "Frank Scott Jr."],            // Little Rock
+    ["Rob Savidge", "Robert Savidge"],                  // Annapolis
+    ["Josh Lilley", "Joshua Lilley"],                   // Augusta ME
+    ["Barbra Oaks", "Barbara Oaks"],                    // Tishomingo MS
+    ["Rick Jennings", "Rick Jennings II"],              // Sacramento
+    ["Silverstein, Debra L.", "Debra Silverstein"],     // Chicago Legistar, surname-first
+  ])("%s = %s", (a, b) => expect(sameOfficial(a, b)).toBe(true));
+
+  it.each([
+    ["Jamie Harris II", "Jason Harris"],                // Unicoi County TN: two commissioners
+    ["Deborah Garrett", "Darrell Garrett"],             // Pickett County TN
+    ["Silverstein, Debra L.", "Scott, Monique L."],     // Chicago: the old key merged these
+  ])("%s ≠ %s", (a, b) => expect(sameOfficial(a, b)).toBe(false));
+});
+
+describe("readingOrderName / isTitleOnlyName", () => {
+  it.each([
+    ["Silverstein, Debra L.", "Debra L. Silverstein"],
+    ["Hall, William E.", "William E. Hall"],
+    ["Scott, Frank, Jr.", "Frank Scott, Jr."],
+    ["Frank Scott, Jr.", "Frank Scott, Jr."],           // already reading order
+    ["Glen O. Pruitt, Jr", "Glen O. Pruitt, Jr"],
+    ["Jane  Doe", "Jane Doe"],
+  ])("%s -> %s", (a, b) => expect(readingOrderName(a)).toBe(b));
+
+  it("spots a title standing in for a name", () => {
+    for (const n of ["Councilmember Jones", "Council Member Bass", "Council President Johnson", "Alderman Hall", "Commissioner Doe."])
+      expect(isTitleOnlyName(n)).toBe(true);
+    for (const n of ["Curtis Jones Jr.", "Cindy Bass", "Mayor", "Jane Mayor Doe"])
+      expect(isTitleOnlyName(n)).toBe(false);
+  });
+});
+
+describe("insert paths use the spelling-tolerant match", () => {
+  const read = (p: string) => readFileSync(new URL(`../scripts/${p}`, import.meta.url), "utf8");
+  it.each(["sync-legistar-officials.mjs", "lib/officials-slate.mjs", "auto-fulfill-pending-local-reps.mjs"])("%s", (p) => {
+    const src = read(p);
+    expect(src).toMatch(/(sameOfficial|findSameOfficial)\(/);
+    expect(src).not.toMatch(/full_name\.toLowerCase\(\)/);
+  });
+  it("Legistar names are normalized before they leave the fetcher", () => {
+    const src = read("lib/legistar-officials.mjs");
+    expect(src).toMatch(/readingOrderName\(/);
+    expect(src).toMatch(/isTitleOnlyName\(/);
+    expect(src).toMatch(/full_name: fullName/);
   });
 });
 

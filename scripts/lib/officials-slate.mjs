@@ -16,6 +16,7 @@
  */
 
 import { findAndExtractOfficials } from "./officials-extract.mjs";
+import { sameOfficial } from "./official-names.mjs";
 
 const PARKED_DOMAINS = [
   "hugedomains.com", "sedoparking.com", "dan.com", "godaddy.com",
@@ -131,8 +132,8 @@ export async function seedLocalitySlate({ sb, state, locality, refresh = false, 
     .eq("state", state)
     .eq("locality", locality)
     .in("level", ["municipal", "county"]);
-  const existingKeys = new Set((existing ?? []).map((r) => `${r.role}::${(r.full_name ?? "").toLowerCase().trim()}`));
-  const newRows = rows.filter((r) => !existingKeys.has(`${r.role}::${r.full_name.toLowerCase().trim()}`));
+  // Spelling-tolerant, like every other insert path (official-names.mjs).
+  const newRows = rows.filter((r) => !(existing ?? []).some((e) => e.role === r.role && sameOfficial(e.full_name, r.full_name)));
 
   let insertedIds = [];
   if (newRows.length > 0) {

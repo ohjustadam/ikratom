@@ -22,6 +22,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { LEGISTAR_TENANTS } from "./lib/legistar-tenants.mjs";
 import { fetchLegistarOfficials, webapiClientFor } from "./lib/legistar-officials.mjs";
+import { findSameOfficial } from "./lib/official-names.mjs";
 import { normLoc, levelForTenant } from "./lib/legistar-resolver.mjs";
 import { runWithLogging } from "./lib/scraper-run.mjs";
 
@@ -72,7 +73,6 @@ await runWithLogging({ source: "sync_legistar_officials", supabase: sb }, async 
     // Dedupe against existing active rows for this locality.
     const { data: existing } = await sb.from("legislators")
       .select("id, full_name").eq("level", level).eq("locality", t.locality).eq("active", true);
-    const existingByName = new Map((existing ?? []).map((r) => [r.full_name.toLowerCase(), r.id]));
 
     for (const o of res.officials) {
       const row = {
@@ -88,7 +88,9 @@ await runWithLogging({ source: "sync_legistar_officials", supabase: sb }, async 
         ].join("\n"),
         last_synced_at: new Date().toISOString(),
       };
-      const existingId = existingByName.get(o.full_name.toLowerCase());
+      // Spelling-tolerant (2026-10-13): an exact match inserted Naperville's
+      // "Scott Wehrli" beside the "Scott A. Wehrli" already on file.
+      const existingId = findSameOfficial(existing, o.full_name)?.id;
       if (existingId) {
         // Refresh contact info on the existing row (term/email may change).
         const { error } = await sb.from("legislators").update({

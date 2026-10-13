@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { isNonRosterPage, isNonGoverningCountyTitle } from "../scripts/lib/officials-extract.mjs";
+import { isNonRosterPage, isNonGoverningCountyTitle, isAggregatorHost, pickCandidateUrls } from "../scripts/lib/officials-extract.mjs";
 
 /**
  * Regression pin (2026-10-09): the batch filed Kidder County ND's Auditor and
@@ -53,6 +53,27 @@ describe("isNonGoverningCountyTitle", () => {
   });
 });
 
+describe("isAggregatorHost / pickCandidateUrls", () => {
+  it("flags third-party directories, including subdomains", () => {
+    for (const url of ["https://citydirectory.us/augusta-me/", "https://www.countyoffice.org/x", "https://en.wikipedia.org/wiki/Will_County",
+      "https://ballotpedia.org/Mayor_of_Troy"]) expect(isAggregatorHost(url)).toBe(true);
+  });
+
+  it("does not flag government sites, look-alike hosts, or junk", () => {
+    for (const url of ["https://www.ci.troy.mi.us/council", "https://willcountyboard.com/", "https://notcitydirectory.us/",
+      "https://augustamaine.gov/", "not a url", undefined]) expect(isAggregatorHost(url)).toBe(false);
+  });
+
+  it("never offers an aggregator as a candidate, even when it is the only .us result", () => {
+    const results = [
+      { url: "https://citydirectory.us/augusta-me/city-council" },
+      { url: "https://www.augustamaine.gov/city_council/index.php" },
+    ];
+    expect(pickCandidateUrls(results, "Augusta")).toEqual(["https://www.augustamaine.gov/city_council/index.php"]);
+    expect(pickCandidateUrls([results[0]], "Augusta")).toEqual([]);
+  });
+});
+
 describe("wiring (the guards must actually run)", () => {
   const src = readFileSync(new URL("../scripts/lib/officials-extract.mjs", import.meta.url), "utf8");
   const body = src.slice(src.indexOf("async function extractFromText"));
@@ -62,6 +83,12 @@ describe("wiring (the guards must actually run)", () => {
     const model = body.indexOf("aiRouter(");
     expect(guard).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(model);
+  });
+
+  it("rejects an aggregator page BEFORE the model is called", () => {
+    const guard = body.indexOf("isAggregatorHost(sourceUrl)");
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(body.indexOf("aiRouter("));
   });
 
   it("applies the title filter to counties only (Michigan township clerks/treasurers vote)", () => {

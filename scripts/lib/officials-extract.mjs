@@ -103,6 +103,24 @@ export function isNonGoverningCountyTitle(title) {
   return NON_GOVERNING_COUNTY_TITLE_RE.test(String(title ?? ""));
 }
 
+/**
+ * Third-party directories that republish officials' names without being the
+ * government. 2026-10-13 four active officials traced back to citydirectory.us:
+ * the ".us" ending earned it the same bonus as a real "ci.<town>.<st>.us" site,
+ * so it outranked nothing better and its copy (often a cycle stale) went in as
+ * the roster. Matched on the host and every subdomain of it.
+ */
+const AGGREGATOR_HOSTS = [
+  "citydirectory.us", "countyoffice.org", "city-data.com", "usa.com", "opengovus.com",
+  "govserv.org", "ballotpedia.org", "wikipedia.org", "facebook.com", "linkedin.com",
+  "mapquest.com", "yelp.com", "yellowpages.com", "manta.com", "zoominfo.com",
+];
+export function isAggregatorHost(url) {
+  let host;
+  try { host = new URL(url).hostname.toLowerCase(); } catch { return false; }
+  return AGGREGATOR_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
 const EXTRACT_SYSTEM = `You extract CURRENT elected local-government officials from the text of ONE government web page that was already fetched for you. Work ONLY from the page text provided — do NOT use outside knowledge and do NOT invent anyone.
 
 Return STRICT JSON only (no prose, no markdown fences):
@@ -126,12 +144,13 @@ Rules:
 - Output ONLY the JSON object.`;
 
 /** Rank SearXNG results, preferring official government domains. */
-function pickCandidateUrls(results, city) {
+export function pickCandidateUrls(results, city) {
   const want = String(city ?? "").toLowerCase().replace(/[^a-z]/g, "");
   const scored = [];
   for (const r of results ?? []) {
     let u;
     try { u = new URL(r.url); } catch { continue; }
+    if (isAggregatorHost(r.url)) continue;
     const host = u.hostname.toLowerCase();
     const hay = host + u.pathname.toLowerCase();
     let score = 0;
@@ -151,7 +170,7 @@ function pickCandidateUrls(results, city) {
 // fetchPageText moved to ./page-text.mjs (shared with ban-verify.mjs).
 
 async function extractFromText({ text, city, state, level, sourceUrl }) {
-  if (isNonRosterPage(sourceUrl)) return { officials: [], provider: null, nonRosterPage: true };
+  if (isNonRosterPage(sourceUrl) || isAggregatorHost(sourceUrl)) return { officials: [], provider: null, nonRosterPage: true };
   const user = `Page URL: ${sourceUrl}\nJurisdiction: ${city}, ${state} (${level})\n\nPAGE TEXT:\n${text}`;
   let result;
   try {
