@@ -66,6 +66,24 @@ export const TIER_LIMITS = {
   essential: Infinity,
 };
 
+/**
+ * A tier past its line only sheds when the cycle is on track to end at or
+ * above this share of the cap (2026-10-13). Before, crossing 80% paused bulk
+ * jobs even with two days left and a burn rate that finished the cycle at
+ * ~88% — throttling work that was never going to cause a breach. The owner's
+ * rule is to throttle only when it is actually needed.
+ */
+export const PROJECTION_CEILING = 0.97;
+/** Burn rate is measured over this many trailing hours of readings. */
+const RATE_WINDOW_HOURS = 72;
+
+/** Next billing-cycle start (when usage resets). */
+export function nextCycleStart(now = new Date()) {
+  const d = cycleStart(now);
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  return d;
+}
+
 /** Current billing-cycle start (the most recent anchor day, UTC). */
 export function cycleStart(now = new Date()) {
   const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), EGRESS_CYCLE_ANCHOR_DAY));
@@ -89,17 +107,31 @@ function client() {
  * the sum of deltas since the cycle anchor, times BILLABLE_RATIO. Getting that
  * distinction wrong reads ~5x high and is the single easiest mistake here.
  *
- * @returns {Promise<{pct:number|null, usedMb:number|null, readings:number, staleHours:number|null}>}
+ * Reads EVERY reading of the cycle, paged (fixed 2026-10-13). It used to take
+ * the oldest 200, and once the clock fix (#960) raised the watchdog to ~17
+ * readings a day, a cycle passed 200 by day 12: the number froze, its age
+ * crossed 48h, and the gate failed open — the brake was off for the last
+ * third of every cycle, exactly when it matters.
+ *
+ * @returns {Promise<{pct:number|null, usedMb:number|null, readings:number, staleHours:number|null, mbPerDay:number|null, projectedPct:number|null}>}
  */
-export async function getEgressStatus(sb = client()) {
-  const { data, error } = await sb
-    .from("scraper_runs")
-    .select("finished_at, rows_updated")
-    .eq("source", "egress_watchdog")
-    .gte("finished_at", cycleStart().toISOString())
-    .order("finished_at", { ascending: true })
-    .limit(200);
-  if (error || !data?.length) return { pct: null, usedMb: null, readings: 0, staleHours: null };
+export async function getEgressStatus(sb = client(), now = new Date()) {
+  const data = [];
+  let error = null;
+  for (let from = 0; from < 20_000; from += 1000) {
+    const res = await sb
+      .from("scraper_runs")
+      .select("finished_at, rows_updated")
+      .eq("source", "egress_watchdog")
+      .gte("finished_at", cycleStart(now).toISOString())
+      .order("finished_at", { ascending: true })
+      .range(from, from + 999);
+    if (res.error) { error = res.error; break; }
+    data.push(...(res.data ?? []));
+    if (!res.data || res.data.length < 1000) break;
+  }
+  const empty = { pct: null, usedMb: null, readings: 0, staleHours: null, mbPerDay: null, projectedPct: null };
+  if (error || !data.length) return empty;
 
   // Only rows that actually CARRY a counter reading count, for both the usage
   // sum and the freshness check. check-egress-usage.mjs writes a row with
@@ -116,7 +148,7 @@ export async function getEgressStatus(sb = client()) {
   // missing one is documented to fail open and this one just quietly lied.
   const withReading = data.filter((r) => Number(r.rows_updated ?? 0) > 0);
   const pts = withReading.map((r) => Number(r.rows_updated));
-  if (pts.length < 2) return { pct: null, usedMb: null, readings: pts.length, staleHours: null };
+  if (pts.length < 2) return { ...empty, readings: pts.length };
 
   let usedMb = 0;
   for (let i = 1; i < pts.length; i++) {
@@ -126,8 +158,27 @@ export async function getEgressStatus(sb = client()) {
   }
   usedMb *= BILLABLE_RATIO;
   const last = withReading[withReading.length - 1]?.finished_at;
-  const staleHours = last ? (Date.now() - new Date(last).getTime()) / 3.6e6 : null;
-  return { pct: usedMb / (BUDGET_GB * 1000), usedMb, readings: pts.length, staleHours };
+  const staleHours = last ? (now.getTime() - new Date(last).getTime()) / 3.6e6 : null;
+
+  // Burn rate over the trailing window, then where the cycle is heading.
+  let mbPerDay = null;
+  let projectedPct = null;
+  const windowStart = now.getTime() - RATE_WINDOW_HOURS * 3.6e6;
+  const recent = withReading.filter((r) => new Date(r.finished_at).getTime() >= windowStart);
+  if (recent.length >= 2) {
+    const spanDays = (new Date(recent[recent.length - 1].finished_at) - new Date(recent[0].finished_at)) / 864e5;
+    if (spanDays >= 0.25) {
+      let windowMb = 0;
+      for (let i = 1; i < recent.length; i++) {
+        const a = Number(recent[i - 1].rows_updated), b = Number(recent[i].rows_updated);
+        windowMb += b >= a ? b - a : b;
+      }
+      mbPerDay = (windowMb * BILLABLE_RATIO) / spanDays;
+      const daysLeft = Math.max(0, (nextCycleStart(now).getTime() - now.getTime()) / 864e5);
+      projectedPct = (usedMb + mbPerDay * daysLeft) / (BUDGET_GB * 1000);
+    }
+  }
+  return { pct: usedMb / (BUDGET_GB * 1000), usedMb, readings: pts.length, staleHours, mbPerDay, projectedPct };
 }
 
 /**
@@ -143,14 +194,23 @@ export async function getEgressStatus(sb = client()) {
  * because its own telemetry is missing would be a self-inflicted outage, and
  * the tier limits already leave headroom for a day of over-run.
  */
-export async function checkEgressBudget(tier = "normal", sb = client()) {
+export async function checkEgressBudget(tier = "normal", sb = client(), now = new Date()) {
   const limit = TIER_LIMITS[tier] ?? TIER_LIMITS.normal;
   if (!Number.isFinite(limit)) return { skip: false, reason: "essential tier is never gated", pct: null };
 
-  const { pct, staleHours } = await getEgressStatus(sb);
+  const { pct, staleHours, projectedPct } = await getEgressStatus(sb, now);
   if (pct == null) return { skip: false, reason: "egress status unknown — failing open", pct: null };
   if (staleHours != null && staleHours > 48) {
     return { skip: false, reason: `egress reading ${staleHours.toFixed(0)}h stale — failing open`, pct };
+  }
+  // Past the tier line but on track to finish the cycle well under the cap:
+  // keep working. Throttle only when the projection says it is needed.
+  if (pct >= limit && projectedPct != null && projectedPct < PROJECTION_CEILING) {
+    return {
+      skip: false,
+      pct,
+      reason: `egress ${(pct * 100).toFixed(1)}%, past the ${(limit * 100).toFixed(0)}% ${tier} line but projected to end the cycle at ${(projectedPct * 100).toFixed(0)}% — not throttling`,
+    };
   }
   if (pct >= limit) {
     return {

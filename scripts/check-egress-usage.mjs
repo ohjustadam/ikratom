@@ -152,13 +152,19 @@ if (dbBytes > 0) {
 }
 
 // 2. Month-to-date = sum of positive deltas across this cycle's daily readings.
-const { data: prior } = await sb
-  .from("scraper_runs")
-  .select("finished_at, rows_updated, notes")
-  .eq("source", "egress_watchdog")
-  .gte("finished_at", cycleStart().toISOString())
-  .order("finished_at", { ascending: true })
-  .limit(200);
+// Paged (2026-10-13): a cycle now holds ~450 readings, past the old limit(200).
+const prior = [];
+for (let from = 0; from < 20_000; from += 1000) {
+  const { data: page } = await sb
+    .from("scraper_runs")
+    .select("finished_at, rows_updated, notes")
+    .eq("source", "egress_watchdog")
+    .gte("finished_at", cycleStart().toISOString())
+    .order("finished_at", { ascending: true })
+    .range(from, from + 999);
+  prior.push(...(page ?? []));
+  if (!page || page.length < 1000) break;
+}
 // rows_updated stores the raw counter reading in MB (int column).
 const readings = (prior ?? []).map((r) => (r.rows_updated ?? 0) * 1e6).filter((v) => v > 0);
 let mtdBytes = 0;
