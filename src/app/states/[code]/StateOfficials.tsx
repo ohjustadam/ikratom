@@ -1,6 +1,6 @@
-import { createAnonClient } from "@/lib/supabase/anon";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
+import { getStateOfficials } from "./state-officials-data";
 
 /**
  * Collapsible officials directory for the state war-room page (owner spec
@@ -9,18 +9,6 @@ import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
  * inside. The <details> disclosure stays JS-free; only the portrait avatars
  * (a tiny client leaf) hydrate.
  */
-type Official = {
-  id: string;
-  full_name: string;
-  role: string;
-  party: string | null;
-  district: string | null;
-  email: string | null;
-  phone: string | null;
-  title: string | null;
-  portrait_url: string | null;
-  website: string | null;
-};
 
 const GROUPS: Array<{ label: string; roles: string[] }> = [
   { label: "🏛 State executives", roles: ["governor", "lt_governor", "attorney_general", "secretary_of_state"] },
@@ -31,50 +19,12 @@ const GROUPS: Array<{ label: string; roles: string[] }> = [
 ];
 
 export async function StateOfficials({ state, stateName }: { state: string; stateName: string }) {
-  // Cookie-LESS on purpose (2026-09-08). Everything here is public record —
-  // officials and their votes — and anon RLS returns exactly the same rows
-  // (verified: legislators 9,345 and bill_vote_members 13,222 under both anon
-  // and service role). Not reading cookies is what lets the State HQ page be a
-  // cached static file instead of re-querying Supabase on every crawler hit.
-  const supabase = createAnonClient();
-  const { data, error } = await supabase
-    .from("legislators")
-    .select("id, full_name, role, party, district, email, phone, title, portrait_url, website")
-    .eq("state", state)
-    .eq("active", true)
-    // State + federal only. Whole states of county boards are on file since
-    // 2026-10-09 (Tennessee 1,678); listed here they sorted ahead of the
-    // legislature ("county_…" < "state_…") and pushed it past this limit.
-    .in("level", ["state", "federal"])
-    .order("role")
-    .order("full_name")
-    .limit(500);
-  if (error || !data?.length) return null;
-  const officials = data as Official[];
-  const { data: placeRows } = await supabase.rpc("local_official_places", { p_state: state });
-  const places = (placeRows ?? []) as Array<{ locality: string; level: string; n: number }>;
+  // Cached public reads (state-officials-data.ts). On any failure the
+  // directory hides, exactly as before; it never takes the page down.
+  const d = await getStateOfficials(state).catch(() => null);
+  if (!d || d.officials.length === 0) return null;
+  const { officials, places, votes } = d;
   const localTotal = places.reduce((n, p) => n + p.n, 0);
-
-  // Per-official kratom-vote aggregate (post-P1 vote-linkage). One batched query, no N+1.
-  const ids = officials.map((o) => o.id);
-  const voteAgg = new Map<string, { restrict: number; total: number }>();
-  if (ids.length > 0) {
-    type AggRow = { legislator_id: string | null; vote_value: number | null; bill_votes: { bills: { kratom_relevance: string | null }[] | { kratom_relevance: string | null } | null }[] | { bills: { kratom_relevance: string | null }[] | { kratom_relevance: string | null } | null } | null };
-    const { data: vm } = await supabase
-      .from("bill_vote_members")
-      .select("legislator_id, vote_value, bill_votes!inner(bills!inner(kratom_relevance))")
-      .in("legislator_id", ids);
-    for (const r of ((vm ?? []) as unknown as AggRow[])) {
-      if (!r.legislator_id) continue;
-      const bv = Array.isArray(r.bill_votes) ? r.bill_votes[0] : r.bill_votes;
-      const b = bv ? (Array.isArray(bv.bills) ? bv.bills[0] : bv.bills) : null;
-      if (!b) continue;
-      const cur = voteAgg.get(r.legislator_id) ?? { restrict: 0, total: 0 };
-      cur.total++;
-      if ((r.vote_value === 1 && b.kratom_relevance === "anti") || (r.vote_value === 2 && b.kratom_relevance === "pro")) cur.restrict++;
-      voteAgg.set(r.legislator_id, cur);
-    }
-  }
 
   const grouped = GROUPS
     .map((g) => ({ ...g, members: officials.filter((o) => g.roles.includes(o.role)) }))
@@ -110,7 +60,7 @@ export async function StateOfficials({ state, stateName }: { state: string; stat
                         {o.district && <span className="ml-1.5 font-mono text-[10px] text-zinc-600">{o.district}</span>}
                       </summary>
                       {(() => {
-                        const a = voteAgg.get(o.id);
+                        const a = votes[o.id];
                         if (!a || a.total === 0) return null;
                         return (
                           <p className="mt-1 text-[10px] text-zinc-500">
