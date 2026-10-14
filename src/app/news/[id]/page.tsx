@@ -16,6 +16,7 @@ import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { publicSnapshot } from "@/lib/public-snapshots";
 import { NewsVideo } from "./NewsVideo";
 import { AudioReader } from "@/components/AudioReader";
 
@@ -85,45 +86,59 @@ type TriggeredAlert = { id: string; severity: string; title: string; locality: s
 // viewer-specific reads — so the whole page serves from ONE cached service-role
 // read-set (the #827 egress pattern; part 2 for the /news/[id] crawl surface,
 // ~12k news items). generateMetadata shares the exact same snapshot.
+async function loadNewsArticle(id: string) {
+  const sb = createServiceRoleClient();
+  const [articleRes, siblingsRes] = await Promise.all([
+    sb
+      .from("news_items")
+      .select(
+        "id, state, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
+        "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
+        "duplicate_count, policy_alert_id, bill_id, " +
+        "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
+      )
+      .eq("id", id)
+      .eq("active", true)
+      .maybeSingle(),
+    sb
+      .from("news_items")
+      .select("id, state, source_name, published_at")
+      .eq("duplicate_of", id)
+      .eq("active", true)
+      .order("state", { ascending: true })
+      .limit(20),
+  ]);
+  // Throw on a failing database so the last good snapshot serves; a missing
+  // or deactivated article is a real "not found" and is never stored.
+  if (articleRes.error) throw new Error(`news ${id}: ${articleRes.error.message}`);
+  const article = (articleRes.data as unknown as ArticleRow | null) ?? null;
+  if (!article) return { data: null, cacheable: false };
+  let triggeredAlert: TriggeredAlert | null = null;
+  let alertOk = true;
+  if (article.policy_alert_id) {
+    // moderation_status='approved' replicates the public RLS visibility the
+    // cookie-bound client had (service-role bypasses RLS — must re-apply it).
+    const { data, error } = await sb
+      .from("policy_alerts")
+      .select("id, severity, title, locality")
+      .eq("id", article.policy_alert_id)
+      .eq("moderation_status", "approved")
+      .maybeSingle();
+    triggeredAlert = (data as TriggeredAlert | null) ?? null;
+    alertOk = !error;
+  }
+  return {
+    data: { article, siblings: (siblingsRes.data ?? []) as Sibling[], triggeredAlert },
+    cacheable: !siblingsRes.error && alertOk,
+  };
+}
+
+type NewsSnapshot = NonNullable<Awaited<ReturnType<typeof loadNewsArticle>>["data"]>;
+
+// R2 under unstable_cache: survives deploys and serves the last good copy if
+// Supabase fails. Same 15-min window. Bump "v1" if the shape changes.
 const getNewsArticle = unstable_cache(
-  async (id: string) => {
-    const sb = createServiceRoleClient();
-    const [{ data: rawArticle }, { data: siblings }] = await Promise.all([
-      sb
-        .from("news_items")
-        .select(
-          "id, state, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
-          "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
-          "duplicate_count, policy_alert_id, bill_id, " +
-          "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
-        )
-        .eq("id", id)
-        .eq("active", true)
-        .maybeSingle(),
-      sb
-        .from("news_items")
-        .select("id, state, source_name, published_at")
-        .eq("duplicate_of", id)
-        .eq("active", true)
-        .order("state", { ascending: true })
-        .limit(20),
-    ]);
-    const article = (rawArticle as unknown as ArticleRow | null) ?? null;
-    if (!article) return null;
-    let triggeredAlert: TriggeredAlert | null = null;
-    if (article.policy_alert_id) {
-      // moderation_status='approved' replicates the public RLS visibility the
-      // cookie-bound client had (service-role bypasses RLS — must re-apply it).
-      const { data } = await sb
-        .from("policy_alerts")
-        .select("id, severity, title, locality")
-        .eq("id", article.policy_alert_id)
-        .eq("moderation_status", "approved")
-        .maybeSingle();
-      triggeredAlert = (data as TriggeredAlert | null) ?? null;
-    }
-    return { article, siblings: (siblings ?? []) as Sibling[], triggeredAlert };
-  },
+  (id: string) => publicSnapshot<NewsSnapshot>("news-article", "v1", id, 900, () => loadNewsArticle(id)),
   ["news-detail"],
   { revalidate: 900, tags: ["news-detail"] },
 );
