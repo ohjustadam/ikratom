@@ -29,6 +29,7 @@ import { friendlyGroundingError } from "@/lib/ai/grounding-errors";
 import { verifyOfficialAgainstSource } from "@/lib/local-reps-verify";
 import { normalizeLocality } from "@/lib/locality";
 import { recordAdminAction } from "@/lib/audit";
+import { hasSameOfficial } from "@/lib/official-names";
 
 function admin() {
   return createServiceClient(
@@ -103,9 +104,6 @@ export async function previewSuggestions(input: {
     .eq("level", input.level)
     .eq("locality", localityNorm)
     .eq("active", true);
-  const existingNames = new Set(
-    (existing ?? []).map((r: { full_name: string }) => r.full_name.toLowerCase()),
-  );
 
   const results: SuggestionWithTier[] = [];
   for (const o of suggestion.officials) {
@@ -117,7 +115,7 @@ export async function previewSuggestions(input: {
           sourceUrl: o.source_url,
           localityHint: localityNorm,
         });
-    const exists = existingNames.has(o.full_name.toLowerCase());
+    const exists = hasSameOfficial(existing, o.full_name);
     if (v.ok) {
       results.push({
         ...o,
@@ -175,15 +173,12 @@ export async function acceptSelectedOfficials(input: {
     .eq("level", input.level)
     .eq("locality", localityNorm)
     .eq("active", true);
-  const existingNames = new Set(
-    (existing ?? []).map((r: { full_name: string }) => r.full_name.toLowerCase()),
-  );
 
   const sourcesLine = input.sources.length > 0 ? `- AI-cited: ${input.sources.join(", ")}` : null;
   const rows: Record<string, unknown>[] = [];
   let alreadyExisted = 0;
   for (const o of input.officials) {
-    if (existingNames.has(o.full_name.toLowerCase())) {
+    if (hasSameOfficial(existing, o.full_name)) {
       alreadyExisted++;
       continue;
     }
