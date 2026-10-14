@@ -2,6 +2,7 @@ import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { publicSnapshot } from "@/lib/public-snapshots";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { EnablePushNudge } from "@/components/EnablePushNudge";
@@ -42,56 +43,76 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // snapshot (#827 egress pattern; part 2 — the /alerts/[id] crawl surface,
 // ~5k alerts). generateMetadata shares it; the viewer (getUser) stays
 // request-bound in the component below.
-const getAlertData = unstable_cache(
-  async (id: string) => {
-    const sb = createServiceRoleClient();
-    const { data: a } = await sb
-      .from("policy_alerts")
-      .select("id, kind, severity, title, body, locality, source_url, bill_id, briefing_slug, bop_board_id, action_required, campaign_id, moderation_status, moderation_note, moderated_by, moderated_at, occurs_at, expires_at, created_at, updated_at, discord_posted_at, dedupe_key, auto_pushed_at, auto_pushed_count, specific_locality, officials_extracted_at, public_byline")
-      .eq("id", id)
-      .maybeSingle();
-    // Public visibility parity: the page renders ONLY approved alerts, and
-    // service-role bypasses RLS — so re-apply the gate here (null → notFound).
-    if (!a || a.moderation_status !== "approved") return null;
+async function loadAlertPublic(id: string) {
+  const sb = createServiceRoleClient();
+  const { data: a, error } = await sb
+    .from("policy_alerts")
+    .select("id, kind, severity, title, body, locality, source_url, bill_id, briefing_slug, bop_board_id, action_required, campaign_id, moderation_status, moderation_note, moderated_by, moderated_at, occurs_at, expires_at, created_at, updated_at, discord_posted_at, dedupe_key, auto_pushed_at, auto_pushed_count, specific_locality, officials_extracted_at, public_byline")
+    .eq("id", id)
+    .maybeSingle();
+  // Public visibility parity: the page renders ONLY approved alerts, and
+  // service-role bypasses RLS — so re-apply the gate here (null → notFound).
+  // Throw on a failing database so the last good snapshot serves; a missing
+  // or unapproved alert is a real "not found" and is never stored.
+  if (error) throw new Error(`alert ${id}: ${error.message}`);
+  if (!a || a.moderation_status !== "approved") return { data: null, cacheable: false };
 
-    const linkedCampaign = a.campaign_id
-      ? (await sb.from("campaigns")
+  const none = Promise.resolve({ data: null, error: null });
+  const [campRes, newsRes, billRes] = await Promise.all([
+    a.campaign_id
+      ? sb.from("campaigns")
           .select("id, slug, title, blurb, active, mobilization_type, state")
           .eq("id", a.campaign_id)
-          .maybeSingle()).data
-      : null;
-
+          .maybeSingle()
+      : none,
     // active=true replicates news public RLS — a deactivated false-positive
     // must not resurface as the alert's source link.
-    const linkedNews = (await sb
+    sb
       .from("news_items")
       .select("id, duplicate_of, title, source_name, url, resolved_url, published_at")
       .eq("policy_alert_id", a.id)
       .eq("active", true)
       .order("published_at", { ascending: false })
       .limit(1)
-      .maybeSingle()).data;
-
-    const linkedBill = a.bill_id
-      ? (await sb.from("bills")
+      .maybeSingle(),
+    a.bill_id
+      ? sb.from("bills")
           .select("id, state, bill_number, title, status, kratom_relevance, current_committee_name, last_action_at")
           .eq("id", a.bill_id)
-          .maybeSingle()).data
+          .maybeSingle()
+      : none,
+  ]);
+  type LinkedCampaign = { id: string; slug: string; title: string; blurb: string | null; active: boolean; mobilization_type: string | null; state: string | null };
+  type LinkedNews = { id: string; duplicate_of: string | null; title: string; source_name: string | null; url: string; resolved_url: string | null; published_at: string | null };
+  type LinkedBill = { id: string; state: string; bill_number: string; title: string | null; status: string | null; kratom_relevance: string | null; current_committee_name: string | null; last_action_at: string | null };
+  const linkedCampaign = campRes.data as LinkedCampaign | null;
+  const linkedNews = newsRes.data as LinkedNews | null;
+  const linkedBill = billRes.data as LinkedBill | null;
+  const linkedBillCommittee =
+    typeof linkedBill?.current_committee_name === "string" && linkedBill.current_committee_name.length > 0
+      ? linkedBill.current_committee_name
       : null;
-    const linkedBillCommittee =
-      typeof linkedBill?.current_committee_name === "string" && linkedBill.current_committee_name.length > 0
-        ? linkedBill.current_committee_name
-        : null;
 
-    // Real event date (mirrors push-critical-alerts): occurs_at → linked-news
-    // published_at → linked-bill last_action_at. Returned as an ISO STRING —
-    // unstable_cache serializes JSON, so Date objects don't survive.
-    let realEventDate: string | null = a.occurs_at ?? null;
-    if (!realEventDate && linkedNews?.published_at) realEventDate = linkedNews.published_at;
-    if (!realEventDate && linkedBill?.last_action_at) realEventDate = linkedBill.last_action_at;
+  // Real event date (mirrors push-critical-alerts): occurs_at → linked-news
+  // published_at → linked-bill last_action_at. Returned as an ISO STRING —
+  // unstable_cache serializes JSON, so Date objects don't survive.
+  let realEventDate: string | null = a.occurs_at ?? null;
+  if (!realEventDate && linkedNews?.published_at) realEventDate = linkedNews.published_at;
+  if (!realEventDate && linkedBill?.last_action_at) realEventDate = linkedBill.last_action_at;
 
-    return { a, linkedCampaign, linkedNews, linkedBill, linkedBillCommittee, realEventDate };
-  },
+  return {
+    data: { a, linkedCampaign, linkedNews, linkedBill, linkedBillCommittee, realEventDate },
+    cacheable: !campRes.error && !newsRes.error && !billRes.error,
+  };
+}
+
+type AlertSnapshot = NonNullable<Awaited<ReturnType<typeof loadAlertPublic>>["data"]>;
+
+// maxAge 0: alerts are the emergency surface (/api/revalidate exists so a
+// flush publishes AT ONCE), so the R2 copy never stands in for a fresh read.
+// It is only served when Supabase is failing.
+const getAlertData = unstable_cache(
+  (id: string) => publicSnapshot<AlertSnapshot>("alert-public", "v1", id, 0, () => loadAlertPublic(id)),
   ["alert-detail"],
   { revalidate: 600, tags: ["alert-detail"] },
 );
