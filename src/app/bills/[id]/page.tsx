@@ -1,7 +1,6 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { TranslatedText } from "@/components/TranslatedText";
 import { ActionsTakenLine, FederalEmailOfficials, CommitteeLeverage } from "./BillViewerSections";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";

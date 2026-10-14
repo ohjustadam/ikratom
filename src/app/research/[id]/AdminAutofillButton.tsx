@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { autofillResearchPaperAbstract } from "@/modules/research/autofill-actions";
+import { useChromeMe } from "@/components/chrome/ChromeProvider";
 
 /**
  * Admin-only button that triggers free AI auto-fill of a paper's
@@ -16,6 +17,11 @@ export function AdminAutofillButton({ paperId }: { paperId: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Decided in the browser (/api/me via ChromeProvider) so the page around it
+  // stays a cached, cookie-free render. The server action re-checks admin.
+  const me = useChromeMe();
+
+  if (!me.isAdmin) return null;
 
   function onClick() {
     setResult(null);

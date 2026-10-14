@@ -7,12 +7,10 @@ import { renderMarkdown } from "@/lib/markdown";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { publicSnapshot } from "@/lib/public-snapshots";
-import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { AudioReader } from "@/components/AudioReader";
 import { AdminAutofillButton } from "./AdminAutofillButton";
 import { ShareEverywhere } from "@/components/ShareEverywhere";
-import { getAdminContext } from "@/modules/admin/actions";
 
 export const metadata = { title: "Research paper" };
 export const revalidate = 900;
@@ -32,16 +30,24 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // below (never cache a signed URL or a viewer's admin status).
 async function loadResearchPaper(id: string) {
   const sb = createServiceRoleClient();
-  const { data, error } = await sb
+  const [{ data, error }, priv] = await Promise.all([sb
     .from("research_papers")
     .select(
       "id, pubmed_id, doi, semantic_scholar_id, title, authors, journal, journal_iso_abbreviation, publication_year, publication_date, abstract, full_text_url, pdf_url, topics, study_type, ai_methodology_quality, ai_sample_size_adequate, ai_sample_size_notes, ai_bias_indicators, ai_evidence_strength, ai_key_findings_md, ai_relevance_natural_leaf, ai_relevance_7oh, ai_distinguishes_natural_vs_synthetic, ai_evaluated_at, ai_evaluated_by_provider, citation_count, retracted, retraction_url, retraction_reason, admin_quality_override, is_active, ingested_at, ingested_via",
     )
     .eq("id", id)
     .eq("is_active", true)
-    .maybeSingle();
+    .maybeSingle(),
+    sb.from("research_papers").select("uploaded_storage_path").eq("id", id).maybeSingle(),
+  ]);
   if (error) throw new Error(`research paper ${id}: ${error.message}`);
-  return { data: data ?? null, cacheable: true };
+  if (!data) return { data: null, cacheable: false };
+  // uploaded_storage_path embeds the submitter's user id (0227 column
+  // privacy), so only its KIND enters the cached page; the file itself is
+  // signed per click by /api/research/[id]/file.
+  const path = (priv.data?.uploaded_storage_path as string | null | undefined) ?? null;
+  const upload: "pdf" | "file" | null = path ? (path.toLowerCase().endsWith(".pdf") ? "pdf" : "file") : null;
+  return { data: { ...data, upload }, cacheable: !priv.error };
 }
 
 type ResearchSnapshot = NonNullable<Awaited<ReturnType<typeof loadResearchPaper>>["data"]>;
@@ -73,31 +79,10 @@ export default async function ResearchPaperPage({
   const p = await getResearchPaper(id);
   if (!p) notFound();
 
-  // uploaded_storage_path is admin-only (0227 column privacy — it embeds the
-  // submitter's user UUID), so the anon select("*") above no longer returns
-  // it. Fetch it via the service-role client, then issue a fresh 1-hour
-  // signed URL so the reader can view the file without a public bucket.
-  let uploadedSignedUrl: string | null = null;
-  let uploadedPath: string | null = null;
-  try {
-    const admin = createServiceClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } },
-    );
-    const { data: priv } = await admin
-      .from("research_papers")
-      .select("uploaded_storage_path")
-      .eq("id", id)
-      .maybeSingle();
-    uploadedPath = (priv?.uploaded_storage_path as string | null) ?? null;
-    if (uploadedPath) {
-      const { data: signed } = await admin.storage
-        .from("research-uploads")
-        .createSignedUrl(uploadedPath, 60 * 60);
-      uploadedSignedUrl = signed?.signedUrl ?? null;
-    }
-  } catch { /* non-fatal — fall through to link-less render */ }
+  // The uploaded file is signed when it is opened (/api/research/[id]/file).
+  // Signing it here baked a one-hour URL into a page that is cached for much
+  // longer, so the link went dead.
+  const fileHref = p.upload ? `/api/research/${p.id}/file` : null;
 
   // Sanitizing renderer (strips <script>, on* handlers, unsafe href/src) — the
   // AI-generated findings are untrusted markdown, so never raw marked.parse.
@@ -105,10 +90,10 @@ export default async function ResearchPaperPage({
     ? renderMarkdown(p.ai_key_findings_md as string)
     : null;
 
-  // Admin viewer? Used to surface admin-only controls (e.g. AI abstract
-  // auto-fill when the paper has no abstract yet).
-  const adminCheck = await getAdminContext();
-  const isAdmin = adminCheck.ok;
+  // The admin-only AI auto-fill button decides for itself, in the browser,
+  // whether the viewer is an admin (AdminAutofillButton). Checking here read
+  // the auth cookie, which a cached page cannot do: every /research/[id]
+  // render returned 500 from 2026-09-08 (#896) until 2026-10-13.
   const abstractEmpty = !p.abstract || (p.abstract as string).trim().length < 200;
 
   // schema.org ScholarlyArticle — the canonical schema for research
@@ -190,8 +175,8 @@ export default async function ResearchPaperPage({
               Full text ↗
             </a>
           )}
-          {uploadedSignedUrl && (
-            <a href={uploadedSignedUrl} target="_blank" rel="noopener noreferrer"
+          {fileHref && (
+            <a href={fileHref} target="_blank" rel="noopener noreferrer"
               className="rounded bg-emerald-700 px-2.5 py-1 font-semibold text-white hover:bg-emerald-600">
               📄 View uploaded PDF
             </a>
@@ -199,22 +184,6 @@ export default async function ResearchPaperPage({
         </div>
       </header>
 
-      {/* Embedded PDF viewer when we have an uploaded file — keeps users
-          in-app instead of bouncing to the bucket URL. Falls back to the
-          link above for non-PDF MIME types (txt/md). */}
-      {uploadedSignedUrl && uploadedPath && uploadedPath.toLowerCase().endsWith(".pdf") && (
-        <section className="mb-6">
-          <p className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">Uploaded PDF</p>
-          <iframe
-            src={uploadedSignedUrl}
-            className="h-[700px] w-full rounded-lg border border-zinc-800 bg-zinc-950"
-            title={`PDF of "${p.title}"`}
-          />
-          <p className="mt-1 text-[10px] text-zinc-600">
-            Hosted privately. Signed URL refreshes hourly on this page; don&apos;t share the URL directly — link to this page instead.
-          </p>
-        </section>
-      )}
 
       {/* Signup nudge — research-paper readers are high-affinity advocates */}
       <SignUpNudge context="research" className="mb-6" />
@@ -299,7 +268,7 @@ export default async function ResearchPaperPage({
 
       {/* Admin-only AI auto-fill — appears when abstract is empty or too
           short. Uses the free AI router (Groq → Gemini → Ollama). */}
-      {isAdmin && abstractEmpty && (
+      {abstractEmpty && (
         <section className="mt-4">
           <AdminAutofillButton paperId={p.id as string} />
         </section>
