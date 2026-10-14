@@ -27,6 +27,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { suggestLocalOfficials, type SuggestedOfficial } from "@/lib/ai/suggest-officials";
 import { verifyOfficialAgainstSource } from "@/lib/local-reps-verify";
 import { normalizeLocality } from "@/lib/locality";
+import { hasSameOfficial } from "@/lib/official-names";
 
 function admin() {
   return createServiceClient(
@@ -118,11 +119,12 @@ export async function autoFulfillLocality(input: {
     .eq("level", input.level)
     .eq("locality", localityNorm)
     .eq("active", true);
-  const existingNames = new Set((existing ?? []).map((r: { full_name: string }) => r.full_name.toLowerCase()));
 
   const rowsToInsert = [];
   for (const { official, snippet, tier } of verified) {
-    if (existingNames.has(official.full_name.toLowerCase())) {
+    // Spelling-tolerant (official-names.ts): an exact match let "Scott Wehrli"
+    // in beside "Scott A. Wehrli" (2026-10-13 audit, 13 such duplicates).
+    if (hasSameOfficial(existing, official.full_name)) {
       result.skipped++;
       result.skipReasons.push({ name: official.full_name, reason: "already in legislators" });
       continue;
@@ -246,12 +248,12 @@ export async function reVerifyLocality(input: {
   // Build verified-name set from the new suggestion (any tier counts —
   // tentative is still good enough evidence that they're an active
   // official; only fully-rejected officials get treated as "gone")
-  const verifiedNames = new Set<string>();
+  const verified: Array<{ full_name: string }> = [];
   for (const o of suggestion.officials) {
     const v = o.source_kind === "legistar"
       ? { ok: true as const }
       : await verifyOfficialAgainstSource({ fullName: o.full_name, sourceUrl: o.source_url });
-    if (v.ok) verifiedNames.add(o.full_name.toLowerCase());
+    if (v.ok) verified.push({ full_name: o.full_name });
   }
 
   const { data: currentActive } = await db
@@ -263,7 +265,9 @@ export async function reVerifyLocality(input: {
 
   const retired: string[] = [];
   for (const row of (currentActive ?? []) as Array<{ id: string; full_name: string }>) {
-    if (!verifiedNames.has(row.full_name.toLowerCase())) {
+    // Spelling-tolerant: an exact match would retire a sitting official whose
+    // roster spells them "Scott Wehrli" while we have "Scott A. Wehrli".
+    if (!hasSameOfficial(verified, row.full_name)) {
       await db
         .from("legislators")
         .update({ active: false, last_synced_at: new Date().toISOString() })
