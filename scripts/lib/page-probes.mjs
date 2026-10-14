@@ -41,6 +41,11 @@ export async function pageProbeTargets(sb) {
  * A page-type problem worth paging about, or null. 5xx only: a 404 can be a
  * row deactivated between the pick and the fetch, and a 403 carrying a CF-RAY
  * is Cloudflare challenging us, not an outage (see the site check).
+ *
+ * @param {{kind: string, path: string}} target
+ * @param {number} status HTTP status, 0 when the fetch threw
+ * @param {string | null} [errorMessage]
+ * @returns {string | null}
  */
 export function probeProblem({ kind, path }, status, errorMessage = null) {
   if (errorMessage) return `PAGE TYPE UNREACHABLE: ${kind} pages (${path}) — ${errorMessage}`;
