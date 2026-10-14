@@ -6,6 +6,7 @@ import { unstable_cache } from "next/cache";
 import { renderMarkdown } from "@/lib/markdown";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { publicSnapshot } from "@/lib/public-snapshots";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SignUpNudge } from "@/components/SignUpNudge";
 import { AudioReader } from "@/components/AudioReader";
@@ -29,19 +30,26 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // here returns the same columns the anon client did — no PII widening. The
 // signed uploaded-PDF URL (1h expiry) and the admin check stay per-request
 // below (never cache a signed URL or a viewer's admin status).
+async function loadResearchPaper(id: string) {
+  const sb = createServiceRoleClient();
+  const { data, error } = await sb
+    .from("research_papers")
+    .select(
+      "id, pubmed_id, doi, semantic_scholar_id, title, authors, journal, journal_iso_abbreviation, publication_year, publication_date, abstract, full_text_url, pdf_url, topics, study_type, ai_methodology_quality, ai_sample_size_adequate, ai_sample_size_notes, ai_bias_indicators, ai_evidence_strength, ai_key_findings_md, ai_relevance_natural_leaf, ai_relevance_7oh, ai_distinguishes_natural_vs_synthetic, ai_evaluated_at, ai_evaluated_by_provider, citation_count, retracted, retraction_url, retraction_reason, admin_quality_override, is_active, ingested_at, ingested_via",
+    )
+    .eq("id", id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) throw new Error(`research paper ${id}: ${error.message}`);
+  return { data: data ?? null, cacheable: true };
+}
+
+type ResearchSnapshot = NonNullable<Awaited<ReturnType<typeof loadResearchPaper>>["data"]>;
+
+// R2 under unstable_cache: survives deploys and serves the last good copy if
+// Supabase fails. Same 30-min window. Bump "v1" if the projection changes.
 const getResearchPaper = unstable_cache(
-  async (id: string) => {
-    const sb = createServiceRoleClient();
-    const { data } = await sb
-      .from("research_papers")
-      .select(
-        "id, pubmed_id, doi, semantic_scholar_id, title, authors, journal, journal_iso_abbreviation, publication_year, publication_date, abstract, full_text_url, pdf_url, topics, study_type, ai_methodology_quality, ai_sample_size_adequate, ai_sample_size_notes, ai_bias_indicators, ai_evidence_strength, ai_key_findings_md, ai_relevance_natural_leaf, ai_relevance_7oh, ai_distinguishes_natural_vs_synthetic, ai_evaluated_at, ai_evaluated_by_provider, citation_count, retracted, retraction_url, retraction_reason, admin_quality_override, is_active, ingested_at, ingested_via",
-      )
-      .eq("id", id)
-      .eq("is_active", true)
-      .maybeSingle();
-    return data ?? null;
-  },
+  (id: string) => publicSnapshot<ResearchSnapshot>("research-paper", "v1", id, 1800, () => loadResearchPaper(id)),
   ["research-paper"],
   { revalidate: 1800, tags: ["research-paper"] },
 );
