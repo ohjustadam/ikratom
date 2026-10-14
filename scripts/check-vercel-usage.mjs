@@ -55,6 +55,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "node:module";
 import { estimateNetlifyCredits, creditSeverity, CREDIT_THRESHOLDS } from "./lib/netlify-credits.mjs";
+import { pageProbeTargets, probeProblem } from "./lib/page-probes.mjs";
 
 const DRY = process.argv.includes("--dry-run");
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -312,6 +313,34 @@ try {
   problems.push(`SITE UNREACHABLE: ${SITE_URL} — ${e.message}`);
 }
 console.log(`site check: ${SITE_URL} → ${siteStatus || `ERROR ${siteErr}`}`);
+
+// ── 3b. One probe per detail-page type (scripts/lib/page-probes.mjs) ─────────
+// Only when the home page answered: if the whole site is down, that is already
+// the one alert, and six more saying the same thing would bury it.
+if (siteStatus >= 200 && siteStatus < 400) {
+  try {
+    for (const t of await pageProbeTargets(sb)) {
+      let status = 0;
+      let err = null;
+      try {
+        const r = await fetch(`${SITE_URL}${t.path}`, {
+          redirect: "follow",
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 ikratom-watchdog/1.0" },
+          signal: AbortSignal.timeout(25_000),
+        });
+        status = r.status;
+        await r.arrayBuffer();
+      } catch (e) {
+        err = e.message;
+      }
+      const p = probeProblem(t, status, err);
+      if (p) problems.push(p);
+      console.log(`page probe: ${t.kind} ${t.path} → ${status || `ERROR ${err}`}`);
+    }
+  } catch (e) {
+    console.log(`page probes skipped: ${e.message}`);
+  }
+}
 
 // ── Page the owner (once per distinct problem-set per 6h) ────────────────────
 const signature = problems.join(" | ") || "ok";
