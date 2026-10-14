@@ -47,6 +47,16 @@ const nextConfig: NextConfig = {
   // bundle the only artifact a copycat sees. (Server-side stack-trace
   // decoding still works via the build's hidden source maps.)
   productionBrowserSourceMaps: false,
+  // How stale a cached page may be served while it refreshes (owner decision
+  // 2026-10-13). Next's default is a YEAR: a quiet page refreshed only when
+  // someone visited, and that first visitor got whatever the last visit left —
+  // 32 of 34 State HQ pages were stale on arrival, the worst by ~9 h. Past two
+  // hours a page now re-renders before it is shown (a 1-3 s wait for that one
+  // visitor; the same number of renders as before, so no extra credits). The
+  // detail pages read through R2 snapshots, so that re-render still has data
+  // when Supabase is failing. Cloudflare's cache rules sit on top of this
+  // (scripts/cloudflare-cache-setup.mjs). See memory isr-stale-serving-diagnosis.
+  expireTime: 7200,
   // Tree-shake heavy barrel imports so only the used members ship. These are
   // the client-heavy packages in our graph (framer-motion on the landing page,
   // marked for markdown render, posthog-js analytics).
