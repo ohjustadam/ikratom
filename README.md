@@ -30,24 +30,18 @@ The advocate's toolbelt. A nonpartisan political action platform for the kratom 
 | Service | Why | Sign up |
 | --- | --- | --- |
 | GitHub | Source control | github.com |
-| Vercel | Hosting | vercel.com |
+| Netlify | Hosting (behind Cloudflare) | netlify.com |
 | Supabase | DB + auth | supabase.com |
 | LegiScan | Bill tracking API | legiscan.com/legiscan |
 | OpenStates | Legislator contacts API | openstates.org |
 | Google Cloud | Civic Information API (address → reps) | console.cloud.google.com |
-| Anthropic | AI personalization (later) | console.anthropic.com |
+| Free AI providers | Groq, Gemini, Mistral, NVIDIA and others — see `docs/AI_PROVIDERS.md` | (free tiers only) |
 
-## v1 Roadmap
+## Where things stand
 
-- [x] Project scaffold + schema
-- [ ] Auth (signup / login / profile)
-- [ ] OK legislator seed (manual or LegiScan sync)
-- [ ] First campaign created in DB
-- [ ] One-click mailto: action UI
-- [ ] Action log
-- [ ] Deploy to Vercel
-
-Future (flagged off): forum, library (videos/books/TTS), news scraping, AI personalization, medical board recruitment, multistate expansion.
+v1 shipped long ago. For what runs where today, start at
+[`STATE_OF_PLAY.md`](./STATE_OF_PLAY.md); for what the owner still has to do
+by hand, [`OWNER_TODO.md`](./OWNER_TODO.md).
 
 ## License
 

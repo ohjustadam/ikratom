@@ -48,8 +48,9 @@ usable from any device — and the desktop app wraps it natively for free.
   dies or rate-limits, the router falls through to the next automatically.
   Paid AI is disabled by platform policy — nothing on the site can silently
   start costing money.
-- **Hosting:** Vercel Hobby (free) + Supabase free tier + GitHub Actions
-  (free for public repos) + your box for the two residential-IP jobs.
+- **Hosting:** Netlify (1000 credits/month, behind Cloudflare) + Supabase free
+  tier + GitHub Actions (free for public repos). Only `session_prep` and
+  `bill_embeddings` still need your box.
 - **Email:** mailto only — the user's own mail client sends, we never pay.
 - If a free tier ever shrinks: the site keeps running; the affected feature
   degrades (slower AI, staler data) rather than breaking. `/admin/ai-control`
@@ -57,11 +58,13 @@ usable from any device — and the desktop app wraps it natively for free.
 
 ## 4. Self-healing (what runs without you)
 
-- **Hourly (GitHub Actions):** news intake → enrich → actions → watchdog.
-- **Daily (Vercel + GHA cloud chassis + box nightly):** bill/legislator syncs,
+- **Every 2 hours (GitHub Actions, started on time by Supabase pg_cron):**
+  news intake → enrich → actions → watchdog.
+- **Daily (GitHub Actions):** bill/legislator syncs,
   state briefings, campaign generation + cleanup janitors, queue clearing,
   staleness self-checks.
-- **Weekly:** portraits, elections, topic classification.
+- **Weekly:** portraits, elections, topic classification, and the self-review
+  posted to GitHub issue #929.
 - Every job writes telemetry (`scraper_runs`); a staleness checker pages you
   (push notification) when a source goes quiet. The moderation queues drain
   themselves nightly; the AI editor and `/admin/moderation` are your manual
@@ -87,16 +90,18 @@ being able to edit code (free models can't do that safely).
 
 When you get developer access (any capable AI coding tool or human):
 1. Point them at **`AGENTS.md`** (repo root) — the cold-start brief.
-2. Then **`private/V2_KICKOFF.md`** on the main checkout — what's in flight.
+2. Then **`STATE_OF_PLAY.md`** and **`OWNER_TODO.md`** (repo root), and
+   `private/PLAN_OF_ACTION.md` on your own machine — what's in flight.
 3. House rules: one focused PR, `npm run verify`, squash-merge, migrations via
    `npm run db:push`.
 
 ## 7. Keys that keep the lights on
 
-Names only (values live in Vercel env, GitHub Actions secrets, and `.env.local`
+Names only (values live in the Netlify env, GitHub Actions secrets, and `.env.local`
 on your box — never in this repo): Supabase URL/keys, `CRON_SECRET`,
 `LEGISCAN_API_KEY`, `OPENSTATES_API_KEY`, Groq/Gemini/etc. free AI keys, VAPID
 push keys, Google/Discord OAuth ids. If one is revoked/expired, the matching
 feature degrades and `/admin/intel-health` or `/admin/ai-control` shows it.
-Rotating a key = update it in Vercel (site) and GitHub secrets (crons), then
-redeploy — no code change.
+Rotating a key = update it in Netlify (site) and GitHub secrets (crons). The
+site picks up a Netlify env change only on its next build; crons pick up a
+secret on their next run.

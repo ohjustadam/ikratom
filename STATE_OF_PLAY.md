@@ -2,24 +2,25 @@
 
 **The in-repo cold-start brief. Read this first.**
 
-`AGENTS.md` tells you to start at `private/V2_KICKOFF.md`. That file is
-gitignored, so it does not exist in a fresh clone — which means it does not
-exist for any session running anywhere but the owner's own machine. Cloud
+The owner's working plan lives in `private/PLAN_OF_ACTION.md` on his own
+machine. `private/` is gitignored, so it does not exist in a fresh clone —
+which means it does not exist for any session running anywhere else. Cloud
 sessions have repeatedly had to re-derive the state of the platform from
 scratch, and one of them re-derived it wrongly.
 
 This file is the public half of that brief: everything a new session needs
 that is safe to commit to a public repository. It carries no secrets, no
-owner PII, and nothing about an unannounced plan. `private/V2_KICKOFF.md`
-remains the owner's working notes and still wins on any conflict — but when
-it is not there, this is the map.
+owner PII, and nothing about an unannounced plan. Its sibling
+**`OWNER_TODO.md`** holds the verified list of what only the owner can do.
+When the private plan is present it wins on any conflict — but when it is not
+there, these two files are the map.
 
 It lives at the repository root on purpose. `netlify.toml`'s build `ignore`
 rule skips a build for top-level markdown (`:(exclude,glob)*.md`, and git's
 glob magic stops `*` at a `/`), so changing this file costs nothing. A file
 under `docs/` would be free too; one under `src/` would not.
 
-_Last hand-verified: 2026-09-18, against `main` at 740b139._
+_Last hand-verified: 2026-10-17, against `main` at f2ecac3._
 _For the live picture — which jobs ran, what is stale — run
 `node --env-file=.env.local scripts/generate-state-of-play.mjs`._
 
@@ -44,12 +45,13 @@ rules.
 
 ## Where it runs
 
-| Thing | Reality | Common stale belief |
+| Thing | Reality | Note |
 |---|---|---|
-| Hosting | **Netlify**, `netlify.toml` | `ARCHITECTURE.md` and `AGENTS.md` still say Vercel |
-| Cron | **GitHub Actions**, 17 workflows | `vercel.json` `crons` is `[]` and has been since 2026-07-26 |
-| Request middleware | **Disabled** — `src/proxy.disabled.ts` | The docs describe an active `src/proxy.ts` |
-| Bot blocking | **Cloudflare Bot Fight Mode** | The UA blocklist left with the proxy |
+| Hosting | **Netlify**, `netlify.toml`, behind Cloudflare | Older docs said Vercel; corrected 2026-10-17 |
+| Cron | **GitHub Actions**, started on time by Supabase `pg_cron` (migration 0263) | `vercel.json` `crons` is `[]`; workflow `schedule:` is a deduped fallback |
+| Request middleware | **Disabled** — `src/proxy.disabled.ts` | Since 2026-07-26 |
+| Bot blocking | **Cloudflare Bot Fight Mode** + anonymous page caching | The UA blocklist left with the proxy |
+| Public page reads | **Cloudflare R2 snapshots** (#990, #994, #996) | Legislator, briefing, State HQ, bill, research pages read Supabase at most once per 12h |
 | Database | Supabase Postgres, RLS on every table | — |
 | AI | Free providers only, via `scripts/lib/ai-router.mjs` | See `docs/AI_PROVIDERS.md` for which keys exist |
 
@@ -62,22 +64,14 @@ restored:
   RLS-protected; this was the UX bounce to `/locked`)
 
 Attribution capture was **not** one of them, contrary to what reading the
-proxy's comment block suggests. PR #845 rebuilt it in July as a client island
-plus `src/app/api/attribution/route.ts`, and invite links have credited
-correctly ever since.
+proxy's comment block suggests. PR #845 rebuilt it as a client island plus
+`src/app/api/attribution/route.ts`. Partner QR scans were silently rejected
+there until 2026-09-18 (a hostname regex demanded a dot, and shop slugs have
+none); release #928 fixed it and restored the 60-day window.
 
-What is broken there is narrower and harder to see. The rebuilt endpoint
-validates `embed_ref` against `HOST_RE`, which requires at least one dot — a
-bare hostname. A partner QR code carries a shop slug like `green-leaf-okc`,
-which has no dot, so every poster scan is rejected at the door while invite
-links work fine. The embed credit window also came back as 30 days, where the
-proxy used 60.
-
-**Why this matters more than the bug does:** a rejected referral is
-indistinguishable from a visitor who arrived without one. Nothing logs, nothing
-alerts, and a survey that reads the code rather than calling the endpoint
-reaches the wrong conclusion — which is exactly what happened here, twice, over
-seven weeks. Verify attribution by exercising it, not by reading it.
+**The lesson outlives the bug:** a rejected referral is indistinguishable from
+a visitor who arrived without one. Nothing logged, nothing alerted, and it
+survived seven weeks. Verify attribution by exercising it, not by reading it.
 
 ---
 
@@ -135,8 +129,10 @@ compute from bandwidth (which stayed flat) and is sampled once a day by a
 GitHub schedule that runs hours late. Three things follow, and none of them are
 fixed by a better estimate:
 
-- **Netlify publishes no usage API.** The true credit meter exists only in the
-  dashboard. Its automatic emails at 50/75/100% are not configurable.
+- **The true meter is readable now, but only after the fact.** Since
+  2026-10-03 `scripts/lib/netlify-credits.mjs` reads Netlify's billing
+  endpoint (CI prints `TRUE METER`); it still samples, so it cannot stop a
+  burst mid-flight. Netlify's emails at 50/75/100% are not configurable.
 - **The evidence lives in Cloudflare.** `scripts/cf-origin-report.mjs` ranks
   who is spending origin time; Netlify's function logs keep 24h and will not
   load while the site is paused.
@@ -159,11 +155,11 @@ real writer, and every writer must be registered.
 Four budget and uptime guards sit alongside it: egress, Netlify credits, a
 live-URL watchdog, and the staleness pager itself.
 
-**What it does not do is propose.** Nothing observes the platform over weeks
-and says what should change. `/admin/ai-editor` can propose a cron trigger and
-the patch-note job drafts copy, but there is no standing review. That gap and
-this file are the two halves of the same problem: the platform can repair
-itself but cannot remember or reflect.
+**It also reflects, weekly.** Every Sunday `scripts/weekly-self-review.mjs`
+posts what moved, what decayed and what it would do next as a comment on
+GitHub issue #929 (running since 2026-09-20). It catches what the pager
+cannot: a job that runs on time and writes nothing. Nothing acts on its
+proposals automatically — read them before starting a session.
 
 ---
 

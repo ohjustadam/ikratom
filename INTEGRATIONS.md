@@ -103,4 +103,4 @@ Form-letter mass emails get filtered as spam. Personalized emails from a constit
 - **Stripe / payment processors** — iKratom is not a marketplace
 - **Facebook / X SDKs** — explicitly counter-positioned
 - **Discord** — user's own framing: "lacking in something of substance"
-- **Vercel-only services** (KV, Postgres, Blob) — see `MIGRATION.md`
+- **Host-only services** (Vercel KV/Postgres/Blob, Netlify Blobs) — Supabase and Cloudflare R2 cover storage, so the app stays host-portable

@@ -320,8 +320,8 @@ flowchart TB
   end
 
   subgraph INFRA["Hosting + ops"]
-    I1[Vercel<br/>edge + cron]
-    I2[GitHub Actions<br/>hourly + daily cron]
+    I1[Netlify<br/>behind Cloudflare]
+    I2[GitHub Actions<br/>every scheduled job]
     I3[Cloudflare R2<br/>video storage]
     I4[Sentry<br/>error tracking]
     I5[PostHog<br/>product analytics]

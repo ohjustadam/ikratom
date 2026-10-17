@@ -23,7 +23,7 @@ const OUT = path.join(ROOT, "src", "lib", "codebase-digest.json");
 // find/inspect DB tools; a pointer entry is added instead).
 const ROOT_DOCS = [
   "AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md", "README.md",
-  "SECURITY.md", "INTEGRATIONS.md", "MIGRATION.md",
+  "SECURITY.md", "INTEGRATIONS.md", "STATE_OF_PLAY.md",
 ];
 const DOC_DIR = "docs";
 const SKIP_DOCS = new Set(["SCHEMA.md"]);

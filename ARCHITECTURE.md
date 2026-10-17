@@ -1,6 +1,6 @@
 # Architecture
 
-High-altitude map of iKratom. For first-read context see `AGENTS.md`. For terminology see `docs/GLOSSARY.md`. For schema specifics see `docs/SCHEMA.md` (auto-generated).
+High-altitude map of iKratom. _Hosting and cron corrected 2026-10-17: Netlify, GitHub Actions, proxy disabled. For what is true right now, `STATE_OF_PLAY.md` wins._ For first-read context see `AGENTS.md`. For terminology see `docs/GLOSSARY.md`. For schema specifics see `docs/SCHEMA.md` (auto-generated).
 
 ---
 
@@ -15,20 +15,20 @@ High-altitude map of iKratom. For first-read context see `AGENTS.md`. For termin
                 └───────────────┬─────────────────────┬─┘
                                 │ HTTP                │ WebSocket (Realtime)
                                 ▼                      ▼
-        ┌──────── Vercel ──────────┐         ┌─────────── Supabase ───────────┐
+        ┌─ Netlify (via Cloudflare) ┐        ┌─────────── Supabase ───────────┐
         │                           │         │                                  │
         │ Next.js 16 (App Router)   │         │  Postgres (RLS)                  │
-        │  · proxy.ts (req hooks)   │   ─────▶│  Auth (email + TOTP)             │
+        │  · proxy DISABLED         │   ─────▶│  Auth (email + TOTP)             │
         │  · API routes             │         │  Realtime (postgres_changes,     │
-        │  · Cron (daily only)      │         │            presence, broadcast)  │
+        │  · /api/cron/* endpoints  │         │            presence, broadcast)  │
         │                           │   ◀───  │  Storage (avatars, attachments)  │
         └───────┬───────────────────┘         └────────────┬─────────────────────┘
                 │                                            │
-                │ /api/cron/fire-waves (hourly)              │
+                │ /api/cron/* (called by GitHub Actions)     │
                 │                                            │
         ┌───────▼─────────────┐         ┌──────────────────▼──────────────────┐
-        │ GitHub Actions cron │         │ Local dev workstation (owner's)     │
-        │ (sub-daily jobs)    │         │  · Ollama (translation, enrichment)  │
+        │ GitHub Actions cron │  ← dispatched on time by Supabase pg_cron         │ Local dev workstation (owner's)     │
+        │ (all scheduled jobs)│         │  · Ollama (translation, enrichment)  │
         └─────────────────────┘         │  · npm scripts (manual sync, etc.)   │
                                          └──────────────────────────────────────┘
 ```
@@ -50,13 +50,12 @@ ikratom/
 │   ├── DECISIONS.md           # Tradeoff log
 │   ├── TASK_PATTERNS.md       # Recipes
 │   ├── AI_TOOLKIT.md          # Provider routing playbook
-│   └── VENDOR_ACCOUNTS.md     # Vendor design (Option A chosen)
 ├── public/
 │   ├── sw.js                  # Service worker (offline + push)
 │   ├── how-it-works/          # Annotated screenshots
 │   └── ...                    # icons, manifests
 ├── src/
-│   ├── proxy.ts               # ⚠️  Next.js 16 replacement for middleware.ts
+│   ├── proxy.disabled.ts      # Disabled 2026-07-26 (Netlify adapter can't bundle Next 16 middleware)
 │   ├── app/                   # Routes (server components by default)
 │   ├── modules/               # Feature modules — see "Module map" below
 │   ├── lib/                   # Cross-cutting helpers
@@ -74,8 +73,9 @@ ikratom/
 ├── scripts/                   # Maintenance: sync, enrich, translate, dump-schema, etc.
 ├── .github/
 │   └── workflows/
-│       └── cron-hourly.yml    # Hourly cron (Vercel Hobby blocks sub-daily)
-└── vercel.json                # Daily-only cron schedule
+│       └── cron-*.yml         # Every scheduled job (hourly, daily, weekly, nightly)
+├── netlify.toml               # Hosting, build, and the build-skip `ignore` rule
+└── vercel.json                # Vestigial: `crons` is []
 ```
 
 ---
@@ -103,12 +103,7 @@ ikratom/
 ## Data flow — typical request
 
 1. Browser hits a Next.js route (e.g. `/forum`)
-2. **`proxy.ts`** preprocesses:
-   - UA blocklist (returns 403 if AI crawler)
-   - Embed referral cookie capture
-   - Landing-state cookie capture
-   - Supabase auth cookie refresh
-   - Protected-route gate (redirects to `/login` if needed)
+2. **No proxy runs** (`src/proxy.disabled.ts`). What it used to do now lives elsewhere: bot blocking is Cloudflare Bot Fight Mode; attribution capture is a client island plus `src/app/api/attribution/route.ts`; auth refresh and route gating happen in the server components. The account-lock redirect to `/locked` was not restored.
 3. Server Component runs:
    - `createClient()` → Supabase server client (cookies → user session → RLS)
    - Database queries respect RLS
@@ -153,12 +148,15 @@ See `docs/SCHEMA.md` for the full RLS matrix.
 
 | Schedule | Path | Triggered by | Job |
 |---|---|---|---|
-| Daily 12:00 UTC | `/api/cron/daily-sync` | Vercel cron | Bills sync, news sync, dedupes, auto-create campaigns |
-| Hourly | `/api/cron/fire-waves` | GitHub Actions (`.github/workflows/cron-hourly.yml`) | Fire scheduled waves, send 1h reminders, push fan-out |
+| Every 2h | `/api/cron/fire-waves` + scripts | `.github/workflows/cron-hourly.yml` | Fire scheduled waves, reminders, push fan-out, news intake/enrich |
+| Daily | scripts + `/api/cron/reverify-local-officials` | `.github/workflows/cron-daily.yml` | Bills, legislators, news, dedupes, campaigns |
+| Weekly / nightly | scripts | `cron-weekly.yml`, `cron-nightly-cloud.yml` and siblings | Committees, self-review (issue #929), digests |
+
+Supabase `pg_cron` dispatches the hourly and daily workflows on time (migration 0263); their `schedule:` blocks are a deduped fallback.
 
 Both routes auth via `Authorization: Bearer ${CRON_SECRET}`. Service-role Supabase client used internally to bypass RLS.
 
-**Why GitHub Actions for hourly:** Vercel Hobby plan only allows daily crons. See `docs/DECISIONS.md`.
+Every source is registered in `scripts/lib/cron-pager-registry.mjs`; the staleness pager alerts at 3× its interval.
 
 ---
 
@@ -167,8 +165,9 @@ Both routes auth via `Authorization: Bearer ${CRON_SECRET}`. Service-role Supaba
 | Service | Use | Auth | Free tier |
 |---|---|---|---|
 | Supabase | DB + Auth + Realtime + Storage | API keys | Yes (with limits) |
-| Vercel | Hosting + daily cron | Account | Hobby |
-| GitHub | Repo + Actions hourly cron | PAT / repo secrets | Yes |
+| Netlify | Hosting | Account | 1000 credits/month; `npm run credits` reads the real meter |
+| Cloudflare | DNS, cache, Bot Fight Mode, R2 snapshots | Account | Yes |
+| GitHub | Repo + every scheduled job | PAT / repo secrets | Yes |
 | Gemini API | Grounded research (scripts only) | API key | 1500/day Flash 2.5 |
 | Ollama | Local AI (translation, enrichment) | None — local | ∞ |
 | Web Push (FCM/APNs/Mozilla) | Push notifications | VAPID keypair | Yes |
@@ -199,11 +198,11 @@ No paid services in the production path. See `docs/AI_TOOLKIT.md` for AI provide
 - TOTP MFA available; required for some admin operations (aal2 gate)
 - Audit log table records every admin mutation
 - Rate limits on user-driven writes (chat, forum posts, password change, etc.)
-- Bot/UA blocklist in `proxy.ts`
+- Bot blocking at Cloudflare (Bot Fight Mode); the old `proxy.ts` UA blocklist is disabled
 - AI-crawler robots.txt + noai meta tags + no source maps in build
 - E2E encryption on DMs (libsodium, key in browser only)
 - Push secret + VAPID private key gitignored, server-side only
-- HTTPS enforced (Vercel default)
+- HTTPS enforced at Cloudflare and Netlify
 
 See `docs/DECISIONS.md` for tradeoffs.
 
@@ -211,7 +210,7 @@ See `docs/DECISIONS.md` for tradeoffs.
 
 ## Deployment
 
-- `git push origin main` → Vercel auto-deploy
+- A merge to `main` → Netlify production build (15 credits) unless the diff only touches build-ignored paths. Verify on a draft first: push `preview/<name>`
 - Migrations: `npm run db:push` (Supabase Management API)
 - Schema dump: `npm run docs:schema`
 - Hourly cron: any commit to main triggers GitHub Actions to start using new code on the next hour boundary
@@ -227,5 +226,4 @@ See `docs/DECISIONS.md` for tradeoffs.
 | How to do X | `docs/TASK_PATTERNS.md` |
 | What X means | `docs/GLOSSARY.md` |
 | AI provider routing | `docs/AI_TOOLKIT.md` |
-| Vendor accounts design | `docs/VENDOR_ACCOUNTS.md` |
 | Common gotchas | `AGENTS.md` § Common pitfalls |
