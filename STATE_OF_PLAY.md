@@ -2,7 +2,7 @@
 
 **The in-repo cold-start brief. Read this first.**
 
-`AGENTS.md` tells you to start at `private/V2_KICKOFF.md`. That file is
+`AGENTS.md` tells you to start at `private/PLAN_OF_ACTION.md`. That file is
 gitignored, so it does not exist in a fresh clone — which means it does not
 exist for any session running anywhere but the owner's own machine. Cloud
 sessions have repeatedly had to re-derive the state of the platform from
@@ -10,9 +10,11 @@ scratch, and one of them re-derived it wrongly.
 
 This file is the public half of that brief: everything a new session needs
 that is safe to commit to a public repository. It carries no secrets, no
-owner PII, and nothing about an unannounced plan. `private/V2_KICKOFF.md`
-remains the owner's working notes and still wins on any conflict — but when
-it is not there, this is the map.
+owner PII, and nothing about an unannounced plan. `private/PLAN_OF_ACTION.md`
+is the owner's live brief and still wins on any conflict — but when it is not
+there, this is the map. On the owner's machine, the session mesh
+(`scripts/session-mesh.mjs`, AGENTS.md rule 11) also tells you which other
+sessions are working right now.
 
 It lives at the repository root on purpose. `netlify.toml`'s build `ignore`
 rule skips a build for top-level markdown (`:(exclude,glob)*.md`, and git's

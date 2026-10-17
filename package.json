@@ -18,6 +18,7 @@
     "preflight": "node scripts/parallel-guard.mjs check",
     "check:responsive": "node scripts/check-responsive.mjs",
     "check:changelog": "node scripts/check-changelog-gaps.mjs",
+    "mesh": "node scripts/session-mesh.mjs",
     "preflight:status": "node scripts/parallel-guard.mjs status",
     "cf:cache": "node --env-file=.env.local scripts/cloudflare-cache-setup.mjs",
     "operator": "node --env-file=.env.local desktop/operator/server.mjs",
