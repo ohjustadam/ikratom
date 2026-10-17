@@ -46,7 +46,7 @@ export async function ScoreboardWidget({
   }
 
   return (
-    <section className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+    <section className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
       <div className="mb-3">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">scoreboard</p>
         <h2 className="text-sm font-bold text-zinc-100">Your record</h2>
