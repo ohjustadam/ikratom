@@ -71,6 +71,10 @@ _Last verified: 2026-10-17 against `main` at f2ecac3, from a cloud session._
 - **The North Dakota special-session meeting dated 20 October** at
   `/admin/meetings`, approve or reject. It sits in the admin UI, and the
   production database can't be reached from a cloud session.
+- **Do you publish notes from `/admin/whats-new`?** The October note shipped
+  as a markdown file (`src/content/patch-notes/2026-10-08-update.md`, #971),
+  which is the path the database flow was built to replace. If the admin
+  page isn't working for you, say so and a session can fix it.
 - **Whatever your local `private/OWNER_TODO.md` or `private/PLAN_OF_ACTION.md`
   holds.** Those files are gitignored, so no cloud session can see them. Fold
   anything still open into this file, so one list holds everything.
