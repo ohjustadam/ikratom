@@ -48,8 +48,20 @@ if (Test-Path (Join-Path $Main "node_modules")) {
 $env = Join-Path $Main ".env.local"
 if (Test-Path $env) { Copy-Item $env (Join-Path $WorktreePath ".env.local"); Write-Host "  .env.local copied" }
 
+# Shared long-term memory (2026-10-17): Claude Code keys auto-memory by folder,
+# so a session started in this worktree would get an EMPTY memory and none of
+# the project's lessons. Point it at the main checkout's memory instead.
+# settings.local.json is gitignored and machine-local; written without a BOM.
+$key = ($Main -replace '[:\\/]', '-')
+$mem = (Join-Path $env:USERPROFILE ".claude\projects\$key\memory") -replace '\\', '/'
+$claudeDir = Join-Path $WorktreePath ".claude"
+New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $claudeDir "settings.local.json"), (@{ autoMemoryDirectory = $mem } | ConvertTo-Json))
+Write-Host "  auto-memory -> $mem (shared with the main checkout)"
+
 Write-Host ""
 Write-Host "Isolated worktree ready: $WorktreePath  (branch $Branch off origin/main)"
 Write-Host "Work there. Commit with an explicit pathspec: git commit -m '...' -- <paths>"
 Write-Host "Before merging: gh pr view <n> --json files  (confirm only your files)."
+Write-Host "Session mesh: the hooks in .claude/settings.json are active here; run 'node scripts/session-mesh.mjs status' to see the other sessions."
 Write-Host "When done: git -C `"$Main`" worktree remove `"$WorktreePath`""

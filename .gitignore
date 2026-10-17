@@ -16,8 +16,12 @@ tsconfig.tsbuildinfo
 
 .vercel
 
-# Local Claude Code config (skills symlinks, preview launch.json) — machine-specific
-.claude/
+# Local Claude Code config (skills symlinks, preview launch.json, worktrees,
+# settings.local.json) — machine-specific. The ONE exception is the shared
+# hook config for the session mesh (scripts/session-mesh.mjs), which every
+# checkout and worktree must carry.
+.claude/*
+!.claude/settings.json
 private/
 
 # Gazetteer: raw Census downloads + transient audit dumps. Only the built
