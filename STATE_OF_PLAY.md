@@ -3,8 +3,9 @@
 **The in-repo cold-start brief. Read this first.**
 
 The owner's working plan lives in `private/PLAN_OF_ACTION.md` on his own
-machine. `private/` is gitignored, so it does not exist in a fresh clone —
-which means it does not exist for any session running anywhere else. Cloud
+machine (`AGENTS.md` tells you to start there). `private/` is gitignored, so it
+does not exist in a fresh clone — which means it does not exist for any session
+running anywhere else. Cloud
 sessions have repeatedly had to re-derive the state of the platform from
 scratch, and one of them re-derived it wrongly.
 
@@ -13,7 +14,9 @@ that is safe to commit to a public repository. It carries no secrets, no
 owner PII, and nothing about an unannounced plan. Its sibling
 **`OWNER_TODO.md`** holds the verified list of what only the owner can do.
 When the private plan is present it wins on any conflict — but when it is not
-there, these two files are the map.
+there, these two files are the map. On the owner's machine, the session mesh
+(`scripts/session-mesh.mjs`, AGENTS.md rule 11) also tells you which other
+sessions are working right now.
 
 It lives at the repository root on purpose. `netlify.toml`'s build `ignore`
 rule skips a build for top-level markdown (`:(exclude,glob)*.md`, and git's
