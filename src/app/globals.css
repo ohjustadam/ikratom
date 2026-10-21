@@ -42,6 +42,14 @@ html[data-theme="light"] {
   --color-foreground: var(--foreground);
   --color-accent: var(--accent);
   --font-sans: var(--font-geist);
+  /* The intel ticker's crawl (src/components/IntelTicker.tsx). The track holds
+     the items twice, so moving it by half loops seamlessly. */
+  --animate-ticker: ticker 60s linear infinite;
+}
+
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
 
 body {
