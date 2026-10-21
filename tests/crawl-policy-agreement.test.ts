@@ -33,7 +33,7 @@ import {
 } from "../src/lib/crawl-policy";
 
 const WHILE_ACTIVE = new Date("2026-10-01T12:00:00Z").getTime();
-const AFTER_EXPIRY = new Date("2026-11-16T01:00:00Z").getTime();
+const AFTER_EXPIRY = new Date("2027-01-16T01:00:00Z").getTime();
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 
@@ -108,6 +108,6 @@ describe("crawl policy is one source of truth", () => {
   it("keeps the expiry in step with the robots guard", () => {
     // Two dates that must never diverge: this one and the one the
     // robots-cost-control guard asserts. Pinned so a future re-arm moves both.
-    expect(COST_CONTROL_EXPIRES_AT).toBe(Date.UTC(2026, 10, 16));
+    expect(COST_CONTROL_EXPIRES_AT).toBe(Date.UTC(2027, 0, 16));
   });
 });
