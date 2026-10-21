@@ -4,7 +4,9 @@ You are working on **iKratom**, a nonpartisan kratom advocacy platform. This fil
 
 **START HERE if you're a new session:** read **`STATE_OF_PLAY.md`** (repo root) — the in-repo cold-start brief. Where the platform actually runs, what survives 60 days untouched, what will bite you, and where the forward plan is declared.
 
-Then read **`private/PLAN_OF_ACTION.md`** — the session-boot brief and the single source of truth for what's in flight (live state, what's unfinished, the ceilings, what will bite you). It supersedes `STATE_OF_PLAY.md`, `ROADMAP.md` and anything below this line if there's a conflict. Owner actions live in `private/OWNER_TODO.md`; `private/README.md` maps the rest of the folder. `private/V2_KICKOFF.md` is **historical background** (last touched 2026-09-19): never treat it as current. **But `private/` is gitignored, so none of it exists in a fresh clone** — any session not running on the owner's own machine will not have it, and that is exactly why `STATE_OF_PLAY.md` exists. Don't treat its absence as "no context available"; several cloud sessions burned a run re-deriving the platform from scratch, and one of them derived it wrongly.
+Then read **`OWNER_TODO.md`** (repo root) — the verified list of what only the owner can do, so you never ask him for something already done or re-do it yourself. It is the public-safe half; on the owner's machine `private/OWNER_TODO.md` is the live list and wins on any conflict.
+
+On the owner's own machine, also read **`private/PLAN_OF_ACTION.md`** — the session-boot brief and the single source of truth for what's in flight (live state, what's unfinished, the ceilings, what will bite you); it wins on any conflict, including over `STATE_OF_PLAY.md` and `ROADMAP.md`. `private/README.md` maps the rest of the folder. `private/V2_KICKOFF.md` is **historical background** (last touched 2026-09-19): never treat it as current. **`private/` is gitignored, so none of it exists in a fresh clone** — any session not on his machine will not have it, which is exactly why `STATE_OF_PLAY.md` and `OWNER_TODO.md` are committed. Don't treat its absence as "no context available"; several cloud sessions burned a run re-deriving the platform from scratch, and one of them derived it wrongly.
 
 **Other sessions are probably live right now.** On the owner's machine the session mesh (rule 11) prints, at your session start, who else is working, what they hold and what they shipped in the last 48 h; read it before you plan, and broadcast what you decide.
 
@@ -43,13 +45,13 @@ A nonpartisan civic-action toolbelt for the kratom advocacy community. The missi
 
 | Layer | Tech | Notes |
 |---|---|---|
-| Framework | Next.js **16** (App Router) | `proxy.ts` not `middleware.ts`. `cookies()`/`headers()` are async. **Read `node_modules/next/dist/docs/` before using unfamiliar APIs.** |
+| Framework | Next.js **16** (App Router) | `proxy.ts` not `middleware.ts` — and the proxy is **disabled** (`src/proxy.disabled.ts`, since 2026-07-26: Netlify's adapter can't bundle it). `cookies()`/`headers()` are async. **Read `node_modules/next/dist/docs/` before using unfamiliar APIs.** |
 | Language | TypeScript (strict) | |
 | Styling | Tailwind v4 | No custom CSS unless absolutely needed |
 | DB | Supabase Postgres + Auth + RLS + Realtime + Storage | Service-role client for cron jobs only |
-| AI | Local Ollama (default), Gemini Flash 2.5 (grounding), Groq (speed fallback) | See `docs/AI_TOOLKIT.md` for routing |
-| Cron | Vercel daily + GitHub Actions hourly | Vercel Hobby plan blocks subdaily — hourly cron lives in `.github/workflows/cron-hourly.yml` |
-| Hosting | Vercel | Hobby plan, daily cron only, see GitHub Actions workflow |
+| AI | Free cloud pool via `scripts/lib/ai-router.mjs` (Groq, Gemini, Mistral, NVIDIA, Cloudflare and more); Ollama only on the owner's PC | See `docs/AI_PROVIDERS.md` for keys, `docs/AI_TOOLKIT.md` for routing |
+| Cron | GitHub Actions (`.github/workflows/cron-*.yml`), started on time by Supabase `pg_cron` (migration 0263) | `vercel.json` `crons` is `[]`. The workflow `schedule:` is only a fallback — GitHub dropped 9 of 12 runs before the DB clock |
+| Hosting | **Netlify** (`netlify.toml`) behind Cloudflare | A build costs 15 credits; `*.md`, `docs/`, `scripts/`, `.github/`, `tests/`, `supabase/` never trigger one (the `ignore` rule) |
 | Auth | Supabase Auth (email/password + TOTP MFA) | E2E DM encryption via libsodium |
 | PDFs | pdf-parse v2 (CJS bridge via `createRequire`) | Class-based API: `new PDFParse(buf)` |
 
@@ -174,7 +176,7 @@ Repo-level merge settings (post-PR #254):
 | Bill enrichment | `scripts/enrich-bills*.mjs` + `supabase/migrations/0030_deep_bill_analysis.sql` |
 | Realtime patterns | `src/modules/chat/Lounge.tsx`, `src/app/forum/[state]/[thread]/ThreadView.tsx` |
 | Push notifications | `src/lib/push/send.ts`, `src/modules/notifications/push-fanout.ts`, `public/sw.js` |
-| Cron entry point | `src/app/api/cron/fire-waves/route.ts` (hourly) + `daily-sync/route.ts` (daily) |
+| Cron entry point | `.github/workflows/cron-*.yml` (the schedule) → scripts, plus `src/app/api/cron/fire-waves/route.ts` (every 2h) |
 | Translation cache | `src/lib/translations.ts` + `scripts/translate-content.mjs` |
 | **Review queues** (intel + campaigns): approve/deny/clear | **`docs/RUNBOOK_review_queues.md`** — read it first; do NOT re-map. Engine `auto-approve-campaigns.mjs` + janitors are already cron'd; `scripts/clear-review-queues.mjs --ai --apply` clears the residue. |
 
@@ -186,7 +188,7 @@ Repo-level merge settings (post-PR #254):
 2. **Realtime DELETE filtering:** if your channel filter is on a non-PK column, the table needs `REPLICA IDENTITY FULL`. Default identity logs only the PK on delete, so the filter can't match and the event is silently dropped.
 3. **`e.currentTarget` in async transitions:** capture the element synchronously before `startTransition` — React nullifies `currentTarget` after the handler returns.
 4. **Profile reads:** profiles SELECT RLS only allows admin or self. To read other users' public fields, call the `get_public_profile(uuid)` or `get_public_profiles(uuid[])` SECURITY DEFINER RPC.
-5. **Vercel Hobby cron:** only daily intervals allowed. Sub-daily jobs go in `.github/workflows/cron-hourly.yml`.
+5. **Cron lives in GitHub Actions, not the host.** Add a job to the matching `.github/workflows/cron-*.yml` and register its source in `scripts/lib/cron-pager-registry.mjs`. Nothing is scheduled by Netlify or `vercel.json`.
 6. **pdf-parse v2:** ESM-incompatible. Use `createRequire(import.meta.url)('pdf-parse')` then `new PDFParse(new Uint8Array(buf))` — its engine REJECTS Node Buffers (since ~2026-07; the error is swallowed by catch-blocks, so it looks like "docs undecodable"). Always wrap in `Uint8Array`.
 7. **Service worker push:** payloads with a `tag` field deduplicate at the OS level. Use `tag` for replaceable notifications, omit for stacking.
 8. **Slug fields are immutable in production.** Once a partner / campaign slug is printed in the wild (QR codes, share links), changing it breaks every existing link.
@@ -221,10 +223,10 @@ The project maintainer may not be a developer. When you need a decision:
 
 Specific failure modes this prevents:
 - **Supabase MCP project mismatch.** The MCP server you're given may be connected to a *different* Supabase project than this repo's. Verify `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_PROJECT_REF` in `.env.local` against `mcp__supabase__get_project_url`. If they don't match, MCP SQL/migrations/logs are pointing at the wrong DB — fall back to `npm run db:push` and `node --env-file=.env.local scripts/*.mjs` which always read this repo's env.
-- **APP_URL drift.** Local dev is `http://localhost:3001`. Prod is `https://www.ikratom.org`. When generating links/curls/cron-call examples, pull the right one from `.env.local` (local) or know it's overridden by Vercel env in production.
+- **APP_URL drift.** Local dev is `http://localhost:3001`. Prod is `https://www.ikratom.org`. When generating links/curls/cron-call examples, pull the right one from `.env.local` (local) or know it's overridden by the Netlify env in production.
 - **VAPID + OAuth client IDs.** Don't assume — read.
 
-When `.env.local` and Vercel disagree on a value (and they sometimes will, e.g. APP_URL), say so explicitly in the response and pick the correct one for the context. Never guess.
+When `.env.local` and the Netlify env disagree on a value (and they sometimes will, e.g. APP_URL), say so explicitly in the response and pick the correct one for the context. Never guess.
 
 ---
 
@@ -288,8 +290,8 @@ These were established over many sessions. They are not per-task; they always ap
 2. **Free-tier AI only.** Groq / Gemini Flash / Ollama / Cerebras. The router disables `claude`. No code path may depend on a paid AI API. Platform policy, not a guideline.
 3. **No production DB writes from the chat agent without an explicit owner ask.** The auto-mode classifier blocks this and it's correct. Reads/diagnostics are fine; mutations (including "helpful" backfills or toggles) need the owner to say so.
 4. **Public repo hygiene.** The GitHub repo is PUBLIC. Never commit secrets, service-role keys, `.env*` (only `.env.local.example`), or anyone's personal info. Keep owner PII out of tracked code — prefer a role address (e.g. `contact@ikratom.org`) over a personal email in User-Agent strings / NOTICE / docs. `private/` is gitignored — working notes, plans, and anything sensitive live there.
-5. **Keep the brief current.** Update `private/PLAN_OF_ACTION.md` whenever you ship something or learn something material, so the next session starts with perfect context and never re-does done work. It is the single source of truth. When another session is the mesh TRUNK (rule 11), journal your outcome instead and let the trunk fold it in, so the brief has one writer.
-6. **Self-monitoring + self-healing by default.** New cron sources get registered in `check-cron-staleness.mjs`. Scripts self-heal transient errors (retry, skip-bad-item) and write `scraper_runs` telemetry. If something can't be auto-fixed, surface it (push/alert) and note it in PLAN_OF_ACTION — don't let it fail silently.
+5. **Keep the brief current.** Before a session ends, write down what you shipped or learned: the public half in `STATE_OF_PLAY.md`, anything only the owner can do in `OWNER_TODO.md` (with how you verified it), and — on his machine — `private/PLAN_OF_ACTION.md` (and `private/OWNER_TODO.md`). One fact, one home: correct the file that holds a claim rather than adding a second copy elsewhere. When another session is the mesh TRUNK (rule 11), journal your outcome instead and let the trunk fold it into the private files, so they have one writer.
+6. **Self-monitoring + self-healing by default.** New cron sources get registered in `check-cron-staleness.mjs`. Scripts self-heal transient errors (retry, skip-bad-item) and write `scraper_runs` telemetry. If something can't be auto-fixed, surface it (push/alert) and note it in `STATE_OF_PLAY.md` (and, on the owner's machine, `private/PLAN_OF_ACTION.md`) — don't let it fail silently.
 7. **Every merge to `main` costs 15 Netlify credits — batch them.** A squash-merge triggers a production build, so the merge *is* the spend. 15 deploys in nine days spent 225 credits and the site was disabled on 2026-07-30. Still one focused PR per task, but **land related PRs in one merge window**, and run `npm run credits` before merging (CI's "Netlify credit budget" check brakes at 85%).
    **The monthly allowance is 1000 credits, not the 300 this rule claimed until 2026-09-17.** That figure came from a comment, never from the account; the live API reading on 2026-09-17 was 369/1000 projected. `scripts/netlify-credit-gate.mjs` fetches the real number every CI run, so **trust its output over any figure written down here or in `scripts/lib/netlify-credits.mjs`** — batching is still right, but do not tell the owner he is near a ceiling without reading the gate first. **Never run `netlify deploy --prod`** — it publishes a second billable deploy on top of the git build. Verify with a DRAFT deploy: push a `preview/<name>` branch and `.github/workflows/draft-preview.yml` builds it on Linux and publishes a draft URL (noindex, never production). **Do not build drafts locally on Windows** (`netlify deploy --build` from this PC): the deploy uploads fine, but the server function bundle is Windows-built and EVERY page returns 500 (seen 2026-10-09). It also leaves junctions under `.netlify/` — delete reparse points before removing that worktree (rule 10). **One focused PR per task. Verify with `npx tsc --noEmit`. Squash-merge. Migrations via `npm run db:push`** (next number: the highest in `supabase/migrations/` plus one).
 8. **Parallel sessions: one git worktree each — NEVER share a checkout.** Multiple sessions in one working tree share one `.git/index` + `HEAD`; a commit from session A silently sweeps in files session B staged (this is how PR #608 absorbed all of PR #607, 2026-06-14). Each session works in its **own worktree** with its own index/HEAD: `git -C <repo> worktree add ../ikratom-<task> -b <branch> origin/main`, then junction `node_modules` + copy `.env.local` (both gitignored, absent in a fresh worktree — and so is `private/`, so always read/write the brief in the main checkout). Defense-in-depth even inside a worktree: **branch from `origin/main` after fetch (never local `main`); commit with an explicit pathspec — `git commit -m "…" -- <paths>` — so only those paths land; before `gh pr merge`, run `gh pr view <n> --json files` and confirm the file list matches your intent; never commit on or push `main` directly.** Full rationale + setup helper: `private/PARALLEL_SESSIONS_PLAN.md` + `scripts/new-session-worktree.ps1`.

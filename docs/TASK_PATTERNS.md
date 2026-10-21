@@ -147,12 +147,9 @@ If you need DELETE events with a non-PK filter: `alter table T replica identity 
 
 ## Add a scheduled job
 
-**Daily** → add to `vercel.json`:
-```json
-{ "path": "/api/cron/<name>", "schedule": "0 12 * * *" }
-```
+Every scheduled job runs in GitHub Actions — nothing is scheduled by the host (`vercel.json` `crons` is `[]`). Prefer a **script** step over a route: scripts are free to change, a route under `src/` costs a build. Add the step to the matching `.github/workflows/cron-*.yml` (hourly, daily, weekly, nightly), then register its source in `scripts/lib/cron-pager-registry.mjs` so the staleness pager watches it (`tests/cron-pager-registry.test.ts` fails if you forget).
 
-**Hourly or sub-daily** → can't be on Vercel Hobby. Add a step to `.github/workflows/cron-hourly.yml`:
+If it must be a route, call it from the workflow:
 ```yaml
 - name: Hit /api/cron/<name>
   run: curl -fsS -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/<name>"
