@@ -86,8 +86,10 @@ export function stateFromJurisdiction(pageJurisdiction) {
  * NY's two Board of Elections commissioners (titled just "Commissioner") as
  * those counties' representatives. A title check can't catch the second case,
  * so the page is rejected by its URL before any model reads it.
+ * 2026-10-21: El Paso County, CO got its appointed Board of Health (plus a
+ * town mayor who sits on it) from elpasocountyhealth.org/.../board-of-health/.
  */
-const NON_ROSTER_PATH_RE = /(board[-_]?of[-_]?elections|election[-_]?(officials|commission|office|board)|\/elections?(\/|$)|\/voter|\/auditor|\/treasurer|\/sheriff|\/assessor|\/recorder)/i;
+const NON_ROSTER_PATH_RE = /(board[-_]?of[-_]?elections|election[-_]?(officials|commission|office|board)|\/elections?(\/|$)|\/voter|\/auditor|\/treasurer|\/sheriff|\/assessor|\/recorder|board[-_]?of[-_]?health)/i;
 export function isNonRosterPage(url) {
   try { return NON_ROSTER_PATH_RE.test(new URL(url).pathname); } catch { return false; }
 }
@@ -98,7 +100,7 @@ export function isNonRosterPage(url) {
  * "judge" means a COURT judge: a Texas or Arkansas "County Judge" and
  * Kentucky's "County Judge/Executive" preside over the governing body.
  */
-const NON_GOVERNING_COUNTY_TITLE_RE = /\b(auditor|treasurer|sheriff|assessor|recorder|coroner|register of deeds|prosecut\w*|state'?s attorney|district attorney|(?<!county )judge(?!\s*\/?\s*exec)|county clerk|clerk of (the )?(board|courts?)|elections?)\b/i;
+const NON_GOVERNING_COUNTY_TITLE_RE = /\b(auditor|treasurer|sheriff|assessor|recorder|coroner|register of deeds|prosecut\w*|state'?s attorney|district attorney|(?<!county )judge(?!\s*\/?\s*exec)|county clerk|clerk of (the )?(board|courts?)|elections?|board of health)\b/i;
 export function isNonGoverningCountyTitle(title) {
   return NON_GOVERNING_COUNTY_TITLE_RE.test(String(title ?? ""));
 }
