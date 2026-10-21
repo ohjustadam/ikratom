@@ -98,6 +98,10 @@ export const REGISTRY = [
       // Every other BoP source (2026-10-21). Was walked only by the dropped
       // /api/cron/daily-sync route, so it died silently for 3 months.
       "bop_html_scrape",
+      // Officials-turnover engine (2026-10-21): daily roster diffs that retire
+      // departed legislators and add new ones. Silence here means stale rosters.
+      "state_roster_diff",
+      "congress_roster_diff",
       // BoP pipeline layers + intel scrapers given writers 2026-07-16 (were
       // cron-registry phantoms writing nothing).
       "parse_bop_pdfs",

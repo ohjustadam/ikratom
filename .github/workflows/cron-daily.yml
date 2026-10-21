@@ -516,6 +516,36 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/scrape-bop-browser.mjs
 
+  roster-diff:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    # The officials-turnover engine (private/plans/OFFICIALS_TURNOVER_ELECTIONS_GROUPS.md):
+    # keep every state legislature and Congress roster current with nobody in
+    # the loop. Departed members go inactive (so nobody emails them), new ones
+    # are added, sourced. Daily so the post-election swearing-in wave is caught
+    # within a day. First run 2026-10-21: 63 departed state legislators and
+    # 1 departed U.S. senator were still active; 32 + 4 members were missing.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: State legislatures vs openstates/people
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-state-roster-diff.mjs
+      - name: Congress vs unitedstates/congress-legislators
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-congress-roster-diff.mjs
+
   bop-html-scrape:
     needs: budget
     if: needs.budget.outputs.run == 'true'
