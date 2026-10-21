@@ -68,7 +68,7 @@ export function GettingStarted({ state, isAdmin }: { state: string | null; isAdm
       <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-zinc-300">
         <li>
           {isAdmin ? (
-            <>Invite people: make a link in <a href="#admin-actions" className="text-emerald-400 hover:underline">Admin actions</a> below and send it to them.</>
+            <>Invite people: share your <a href="#invite" className="text-emerald-400 hover:underline">group link or QR code</a>. One link works for everyone.</>
           ) : (
             <>Ask the group&apos;s owner for an invite link to share with people you know.</>
           )}
