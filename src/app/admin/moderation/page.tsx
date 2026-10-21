@@ -46,10 +46,10 @@ export default async function ModerationPage() {
         <h1 className="text-3xl font-bold">Moderation</h1>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
           Every review queue in one place. <strong className="text-zinc-200">{total}</strong> item{total === 1 ? "" : "s"} pending.
-          Hit <span className="text-emerald-400">Auto-resolve all</span> to clear a queue in one click — every item is decided
-          automatically (dedup, drop stale/hallucinated, publish the live ones), web fact-checked on the free-tier router.
-          Approvals notify users, so they only fire on a confident verdict; anything uncertain is safely rejected. The
-          autonomous cleaner also runs on a schedule, so ideally these stay at zero without you lifting a finger.
+          Hit <span className="text-emerald-400">Auto-resolve all</span> to apply every confident decision in one click
+          (dedup, close dead bills, publish the live ones), checked against each item&apos;s own source on the free-tier router.
+          Approvals notify users, so they only fire on a confident verdict. Anything uncertain stays here for you: a wrong
+          reject buries a real campaign. The cleaner also runs on a schedule.
         </p>
       </header>
 
