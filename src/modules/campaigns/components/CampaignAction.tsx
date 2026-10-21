@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import type { Legislator } from "@/lib/legislators";
 import { ROLE_SHORT } from "@/lib/legislators";
-import { logCampaignAction, sendCampaignViaGmail } from "../actions";
+import { logCampaignAction } from "../actions";
+import { groupVars, recipientVars, renderTemplate, unfilledPlaceholders } from "../templates";
 import { personalizeCampaignBody } from "../actions-personalize";
 import { CallActionPanel } from "./CallActionPanel";
 import { AttachmentRecorder } from "./AttachmentRecorder";
@@ -38,7 +39,6 @@ export function CampaignAction({
   userCity,
   userCounty,
   campaignLocality,
-  bodyTemplate,
   gmailConnected,
   gmailEmail,
   alreadySentLegislatorIds,
@@ -90,8 +90,6 @@ export function CampaignAction({
   const [editing, setEditing] = useState(false);
   const [sentVia, setSentVia] = useState<SendMethod | null>(null);
   const [copied, setCopied] = useState(false);
-  const [batchProgress, setBatchProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
-  const [batchError, setBatchError] = useState<string | null>(null);
   const [personalizing, setPersonalizing] = useState(false);
   const [personalizeError, setPersonalizeError] = useState<string | null>(null);
   const [personalizeChanges, setPersonalizeChanges] = useState<string | null>(null);
@@ -133,6 +131,17 @@ export function CampaignAction({
   const skippedAlreadySent = allWithEmail.length - targetsWithEmail.length;
   const allAlreadySent = allWithEmail.length > 0 && targetsWithEmail.length === 0;
   const to = targetsWithEmail[0]?.email ?? "";
+  // The box keeps per-official fields ({{recipient_title}}, {{legislator_name}}…)
+  // so one-click can address each person by name. A single compose window
+  // going to many people can't, so those paths get a group greeting
+  // ("Dear Senators and Representatives").
+  const groupFill = groupVars(targetsWithEmail);
+  const outSubject = renderTemplate(subject, groupFill);
+  const outBody = renderTemplate(body, groupFill);
+  const sampleGreeting = targetsWithEmail[0]
+    ? renderTemplate("Dear {{recipient_title}} {{recipient_last_name}}", recipientVars(targetsWithEmail[0]))
+    : null;
+  const unknownFields = unfilledPlaceholders(renderTemplate(`${subject}\n${body}`, recipientVars(targetsWithEmail[0] ?? null)));
   const bccList = targetsWithEmail.slice(1).map((t) => t.email!).join(",");
 
   function logAction(method: SendMethod) {
@@ -149,8 +158,8 @@ export function CampaignAction({
           // one-click path logs "platform_email" — our verified, on-the-record
           // send. (Schema allows mailto/platform_email/call.)
           method: "mailto",
-          subject,
-          body,
+          subject: outSubject,
+          body: outBody,
           isNonResident,
         });
       } catch (e) {
@@ -176,9 +185,9 @@ export function CampaignAction({
   function buildMailto() {
     // encodeURIComponent (%20), NOT URLSearchParams ('+') — RFC 6068 mailto
     // bodies treat '+' as a literal plus sign in several mail clients.
-    const parts = [`subject=${encodeURIComponent(subject)}`];
+    const parts = [`subject=${encodeURIComponent(outSubject)}`];
     if (bccList) parts.push(`bcc=${encodeURIComponent(bccList)}`);
-    parts.push(`body=${encodeURIComponent(body)}`);
+    parts.push(`body=${encodeURIComponent(outBody)}`);
     return `mailto:${to}?${parts.join("&")}`;
   }
 
@@ -189,8 +198,8 @@ export function CampaignAction({
     params.set("fs", "1");
     params.set("to", to);
     if (bccList) params.set("bcc", bccList);
-    params.set("su", subject);
-    params.set("body", body);
+    params.set("su", outSubject);
+    params.set("body", outBody);
     return `https://mail.google.com/mail/?${params.toString()}`;
   }
 
@@ -199,40 +208,15 @@ export function CampaignAction({
     const params = new URLSearchParams();
     params.set("to", to);
     if (bccList) params.set("bcc", bccList);
-    params.set("subject", subject);
-    params.set("body", body);
+    params.set("subject", outSubject);
+    params.set("body", outBody);
     return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
-  }
-
-  async function platformGmailSend() {
-    if (!gmailConnected) return;
-    setBatchError(null);
-    startTransition(async () => {
-      try {
-        const result = await sendCampaignViaGmail({
-          campaignId,
-          subject,
-          bodyTemplate,
-          targetIds: targetsWithEmail.map((t) => t.id),
-          isNonResident,
-        });
-        if ("error" in result) {
-          setBatchError(result.error);
-        } else {
-          setBatchProgress({ sent: result.sent, failed: result.failed, total: targetsWithEmail.length });
-          setSentVia("platform_gmail");
-        }
-      } catch (e) {
-        console.error("[campaign] sendCampaignViaGmail failed", e);
-        setBatchError("Something went wrong sending. Please try again in a moment.");
-      }
-    });
   }
 
   async function copyAll() {
     const allEmails = targetsWithEmail.map((t) => t.email).join(", ");
     const text =
-      `To: ${allEmails}\n\nSubject: ${subject}\n\n${body}`;
+      `To: ${allEmails}\n\nSubject: ${outSubject}\n\n${outBody}`;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -549,6 +533,17 @@ export function CampaignAction({
             <p className="mt-1 text-xs text-zinc-500">
               Personal touches get read. A sentence about why this matters to you doubles your impact.
             </p>
+            {sampleGreeting && (
+              <p className="mt-1 text-xs text-zinc-500">
+                Parts in <span className="font-mono">{"{{double braces}}"}</span> are filled in for each official,
+                so &ldquo;Dear {"{{recipient_title}} {{recipient_last_name}}"}&rdquo; becomes &ldquo;{sampleGreeting}&rdquo;.
+              </p>
+            )}
+            {unknownFields.length > 0 && (
+              <p className="mt-1 rounded border border-amber-800/50 bg-amber-950/20 px-2 py-1 text-xs text-amber-200">
+                We can&apos;t fill in {unknownFields.map((f) => `{{${f}}}`).join(", ")}. Replace it with your own words before sending.
+              </p>
+            )}
           </div>
           {/* Personal video / audio attachment */}
           <AttachmentRecorder
@@ -562,7 +557,7 @@ export function CampaignAction({
       )}
 
       {/* Already-sent banner (top of action area) */}
-      {skippedAlreadySent > 0 && !batchProgress && (
+      {skippedAlreadySent > 0 && (
         <div className="mt-5 rounded-md border border-zinc-800 bg-zinc-950 p-3 text-xs">
           <span className="text-zinc-400">
             ✓ You&apos;ve already sent this campaign to{" "}
@@ -575,7 +570,7 @@ export function CampaignAction({
       )}
 
       {/* All already sent — block re-send */}
-      {allAlreadySent && !batchProgress && (
+      {allAlreadySent && (
         <div className="mt-6 rounded-xl border-2 border-zinc-700 bg-zinc-950/40 p-6 text-center">
           <p className="text-2xl">✓</p>
           <h2 className="mt-2 text-lg font-bold text-zinc-200">
@@ -639,7 +634,7 @@ export function CampaignAction({
             <ul className="mt-1 space-y-0.5">
               <li>✓ <strong className="text-emerald-300">gmail.send</strong> / <strong className="text-emerald-300">Mail.Send</strong> scope only — the narrowest possible mail permission on either provider</li>
               <li>✗ We <strong>never</strong> read your inbox, contacts, drafts, calendar, or any other service</li>
-              <li>✗ We <strong>don&apos;t</strong> store email contents — sends go through the provider&apos;s API directly to legislators</li>
+              <li>✓ We keep a copy of each letter you send through iKratom, so your history is accurate and nobody gets the same letter twice. We never read anything else in your mailbox</li>
               <li>✓ Disconnect anytime at <a href="/account" className="text-emerald-400 hover:underline">/account</a>; revoke at <a href="https://myaccount.google.com/permissions" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">Google permissions</a> or <a href="https://account.microsoft.com/privacy/app-access" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">Microsoft permissions</a></li>
               <li className="text-zinc-500">Proton, Yahoo, iCloud — coming next.</li>
             </ul>
@@ -651,7 +646,7 @@ export function CampaignAction({
       )}
 
       {/* Platform-Gmail one-click batch (when connected) */}
-      {!allAlreadySent && gmailConnected && sentVia !== "platform_gmail" && (
+      {!allAlreadySent && gmailConnected && (
         <div className="mt-6 rounded-lg border-2 border-emerald-500 bg-emerald-950/30 p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
@@ -665,65 +660,21 @@ export function CampaignAction({
             </div>
           </div>
 
-          {/* Pre-send disclaimer — explains what happens after click */}
-          <div className="mt-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3 text-xs text-zinc-400">
-            <p>
-              <strong className="text-zinc-200">What happens when you click:</strong>{" "}
-              We send the emails in the background — you won&apos;t see a popup or
-              compose window. Watch this card for the success count, then check your{" "}
-              <a
-                href="https://mail.google.com/mail/u/0/#sent"
-                target="_blank"
-                rel="noreferrer"
-                className="text-emerald-400 hover:underline"
-              >
-                Gmail Sent folder
-              </a>{" "}
-              to see the actual messages.
-            </p>
-          </div>
-
-          <button
-            onClick={platformGmailSend}
-            className="group mt-3 flex w-full items-center justify-center gap-3 rounded-lg bg-emerald-500 px-6 py-3.5 text-base font-bold text-zinc-950 transition hover:bg-emerald-400"
-          >
-            <BoltIcon /> Send {targetsWithEmail.length} personalized emails →
-          </button>
-          {batchError && (
-            <p className="mt-2 rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-              {batchError}
-            </p>
-          )}
-        </div>
-      )}
-
-      {sentVia === "platform_gmail" && batchProgress && (
-        <div className="mt-6 rounded-xl border-2 border-emerald-500 bg-gradient-to-br from-emerald-950/40 to-zinc-950/40 p-6">
-          <div className="flex items-start gap-3">
-            <div className="text-3xl">✓</div>
-            <div className="flex-1">
-              <p className="text-xl font-bold text-emerald-300">
-                Sent {batchProgress.sent} of {batchProgress.total}
-              </p>
-              <p className="mt-1 text-sm text-zinc-300">
-                Each email went out from <span className="font-mono text-emerald-300">{gmailEmail}</span>.
-                They&apos;re now in your Gmail Sent folder.
-              </p>
-              {batchProgress.failed > 0 && (
-                <p className="mt-2 text-sm text-amber-300">
-                  {batchProgress.failed} failed — try the manual options below to retry those.
-                </p>
-              )}
-              <a
-                href="https://mail.google.com/mail/u/0/#sent"
-                target="_blank"
-                rel="noreferrer"
-                className="mt-4 inline-flex items-center gap-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
-              >
-                Open Gmail Sent folder ↗
-              </a>
-            </div>
-          </div>
+          <SendBatchPanel
+            campaignSlug={campaignSlug}
+            selectedIds={targetsWithEmail.map((t) => t.id)}
+            subject={subject}
+            body={body}
+            primary
+            className="mt-3"
+          />
+          <p className="mt-2 text-xs text-zinc-500">
+            Check your{" "}
+            <a href="https://mail.google.com/mail/u/0/#sent" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">
+              Gmail Sent folder
+            </a>{" "}
+            to see every letter as it goes out.
+          </p>
         </div>
       )}
 
@@ -781,20 +732,6 @@ export function CampaignAction({
               Use <em>Gmail</em> or <em>Outlook</em> above (they take the full list), send with a connected
               account, or copy the message and paste it yourself.
             </p>
-          )}
-
-          {/* Background queue. Offered when the selection is big enough that a
-              one-shot compose is the wrong tool — either it exceeds what a
-              mailto URL can carry, or it is simply a lot of individual letters
-              to sit and watch. Requires a connected account: mailto and web
-              compose each open ONE window and cannot loop N separate messages,
-              so this is a real capability difference rather than an upsell. */}
-          {gmailConnected && (mailtoTooLong || targetsWithEmail.length >= 5) && (
-            <SendBatchPanel
-              campaignSlug={campaignSlug}
-              selectedIds={targetsWithEmail.map((t) => t.id)}
-              className="mt-3"
-            />
           )}
 
           <button
@@ -923,14 +860,6 @@ function Card({ children, accent }: { children: React.ReactNode; accent?: boolea
     ? "border-emerald-700/50 bg-gradient-to-br from-emerald-950/30 to-zinc-950/40 ring-1 ring-emerald-700/20"
     : "border-zinc-800 bg-zinc-950/40";
   return <div className={`rounded-xl border p-6 ${cls}`}>{children}</div>;
-}
-
-function BoltIcon() {
-  return (
-    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-      <path d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" />
-    </svg>
-  );
 }
 
 /**
