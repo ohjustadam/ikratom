@@ -2,6 +2,7 @@ import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CoalitionAdminPanel } from "./CoalitionAdminPanel";
+import { Discussion, GettingStarted } from "./Discussion";
 import { publicHandle } from "@/lib/public-handle";
 
 export const dynamic = "force-dynamic";
@@ -190,6 +191,13 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
         )}
       </header>
 
+      {/* A brand-new group used to open on little more than the admin box
+          (2026-10-21: "when I click on the name nothing happens"). Show the
+          first steps until it has teammates. */}
+      {viewerRole && members.length <= 1 && (
+        <GettingStarted state={c.state} isAdmin={viewerRole === "owner" || viewerRole === "admin"} />
+      )}
+
       {/* State intel widget */}
       {c.state && viewerRole && (stateActiveOps > 0 || stateAlerts > 0) && (
         <section className="mb-6 rounded-lg border border-emerald-700/30 bg-emerald-950/10 p-4">
@@ -284,6 +292,9 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
         </section>
       )}
 
+      {/* Private discussion board: members only (migration 0273). */}
+      {viewerRole && <Discussion coalitionId={c.id} slug={c.slug} />}
+
       {/* Members list (gated) */}
       {viewerRole && (
         <section className="mb-6">
@@ -316,7 +327,9 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
 
       {/* Admin actions — only owner/admin */}
       {(viewerRole === "owner" || viewerRole === "admin") && (
-        <CoalitionAdminPanel coalitionId={c.id} viewerRole={viewerRole} />
+        <div id="admin-actions">
+          <CoalitionAdminPanel coalitionId={c.id} viewerRole={viewerRole} />
+        </div>
       )}
 
       {!user && c.is_public && (
