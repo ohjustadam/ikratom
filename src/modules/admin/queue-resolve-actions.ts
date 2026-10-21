@@ -6,12 +6,12 @@
  *
  * Two modes share ONE analysis + apply core:
  *   - PREVIEW  (analyze* → applyPlan*): propose per-item, admin edits, then apply.
- *   - FULL-AUTO (autoResolveQueue): analyze + immediately apply every confident
- *     decision in one click. Approve only on a confident grounded verdict (it
- *     fires user notifications); dedup → supersede; junk → reject; genuinely
- *     unverifiable → reject (reversible + logged) so the queue still ends empty.
- *     Unchecked overflow (past the fact-check cap) is LEFT in queue, never blind-
- *     rejected — the cron drains it next pass.
+ *   - FULL-AUTO (autoResolveQueue): analyze + immediately apply every CONFIDENT
+ *     decision in one click: dedup → supersede, dead/enacted bill → reject, a
+ *     high-confidence grounded reject → reject, a confident approve → approve
+ *     (it notifies users). Anything uncertain, and the overflow past the
+ *     fact-check cap, is LEFT in the queue for a person (queue-resolve-policy.ts;
+ *     until 2026-10-21 uncertain items were rejected, which buried real ones).
  *
  * Everything reuses the canonical review-transition + intel actions so an auto
  * resolve writes EXACTLY what a manual review writes. Admin-gated + MFA + audit.
@@ -28,6 +28,7 @@ import { applyCampaignReviewTransition } from "./campaign-review-shared";
 import { approveIntelTip, rejectIntelTip } from "@/modules/alerts/actions";
 import { clusterKey, isBillTerminal } from "@/lib/moderation/heuristics";
 import { factCheckItem } from "@/lib/moderation/factcheck";
+import { autoDecision } from "./queue-resolve-policy";
 import type {
   AnalyzeResult, ApplyResult, Decision, PlanItem, ProposedAction, QueueKind,
 } from "./queue-resolve-types";
@@ -48,7 +49,7 @@ const dispToAction = (d: "approve" | "reject" | "unsure"): ProposedAction =>
 async function buildCampaignPlan(sb: SupabaseClient, aiCap: number): Promise<PlanItem[]> {
   const { data } = await sb
     .from("campaigns")
-    .select("id,title,state,bill_id,created_at,bills(status)")
+    .select("id,title,state,bill_id,blurb,created_at,bills(status)")
     .eq("review_state", "pending_review")
     .order("created_at", { ascending: false })
     .limit(200);
@@ -76,7 +77,7 @@ async function buildCampaignPlan(sb: SupabaseClient, aiCap: number): Promise<Pla
       items.push({ id: r.id, title: r.title, subtitle: `${r.state || "FED"}`, action: "keep", reason: "Not auto-checked (fact-check cap) — left for the next pass", confidence: "low", source: "cap" });
       continue;
     }
-    const v = await factCheckItem("campaign", r.title, r.state);
+    const v = await factCheckItem("campaign", r.title, r.state, { summary: r.blurb });
     items.push({ id: r.id, title: r.title, subtitle: `${r.state || "FED"}`, action: dispToAction(v.disposition), reason: v.reason, confidence: band(v.confidence), source: "ai" });
   }
   return items;
@@ -85,7 +86,7 @@ async function buildCampaignPlan(sb: SupabaseClient, aiCap: number): Promise<Pla
 async function buildIntelPlan(sb: SupabaseClient, aiCap: number): Promise<PlanItem[]> {
   const { data } = await sb
     .from("policy_alerts")
-    .select("id,title,locality,kind,created_at")
+    .select("id,title,locality,kind,body,source_url,created_at")
     .eq("moderation_status", "pending")
     .order("created_at", { ascending: false })
     .limit(200);
@@ -108,7 +109,7 @@ async function buildIntelPlan(sb: SupabaseClient, aiCap: number): Promise<PlanIt
       items.push({ id: r.id, title: r.title, subtitle: `${r.locality}`, action: "keep", reason: "Not auto-checked (fact-check cap) — left for the next pass", confidence: "low", source: "cap" });
       continue;
     }
-    const v = await factCheckItem("intel", r.title, r.locality);
+    const v = await factCheckItem("intel", r.title, r.locality, { summary: r.body, sourceUrl: r.source_url });
     items.push({ id: r.id, title: r.title, subtitle: `${r.locality}`, action: dispToAction(v.disposition), reason: v.reason, confidence: band(v.confidence), source: "ai" });
   }
   return items;
@@ -156,20 +157,6 @@ async function applyIntelDecisions(ds: Decision[]) {
     }
   }
   return { approved, rejected, superseded: 0 };
-}
-
-/**
- * Full-auto policy: turn a proposal into a final action.
- * - dedup/junk rejects + supersedes apply as-is.
- * - approve applies ONLY on a confident grounded verdict (fires notifications);
- *   a low-confidence "approve" downgrades to reject (safe).
- * - AI "unsure" → reject (empties queue, reversible).
- * - overflow past the fact-check cap ("keep"/source=cap) is left in queue.
- */
-function autoDecision(p: PlanItem): ProposedAction {
-  if (p.action === "supersede" || p.action === "reject") return p.action;
-  if (p.action === "approve") return p.confidence === "low" ? "reject" : "approve";
-  return p.source === "cap" ? "keep" : "reject"; // keep = leave untouched
 }
 
 // ── Public server actions ──────────────────────────────────────────────────
