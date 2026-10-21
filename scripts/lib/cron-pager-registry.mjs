@@ -95,6 +95,9 @@ export const REGISTRY = [
       "openstates_bill_sweep",
       // Playwright BoP subset (KS/NH/MA/AR) — no independent signal before.
       "bop_browser_scrape",
+      // Every other BoP source (2026-10-21). Was walked only by the dropped
+      // /api/cron/daily-sync route, so it died silently for 3 months.
+      "bop_html_scrape",
       // BoP pipeline layers + intel scrapers given writers 2026-07-16 (were
       // cron-registry phantoms writing nothing).
       "parse_bop_pdfs",

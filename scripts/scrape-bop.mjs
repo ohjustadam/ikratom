@@ -4,7 +4,8 @@
  *
  *   npm run scrape:bop
  *
- * The daily cron at /api/cron/daily-sync also calls runBopEngine.
+ * Runs daily in GitHub Actions (cron-daily.yml: bop-html-scrape). The old
+ * /api/cron/daily-sync caller was dropped from the schedule ~2026-07-21.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -24,7 +25,9 @@ const supabase = createClient(process.env[URL_ENV], process.env[KEY_ENV], {
 
 console.log("Running BoP engine…");
 const t0 = Date.now();
-const results = await runBopEngine({ supabase });
+// The Playwright subset (TLS-blocked sites) has its own job,
+// scrape-bop-browser.mjs; this one walks every other source.
+const results = await runBopEngine({ supabase, excludeAdapters: ["playwright_browser"] });
 const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
 console.log(`\nDone in ${elapsed}s — ${results.length} source(s) walked:\n`);
@@ -37,3 +40,20 @@ for (const r of results) {
     console.log(`  · ${r.state} · ${r.source}: no findings`);
   }
 }
+
+// Telemetry. Until 2026-10-21 these ~49 sources were walked only by the
+// /api/cron/daily-sync route; when that route was dropped from the schedule
+// (~2026-07-21) they silently stopped for three months, because nothing here
+// wrote a scraper_runs row for the staleness pager to miss.
+try {
+  const inserted = results.reduce((a, r) => a + (r.inserted ?? 0), 0);
+  const errored = results.filter((r) => r.status === "error").length;
+  await supabase.from("scraper_runs").insert({
+    source: "bop_html_scrape",
+    started_at: new Date(t0).toISOString(),
+    finished_at: new Date().toISOString(),
+    status: errored === results.length && results.length > 0 ? "error" : inserted > 0 ? "success" : "empty",
+    rows_added: inserted,
+    notes: `${results.length} sources walked · ${errored} errored`,
+  });
+} catch { /* best-effort */ }

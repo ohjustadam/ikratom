@@ -495,8 +495,8 @@ jobs:
     # the JA3 signature gives us away regardless of headers. This
     # job uses a real Chromium browser via Playwright to bypass.
     #
-    # Runs alongside the Vercel daily cron which handles the other
-    # ~47 sources. The two together = full BoP coverage.
+    # bop-html-scrape handles every other source. The two together =
+    # full BoP coverage.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -516,6 +516,28 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/scrape-bop-browser.mjs
 
+  bop-html-scrape:
+    needs: budget
+    if: needs.budget.outputs.run == 'true'
+    # Every BoP source that plain HTTP can read (~49 states). These were
+    # walked only by /api/cron/daily-sync, which was dropped from the
+    # schedule ~2026-07-21; they then went unscraped for three months
+    # with no alert. Telemetry: scraper_runs source "bop_html_scrape".
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Scrape BoP sources over plain HTTP
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/scrape-bop.mjs
+
   parse-bop-pdfs:
     # Layer 1.5 of the BoP classifier pipeline. Downloads PDF agendas
     # linked from BoP findings and extracts text via pdf-parse. The
@@ -524,9 +546,11 @@ jobs:
     # from 'unrelated' to 'kratom_direct' and become eligible for AI
     # classification on the next run.
     #
-    # Runs AFTER bop-browser-scrape (so all candidates are present)
+    # Runs AFTER both BoP scrapes (so all candidates are present)
     # and BEFORE classify-bop-ai (so the AI layer sees upgrades).
-    needs: bop-browser-scrape
+    needs: [bop-browser-scrape, bop-html-scrape]
+    # Run even if one scrape failed: the other's findings still need parsing.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
