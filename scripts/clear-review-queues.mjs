@@ -11,16 +11,19 @@
  *   - reject-wrongstate-pending-alerts.mjs (daily) geo-mismatch reject.
  *
  * THE GAP this fills: items the engine ESCALATES and the janitors don't catch —
- * news-derived campaigns/alerts about bills already DEAD or ENACTED (moot), that
- * DON'T EXIST (hallucinations), wrong-geo, or partisan. This grounds each survivor
- * with a keyless web search (SearXNG, on the box) + a FREE-tier AI verdict
- * (aiRouter — NEVER Claude), then acts:
+ * news-derived campaigns about bills already DEAD or ENACTED (moot), wrong-geo,
+ * or partisan items. Each survivor is judged against its OWN source article
+ * first, plus a keyless web search (SearXNG, on the box) filtered to results that
+ * mention kratom, by a FREE-tier AI verdict (aiRouter — NEVER Claude). The rules
+ * are in lib/moderation-gate.mjs: a failed search never counts as evidence, and
+ * intel is news, so an enacted ban is still publishable. Then it acts:
  *   default        → REJECT the clearly-bad ones (reversible, audit-logged).
  *   with --approve → ALSO auto-APPROVE the confidently-real+live+on-mission ones
  *                    (campaigns fire the same user-notification trigger as a manual
  *                    approve; intel publishes to /pulse as news). This is the
- *                    zero-click "never anything in queue" autonomy — gated to HIGH
- *                    confidence + web evidence, capped per run, and it honors the
+ *                    zero-click autonomy — gated to HIGH confidence + real
+ *                    evidence (the source article or 2 relevant snippets), capped
+ *                    per run, and it honors the
  *                    site_config read_only_mode / emergency_mode kill switches.
  *
  * Uncertain items are always LEFT for the next pass / a human — the unattended
@@ -37,6 +40,8 @@ import { searxngSearch, searxngConfigured } from "./lib/searxng.mjs";
 import { REJECT_COLUMNS, APPROVE_COLUMNS, SUPERSEDE_COLUMNS } from "./lib/campaign-review-columns.mjs";
 import { runWithLogging } from "./lib/scraper-run.mjs";
 import { billKey, federalTopicKey, strongTopicKey, normalizedTitleKey } from "./lib/topic-key.mjs";
+import { promptFor, relevantSnippets, articleExcerpt, canAutoReject, canAutoApprove } from "./lib/moderation-gate.mjs";
+import { fetchPageText } from "./lib/page-text.mjs";
 
 const args = process.argv.slice(2);
 const AI = args.includes("--ai");
@@ -50,24 +55,48 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABA
   auth: { persistSession: false },
 });
 
-const SYSTEM = `You fact-check pending items for iKratom, a strictly NONPARTISAN kratom-advocacy platform. Each item is a scraped news headline that became either a public /pulse news post (intel) or a campaign that mobilizes constituents to email legislators. Items are AI-generated and may be stale, mis-tagged, or hallucinated. Using ONLY the web-search snippets provided, return one verdict.
-REJECT when the snippets show any of: the bill/action is already DEAD (died/tabled/failed/sine die) or already fully ENACTED/SIGNED into law (so action is moot), the described event does NOT appear to exist (hallucination), the location is wrong for the tagged state, OR the item is framed around a specific named politician/party (partisan).
-APPROVE when the snippets confirm the event is real, current, correctly located, nonpartisan, AND any bill is still LIVE (a bill that only passed ONE chamber is still live; only signed-into-law/enacted or died/failed is terminal).
-KEEP when the snippets are thin, contradictory, or merely duplicate a still-current story (dedup + approval are handled elsewhere; a human will review).
-Reply with ONLY compact JSON: {"verdict":"approve"|"reject"|"keep","confidence":"high"|"medium"|"low","reason":"<=180 chars, cite what the snippets showed"}.`;
-
-async function classify(kind, title, state, snippets) {
-  if (!snippets.length) return { verdict: "keep", confidence: "low", reason: "no web evidence — left for human review" };
+// Prompts + reject rules live in scripts/lib/moderation-gate.mjs (2026-10-21): the
+// item's own source article is the primary evidence, irrelevant search results
+// are dropped, and "couldn't confirm it" is never a reason to reject.
+async function classify(kind, title, state, { sourceText, snippets }) {
+  const source = articleExcerpt(sourceText);
+  if (!source && !snippets.length) return { verdict: "keep", confidence: "low", reason: "no source article and no relevant web evidence — left for human review" };
   const ev = snippets.slice(0, 5).map((s, i) => `[${i + 1}] ${s.title} — ${s.content}`.slice(0, 320)).join("\n");
-  const user = `TYPE: ${kind}\nTITLE: ${title}\nTAGGED LOCATION: ${state || "FED/national"}\nTODAY: ${new Date().toISOString().slice(0, 10)}\n\nWEB SNIPPETS:\n${ev}`;
+  const user = `TYPE: ${kind}\nTITLE: ${title}\nTAGGED LOCATION: ${state || "FED/national"}\nTODAY: ${new Date().toISOString().slice(0, 10)}\n\n`
+    + `SOURCE ARTICLE:\n${source || "(could not be fetched)"}\n\nRELEVANT WEB SNIPPETS:\n${ev || "(none)"}`;
   try {
-    const { parsed } = await aiRouter({ systemPrompt: SYSTEM, userPrompt: user, maxTokens: 300 });
+    const { parsed } = await aiRouter({ systemPrompt: promptFor(kind), userPrompt: user, maxTokens: 300 });
     const v = ["approve", "reject", "keep"].includes(parsed?.verdict) ? parsed.verdict : "keep";
     const c = ["high", "medium", "low"].includes(parsed?.confidence) ? parsed.confidence : "low";
     return { verdict: v, confidence: c, reason: String(parsed?.reason || "").slice(0, 300) };
   } catch (e) {
     return { verdict: "keep", confidence: "low", reason: `AI error, kept: ${String(e?.message ?? e).slice(0, 80)}` };
   }
+}
+
+/** The article the item was built from: its alert's source, else the linked news item. */
+async function sourceUrlFor(kind, row) {
+  try {
+    let alert = null;
+    if (kind === "intel") alert = { id: row.id, source_url: row.source_url };
+    else {
+      const { data } = await sb.from("policy_alerts").select("id, source_url").eq("campaign_id", row.id).limit(1).maybeSingle();
+      alert = data;
+    }
+    if (!alert) return null;
+    const { data: n } = await sb.from("news_items").select("url, resolved_url").eq("policy_alert_id", alert.id).eq("active", true)
+      .order("published_at", { ascending: false }).limit(1).maybeSingle();
+    const url = n?.resolved_url || alert.source_url || n?.url || null;
+    // A news.google.com redirect isn't the article; only a resolved publisher URL is readable.
+    return url && !/news\.google\.com/.test(url) ? url : null;
+  } catch { return null; }
+}
+
+async function fetchSource(url) {
+  if (!url) return "";
+  try {
+    return (await Promise.race([fetchPageText(url, { diag: {} }), new Promise((r) => setTimeout(() => r(""), 25_000))])) ?? "";
+  } catch { return ""; }
 }
 
 // Canonical cross-outlet dedup key (mirrors the janitors): a shared bill, the
@@ -182,16 +211,18 @@ await runWithLogging({ source: "clear_review_queues", supabase: sb }, async () =
   if (campDedup.dups.length || intelDedup.dups.length)
     console.log(`  (deduped ${campDedup.dups.length} campaign + ${intelDedup.dups.length} intel cross-outlet copies)\n`);
 
-  const decide = async (title, state) => {
-    const hits = await searxngSearch(`${title} ${state || ""} kratom`, { count: 6 });
-    const d = await classify("item", title, state, hits);
-    const canReject = d.verdict === "reject" && (d.confidence === "high" || d.confidence === "medium") && hits.length > 0;
-    const canApproveItem = canApprove && d.verdict === "approve" && d.confidence === "high" && hits.length > 0;
-    return { ...d, canReject, canApproveItem };
+  const decide = async (kind, row, title, state) => {
+    const [sourceText, hits] = await Promise.all([
+      sourceUrlFor(kind, row).then(fetchSource),
+      searxngSearch(`${title} ${state || ""} kratom`, { count: 6 }).catch(() => []),
+    ]);
+    const evidence = { sourceText, snippets: relevantSnippets(hits) };
+    const d = await classify(kind, title, state, evidence);
+    return { ...d, canReject: canAutoReject(d, evidence), canApproveItem: canApprove && canAutoApprove(d, evidence) };
   };
 
   // Campaigns (representatives only — dups already superseded above)
-  const cd = await pool(campsR, 4, (c) => decide(c.title, c.state));
+  const cd = await pool(campsR, 4, (c) => decide("campaign", c, c.title, c.state));
   for (let i = 0; i < campsR.length; i++) {
     const d = cd[i], c = campsR[i];
     if (d.canApproveItem && approveBudget > 0) {
@@ -217,7 +248,7 @@ await runWithLogging({ source: "clear_review_queues", supabase: sb }, async () =
   }
 
   // Intel (representatives only — dups already rejected above)
-  const id_ = await pool(intelR, 4, (a) => decide(a.title, a.locality));
+  const id_ = await pool(intelR, 4, (a) => decide("intel", a, a.title, a.locality));
   for (let i = 0; i < intelR.length; i++) {
     const d = id_[i], a = intelR[i];
     if (d.canApproveItem && approveBudget > 0) {

@@ -30,7 +30,7 @@ export default function ResolveQueue({ kind, compact = false }: { kind: QueueKin
   const label = kind === "campaigns" ? "campaign reviews" : "intel queue";
 
   function autoResolve() {
-    if (!confirm(`Auto-resolve the ${label} now?\n\nEvery item is decided automatically — approvals notify users and can't be recalled. Uncertain items are safely rejected. Nothing is left for you to review.`)) return;
+    if (!confirm(`Auto-resolve the ${label} now?\n\nConfident decisions are applied automatically: duplicates merged, dead bills closed, real items published (approvals notify users and can't be recalled). Anything the checker isn't sure about stays in the queue for you.`)) return;
     setMsg(null);
     startWork(async () => {
       const r = await autoResolveQueue(kind);
