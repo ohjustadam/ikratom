@@ -30,7 +30,7 @@ import robots from "../src/app/robots";
  * cannot make these assertions pass vacuously.
  */
 const BEFORE_RESET = new Date("2026-10-01T12:00:00Z");
-const AFTER_RESET = new Date("2026-11-16T01:00:00Z");
+const AFTER_RESET = new Date("2027-01-16T01:00:00Z");
 
 /** Real wall-clock, captured before any test installs fake timers. */
 const REAL_NOW = Date.now();
