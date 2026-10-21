@@ -5,7 +5,9 @@ checked and when, so a session can re-check it instead of re-asking.
 Sessions: verify before adding, delete a line the moment it is done, and put
 anything that is not owner-only in `STATE_OF_PLAY.md` instead.
 
-_Last verified: 2026-10-17 against `main` at f2ecac3, from a cloud session._
+_Last verified: 2026-10-17 against `main` at f2ecac3, from a cloud session.
+Refreshed 2026-10-21 from the owner's machine: items 3 and 6 and "Needs your
+eyes" updated, plus the 2026-10-21 lines under "Done"._
 
 ---
 
@@ -30,10 +32,11 @@ _Last verified: 2026-10-17 against `main` at f2ecac3, from a cloud session._
    first run rewrites every vector, which is why it waits for your word.
    _Checked: GitHub Actions run list for `bill-embeddings.yml`._
 
-3. **Close PR #991 (the Oct 11 weekly update) or publish it from
-   `/admin/whats-new` instead.** It adds a markdown note under `src/`, so
-   merging it is a 15-credit build for something the database now serves for
-   free. _Checked: PR file list._
+3. **Close PRs #991 and #1001 (the Oct 11 and Oct 18 weekly updates), or
+   publish them from `/admin/whats-new` instead.** Each adds one markdown note
+   under `src/content/patch-notes/`, so merging it is a 15-credit build for
+   something the database now serves for free.
+   _Checked: PR file lists, 2026-10-21._
 
 4. **Point the Supabase connector at the production project** (claude.ai →
    Settings → Connectors). It still sees only `wxwoyjbgldtmvmiewhfq`, the
@@ -50,7 +53,9 @@ _Last verified: 2026-10-17 against `main` at f2ecac3, from a cloud session._
    in September. If you want any of the 2FA-recovery work
    (`mfa-email-recovery`, July), say so before deleting it._
 
-6. **Run `npm run docs:schema` on your machine.** `docs/SCHEMA.md` was last
+6. ~~**Run `npm run docs:schema` on your machine.**~~ **Done 2026-10-21**
+   (regenerated from production on the owner's machine, migrations through
+   0271). Kept here one cycle so a cloud session doesn't re-ask. `docs/SCHEMA.md` was last
    generated 2026-08-25. Migrations 0250 to 0271 have landed since, so sessions
    that read it get the old schema. The script needs database credentials,
    which no cloud session has. Commit the result (`docs/` is free).
@@ -68,9 +73,6 @@ _Last verified: 2026-10-17 against `main` at f2ecac3, from a cloud session._
 
 ## Needs your eyes (can't be checked from a cloud session)
 
-- **The North Dakota special-session meeting dated 20 October** at
-  `/admin/meetings`, approve or reject. It sits in the admin UI, and the
-  production database can't be reached from a cloud session.
 - **Do you publish notes from `/admin/whats-new`?** The October note shipped
   as a markdown file (`src/content/patch-notes/2026-10-08-update.md`, #971),
   which is the path the database flow was built to replace. If the admin
@@ -80,6 +82,15 @@ _Last verified: 2026-10-17 against `main` at f2ecac3, from a cloud session._
   anything still open into this file, so one list holds everything.
 
 ## Done since the 2026-09-21 list (verified, nothing to do)
+
+- **2026-10-21: every review queue at zero.** Meetings, campaigns and intel
+  were each read against their sources; the ND meeting was among them.
+  Local-rep requests: Derma, MS verified by hand and closed.
+  - Auto-resolve no longer rejects on "couldn't confirm" (#1002).
+  - The intel ticker is live (#1003).
+  - Roster pages must now show the requested state (#1005).
+- **Credits, 2026-10-21:** on track for about 490 of 1000 by the 2026-11-05
+  reset. _From `npm run credits`._
 
 - **Migration `0250_patch_notes.sql` is applied.** The 2026-10-11
   self-review logs a `patch_note.publish` admin action, which can only happen
