@@ -19,6 +19,7 @@ describe("isNonRosterPage", () => {
     expect(isNonRosterPage("https://example.gov/elections")).toBe(true);
     expect(isNonRosterPage("https://example.gov/county-treasurer/staff")).toBe(false); // path segment must be the office itself
     expect(isNonRosterPage("https://example.gov/treasurer/")).toBe(true);
+    expect(isNonRosterPage("https://www.elpasocountyhealth.org/about-public-health/board-of-health/")).toBe(true);
   });
 
   it("keeps real governing-board rosters", () => {
@@ -41,7 +42,8 @@ describe("isNonGoverningCountyTitle", () => {
   it("flags election and administrative offices", () => {
     for (const t of ["Auditor", "County Auditor", "Election Commissioner", "Commissioner, Board of Elections",
       "Clerk of the Board", "County Clerk", "County Treasurer", "Sheriff, MIDDLESEX COUNTY", "Register of Deeds",
-      "State's Attorney", "Coroner", "Circuit Judge", "District Judge", "Probate Judge"])
+      "State's Attorney", "Coroner", "Circuit Judge", "District Judge", "Probate Judge",
+      "Board of Health President", "Board of Health Member"])
       expect(isNonGoverningCountyTitle(t)).toBe(true);
   });
 

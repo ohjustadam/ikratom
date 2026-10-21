@@ -86,8 +86,10 @@ export function stateFromJurisdiction(pageJurisdiction) {
  * NY's two Board of Elections commissioners (titled just "Commissioner") as
  * those counties' representatives. A title check can't catch the second case,
  * so the page is rejected by its URL before any model reads it.
+ * 2026-10-21: El Paso County, CO got its appointed Board of Health (plus a
+ * town mayor who sits on it) from elpasocountyhealth.org/.../board-of-health/.
  */
-const NON_ROSTER_PATH_RE = /(board[-_]?of[-_]?elections|election[-_]?(officials|commission|office|board)|\/elections?(\/|$)|\/voter|\/auditor|\/treasurer|\/sheriff|\/assessor|\/recorder)/i;
+const NON_ROSTER_PATH_RE = /(board[-_]?of[-_]?elections|election[-_]?(officials|commission|office|board)|\/elections?(\/|$)|\/voter|\/auditor|\/treasurer|\/sheriff|\/assessor|\/recorder|board[-_]?of[-_]?health)/i;
 export function isNonRosterPage(url) {
   try { return NON_ROSTER_PATH_RE.test(new URL(url).pathname); } catch { return false; }
 }
@@ -98,7 +100,7 @@ export function isNonRosterPage(url) {
  * "judge" means a COURT judge: a Texas or Arkansas "County Judge" and
  * Kentucky's "County Judge/Executive" preside over the governing body.
  */
-const NON_GOVERNING_COUNTY_TITLE_RE = /\b(auditor|treasurer|sheriff|assessor|recorder|coroner|register of deeds|prosecut\w*|state'?s attorney|district attorney|(?<!county )judge(?!\s*\/?\s*exec)|county clerk|clerk of (the )?(board|courts?)|elections?)\b/i;
+const NON_GOVERNING_COUNTY_TITLE_RE = /\b(auditor|treasurer|sheriff|assessor|recorder|coroner|register of deeds|prosecut\w*|state'?s attorney|district attorney|(?<!county )judge(?!\s*\/?\s*exec)|county clerk|clerk of (the )?(board|courts?)|elections?|board of health)\b/i;
 export function isNonGoverningCountyTitle(title) {
   return NON_GOVERNING_COUNTY_TITLE_RE.test(String(title ?? ""));
 }
@@ -142,6 +144,40 @@ Rules:
 - Never fabricate emails or phones — leave unknown fields null.
 - term_end_date as YYYY-MM-DD only if the page states when the term ENDS; else null. A "next election" year or an election date is NOT a term end — return null for it.
 - Output ONLY the JSON object.`;
+
+/**
+ * Does this page POSITIVELY show it belongs to the requested state?
+ *
+ * 2026-10-21: "Bruce, MS" got seven officials from cityofbruce.net, which is
+ * Bruce, SOUTH DAKOTA. The page never names a state at all, so every gate let
+ * it through: the gazetteer fell back to "kept:candidate-no-evidence" (which
+ * reports corroborated:true), and the model's page_jurisdiction was just "City
+ * of Bruce". A same-named town is the commonest wrong-government shape, so the
+ * search tier now needs evidence FOR the state, not merely no evidence against:
+ *   - the page text pins the state with high confidence (full name, "City, ST",
+ *     a state-unique county...), or
+ *   - the host carries it: ci.bruce.ms.us, bruce.ms.gov, gulfport-ms.gov,
+ *     cityofoxfordms.com, bruce-mississippi.org.
+ * Without either, the request stays queued as "state-unverified" for a person.
+ */
+export function hasStateEvidence({ geo, url, state, cityName }) {
+  const st = String(state ?? "").toUpperCase();
+  if (!/^[A-Z]{2}$/.test(st)) return true; // nothing to check against
+  if (geo?.corroborated && geo?.confidence === "high" && geo?.locality === st) return true;
+  let host;
+  try { host = new URL(url).hostname.toLowerCase(); } catch { return false; }
+  const s = st.toLowerCase();
+  const labels = host.split(".").slice(0, -1); // drop the TLD (.gov/.us/.com)
+  if (labels.includes(s)) return true;
+  const tokens = labels.flatMap((l) => l.split("-"));
+  if (labels.some((l) => l.includes("-")) && tokens.includes(s)) return true;
+  const fullName = String(STATE_NAMES[st] ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  // "brucemississippi" counts; "arkansas" is not Kansas, "westvirginia" not Virginia.
+  const namesState = (t) => t === fullName || (t.endsWith(fullName) && !t.endsWith(`ar${fullName}`) && !t.endsWith(`west${fullName}`));
+  if (fullName && tokens.some(namesState)) return true;
+  const city = String(cityName ?? "").toLowerCase().replace(/\b(county|parish|borough|village|township|city|town|of)\b/g, "").replace(/[^a-z0-9]/g, "");
+  return Boolean(city) && labels.some((l) => l.replace(/-/g, "").endsWith(`${city}${s}`));
+}
 
 /** Rank SearXNG results, preferring official government domains. */
 export function pickCandidateUrls(results, city) {
@@ -329,6 +365,7 @@ export async function findAndExtractOfficials({ sb, city, state, locality, level
   const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return null; } };
   let topBlocked = false;
   let readHost = null;
+  let stateUnverified = null;
 
   let lastProvider = null;
   for (const [i, url] of candidates.entries()) {
@@ -345,6 +382,10 @@ export async function findAndExtractOfficials({ sb, city, state, locality, level
     const geo = reconcileLocality({ aiLocality: state, scopeState: state, text: text.slice(0, 16_000), title: cityName });
     if (!geo.corroborated && /^[A-Z]{2}$/.test(geo.locality) && geo.locality !== String(state).toUpperCase()) {
       continue; // page is about a different state's government
+    }
+    if (!hasStateEvidence({ geo, url, state, cityName })) {
+      stateUnverified ??= hostOf(url); // never names its state: maybe a same-named town elsewhere
+      continue;
     }
     // LOCALITY-NAME gate: same-state-but-wrong-city pages don't mention the
     // locality at all — require the name in the page text or the hostname.
@@ -364,5 +405,6 @@ export async function findAndExtractOfficials({ sb, city, state, locality, level
   }
   await logExtract(sb, { caller, provider: lastProvider, status: "empty", city: cityName, state, count: 0 });
   if (topBlocked) return { queued: true, reason: "site-blocked", detail: hostOf(candidates[0]) };
+  if (stateUnverified && !readHost) return { queued: true, reason: "state-unverified", detail: stateUnverified };
   return { queued: true, reason: "no-extract", detail: readHost ?? hostOf(candidates[0]) };
 }

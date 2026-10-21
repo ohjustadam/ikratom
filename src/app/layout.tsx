@@ -13,6 +13,7 @@ import { GlobalAnnouncement } from "@/components/GlobalAnnouncement";
 import { DonateStrip } from "@/components/DonateStrip";
 import { MobileNav } from "@/components/MobileNav";
 import { MobileTabBar } from "@/components/MobileTabBar";
+import { IntelTicker } from "@/components/IntelTicker";
 import { RegisterSW } from "@/components/RegisterSW";
 import { PushBackStop } from "@/components/PushBackStop";
 import { PresenceHeartbeat } from "@/components/PresenceHeartbeat";
@@ -230,6 +231,10 @@ export default function RootLayout({
               <MobileNavGate />
             </div>
           </div>
+          {/* The intel crawl (owner ask 2026-10-21). Lives in the sticky header so it
+              stays in view while scrolling and never collides with the mobile tab
+              bar at the bottom. Client-side: fetches /api/ticker after load. */}
+          <IntelTicker />
         </header>
 
         {/* Mobile gets tab-bar-height + safe-area-inset-bottom padding so
