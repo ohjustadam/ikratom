@@ -138,8 +138,8 @@ export default function robots(): MetadataRoute.Robots {
   // measured traffic on this class of page is 99.97% bots hitting page
   // renders, which nothing in the cron fleet controls.
   //
-  // The date is now past the owner's 60-day-untouched window (2026-11-16, a
-  // cycle boundary) rather than the next reset, because a measure that lapses
+  // The date is now past the owner's 60-day-untouched window (2027-01-16, a
+  // cycle boundary; extended from 2026-11-16 on 2026-10-21, owner B7) rather than the next reset, because a measure that lapses
   // inside that window is a measure that lapses while nobody is watching.
   // Re-arming is reversible in one line and it restores a protection that was
   // measured to work; it is NOT the permanent answer. The permanent answer is

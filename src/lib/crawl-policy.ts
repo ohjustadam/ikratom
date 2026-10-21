@@ -25,12 +25,15 @@
  * When the cost-control crawl restriction lifts itself.
  *
  * RE-ARMED 2026-09-17 to 2026-11-16, past the owner's 60-day-untouched window.
+ * EXTENDED 2026-10-21 to 2027-01-16 (owner B7). Egress was 14.4% five days
+ * into the cycle (~87% projected), and the R2 + Cloudflare caching that should
+ * make crawls free has never been tested against a full crawler load.
  * The full history of why lives next to the disallow list in src/app/robots.ts;
  * the short version is that the previous expiry fired at the same instant the
  * egress cycle reset, the CDN-caching half of the plan had never shipped, and
  * egress went to ~189 MB/day against a sustainable 167.
  */
-export const COST_CONTROL_EXPIRES_AT = Date.UTC(2026, 10, 16); // 2026-11-16T00:00Z
+export const COST_CONTROL_EXPIRES_AT = Date.UTC(2027, 0, 16); // 2027-01-16T00:00Z, a cycle boundary
 
 export function costControlActive(now: number = Date.now()): boolean {
   return now < COST_CONTROL_EXPIRES_AT;
