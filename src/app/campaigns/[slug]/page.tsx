@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators, type Legislator } from "@/lib/legislators";
 import { dedupNewsByOutlet, type NewsItem } from "@/lib/news-dedup";
-import { buildVars, renderTemplate } from "@/modules/campaigns/templates";
+import { adaptForNonResident, buildVars, renderSenderOnly } from "@/modules/campaigns/templates";
 import { getMyCampaignProgress } from "@/modules/campaigns/actions";
 import { getEmailIntegration } from "@/lib/email/user-send";
 import { getMyWaveStatus } from "@/modules/waves/actions";
@@ -353,11 +353,23 @@ export default async function CampaignPage({
     }
   }
 
-  // Pre-render subject/body using the user's profile + first target as
-  // representative for {{legislator_name}}. The body field gets edited client-side.
+  // Pre-render the SENDER's fields only. Per-official fields stay as
+  // {{placeholders}} so one-click can address each person by name; until
+  // 2026-10-21 the box was filled with the FIRST official's name, which is why
+  // one-click could not send what the user edited. An out-of-area sender gets
+  // a letter that doesn't claim to be a constituent, shown before they send.
   const vars = buildVars(profile, targets[0] ?? null, targets);
-  const subject = renderTemplate(campaign.subject_template, vars);
-  let body = renderTemplate(campaign.body_template, vars);
+  const campaignState = targetState ?? campaign.state ?? null;
+  const userLocalities = [
+    profile?.city && profile?.state ? `${profile.city}, ${profile.state}` : null,
+    profile?.county && profile?.state ? `${profile.county}, ${profile.state}` : null,
+  ].filter(Boolean).map((l) => String(l).toLowerCase());
+  const senderIsNonResident =
+    (!!campaignState && !!profile?.state && profile.state !== campaignState) ||
+    (!!campaign.target_locality && !userLocalities.includes(campaign.target_locality.toLowerCase()));
+  const adapt = (t: string) => (senderIsNonResident ? adaptForNonResident(t) : t);
+  const subject = renderSenderOnly(adapt(campaign.subject_template), vars);
+  let body = renderSenderOnly(adapt(campaign.body_template), vars);
 
   // Story → Letter: if ?story=<id> is present and points to an approved
   // story, prepend it to the email body so the user can use someone's

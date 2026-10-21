@@ -21,9 +21,14 @@ import { getEmailIntegration } from "@/lib/email/user-send";
 import { resolveLimits, planParts, type ProviderTier } from "@/lib/email/provider-limits";
 import { legislatorInCampaignScope } from "./scope";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { adaptForNonResident, buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
+import { drainBatch } from "./drain-batch";
 
 /** Hard ceiling on one batch. Not a security boundary — scope is. */
 const MAX_BATCH_RECIPIENTS = 1000;
+/** Caps on a user-written letter. Generous; a real letter is ~2-4 KB. */
+const MAX_SUBJECT = 300;
+const MAX_BODY = 12_000;
 
 function serviceClient() {
   return createServiceClient(
@@ -56,6 +61,14 @@ export type EnqueueResult =
 export async function enqueueCampaignSend(input: {
   campaignSlug: string;
   legislatorIds: string[];
+  /**
+   * The subject and letter exactly as the user left them in the composer:
+   * sender fields filled, per-recipient fields still {{placeholders}}. When
+   * omitted, the campaign's own template is used. Before 2026-10-21 one-click
+   * always sent the template, so a user's edits were silently thrown away.
+   */
+  subject?: string;
+  body?: string;
 }): Promise<EnqueueResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -94,9 +107,28 @@ export async function enqueueCampaignSend(input: {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("email_provider_tier")
+    .select("email_provider_tier, full_name, username, street, city, county, state, zip")
     .eq("id", user.id)
     .maybeSingle();
+
+  // The letter to send. The user's own words when given; otherwise the
+  // campaign template, made true for an out-of-area sender ("I am a
+  // constituent" from Mississippi to Oklahoma is a false statement).
+  const custom = typeof input.body === "string" && input.body.trim() !== "";
+  let subjectTpl = custom ? String(input.subject ?? "").trim() : campaign.subject_template;
+  let bodyTpl = custom ? String(input.body) : campaign.body_template;
+  if (custom) {
+    if (!subjectTpl) return { ok: false, error: "Add a subject line before sending." };
+    if (subjectTpl.length > MAX_SUBJECT || bodyTpl.length > MAX_BODY) {
+      return { ok: false, error: "That message is too long to send. Trim it and try again." };
+    }
+  } else {
+    const nonResident = !!campaign.state && !!profile?.state && profile.state !== campaign.state;
+    if (nonResident) {
+      subjectTpl = adaptForNonResident(subjectTpl);
+      bodyTpl = adaptForNonResident(bodyTpl);
+    }
+  }
 
   const limits = resolveLimits(
     integration.provider,
@@ -137,6 +169,22 @@ export async function enqueueCampaignSend(input: {
     return { ok: false, error: "Everyone selected has already been contacted for this campaign." };
   }
 
+  // Refuse a letter that would go out with "{{...}}" in it. Rendered for the
+  // first recipient: every recipient fills the same set of fields.
+  const { data: sample } = await admin
+    .from("legislators")
+    .select("id, state, role, district, full_name, party, email, level, locality, body, title")
+    .eq("id", fresh[0].id)
+    .maybeSingle();
+  const sampleVars = buildVars(profile as never, (sample ?? null) as never, sample ? [sample as never] : []);
+  const unfilled = unfilledPlaceholders(`${renderTemplate(subjectTpl, sampleVars)}\n${renderTemplate(bodyTpl, sampleVars)}`);
+  if (unfilled.length > 0) {
+    return {
+      ok: false,
+      error: `Your message has ${unfilled.map((u) => `{{${u}}}`).join(", ")}, which we can't fill in. Replace it with your own words, then send.`,
+    };
+  }
+
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const { count: sentToday } = await admin
     .from("campaign_actions")
@@ -156,8 +204,8 @@ export async function enqueueCampaignSend(input: {
       campaign_id: campaign.id,
       provider: integration.provider,
       provider_tier: limits.tier,
-      subject_template: campaign.subject_template,
-      body_template: campaign.body_template,
+      subject_template: subjectTpl,
+      body_template: bodyTpl,
       status: "queued",
       total_count: fresh.length,
     })
@@ -241,6 +289,34 @@ export async function getBatchProgress(campaignSlug: string): Promise<BatchProgr
     pauseReason: data.pause_reason ?? null,
     providerLabel: limits?.label ?? data.provider,
   };
+}
+
+/**
+ * Push the user's own batch forward for one short slice (~15s, under the
+ * host's ~30s request budget) and report progress. The campaign page calls
+ * this every few seconds while it is open, so a send finishes in minutes; if
+ * the page closes, the scheduled worker finishes the rest. Ownership is
+ * proven by reading the batch through the USER's client (RLS), not by a
+ * where-clause.
+ */
+export async function continueMySend(campaignSlug: string, batchId: string): Promise<BatchProgress> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !/^[0-9a-f-]{36}$/i.test(batchId)) return null;
+
+  const { data: mine } = await supabase
+    .from("campaign_send_batches")
+    .select("id, user_id, campaign_id, subject_template, body_template, status, total_count, sent_count, failed_count")
+    .eq("id", batchId)
+    .maybeSingle();
+  if (!mine || mine.user_id !== user.id) return null;
+
+  // One slice at a time per user; a second tab just reads progress.
+  if (["queued", "sending", "paused"].includes(mine.status) &&
+      (await checkRateLimit(`campaign:drain:${user.id}`, 1, 4))) {
+    await drainBatch(serviceClient(), mine, Date.now() + 15_000);
+  }
+  return getBatchProgress(campaignSlug);
 }
 
 /** Cancel a queued/sending batch. Already-sent messages cannot be recalled. */

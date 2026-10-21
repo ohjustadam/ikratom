@@ -60,7 +60,24 @@ if (!SPECIFIC && !ALL_PENDING) {
 }
 
 // ---------- templates ----------
+/**
+ * Owner call 2026-10-21: no "Source:" (or "More detail:" / "Background:" /
+ * "Briefing:") link lines in a letter to an official. They read as a
+ * form-letter fingerprint, and a link to our own alert page is not a source.
+ * The SQL twin is render_template_for_alert (migration 0272).
+ */
+function stripLinkLines(body) {
+  return String(body ?? "")
+    .replace(/\n*[ \t]*(Source|More detail|Background and platform|Background|Briefing):[^\n]*/g, "")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
 function templateForAlert(alert) {
+  const t = templateForAlertRaw(alert);
+  return t ? { ...t, body: stripLinkLines(t.body) } : t;
+}
+
+function templateForAlertRaw(alert) {
   // Never paste a Google-News redirect (or a bare video embed) into a letter to
   // an official. Use a real publisher URL if we have one; otherwise point them
   // at our own (clean) alert page so the citation always resolves and always
