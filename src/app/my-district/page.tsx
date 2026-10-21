@@ -151,6 +151,16 @@ export default async function MyDistrictPage() {
         <StatusHeader status={stateStatus} billHrefs={statusBillHrefs} />
       </div>
 
+      {/* Before Nov 3: the record, not an endorsement (/record/[state]). */}
+      {state && (
+        <Link
+          href={`/record/${state.toLowerCase()}`}
+          className="mt-4 block rounded-lg border border-zinc-800 bg-zinc-950/40 px-4 py-3 text-sm text-zinc-200 hover:border-emerald-500"
+        >
+          🗳 <strong>Before you vote:</strong> see how your state legislators sponsored and voted on kratom bills →
+        </Link>
+      )}
+
       {/* Your top action */}
       <section className="mt-8">
         <h2 className="text-xs font-semibold uppercase tracking-widest text-emerald-400">Your top action</h2>

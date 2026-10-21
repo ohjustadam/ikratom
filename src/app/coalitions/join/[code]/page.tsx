@@ -10,6 +10,7 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 
 type Params = Promise<{ code: string }>;
+type Search = Promise<{ via?: string }>;
 
 /**
  * /coalitions/join/[code] — accept an invite link.
@@ -23,13 +24,15 @@ type Params = Promise<{ code: string }>;
  * — that would leak private coalition existence to anyone with the
  * URL pattern. The user discovers the name after accepting.
  */
-export default async function JoinPage({ params }: { params: Params }) {
+export default async function JoinPage({ params, searchParams }: { params: Params; searchParams: Search }) {
   const { code } = await params;
+  const { via } = await searchParams;
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
 
   if (!user) {
-    redirect(`/login?redirect=${encodeURIComponent(`/coalitions/join/${code}`)}`);
+    const ref = via && /^[a-z0-9]{4,32}$/i.test(via) ? `&via=${encodeURIComponent(via)}` : "";
+    redirect(`/login?redirect=${encodeURIComponent(`/coalitions/join/${code}`)}${ref}`);
   }
 
   return (
