@@ -13,7 +13,8 @@ export type AttemptReason =
   | "no-gov-candidate"
   | "searxng-empty"
   | "no-officials"
-  | "partial-roster";
+  | "partial-roster"
+  | "state-unverified";
 
 export type AttemptNote = {
   text: string;
@@ -44,6 +45,11 @@ export function describeLastAttempt(reason: string | null | undefined, detail?: 
     case "partial-roster":
       return {
         text: `The re-check only found ${site ?? "part"} of the officials on file, so it can't tell who left. Check the roster by hand and retire anyone who's gone.`,
+        needsHuman: true,
+      };
+    case "state-unverified":
+      return {
+        text: `${site ?? "The website found"} never says which state it's in, so it may be a same-named town elsewhere (Bruce, MS once got Bruce, South Dakota's council). Check it and add the officials by hand.`,
         needsHuman: true,
       };
     case "searxng-empty":
