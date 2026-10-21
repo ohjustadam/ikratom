@@ -57,12 +57,17 @@ describe("renderTemplate — empty-placeholder line collapse", () => {
       "I live in {{city}} and vote.",
       buildVars({ ...PROFILE, city: null }, null, []),
     );
-    expect(out).toBe("I live in  and vote.");
+    expect(out).toBe("I live in and vote."); // the empty field's double space is collapsed
   });
 
   it("leaves unknown placeholders untouched", () => {
+    const out = renderTemplate("Hello {{nickname}}", buildVars(PROFILE, null, []));
+    expect(out).toBe("Hello {{nickname}}");
+  });
+
+  it("fills the recipient greeting fields (they were 'unknown' until 2026-10-21)", () => {
     const out = renderTemplate("Hello {{recipient_title}} {{recipient_last_name}}", buildVars(PROFILE, null, []));
-    expect(out).toBe("Hello {{recipient_title}} {{recipient_last_name}}");
+    expect(out).toBe("Hello Representative");
   });
 });
 

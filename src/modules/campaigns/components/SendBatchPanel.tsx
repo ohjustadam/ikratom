@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import {
   enqueueCampaignSend,
   getBatchProgress,
+  continueMySend,
   cancelBatch,
   type BatchProgress,
 } from "../send-batch-actions";
@@ -25,10 +26,18 @@ import {
 export function SendBatchPanel({
   campaignSlug,
   selectedIds,
+  subject,
+  body,
+  primary = false,
   className = "",
 }: {
   campaignSlug: string;
   selectedIds: string[];
+  /** The composer's subject + letter. Sent as written (per-recipient fields filled at send time). */
+  subject?: string;
+  body?: string;
+  /** The main one-click card: big button, plain-language copy. */
+  primary?: boolean;
   className?: string;
 }) {
   const [pending, startTransition] = useTransition();
@@ -36,31 +45,39 @@ export function SendBatchPanel({
   const [plan, setPlan] = useState<{ part: number; count: number; sameDay: boolean }[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [queuedHere, setQueuedHere] = useState(false);
 
   const active =
     progress && ["queued", "sending", "paused"].includes(progress.status);
 
-  // Poll while a batch is live. 5s is frequent enough to feel alive and slow
-  // enough that an idle tab is not hammering the origin — every one of these
-  // is a billable function invocation.
+  // While a batch is live and this page is open, DRIVE it: each call sends a
+  // ~15s slice and returns real progress, then we wait 3s and go again (a
+  // chain, never overlapping). Without this a one-click send waited for the
+  // scheduled worker, which GitHub runs only a few times a day. Closing the
+  // page just stops the driving; the worker finishes the rest.
+  const batchId = progress?.id ?? null;
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     async function tick() {
-      const p = await getBatchProgress(campaignSlug);
-      if (!cancelled) setProgress(p);
+      const p = active && batchId
+        ? await continueMySend(campaignSlug, batchId).catch(() => getBatchProgress(campaignSlug))
+        : await getBatchProgress(campaignSlug);
+      if (cancelled) return;
+      setProgress(p);
+      if (p && ["queued", "sending"].includes(p.status)) timer = setTimeout(tick, 3000);
     }
     tick();
-    if (!active) return;
-    const id = setInterval(tick, 5000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [campaignSlug, active]);
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [campaignSlug, active, batchId]);
 
   function queue() {
     setError(null);
     setNotice(null);
     startTransition(async () => {
-      const res = await enqueueCampaignSend({ campaignSlug, legislatorIds: selectedIds });
+      const res = await enqueueCampaignSend({ campaignSlug, legislatorIds: selectedIds, subject, body });
       if (!res.ok) { setError(res.error); return; }
+      setQueuedHere(true);
       setPlan(res.parts);
       const skips: string[] = [];
       // Say plainly what was dropped and why. Silently sending to fewer people
@@ -91,22 +108,28 @@ export function SendBatchPanel({
 
   return (
     <div className={`rounded-md border border-emerald-800/40 bg-emerald-950/10 p-4 ${className}`}>
-      {!active && (
+      {!active && !(queuedHere && progress?.status === "complete") && (
         <>
-          <p className="text-sm text-zinc-200">
-            Send in the background — one personal email per recipient, from your own address.
-          </p>
+          {!primary && (
+            <p className="text-sm text-zinc-200">
+              Send in the background — one personal email per recipient, from your own address.
+            </p>
+          )}
           <p className="mt-1 text-xs text-zinc-400">
-            You can close this page. Each official gets their own message, never a group email,
-            so nothing looks like bulk mail to their office.
+            Each official gets their own letter, addressed to them by name, exactly as written above.
+            Sending is paced to protect your account; you can close this page and it keeps going.
           </p>
           <button
             type="button"
             onClick={queue}
             disabled={pending || selectedIds.length === 0}
-            className="mt-3 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"
+            className={primary
+              ? "mt-3 flex w-full items-center justify-center gap-3 rounded-lg bg-emerald-500 px-6 py-3.5 text-base font-bold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
+              : "mt-3 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"}
           >
-            {pending ? "Queueing…" : `Queue ${selectedIds.length} email${selectedIds.length === 1 ? "" : "s"}`}
+            {pending ? "Starting…" : primary
+              ? `Send ${selectedIds.length} personal email${selectedIds.length === 1 ? "" : "s"} →`
+              : `Queue ${selectedIds.length} email${selectedIds.length === 1 ? "" : "s"}`}
           </button>
         </>
       )}
