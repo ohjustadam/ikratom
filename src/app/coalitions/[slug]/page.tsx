@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CoalitionAdminPanel } from "./CoalitionAdminPanel";
 import { Discussion, GettingStarted } from "./Discussion";
+import { GroupAction, JoinRequests } from "./GroupGrowth";
+import { GroupLinkCard, RequestToJoin, VisibilityToggle } from "./GroupGrowthClient";
 import { publicHandle } from "@/lib/public-handle";
 
 export const dynamic = "force-dynamic";
@@ -198,6 +200,17 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
         <GettingStarted state={c.state} isAdmin={viewerRole === "owner" || viewerRole === "admin"} />
       )}
 
+      {/* Groups slice 1+2+3 (migration 0274): the shared action, the
+          reusable invite link, and the organizers' request inbox. */}
+      {viewerRole && (
+        <GroupAction coalitionId={c.id} state={c.state} isAdmin={viewerRole === "owner" || viewerRole === "admin"} />
+      )}
+      {viewerRole && <div id="invite"><GroupLinkCard coalitionId={c.id} /></div>}
+      {(viewerRole === "owner" || viewerRole === "admin") && <JoinRequests coalitionId={c.id} />}
+
+      {/* A public group's page is its recruiting page: non-members can ask in. */}
+      {user && !viewerRole && c.is_public && <RequestToJoin coalitionId={c.id} />}
+
       {/* State intel widget */}
       {c.state && viewerRole && (stateActiveOps > 0 || stateAlerts > 0) && (
         <section className="mb-6 rounded-lg border border-emerald-700/30 bg-emerald-950/10 p-4">
@@ -328,13 +341,14 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
       {/* Admin actions — only owner/admin */}
       {(viewerRole === "owner" || viewerRole === "admin") && (
         <div id="admin-actions">
+          <VisibilityToggle coalitionId={c.id} isPublic={c.is_public} />
           <CoalitionAdminPanel coalitionId={c.id} viewerRole={viewerRole} />
         </div>
       )}
 
       {!user && c.is_public && (
         <p className="mt-6 rounded-md border border-amber-700/40 bg-amber-950/10 p-3 text-[11px] text-amber-200">
-          💡 <Link href="/login" className="font-semibold underline">Sign in</Link> to join this coalition via an invite link from an existing member.
+          💡 <Link href={`/login?redirect=${encodeURIComponent(`/coalitions/${c.slug}`)}`} className="font-semibold underline">Sign in or create a free account</Link> to ask to join this group.
         </p>
       )}
     </div>
