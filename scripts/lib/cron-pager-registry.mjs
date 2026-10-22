@@ -180,7 +180,9 @@ export const REGISTRY = [
   // Still genuinely box-only: nomic-embed-text runs in local Ollama, and
   // session_prep writes into the owner's working checkout by design.
   { source: "session_prep", interval_hours: 72, system: "local-box", cadence: "daily" },
-  { source: "bill_embeddings", interval_hours: 72, system: "local-box", cadence: "daily" },
+
+  // Moved to the cloud 2026-10-21 (bill-embeddings.yml, daily, Cloudflare bge-base).
+  { source: "bill_embeddings", interval_hours: 36, system: "github-actions", cadence: "daily" },
   // Nightly cloud chassis (cron-nightly-cloud.yml @ 08:30 UTC).
   { source: "state_executives_sync", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "fetch_bill_texts", interval_hours: 72, system: "github-actions", cadence: "daily" },

@@ -35,8 +35,9 @@ on:
         description: "Force one provider (cloudflare | gemini | mistral | ollama)"
         type: string
         default: ""
-  # schedule:
-  #   - cron: "40 6 * * *"   # daily, staggered off the other cloud crons
+  # Turned on 2026-10-21 (owner B8) after a full --refresh on Cloudflare.
+  schedule:
+    - cron: "40 6 * * *"   # daily, staggered off the other cloud crons
 
 concurrency:
   group: bill-embeddings
@@ -88,5 +89,10 @@ jobs:
         run: |
           ARGS=""
           if [ "${{ github.event.inputs.refresh }}" = "true" ]; then ARGS="$ARGS --refresh"; fi
-          if [ -n "${{ github.event.inputs.provider }}" ]; then ARGS="$ARGS --provider ${{ github.event.inputs.provider }}"; fi
+          # Scheduled runs have no inputs. Pin them to the provider the corpus
+          # was built with (Cloudflare bge-base, 2026-10-21): letting the router
+          # fall through to another 768 provider would mix vector spaces and
+          # make every similarity score meaningless. Change only with --refresh.
+          PROVIDER="${{ github.event.inputs.provider }}"
+          ARGS="$ARGS --provider ${PROVIDER:-cloudflare}"
           node --import=./scripts/lib/egress-meter.mjs scripts/compute-bill-embeddings.mjs $ARGS
