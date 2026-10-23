@@ -6,7 +6,9 @@ import {
   getBatchProgress,
   continueMySend,
   cancelBatch,
+  getSendAllowance,
   type BatchProgress,
+  type SendAllowance,
 } from "../send-batch-actions";
 
 /**
@@ -46,6 +48,17 @@ export function SendBatchPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [queuedHere, setQueuedHere] = useState(false);
+  const [allowance, setAllowance] = useState<SendAllowance>(null);
+
+  // Today's safe sending allowance (rolling 24h, the count the queue enforces),
+  // refreshed as letters go out, so people can watch their account stay well
+  // inside its provider's limit (owner ask 2026-10-22).
+  const sentSoFar = progress?.sent ?? 0;
+  useEffect(() => {
+    let cancelled = false;
+    getSendAllowance().then((a) => { if (!cancelled) setAllowance(a); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [sentSoFar]);
 
   const active =
     progress && ["queued", "sending", "paused"].includes(progress.status);
@@ -204,12 +217,39 @@ export function SendBatchPanel({
         </div>
       )}
 
+      {allowance && allowance.limit > 0 && <AllowanceBar a={allowance} />}
+
       {notice && <p className="mt-2 text-xs text-emerald-300">{notice}</p>}
       {error && (
         <p className="mt-2 rounded border border-red-900/50 bg-red-950/20 px-2.5 py-1.5 text-xs text-red-300">
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+/** "Today: 37 of 425 used · 388 left" — the account-safety bar. Real numbers only. */
+function AllowanceBar({ a }: { a: NonNullable<SendAllowance> }) {
+  const used = Math.min(a.used, a.limit);
+  const pct = Math.round((used / a.limit) * 100);
+  const left = Math.max(0, a.limit - a.used);
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between text-[11px] text-zinc-400">
+        <span>Today&apos;s safe sending: {used.toLocaleString("en-US")} of {a.limit.toLocaleString("en-US")} used</span>
+        <span className={left === 0 ? "text-amber-300" : "text-zinc-500"}>
+          {left === 0 ? "resumes tomorrow" : `${left.toLocaleString("en-US")} left`}
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800" role="progressbar"
+        aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
+        aria-label={`Daily sending allowance for your ${a.providerLabel} account`}>
+        <div className={`h-full ${pct >= 80 ? "bg-amber-400" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
+      </div>
+      <p className="mt-1 text-[10px] text-zinc-500">
+        {a.providerLabel}: we stop well before your provider&apos;s daily limit. Anything over pauses and finishes tomorrow.
+      </p>
     </div>
   );
 }

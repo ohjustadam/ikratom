@@ -2,6 +2,7 @@ import { getProfile } from "@/modules/auth/actions";
 import { ProfileForm } from "@/modules/auth/components/ProfileForm";
 import { getGmailStatus } from "@/modules/auth/actions-gmail";
 import { GmailConnect } from "@/modules/auth/components/GmailConnect";
+import { EmailSafetyNote } from "@/components/EmailSafetyNote";
 import { E2EFingerprint } from "@/modules/auth/components/E2EFingerprint";
 import { BlockedUsersList } from "@/modules/auth/components/BlockedUsersList";
 import { DangerZone } from "@/modules/auth/components/DangerZone";
@@ -178,6 +179,7 @@ export default async function AccountPage({
                 flashError={sp.gmail_error ?? null}
                 flashConnected={sp.gmail_connected === "1"}
               />
+              <EmailSafetyNote className="mt-4" />
             </div>
 
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">

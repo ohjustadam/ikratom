@@ -11,6 +11,7 @@ import { AttachmentRecorder } from "./AttachmentRecorder";
 import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { SendBatchPanel } from "./SendBatchPanel";
+import { EmailSafetyNote } from "@/components/EmailSafetyNote";
 import Link from "@/components/Link";
 import {
   groupByRole,
@@ -639,6 +640,7 @@ export function CampaignAction({
               <li className="text-zinc-500">Proton, Yahoo, iCloud — coming next.</li>
             </ul>
           </div>
+          <EmailSafetyNote collapsed className="mt-3" />
           <p className="mt-2 text-xs text-zinc-500">
             No Gmail or Outlook? Use &ldquo;Send from your own email&rdquo; below — same emails, sent by you, one client at a time.
           </p>
@@ -675,6 +677,7 @@ export function CampaignAction({
             </a>{" "}
             to see every letter as it goes out.
           </p>
+          <EmailSafetyNote collapsed className="mt-3" />
         </div>
       )}
 
