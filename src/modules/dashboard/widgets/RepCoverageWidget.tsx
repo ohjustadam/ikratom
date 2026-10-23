@@ -33,7 +33,7 @@ export async function RepCoverageWidget({
   // we need the address: to surface their local reps.
   if (!userState || !userCity) {
     return (
-      <section className="rounded-lg border border-amber-700/30 bg-amber-950/10 p-4">
+      <section className="rounded-xl border border-amber-700/30 bg-amber-950/10 p-4">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full bg-amber-400" />
           <div className="min-w-0 flex-1">
@@ -143,7 +143,7 @@ export async function RepCoverageWidget({
   });
 
   return (
-    <section className="rounded-lg border border-amber-700/30 bg-amber-950/10 p-4">
+    <section className="rounded-xl border border-amber-700/30 bg-amber-950/10 p-4">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full bg-amber-400" />
         <div className="min-w-0 flex-1">

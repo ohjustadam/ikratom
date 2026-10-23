@@ -148,7 +148,7 @@ export function ForumStateNav({
               <a
                 key={st.abbr}
                 href={`/forum/${st.abbr}`}
-                className={`flex items-start justify-between gap-2 rounded-md border px-4 py-3 transition hover:border-emerald-500 ${
+                className={`ik-lift flex items-start justify-between gap-2 rounded-xl border px-4 py-3 hover:border-emerald-500 ${
                   isMine ? "border-emerald-700/50 bg-emerald-950/10" : "border-zinc-800 bg-zinc-950/40"
                 } ${muted ? "opacity-50" : ""}`}
               >

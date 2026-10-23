@@ -129,7 +129,7 @@ export async function BriefingWidget({
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-emerald-700/30 bg-emerald-950/10">
+    <div className="rounded-xl border border-emerald-700/30 bg-emerald-950/10">
       {children}
     </div>
   );
