@@ -252,6 +252,30 @@ export type BatchProgress = {
   providerLabel: string;
 } | null;
 
+export type SendAllowance = { used: number; limit: number; providerLabel: string } | null;
+
+/**
+ * How much of today's safe sending allowance this user has used (rolling 24h,
+ * the same count the queue enforces). Shown as a bar on the send card so
+ * people can see their account is never pushed to its provider's limit.
+ */
+export async function getSendAllowance(): Promise<SendAllowance> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const integration = await getEmailIntegration(user.id);
+  if (!integration) return null;
+  const { data: profile } = await supabase.from("profiles").select("email_provider_tier").eq("id", user.id).maybeSingle();
+  const limits = resolveLimits(integration.provider, integration.account_email, (profile?.email_provider_tier as ProviderTier) ?? null);
+  const { count } = await supabase
+    .from("campaign_actions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("method", "platform_email")
+    .gte("sent_at", new Date(Date.now() - 86_400_000).toISOString());
+  return { used: count ?? 0, limit: limits.effectiveDaily, providerLabel: limits.label };
+}
+
 /** Live progress for the user's most recent batch on a campaign. */
 export async function getBatchProgress(campaignSlug: string): Promise<BatchProgress> {
   const supabase = await createClient();
