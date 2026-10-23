@@ -65,7 +65,7 @@ async function callGroq(transcript: string, ctx: string): Promise<{ parsed: Summ
       method: "POST",
       headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: "openai/gpt-oss-120b", // llama-3.3-70b-versatile retired by Groq (2026-10)
         messages: [
           { role: "system", content: SYSTEM },
           { role: "user", content: `${ctx}\n\nTRANSCRIPT:\n${transcript}` },

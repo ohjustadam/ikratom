@@ -31,6 +31,7 @@ export function SendBatchPanel({
   subject,
   body,
   primary = false,
+  blockedReason = null,
   className = "",
 }: {
   campaignSlug: string;
@@ -40,6 +41,8 @@ export function SendBatchPanel({
   body?: string;
   /** The main one-click card: big button, plain-language copy. */
   primary?: boolean;
+  /** Set when the letter failed screening: the button is off and says why. */
+  blockedReason?: string | null;
   className?: string;
 }) {
   const [pending, startTransition] = useTransition();
@@ -135,7 +138,7 @@ export function SendBatchPanel({
           <button
             type="button"
             onClick={queue}
-            disabled={pending || selectedIds.length === 0}
+            disabled={pending || selectedIds.length === 0 || !!blockedReason}
             className={primary
               ? "mt-3 flex w-full items-center justify-center gap-3 rounded-lg bg-emerald-500 px-6 py-3.5 text-base font-bold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
               : "mt-3 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"}
