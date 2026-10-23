@@ -3,6 +3,10 @@ import { ProfileForm } from "@/modules/auth/components/ProfileForm";
 import { getGmailStatus } from "@/modules/auth/actions-gmail";
 import { GmailConnect } from "@/modules/auth/components/GmailConnect";
 import { EmailSafetyNote } from "@/components/EmailSafetyNote";
+import { SmtpConnect } from "@/modules/auth/components/SmtpConnect";
+import { getEmailIntegration } from "@/lib/email/user-send";
+import { SMTP_PROVIDERS, isSmtpProvider } from "@/lib/email/smtp";
+import { createClient as createServerClient } from "@/lib/supabase/server";
 import { E2EFingerprint } from "@/modules/auth/components/E2EFingerprint";
 import { BlockedUsersList } from "@/modules/auth/components/BlockedUsersList";
 import { DangerZone } from "@/modules/auth/components/DangerZone";
@@ -49,6 +53,13 @@ export default async function AccountPage({
   const { profile, email } = await getProfile();
   const notifPrefs = await getNotificationPrefs();
   const gmailStatus = await getGmailStatus();
+  // Yahoo / AOL / iCloud (app password) connection, if that's what they use.
+  const { data: { user: me } } = await (await createServerClient()).auth.getUser();
+  const anyIntegration = me ? await getEmailIntegration(me.id) : null;
+  const smtpConnected = anyIntegration && isSmtpProvider(anyIntegration.provider)
+    ? { label: SMTP_PROVIDERS[anyIntegration.provider].label, email: anyIntegration.account_email }
+    : null;
+  const smtpOptions = Object.entries(SMTP_PROVIDERS).map(([id, c]) => ({ id, label: c.label, help: c.appPasswordHelp, domains: c.domains }));
   const blocked = await listBlockedUsers();
   const vapidPublicKey = await getPushVapidPublicKey();
   const discordLink = await getDiscordLink();
@@ -180,6 +191,11 @@ export default async function AccountPage({
                 flashConnected={sp.gmail_connected === "1"}
               />
               <EmailSafetyNote className="mt-4" />
+            </div>
+
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+              <h3 className="mb-3 text-sm font-semibold">Yahoo, AOL or iCloud (one-click batch sending)</h3>
+              <SmtpConnect options={smtpOptions} connected={smtpConnected} />
             </div>
 
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">

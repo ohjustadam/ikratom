@@ -14,8 +14,8 @@ const account = readFileSync(new URL("../src/app/account/page.tsx", import.meta.
 
 describe("EmailSafetyNote", () => {
   it("reads every number from provider-limits, never hard-codes one", () => {
-    expect(note).toMatch(/tiersForProvider\("gmail"\)/);
-    expect(note).toMatch(/tiersForProvider\("outlook"\)/);
+    expect(note).toMatch(/\["gmail", "outlook", "yahoo", "aol", "icloud"\] as const\)\.flatMap\(\(p\) => tiersForProvider\(p\)\)/);
+    
     // Ignore styling (Tailwind's text-zinc-500 etc.), check the words only.
     const text = note.replace(/className=(\{`[^`]*`\}|"[^"]*")/g, "");
     expect(text).not.toMatch(/\b(300|425|500|1,?700|2,?000|255|8,?500|10,?000)\b/);
