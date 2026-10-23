@@ -21,7 +21,8 @@ import { getEmailIntegration } from "@/lib/email/user-send";
 import { resolveLimits, planParts, type ProviderTier } from "@/lib/email/provider-limits";
 import { legislatorInCampaignScope } from "./scope";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { adaptForNonResident, buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
+import { adaptForHiddenHome, adaptForNonResident, buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
+import { getSafeMode } from "./safe-mode";
 import { drainBatch } from "./drain-batch";
 import { screenMemberLetter } from "./screen-content";
 
@@ -108,7 +109,7 @@ export async function enqueueCampaignSend(input: {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("email_provider_tier, full_name, username, street, city, county, state, zip")
+    .select("email_provider_tier, full_name, username, street, city, county, state, zip, banned_state_safe_mode")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -132,8 +133,11 @@ export async function enqueueCampaignSend(input: {
   } else {
     const nonResident = !!campaign.state && !!profile?.state && profile.state !== campaign.state;
     if (nonResident) {
-      subjectTpl = adaptForNonResident(subjectTpl);
-      bodyTpl = adaptForNonResident(bodyTpl);
+      // Banned-state safe mode (0275): out-of-state officials get no home at all.
+      const safeMode = await getSafeMode(supabase, profile?.state, profile?.banned_state_safe_mode);
+      const adapt = safeMode?.active ? adaptForHiddenHome : adaptForNonResident;
+      subjectTpl = adapt(subjectTpl);
+      bodyTpl = adapt(bodyTpl);
     }
   }
 

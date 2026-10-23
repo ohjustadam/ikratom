@@ -17,6 +17,14 @@
  *   - auto_pushed_at IS NULL (per-item dedupe via migration 0122)
  *   - NOT linked to a policy_alert that's already been auto_pushed
  *     (avoids double-push when news promotes to alert)
+ *   - NOT the same story as one this state was pushed in the last 72h, and
+ *     at most ONE news push per state per 20h. Until 2026-10-23 each outlet
+ *     was its own push: Louisiana members got 7 pushes about one emergency
+ *     rule in two days and read it as the same news on repeat.
+ *   - NOT a headline that names other states but not this one (a Utah story
+ *     filed under LA).
+ * Skipped items are stamped with auto_pushed_count 0; they still appear in
+ * the digest and on /news.
  *
  * Caps: 10 items per run (deliberately tighter than alerts because
  * news volume is higher).
@@ -26,6 +34,8 @@
  *   node --env-file=.env.local scripts/push-state-news.mjs --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
+import { headlineWords, sameStory } from "./lib/story-dedupe.mjs";
+import { mentionedStates } from "./lib/us-states.mjs";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -56,12 +66,58 @@ if (error) {
 
 console.log(`Push-state-news${DRY_RUN ? " [DRY RUN]" : ""}: ${items.length} item(s) to process\n`);
 
+// What each state was actually pushed recently: the memory for the same-story
+// and once-a-day checks below.
+const RECENT_MS = 72 * 3600e3;
+const DAILY_MS = 20 * 3600e3; // the job is hourly; 20h keeps it to one a day
+const { data: recent, error: recentErr } = await sb
+  .from("news_items")
+  .select("state, title, auto_pushed_at")
+  .gt("auto_pushed_count", 0)
+  .gte("auto_pushed_at", new Date(Date.now() - RECENT_MS).toISOString())
+  .not("state", "is", null)
+  .limit(1000);
+if (recentErr) {
+  // Without the memory every outlet would push again. Skip this run instead.
+  console.error("Recent-push query failed:", recentErr.message);
+  process.exit(1);
+}
+const pushedByState = new Map();
+const remember = (state, title, at) => {
+  const list = pushedByState.get(state) ?? [];
+  list.push({ w: headlineWords(title), at });
+  pushedByState.set(state, list);
+};
+for (const r of recent ?? []) remember(r.state, r.title, Date.parse(r.auto_pushed_at));
+
+/** Why this item should not be pushed, or null. */
+function skipReason(item) {
+  const named = mentionedStates(item.title);
+  if (named.size > 0 && !named.has(item.state)) return "other_state";
+  const prior = pushedByState.get(item.state) ?? [];
+  const w = headlineWords(item.title);
+  if (prior.some((p) => sameStory(w, p.w))) return "same_story";
+  if (prior.some((p) => Date.now() - p.at < DAILY_MS)) return "daily_cap";
+  return null;
+}
+
 const t0 = Date.now();
 let totalInserted = 0;
 let totalUsers = 0;
 let skippedDoublePush = 0;
+const skipped = { other_state: 0, same_story: 0, daily_cap: 0 };
 
 for (const item of items) {
+  const reason = skipReason(item);
+  if (reason) {
+    console.log(`  · ${item.state}: ${item.title.slice(0, 50)} — skipped (${reason})`);
+    if (!DRY_RUN) {
+      await sb.from("news_items").update({ auto_pushed_at: new Date().toISOString(), auto_pushed_count: 0 }).eq("id", item.id);
+    }
+    skipped[reason]++;
+    continue;
+  }
+
   // Skip if linked policy_alert was already auto-pushed (prevents double-push)
   if (item.policy_alert_id) {
     const { data: alert } = await sb
@@ -106,6 +162,7 @@ for (const item of items) {
   if (DRY_RUN) {
     console.log(`  [dry] ${item.state}: ${item.title.slice(0, 60)} → ${userIds.length} user(s)`);
     totalUsers += userIds.length;
+    remember(item.state, item.title, Date.now());
     continue;
   }
 
@@ -130,11 +187,13 @@ for (const item of items) {
 
   totalInserted += inserted;
   totalUsers += userIds.length;
+  if (inserted > 0) remember(item.state, item.title, Date.now());
   console.log(`  ✓ ${item.state}: ${item.title.slice(0, 50)} → ${inserted} notifs`);
 }
 
 const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-console.log(`\nDone in ${elapsed}s — ${items.length} items, ${totalInserted} notifs, ${totalUsers} user-touches, ${skippedDoublePush} skipped (already pushed via alert).`);
+const skipNote = `${skipped.same_story} same story · ${skipped.daily_cap} daily cap · ${skipped.other_state} other state`;
+console.log(`\nDone in ${elapsed}s — ${items.length} items, ${totalInserted} notifs, ${totalUsers} user-touches, ${skippedDoublePush} skipped (already pushed via alert), ${skipNote}.`);
 
 try {
   await sb.from("scraper_runs").insert({
@@ -143,7 +202,7 @@ try {
     finished_at: new Date().toISOString(),
     status: totalInserted > 0 ? "success" : "empty",
     rows_added: totalInserted,
-    notes: `${items.length} items · ${totalInserted} notifs · ${skippedDoublePush} skipped`,
+    notes: `${items.length} items · ${totalInserted} notifs · ${skippedDoublePush} skipped · ${skipNote}`,
   });
 } catch { /* */ }
 process.exit(0);

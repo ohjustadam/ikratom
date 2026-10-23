@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators, type Legislator } from "@/lib/legislators";
 import { dedupNewsByOutlet, type NewsItem } from "@/lib/news-dedup";
-import { adaptForNonResident, buildVars, renderSenderOnly } from "@/modules/campaigns/templates";
+import { adaptForHiddenHome, adaptForNonResident, buildVars, renderSenderOnly } from "@/modules/campaigns/templates";
+import { getSafeMode } from "@/modules/campaigns/safe-mode";
+import { SafeModeCard } from "@/modules/campaigns/components/SafeModeCard";
 import { getMyCampaignProgress } from "@/modules/campaigns/actions";
 import { getEmailIntegration } from "@/lib/email/user-send";
 import { getMyWaveStatus } from "@/modules/waves/actions";
@@ -121,10 +123,11 @@ export default async function CampaignPage({
   const { data: profile } = await supabase
     .from("profiles")
     .select(
-      "full_name, username, street, city, county, state, zip, congressional_district, state_senate_district, state_house_district"
+      "full_name, username, street, city, county, state, zip, congressional_district, state_senate_district, state_house_district, banned_state_safe_mode"
     )
     .eq("id", user.id)
     .single();
+  const safeMode = await getSafeMode(supabase, profile?.state, profile?.banned_state_safe_mode);
 
   // Check if user has ANY email provider connected for one-click send.
   // PK is user_id so there's at most one row; provider can be gmail or
@@ -367,7 +370,11 @@ export default async function CampaignPage({
   const senderIsNonResident =
     (!!campaignState && !!profile?.state && profile.state !== campaignState) ||
     (!!campaign.target_locality && !userLocalities.includes(campaign.target_locality.toLowerCase()));
-  const adapt = (t: string) => (senderIsNonResident ? adaptForNonResident(t) : t);
+  // Banned-state safe mode: a letter to officials who don't represent the
+  // member names no home at all (0275). Their own officials still see it.
+  const hideHome = !!safeMode?.active && senderIsNonResident;
+  const adapt = (t: string) =>
+    hideHome ? adaptForHiddenHome(t) : senderIsNonResident ? adaptForNonResident(t) : t;
   const subject = renderSenderOnly(adapt(campaign.subject_template), vars);
   let body = renderSenderOnly(adapt(campaign.body_template), vars);
 
@@ -619,6 +626,8 @@ export default async function CampaignPage({
         </div>
       )}
 
+      {safeMode && <SafeModeCard mode={safeMode} />}
+
       {/* Action card — the killer feature */}
       <CampaignAction
         campaignId={campaign.id}
@@ -647,6 +656,7 @@ export default async function CampaignPage({
         )}
         pickableStateReps={pickableStateReps}
         campaignSlug={campaign.slug}
+        safeModeState={safeMode?.active ? safeMode.stateName : null}
       />
 
       {/* Share to your network — distributed organic mobilization.
