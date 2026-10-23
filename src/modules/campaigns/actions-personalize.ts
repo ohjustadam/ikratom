@@ -2,6 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { rewordUseAdmissions } from "@/lib/use-admission";
+import { getSafeMode } from "./safe-mode";
 
 /**
  * AI personalization for campaign emails.
@@ -60,11 +62,14 @@ export async function personalizeCampaignBody(input: {
   // Pull the user's character fields
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, state, kratom_story, kratom_years, advocate_type, lose_if_banned")
+    .select("full_name, state, kratom_story, kratom_years, advocate_type, lose_if_banned, banned_state_safe_mode")
     .eq("id", user.id)
     .single();
 
   if (!profile) return { error: "Profile not found." };
+  // Banned-state safe mode (0275): the letter must not say they use kratom now.
+  const safeMode = await getSafeMode(supabase, profile.state, profile.banned_state_safe_mode);
+  const banned = safeMode?.active ? safeMode.stateName : null;
 
   const story = (profile as { kratom_story?: string | null }).kratom_story ?? "";
   if (!story.trim() || story.length < 80) {
@@ -87,7 +92,9 @@ export async function personalizeCampaignBody(input: {
     `User's profile:`,
     `  Name: ${profile.full_name ?? "(not provided)"}`,
     `  State: ${profile.state ?? "(not provided)"}`,
-    `  Years using kratom: ${profile.kratom_years ?? "(not provided)"}`,
+    banned
+      ? `  Years used kratom before the ban: ${profile.kratom_years ?? "(not provided)"}`
+      : `  Years using kratom: ${profile.kratom_years ?? "(not provided)"}`,
     `  Advocate type: ${profile.advocate_type ?? "(consumer)"}`,
     `  What's at stake if banned: ${(profile as { lose_if_banned?: string | null }).lose_if_banned ?? "(not provided)"}`,
     "",
@@ -96,6 +103,13 @@ export async function personalizeCampaignBody(input: {
     story,
     "---",
     "",
+    ...(banned
+      ? [
+          `SAFETY: kratom is banned in ${banned}, where this user lives. Write about their kratom use ONLY in the`,
+          "past tense, as life before the ban. Never say or imply they use, buy or have kratom now.",
+          "",
+        ]
+      : []),
     "Rewrite the template in this user's voice. Output the JSON now.",
   ].join("\n");
 
@@ -116,7 +130,8 @@ export async function personalizeCampaignBody(input: {
     }
     return {
       ok: true,
-      personalized_body: personalized,
+      // Belt and braces: models don't always obey the tense instruction.
+      personalized_body: banned ? rewordUseAdmissions(personalized) : personalized,
       what_changed: whatChanged ?? "Tailored to your voice.",
       provider: r.provider,
     };

@@ -35,6 +35,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sendEmail, remainingToday, providerSummary, unsubscribeUrl } from "./lib/email-send.mjs";
 import { renderDigest, renderMeetingAlert, renderAnnouncement } from "./lib/email-render.mjs";
 import { isDeliverable, digestHearings } from "./lib/email-select.mjs";
+import { dedupeStories } from "./lib/story-dedupe.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
@@ -160,7 +161,7 @@ async function runDigest() {
     const from = u.weekly ? weekAgo : since;
     const mine = (notes.get(u.id) ?? []).filter((n) => n.created_at > from && !(n.kind === "whats_new" && emailedLinks.has(n.link)));
     const sections = [{ title: "Hearings and meetings (every state)", meetings: digestHearings(meetings, from, now) },
-      ...SECTIONS.map((s) => ({ title: s.title, items: dedupe(mine.filter((n) => s.kinds.includes(n.kind))) }))];
+      ...SECTIONS.map((s) => ({ title: s.title, items: dedupeStories(mine.filter((n) => s.kinds.includes(n.kind))) }))];
     const msg = renderDigest({ username: u.username, sections, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), briefLink: "/brief" });
     if (msg.count === 0) continue; // nothing new: send nothing
     queue.push({ user: u, msg: { ...msg, tag: "digest", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } });
@@ -170,27 +171,6 @@ async function runDigest() {
   queue.sort((a, b) => hasHearing(b) - hasHearing(a));
   const r = await deliver(queue);
   return { ...r, eligible: users.length, withContent: queue.length, since };
-}
-
-/**
- * Collapse repeats of the same story into one line. Exact link/title repeats go
- * first; then near-duplicates — the alerts pipeline files one event from four
- * outlets as four alerts ("Federal prosecutors charge store clerk..." x4), so
- * headlines whose significant words overlap >= 45% are treated as one story.
- */
-const STOP = new Set("a an the of to in on for and or with by at from as is are was be over after into its their his her this that federal state".split(" "));
-const words = (t) => new Set(String(t).toLowerCase().replace(/^[^a-z0-9]*[a-z]+:\s*/, "").replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w)));
-function similar(a, b) { let n = 0; for (const w of a) if (b.has(w)) n++; return n / Math.max(1, Math.min(a.size, b.size)); }
-function dedupe(items) {
-  const seen = new Set(), kept = [];
-  for (const n of items) {
-    const k = n.link || n.title;
-    if (seen.has(k)) continue;
-    const w = words(n.title);
-    if (kept.some((m) => similar(w, m.w) >= 0.45 && w.size >= 3)) continue;
-    seen.add(k); kept.push({ ...n, w });
-  }
-  return kept;
 }
 
 async function runMeetings() {

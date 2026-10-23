@@ -11,6 +11,8 @@ import { AttachmentRecorder } from "./AttachmentRecorder";
 import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { SendBatchPanel } from "./SendBatchPanel";
+import { UseAdmissionWarning } from "./UseAdmissionWarning";
+import { findUseAdmissions } from "@/lib/use-admission";
 import { checkLetter } from "../send-batch-actions";
 import { EmailSafetyNote } from "@/components/EmailSafetyNote";
 import Link from "@/components/Link";
@@ -52,6 +54,7 @@ export function CampaignAction({
   pickableStateReps,
   campaignSlug,
   emailNeedsReconnect,
+  safeModeState,
 }: {
   campaignId: string;
   /** The campaign's bill (if any) — grounds the fallback composer's draft. */
@@ -86,10 +89,16 @@ export function CampaignAction({
   /** True when a prior email connection exists but its OAuth token was revoked
    *  (invalid_grant) — prompt a reconnect rather than a first-time connect. */
   emailNeedsReconnect?: boolean;
+  /** The member's state name while banned-state safe mode is on (0275). */
+  safeModeState?: string | null;
 }) {
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
-  const [editing, setEditing] = useState(false);
+  // Safe mode opens the editor when the letter already says "I use kratom",
+  // so the warning (which lives in the editor) can't be missed.
+  const [editing, setEditing] = useState(
+    () => !!safeModeState && findUseAdmissions(`${initialSubject}\n${initialBody}`).length > 0,
+  );
   const [sentVia, setSentVia] = useState<SendMethod | null>(null);
   const [copied, setCopied] = useState(false);
   const [personalizing, setPersonalizing] = useState(false);
@@ -576,6 +585,14 @@ export function CampaignAction({
                 {screen.message}{" "}
                 <a href="/support" className="underline">Think this is a mistake? Tell us.</a>
               </p>
+            )}
+            {safeModeState && (
+              <UseAdmissionWarning
+                stateName={safeModeState}
+                subject={subject}
+                body={body}
+                onFix={(s, b) => { setSubject(s); setBody(b); }}
+              />
             )}
             {screen.status === "checking" && <p className="mt-1 text-[11px] text-zinc-500">Checking your letter…</p>}
             {unknownFields.length > 0 && (

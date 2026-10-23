@@ -210,6 +210,31 @@ export function adaptForNonResident(tpl: string): string {
     .replace(/\bconstituents like me\b/gi, "advocates like me");
 }
 
+const NO_HOME: Partial<TemplateVars> = { street: "", city: "", state: "", zip: "" };
+const keepCase = (m: string, s: string) => (m[0] === m[0].toUpperCase() ? s[0].toUpperCase() + s.slice(1) : s);
+
+/**
+ * Banned-state safe mode (migration 0275), for a letter to officials OUTSIDE
+ * the member's state: the adaptForNonResident counterpart that names no home
+ * at all. City, state and ZIP add nothing for an official who doesn't
+ * represent you, and from a banned state they mark the writer. The location
+ * phrases are reworded and the location fields rendered empty, so the
+ * signature line drops; per-recipient placeholders are left for the sender.
+ */
+export function adaptForHiddenHome(tpl: string): string {
+  const out = tpl
+    .replace(/\bI am a constituent in \{\{\s*city\s*\}\}[^.\n]*\./gi, "I follow kratom policy closely.")
+    .replace(/\bI(?:'m| am) a constituent in\b/gi, "I follow kratom policy in")
+    .replace(/\b(?:I'm|I am) writing as a constituent\b/gi, "I'm writing")
+    .replace(/\bas an? \{\{\s*state\s*\}\} resident\b/gi, (m) => keepCase(m, "as an advocate"))
+    .replace(/\bas a constituent\b/gi, (m) => keepCase(m, "as an advocate"))
+    .replace(/\bconstituents like me\b/gi, "advocates like me")
+    .replace(/\bConstituent input\b/g, "Input")
+    .replace(/[ \t]*,?[ \t]*\b(?:in|from)[ \t]+\{\{\s*city\s*\}\}(?:,?[ \t]*\{\{\s*state\s*\}\})?(?:[ \t]*\{\{\s*zip\s*\}\})?/gi, "")
+    .replace(/[ \t]+\b(?:in|from)[ \t]+\{\{\s*state\s*\}\}/gi, "");
+  return renderTemplate(out, NO_HOME);
+}
+
 /**
  * True when the profile's full_name is missing — caller renders a
  * warning prompting the user to add it for higher-impact emails.

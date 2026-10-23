@@ -228,3 +228,22 @@ Campaign de-duplication is enforced in three places that **do not share a key fo
 The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, and measured traffic on this class of page is **99.97% bots** hitting live page renders. The gate has no lever on a crawl, so a date-based measure that lapses inside the unattended window has no backstop behind it.
 
 **Don't** treat a future red from that test as a date bump. The two legitimate fixes are: ship the CDN caching (move the signed-in signup wall client-side, per the `/api/me` pattern the root layout already uses) and delete the block, or re-arm deliberately and say why in the comment. Blocking `/bills/` costs the platform its most valuable indexed content, so the caching route is the one worth paying for.
+
+---
+
+## Banned-state safe mode for letters (2026-10-23)
+
+**Decision:** a member whose profile state is `banned` in `state_status` gets safe mode, on unless they turn it off (`profiles.banned_state_safe_mode`, migration 0275; NULL = not chosen yet = on, and the campaign page explains it once):
+- letters to officials **outside** their state name no home: `adaptForHiddenHome()` rewords the constituent phrases and renders city/state/ZIP empty (composer and the one-click queue's template path);
+- the composer flags lines that say the member uses kratom **now** (`src/lib/use-admission.ts`) and offers past-tense wording; a warning, never a block. Personalize is told to write in the past tense and its output is reworded as a backstop;
+- letters to their **own** officials keep city/state.
+
+**Why:** field report from a Louisiana member: writing hard for kratom while signing from a banned state felt unsafe, so they switched their profile to Mississippi, which made their letters to other states claim the wrong home. The state itself is not the exposure (petitioning is protected speech, and the street address was already removed on 2026-07-09); a signed, present-tense statement of using a Schedule I substance is. Our own preset example read "As a {{state}} resident who relies on kratom".
+
+**Don't** hide city/state on letters to the member's own legislators: staff discard mail they can't tie to a district, and those legislators are the only ones who can lift the ban. **Don't** turn the warning into a block; the member decides what they sign.
+
+## State-news pushes: one per story, one per state per day (2026-10-23)
+
+**Decision:** `scripts/push-state-news.mjs` skips an item that is the same story (`scripts/lib/story-dedupe.mjs`, shared with the email digest) as one the state was pushed in the last 72h, caps each state at one news push per 20h, and skips headlines that name other states but not this one. Skipped items are stamped `auto_pushed_count = 0` and still reach the digest and /news.
+
+**Why:** each outlet was its own push. Louisiana got 6 pushes about the Ole Miss deaths on 2026-09-23; a member read the stream as the same news on repeat. Replaying the 45 days to 2026-10-23: 47 pushes would have been 29.
