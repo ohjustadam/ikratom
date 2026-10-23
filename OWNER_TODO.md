@@ -85,9 +85,9 @@ crawl block and bill embeddings moved to "Done"._
     (#1013). Mistral was ruled out because its vectors are 1,024 wide and the
     table holds 768. Scheduled runs succeeded on 2026-10-22 and 2026-10-23,
     and the cron registry lists `bill_embeddings` as `github-actions`.
-  - **`docs/SCHEMA.md`** was regenerated from production on the owner's
-    machine on 2026-10-21 (migrations through 0271). Sessions there can
-    re-run `npm run docs:schema`, so it is no longer an owner item.
+  - **`docs/SCHEMA.md`** was regenerated from production on 2026-10-23
+    (migrations through 0275), by a session on the owner's machine. Sessions
+    there can re-run `npm run docs:schema`, so it is no longer an owner item.
   - **Credits:** on track for about 576 of 1000 by the 2026-11-05 reset.
     _From `npm run credits`._
 - **2026-10-21: every review queue at zero.** Meetings, campaigns and intel
