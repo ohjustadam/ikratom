@@ -7,7 +7,7 @@ import { tiersForProvider } from "@/lib/email/provider-limits";
  * send queue obeys, so this note can never promise a limit the code doesn't
  * keep. No hooks: renders in server and client components alike.
  */
-const ROWS = [...tiersForProvider("gmail"), ...tiersForProvider("outlook")];
+const ROWS = (["gmail", "outlook", "yahoo", "aol", "icloud"] as const).flatMap((p) => tiersForProvider(p));
 const fmt = (n: number) => n.toLocaleString("en-US");
 
 export function EmailSafetyNote({ collapsed = false, className = "" }: { collapsed?: boolean; className?: string }) {

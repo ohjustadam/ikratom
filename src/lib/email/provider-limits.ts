@@ -24,13 +24,16 @@
  * table, not the code.
  */
 
-export type UserSendProvider = "gmail" | "outlook";
+export type UserSendProvider = "gmail" | "outlook" | "yahoo" | "aol" | "icloud";
 
 export type ProviderTier =
   | "gmail_free"
   | "gmail_workspace"
   | "outlook_consumer"
-  | "outlook_business";
+  | "outlook_business"
+  | "yahoo"
+  | "aol"
+  | "icloud";
 
 export type ProviderLimits = {
   tier: ProviderTier;
@@ -50,6 +53,11 @@ export type ProviderLimits = {
   maxPerMinute: number;
   /** Shown in the UI so the number is never a mystery number. */
   sourceNote: string;
+  /**
+   * An extra ceiling when the provider publishes no firm figure (Yahoo, AOL,
+   * iCloud): we stop at whichever is lower, this or 85% of the reported limit.
+   */
+  capDaily?: number;
 };
 
 /**
@@ -92,6 +100,36 @@ const TIERS: Record<ProviderTier, Omit<ProviderLimits, "effectiveDaily">> = {
     maxPerMinute: 30,
     sourceNote: "Exchange Online: 10,000 recipients/day, 30 messages/minute.",
   },
+  // App-password providers (owner yes 2026-10-22). None publishes a firm daily
+  // figure; third-party guides report the numbers below and disagree, so we cap
+  // at 300/day and pace gently, well under any figure reported.
+  yahoo: {
+    tier: "yahoo",
+    provider: "yahoo",
+    label: "Yahoo Mail",
+    documentedDaily: 500,
+    maxPerMinute: 20,
+    capDaily: 300,
+    sourceNote: "Yahoo publishes no firm limit; guides report ~500/day. We stop at 300.",
+  },
+  aol: {
+    tier: "aol",
+    provider: "aol",
+    label: "AOL Mail",
+    documentedDaily: 500,
+    maxPerMinute: 20,
+    capDaily: 300,
+    sourceNote: "AOL (Yahoo's mail systems) reports ~500/day. We stop at 300.",
+  },
+  icloud: {
+    tier: "icloud",
+    provider: "icloud",
+    label: "iCloud Mail",
+    documentedDaily: 1000,
+    maxPerMinute: 20,
+    capDaily: 300,
+    sourceNote: "Apple publishes no firm limit; guides report up to 1,000/day, lower for new accounts. We stop at 300.",
+  },
 };
 
 /** Consumer mail domains — an address here is definitively NOT a work tenant. */
@@ -125,8 +163,14 @@ export function detectTier(
     if (!domain) return "gmail_free";                    // floor when unsure
     return GMAIL_CONSUMER.has(domain) ? "gmail_free" : "gmail_workspace";
   }
+  if (provider === "yahoo" || provider === "aol" || provider === "icloud") return provider;
   if (!domain) return "outlook_consumer";                // floor when unsure
   return OUTLOOK_CONSUMER.has(domain) ? "outlook_consumer" : "outlook_business";
+}
+
+function withEffective(t: Omit<ProviderLimits, "effectiveDaily">): ProviderLimits {
+  const margin = Math.floor(t.documentedDaily * SAFETY_MARGIN);
+  return { ...t, effectiveDaily: t.capDaily ? Math.min(margin, t.capDaily) : margin };
 }
 
 /** Resolve limits, honouring a user's explicit override when they set one. */
@@ -140,15 +184,14 @@ export function resolveLimits(
   // would grant a free Gmail account a 10,000/day allowance.
   const detected = detectTier(provider, accountEmail);
   const tier = override && TIERS[override]?.provider === provider ? override : detected;
-  const base = TIERS[tier];
-  return { ...base, effectiveDaily: Math.floor(base.documentedDaily * SAFETY_MARGIN) };
+  return withEffective(TIERS[tier]);
 }
 
 /** Every tier a given provider can be set to — for the settings dropdown. */
 export function tiersForProvider(provider: UserSendProvider): ProviderLimits[] {
   return Object.values(TIERS)
     .filter((t) => t.provider === provider)
-    .map((t) => ({ ...t, effectiveDaily: Math.floor(t.documentedDaily * SAFETY_MARGIN) }));
+    .map(withEffective);
 }
 
 /**

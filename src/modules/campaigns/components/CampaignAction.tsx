@@ -675,7 +675,7 @@ export function CampaignAction({
               <li>✗ We <strong>never</strong> read your inbox, contacts, drafts, calendar, or any other service</li>
               <li>✓ We keep a copy of each letter you send through iKratom, so your history is accurate and nobody gets the same letter twice. We never read anything else in your mailbox</li>
               <li>✓ Disconnect anytime at <a href="/account" className="text-emerald-400 hover:underline">/account</a>; revoke at <a href="https://myaccount.google.com/permissions" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">Google permissions</a> or <a href="https://account.microsoft.com/privacy/app-access" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">Microsoft permissions</a></li>
-              <li className="text-zinc-500">Proton, Yahoo, iCloud — coming next.</li>
+              <li>✓ Yahoo, AOL or iCloud? <a href="/account#integrations" className="text-emerald-400 hover:underline">Connect them with an app password</a> in your account settings. (Proton isn&apos;t possible: free Proton accounts allow no outside apps.)</li>
             </ul>
           </div>
           <EmailSafetyNote collapsed className="mt-3" />
@@ -710,11 +710,7 @@ export function CampaignAction({
             className="mt-3"
           />
           <p className="mt-2 text-xs text-zinc-500">
-            Check your{" "}
-            <a href="https://mail.google.com/mail/u/0/#sent" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">
-              Gmail Sent folder
-            </a>{" "}
-            to see every letter as it goes out.
+            Check your email&apos;s Sent folder to see every letter as it goes out.
           </p>
           <EmailSafetyNote collapsed className="mt-3" />
         </div>
