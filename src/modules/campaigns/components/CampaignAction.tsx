@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { Legislator } from "@/lib/legislators";
 import { ROLE_SHORT } from "@/lib/legislators";
 import { logCampaignAction } from "../actions";
@@ -11,6 +11,7 @@ import { AttachmentRecorder } from "./AttachmentRecorder";
 import { RetryDistrictsButton } from "@/components/RetryDistrictsButton";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { SendBatchPanel } from "./SendBatchPanel";
+import { checkLetter } from "../send-batch-actions";
 import { EmailSafetyNote } from "@/components/EmailSafetyNote";
 import Link from "@/components/Link";
 import {
@@ -95,6 +96,36 @@ export function CampaignAction({
   const [personalizeError, setPersonalizeError] = useState<string | null>(null);
   const [personalizeChanges, setPersonalizeChanges] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const [screenRes, setScreenRes] = useState<{ key: string; ok: boolean; message: string } | null>(null);
+
+  // Screen the member's own edits while they type (owner rules 2026-10-22,
+  // screen-content.ts). An unedited letter is the campaign's own text, which
+  // was screened when the campaign was authored. The queue re-checks on Send.
+  // The status is DERIVED from which text was last checked, so the effect only
+  // sets state from its async callback.
+  const edited = subject !== initialSubject || body !== initialBody;
+  const screenKey = `${subject}\u0000${body}`;
+  useEffect(() => {
+    if (!edited) return;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const r = await checkLetter(subject, body);
+        if (!cancelled) setScreenRes({ key: screenKey, ok: r.ok, message: r.message });
+      } catch {
+        // Never trap a member on a network blip; the queue re-checks on Send.
+        if (!cancelled) setScreenRes({ key: screenKey, ok: true, message: "" });
+      }
+    }, 1200);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [subject, body, edited, screenKey]);
+  const screen: { status: "idle" | "checking" | "ok" | "blocked"; message: string } = !edited
+    ? { status: "idle", message: "" }
+    : screenRes?.key === screenKey
+      ? { status: screenRes.ok ? "ok" : "blocked", message: screenRes.message }
+      : { status: "checking", message: "" };
+  const letterBlocked = screen.status === "blocked";
+  const externalLocked = edited && screen.status !== "ok";
 
   // Geography context. Every campaign is actionable by every user regardless
   // of where they live (owner policy 2026-06-22) — we no longer block out-of-
@@ -540,6 +571,13 @@ export function CampaignAction({
                 so &ldquo;Dear {"{{recipient_title}} {{recipient_last_name}}"}&rdquo; becomes &ldquo;{sampleGreeting}&rdquo;.
               </p>
             )}
+            {letterBlocked && (
+              <p className="mt-1 rounded border border-red-900/50 bg-red-950/30 px-2 py-1.5 text-xs text-red-200">
+                {screen.message}{" "}
+                <a href="/support" className="underline">Think this is a mistake? Tell us.</a>
+              </p>
+            )}
+            {screen.status === "checking" && <p className="mt-1 text-[11px] text-zinc-500">Checking your letter…</p>}
             {unknownFields.length > 0 && (
               <p className="mt-1 rounded border border-amber-800/50 bg-amber-950/20 px-2 py-1 text-xs text-amber-200">
                 We can&apos;t fill in {unknownFields.map((f) => `{{${f}}}`).join(", ")}. Replace it with your own words before sending.
@@ -668,6 +706,7 @@ export function CampaignAction({
             subject={subject}
             body={body}
             primary
+            blockedReason={letterBlocked ? screen.message : null}
             className="mt-3"
           />
           <p className="mt-2 text-xs text-zinc-500">
@@ -690,22 +729,23 @@ export function CampaignAction({
           default only when there's no one-click option. Gated on ≥1 sendable
           recipient — without it the buttons opened an empty-"To" compose. */}
       {targetsWithEmail.length > 0 && (
-      <details className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40" open={!gmailConnected}>
+      <details className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-300 hover:text-emerald-300">
-          {gmailConnected ? "Other ways to send" : "Send from your own email"}
+          {gmailConnected ? "Other ways to send" : "Or open it in your own email app instead"}
         </summary>
         <div className="border-t border-zinc-800 px-4 py-3">
           <p className="mb-3 text-xs text-zinc-500">
-            These open your own email app or web compose — you send the message
-            yourself, so it&apos;s{" "}
-            <strong className="text-zinc-400">not screened or recorded as a verified iKratom send</strong>.
-            Best if you haven&apos;t connected one-click send.
+            These open your own email app or web compose and you press Send there. iKratom
+            can&apos;t see changes made after it opens, so it&apos;s{" "}
+            <strong className="text-zinc-400">not recorded as a verified iKratom send</strong>.
+            Connecting your email above is faster and keeps your record.
           </p>
           <div className="grid gap-2 sm:grid-cols-3">
             <SendOption
               href={buildGmailUrl()}
               target="_blank"
               label="Open in Gmail"
+              disabled={externalLocked}
               sub="Web compose tab"
               onClick={() => logAction("gmail")}
               done={sentVia === "gmail"}
@@ -714,6 +754,7 @@ export function CampaignAction({
               href={buildOutlookUrl()}
               target="_blank"
               label="Open in Outlook"
+              disabled={externalLocked}
               sub="Web compose tab"
               onClick={() => logAction("outlook")}
               done={sentVia === "outlook"}
@@ -721,12 +762,18 @@ export function CampaignAction({
             <SendOption
               href={buildMailto()}
               label="Default email app"
+              disabled={externalLocked}
               sub="Apple Mail / Thunderbird"
               onClick={() => logAction("mailto")}
               done={sentVia === "mailto"}
             />
           </div>
 
+          {externalLocked && (
+            <p className="mb-2 text-[11px] text-amber-300">
+              {letterBlocked ? "These are off until the letter above is changed." : "One moment: checking your edited letter…"}
+            </p>
+          )}
           {mailtoTooLong && (
             <p className="mt-3 rounded-md border border-amber-800/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
               <strong>{targetsWithEmail.length} recipients is too many for a desktop mail app.</strong>{" "}
@@ -822,6 +869,7 @@ function SendOption({
   primary,
   onClick,
   done,
+  disabled,
 }: {
   href: string;
   target?: string;
@@ -830,6 +878,8 @@ function SendOption({
   primary?: boolean;
   onClick: () => void;
   done?: boolean;
+  /** Edited letter not yet screened, or blocked: no compose window. */
+  disabled?: boolean;
 }) {
   const base =
     "group flex flex-col items-center gap-0.5 rounded-md px-3 py-3 text-center transition";
@@ -839,6 +889,14 @@ function SendOption({
     ? "bg-emerald-500 text-zinc-950 hover:bg-emerald-400"
     : "border border-zinc-700 text-zinc-200 hover:border-emerald-500 hover:bg-zinc-950";
 
+  if (disabled) {
+    return (
+      <span aria-disabled="true" className={`${base} cursor-not-allowed border border-zinc-800 text-zinc-600`}>
+        <span className="text-sm font-semibold">{label}</span>
+        <span className="text-[11px] text-zinc-600">{sub}</span>
+      </span>
+    );
+  }
   return (
     <a
       href={href}

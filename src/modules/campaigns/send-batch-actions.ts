@@ -23,6 +23,7 @@ import { legislatorInCampaignScope } from "./scope";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { adaptForNonResident, buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
 import { drainBatch } from "./drain-batch";
+import { screenMemberLetter } from "./screen-content";
 
 /** Hard ceiling on one batch. Not a security boundary — scope is. */
 const MAX_BATCH_RECIPIENTS = 1000;
@@ -121,6 +122,12 @@ export async function enqueueCampaignSend(input: {
     if (!subjectTpl) return { ok: false, error: "Add a subject line before sending." };
     if (subjectTpl.length > MAX_SUBJECT || bodyTpl.length > MAX_BODY) {
       return { ok: false, error: "That message is too long to send. Trim it and try again." };
+    }
+    // The member's own words leave through iKratom, so they are screened here,
+    // where it can't be skipped (owner rules, 2026-10-22; see screen-content.ts).
+    const screen = await screenMemberLetter({ subject: subjectTpl, body: bodyTpl });
+    if (screen.block) {
+      return { ok: false, error: `${screen.message} If you think this is a mistake, contact us at /support.` };
     }
   } else {
     const nonResident = !!campaign.state && !!profile?.state && profile.state !== campaign.state;
@@ -251,6 +258,20 @@ export type BatchProgress = {
   pauseReason: string | null;
   providerLabel: string;
 } | null;
+
+/**
+ * Screen a letter while the member is still editing it, so the composer can
+ * say so before they press Send (and before an external compose window
+ * opens, which iKratom can't screen afterwards). The queue re-checks anyway.
+ */
+export async function checkLetter(subject: string, body: string): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: true, message: "" };
+  if (!(await checkRateLimit(`letter:screen:${user.id}`, 30, 600))) return { ok: true, message: "" };
+  const s = await screenMemberLetter({ subject: String(subject ?? "").slice(0, 300), body: String(body ?? "").slice(0, 12_000) });
+  return { ok: !s.block, message: s.message };
+}
 
 export type SendAllowance = { used: number; limit: number; providerLabel: string } | null;
 

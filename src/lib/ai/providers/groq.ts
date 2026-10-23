@@ -1,7 +1,7 @@
 /**
  * Groq provider — wraps Groq Cloud's OpenAI-compatible API.
  *
- * Default model: llama-3.3-70b-versatile (free tier, ~500 tok/sec).
+ * Default model: openai/gpt-oss-120b (free tier). llama-3.3-70b-versatile was retired 2026-10.
  * Free quota: 30 RPM, 14,400/day. Generous backup for when Gemini hits
  * 1,500/day or when Ollama is unavailable.
  *
@@ -25,7 +25,11 @@ import type {
 } from "../types";
 
 const KEY = process.env.GROQ_API_KEY;
-const DEFAULT_MODEL = process.env.GROQ_DEFAULT_MODEL ?? "llama-3.3-70b-versatile";
+// llama-3.3-70b-versatile was retired by Groq (404 model_not_found, found
+// 2026-10-22): every site AI call (letter + campaign screening, chat
+// moderation, personalize) had been falling through to a Gemini key that is
+// out of credits. gpt-oss-120b is what the scripts' router already uses.
+const DEFAULT_MODEL = process.env.GROQ_DEFAULT_MODEL ?? "openai/gpt-oss-120b";
 
 function toMessages(p: PromptInput): { role: string; content: string }[] {
   if (typeof p === "string") return [{ role: "user", content: p }];
