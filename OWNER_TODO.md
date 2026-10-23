@@ -13,7 +13,8 @@ crawl block and bill embeddings moved to "Done"._
 
 ## Do
 
-1. **Add two keys to Netlify production.** `BREVO_API_KEY` and
+1. **Add two keys to Netlify production — ON HOLD (your call,
+   2026-10-23). Sessions: don't re-ask until it's lifted.** `BREVO_API_KEY` and
    `NVIDIA_API_KEY` are GitHub secrets, so the cron jobs have them, but neither
    is among Netlify production's 51 environment variables. The website reads
    `BREVO_API_KEY` in `src/lib/email/providers.ts` (without it only the Resend
