@@ -57,6 +57,12 @@ function classify(textParts) {
   return { relevance, severity };
 }
 
+const BASELINE_PDFS_TO_PARSE = 8;
+
+function isPdfUrl(url) {
+  return typeof url === "string" && /\.pdf(?:$|[?#])/i.test(url);
+}
+
 async function loadAdapter(name) {
   // Adapters live in scripts/lib/bop-adapters/<name>.mjs. Dynamic
   // import so adding an adapter doesn't require touching this file.
@@ -84,20 +90,44 @@ async function scrapeOne({ source, supabase }) {
       (i) => i && typeof i.title === "string" && i.title.trim().length > 0
     );
 
-    const rows = items.map((item) => {
+    // A source's first walk returns its whole backlog (last year's register
+    // issues, old press releases). Those rows are marked is_baseline, so a
+    // kratom hit among them alerts as pending, never auto-published (0279).
+    // last_finding_count is written only by a SUCCESSFUL walk, so a source
+    // whose first attempts errored is still on its baseline.
+    const baseline = source.last_finding_count == null;
+    let baselinePdfs = 0;
+    const rows = [];
+    for (const item of items) {
       const { relevance, severity } = classify([item.title, item.snippet ?? ""]);
-      return {
+      const url = item.url ? String(item.url).slice(0, 1000) : null;
+      const pdf = isPdfUrl(url);
+      // Keep what something downstream reads: a keyword hit (AI-classified,
+      // can alert) or a PDF (parse-bop-pdfs reads it). Until 2026-10-23 every
+      // link on the page was stored; 7,389 of 7,420 rows were 'unrelated'
+      // non-findings that nothing ever read again.
+      if (relevance === "unrelated" && !pdf) continue;
+      const row = {
         source_id: source.id,
         state: source.state,
         title: String(item.title).slice(0, 500).trim(),
         snippet: item.snippet ? String(item.snippet).slice(0, 2000) : null,
-        url: item.url ? String(item.url).slice(0, 1000) : null,
+        url,
         meeting_date: item.meeting_date ?? null,
         classified_relevance: relevance,
         classified_severity: severity,
         raw: item.raw ?? null,
+        is_baseline: baseline,
       };
-    });
+      // A register index can list a year of issue PDFs. On the first walk,
+      // parse only the first few (pages list newest first); record the rest
+      // as already handled so they are never parsed or re-inserted as new.
+      if (baseline && pdf && relevance === "unrelated" && ++baselinePdfs > BASELINE_PDFS_TO_PARSE) {
+        row.pdf_status = "skipped_baseline";
+        row.pdf_parsed_at = startedAt.toISOString();
+      }
+      rows.push(row);
+    }
 
     let inserted = 0;
     if (rows.length > 0) {
