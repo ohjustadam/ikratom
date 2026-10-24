@@ -148,6 +148,38 @@ fixed by a better estimate:
 
 ---
 
+## State intel: every state watched like Oklahoma (2026-10-23/24)
+
+- **Agency watch, every state + DC.** Each state's health department and
+  attorney-general newsrooms and its state register / notice-of-intent page
+  are `bop_sources`, verified from GitHub's IPs by
+  `scripts/register-state-intel-sources.mjs` (candidates in
+  `scripts/data/state-intel-sources.json`; run `intel-sources-verify.yml`).
+  Only official .gov / state .us domains are accepted. Florida's AG and
+  register and New Mexico's health department are official but not .gov, so
+  they are left out.
+- **The BoP engine's alert path had never worked.** Its trigger inserted an
+  alert kind the database forbids. Fixed in migration 0279: kind follows the
+  source (`rule_filed`, `news_break`, `bop_hearing`). A source's first walk is
+  marked `is_baseline`, and backlog or press-release hits go to the review
+  queue. Unrelated non-PDF links are no longer stored, and PDFs are classified
+  in full, not just the first 50KB.
+- **Campaign staleness gate** (migration 0278). The alert-to-campaign trigger
+  skips an expired alert, a past hearing, a sine-die bill, or a story more
+  than 21 days old. `alertStaleReason()` in `scripts/lib/campaign-eligibility.mjs`
+  mirrors it.
+- **News state tagging.** A story was filed under whichever state's query found
+  it, so a Tennessee explainer landed under LA. `scripts/lib/news-state.mjs`
+  now tags by the headline at insert, and 1,302 past stories were retagged.
+- **Playbook matches.** `scripts/playbook-match-alerts.mjs` runs daily after
+  bill embeddings. A live restrictive bill that takes the same approach as
+  another state's bill becomes a `watch` alert in the review queue. Any two
+  kratom bills score about 0.75, so the threshold is 0.88.
+- **Legal status** was re-checked against primary sources on 2026-10-23/24.
+  Seven rows had gone stale since June: TN (now banned), WY, OH, VA, DE, RI
+  and ND. A "takes effect July 1" note does not update itself, so re-check any
+  dated note once its date passes.
+
 ## How the platform watches itself
 
 `scripts/check-cron-staleness.mjs` compares every source in
