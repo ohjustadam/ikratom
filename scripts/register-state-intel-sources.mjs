@@ -98,6 +98,9 @@ async function fetchHtmlBrowser(url) {
   }
 }
 
+const SOFT_404_URL_RE = /(?:^|[/_-])(?:404|error|not[-_]?found|pagenotfound)(?:[/_.-]|$)|aspxerrorpath/i;
+const SOFT_404_TITLE_RE = /\b(?:404|page not found|not found|error)\b/i;
+
 // A deep link that lands on the site root is a moved page, not a newsroom.
 const isHomePath = (u) => /^\/(?:(?:pages\/)?(?:home|default|index)\.(?:aspx?|html?|php))?$/i.test(new URL(u).pathname);
 
@@ -106,6 +109,12 @@ async function probe(url, viaBrowser) {
     const { html, finalUrl } = viaBrowser ? await fetchHtmlBrowser(url) : await fetchHtml(url);
     if (!isOfficialStateHost(finalUrl)) return { ok: false, error: `redirected off a state domain: ${finalUrl}` };
     if (!isHomePath(url) && isHomePath(finalUrl)) return { ok: false, error: `redirected to the homepage: ${finalUrl}`, html, url: finalUrl };
+    // A soft 404: HTTP 200 on an error page that still has a full site menu
+    // (AK law.alaska.gov/404error.html, NV ag.nv.gov/error.aspx, 2026-10-24).
+    const pageTitle = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "").trim();
+    if (SOFT_404_URL_RE.test(finalUrl) || SOFT_404_TITLE_RE.test(pageTitle)) {
+      return { ok: false, error: `error page: ${finalUrl} "${pageTitle.slice(0, 60)}"` };
+    }
     const n = extractFindingsFromHtml(html, finalUrl).length;
     return n >= MIN_CANDIDATES
       ? { ok: true, url: finalUrl, candidates: n, html }
