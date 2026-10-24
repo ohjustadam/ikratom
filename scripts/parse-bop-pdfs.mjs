@@ -55,7 +55,13 @@ const HEADERS = {
 };
 
 const MAX_BYTES = 20 * 1024 * 1024; // 20MB cap — anything bigger is suspect
-const PDF_TEXT_CAP = 50_000; // 50KB of extracted text — enough for re-classify
+// The classifier reads the WHOLE extracted text; only the stored copy is
+// capped. Until 2026-10-23 just the first 50KB was classified, so a notice
+// on page 200 of a state register issue was invisible, and 50KB was stored
+// even for unrelated PDFs (21 MB raw across 2,286 rows).
+const PDF_TEXT_CAP = 50_000; // stored window around the first hit
+const UNRELATED_TEXT_CAP = 4_000; // stored head of a PDF with no hit
+const WINDOW_LEAD = 2_000; // context kept before the hit (the AI reads 8KB)
 
 // SSRF defense (same shape as the adapter checks)
 function isSafeForFetch(url) {
@@ -193,14 +199,21 @@ async function processFinding(finding) {
     return { status: "parse_failed" };
   }
 
-  const truncated = text.slice(0, PDF_TEXT_CAP);
-  const status = truncated.length > 0 ? "ok" : "empty";
+  const status = text.length > 0 ? "ok" : "empty";
 
-  // Re-classify on title + extracted text. If new classification is
+  // Re-classify on title + the full extracted text. If new classification is
   // STRONGER than the current (unrelated → adjacent → direct), update it.
   // Only upgrade; don't downgrade — admin reviewer override always wins
   // and we filter to reviewed_at IS NULL.
-  const newClass = reclassify([finding.title, truncated]);
+  const newClass = reclassify([finding.title, text]);
+  let truncated;
+  if (newClass.relevance === "unrelated") {
+    truncated = text.slice(0, UNRELATED_TEXT_CAP);
+  } else {
+    const hit = text.search(newClass.relevance === "kratom_direct" ? DIRECT_RE : ADJACENT_RE);
+    const start = Math.max(0, hit - WINDOW_LEAD);
+    truncated = text.slice(start, start + PDF_TEXT_CAP);
+  }
   const currentRel = finding.classified_relevance;
   const rank = (r) =>
     r === "kratom_direct" ? 2 : r === "kratom_adjacent" ? 1 : 0;
