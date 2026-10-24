@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Audience } from "./audience";
 
 /**
- * One profile, as the CURRENT viewer may see it (get_profile_view, 0283).
+ * One profile, as the CURRENT viewer may see it (get_profile_view, 0285).
  * Every section is null when the viewer is not allowed to see it, so a page
  * can render "whatever came back" and never leak by forgetting a check.
  */
@@ -18,6 +18,9 @@ export type ProfileView = {
   profile_visible: boolean;
   profile_audience: Audience | null;
   can_message: boolean;
+  /** /api/media/<id>, only when the viewer may see that photo (0286). */
+  avatar_url: string | null;
+  cover_url: string | null;
   bio: string | null;
   story: string | null;
   interests: string[] | null;

@@ -8,7 +8,7 @@ import { validateProfileInput, type ProfileInput } from "./validate";
 /**
  * Save the caller's social profile (bio, story, interests, links) and every
  * section audience. Writes go through the user's own session: profile_social
- * and profile_links are own-row RLS (0283), so this can never touch anyone
+ * and profile_links are own-row RLS (0285), so this can never touch anyone
  * else's row even if the input were forged.
  */
 export async function saveProfileSocial(input: ProfileInput): Promise<{ ok: true } | { error: string }> {
