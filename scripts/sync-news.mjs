@@ -14,6 +14,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { pickGeminiKey } from "./lib/gemini-keys.mjs";
+import { newsStateFromTitle } from "./lib/news-state.mjs";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA",
@@ -146,7 +147,8 @@ async function syncScope(scope) {
   const rows = items
     .filter((i) => i.url && i.title && /^https?:\/\//.test(i.url))
     .map((i) => ({
-      state: scope === "FED" ? null : scope,
+      // headline names only another state -> that state (scripts/lib/news-state.mjs)
+      state: scope === "FED" ? null : newsStateFromTitle(i.title, scope),
       title: cap(i.title, 300),
       summary: cap(i.summary, 1000),
       url: cap(i.url, 1000),

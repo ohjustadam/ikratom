@@ -14,6 +14,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { hasKratomKeyword } from "./lib/kratom-keywords.mjs";
+import { newsStateFromTitle } from "./lib/news-state.mjs";
 
 const STATE_NAMES = {
   AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",
@@ -208,7 +209,10 @@ async function syncScope(scope) {
     const cleanTitle = stripPublisherSuffix(i.title, i.source_name);
     const titleHasKw = hasKratomKeyword(cleanTitle ?? "");
     return {
-      state: isFed ? null : scope,
+      // The query state is only a guess: "kratom" "Louisiana" also returns a
+      // Tennessee explainer that mentions Louisiana. A headline that leaves
+      // the query state out and names exactly one other state goes there.
+      state: isFed ? null : newsStateFromTitle(cleanTitle ?? "", scope),
       title: cap(cleanTitle, 300),
       summary: null,                       // filled later by enrich:news
       url: cap(i.url, 1000),
