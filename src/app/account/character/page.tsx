@@ -50,7 +50,8 @@ export default async function CharacterPage() {
         <p className="font-semibold text-emerald-300">🔒 What stays private</p>
         <ul className="mt-2 list-inside list-disc space-y-1 text-zinc-400">
           <li>Your story, your &ldquo;what&apos;s at stake&rdquo;, address, and contact info are <strong>never shown publicly</strong>. They only feed the AI tailoring layer when you send a campaign.</li>
-          <li>Username + first name + state are public (visible on forum posts, story bylines, etc.).</li>
+          <li>Other members see your @username and state (on forum posts, story bylines, etc.). Your real name is never shown to them.</li>
+          <li>What your public profile shows (bio, advocacy story, interests, links) is set separately, with its own privacy levels, on <a href="/account/profile" className="text-emerald-400 hover:underline">Your profile</a>.</li>
           <li>You can switch your whole profile to <strong>recruiters-only</strong> or <strong>private</strong> at the bottom — useful for shop owners and medical pros who want to participate without their participation being visible.</li>
         </ul>
       </div>

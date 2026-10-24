@@ -99,8 +99,15 @@ export default async function AccountPage({
             <ProfileForm profile={profile} email={email} />
 
             <LinkCard
-              href="/account/character"
+              href="/account/profile"
               accent
+              title="🙋 Your profile"
+              body="What other members see: bio, advocacy story, interests and links, each with its own privacy level (Only me, Friends, Members or Public). You always appear as your @username."
+              cta="Edit your profile"
+            />
+
+            <LinkCard
+              href="/account/character"
               title="🎭 Your character"
               body="Optional fields that power AI tailoring on legislator emails — your kratom story, what's at stake, advocate type, video clip URL, profile visibility."
               cta="Edit your character"
