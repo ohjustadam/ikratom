@@ -14,7 +14,7 @@ import { bytesToBinary, decodeWords, parseMessage } from "./mime-text.mjs";
 const MAX_BYTES = 1_000_000;
 const ADDRESS_RE = /^r-([a-z2-7]{16})@ikratom\.org$/;
 
-export default {
+const worker = {
   async email(message, env) {
     const match = ADDRESS_RE.exec(String(message.to || "").trim().toLowerCase());
     if (!match) return; // not a send-record address: dropped, as before
@@ -28,7 +28,9 @@ export default {
     const payload = {
       p_key: env.INGEST_KEY,
       p_nonce: match[1],
-      p_from: String(message.from || ""),
+      // The header From is the member; message.from is the envelope sender,
+      // which for many providers is a bounce address.
+      p_from: decodeWords(message.headers.get("from") || "") || String(message.from || ""),
       p_to: decodeWords(message.headers.get("to") || ""),
       p_subject: decodeWords(message.headers.get("subject") || ""),
       p_body: text,
@@ -48,3 +50,5 @@ export default {
     console.log("send-record:", res.status, out.slice(0, 200));
   },
 };
+
+export default worker;
