@@ -5,6 +5,7 @@ import { RejectButton } from "./RejectButton";
 import { LocalRepRequestRow } from "./LocalRepRequestRow";
 import { ResolveQueueButton } from "./ResolveQueueButton";
 import { LastAttemptNote } from "./LastAttemptNote";
+import { TurnoverReview } from "./TurnoverReview";
 
 /**
  * /admin/local-rep-requests — queue of user-requested local rep coverage.
@@ -51,6 +52,8 @@ export default async function LocalRepRequestsPage() {
         </p>
         <ResolveQueueButton />
       </header>
+
+      <TurnoverReview />
 
       {rows.length === 0 ? (
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-12 text-center text-sm text-zinc-500">

@@ -9,6 +9,8 @@ import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { getLegislatorIntel } from "@/lib/legislator-intel";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { httpUrlOrNull } from "@/modules/compose/send-links";
+import { SeatTurnoverBanner } from "./SeatTurnoverBanner";
+import type { SeatElection } from "@/lib/seat-turnover";
 
 const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
 
@@ -130,28 +132,33 @@ async function loadLegislatorPublic(id: string) {
     // read). Intel uses the SAME anonymous client, so the snapshot holds exactly
     // the public view. `legislator_stance` is invisible to anon under RLS
     // (migration 0221), so no withheld stance can reach this cache.
-    const [[explicitRes, roleRes, votesRes], intel] = await Promise.all([Promise.all([
+    const [[explicitRes, roleRes, votesRes, seatRes], intel] = await Promise.all([Promise.all([
       sb.from("campaigns").select("id, slug, title, state, blurb").eq("active", true).contains("target_legislator_ids", [id]),
       sb.from("campaigns").select("id, slug, title, state, blurb").eq("active", true).eq("state", leg.state).contains("target_roles", [leg.role]),
       sb.from("bill_vote_members")
         .select("vote_text, vote_value, bill_votes!inner(id, vote_date, chamber, motion, passed, bills!inner(id, state, bill_number, title, kratom_relevance))")
         .eq("legislator_id", id)
         .limit(500),
+      // The seat-turnover ledger (migration 0277): on the ballot, re-elected, or leaving on a date.
+      sb.from("seat_elections").select("election_date, kind, status, handover_date, winner_name")
+        .eq("incumbent_id", id).neq("status", "cancelled").order("election_date", { ascending: false }).limit(1),
     ]), getLegislatorIntel(sb, leg as never)]);
+    const seat = (seatRes.data?.[0] ?? null) as SeatElection | null;
     return {
-      data: { leg, explicitCampaigns: explicitRes.data, roleCampaigns: roleRes.data, voteRowsRaw: votesRes.data, intel },
+      data: { leg, explicitCampaigns: explicitRes.data, roleCampaigns: roleRes.data, voteRowsRaw: votesRes.data, intel, seat },
       // A failed sub-query may have emptied a section: serve it, never store it.
-      cacheable: !explicitRes.error && !roleRes.error && !votesRes.error,
+      cacheable: !explicitRes.error && !roleRes.error && !votesRes.error && !seatRes.error,
     };
 }
 
 /**
  * The public snapshot, layered: unstable_cache (this deploy, 15 min) over an
  * R2 copy (12 h, survives deploys and instances; see src/lib/public-snapshots.ts)
- * over Supabase. Bump "v1" if loadLegislatorPublic's shape changes.
+ * over Supabase. Bump the version if loadLegislatorPublic's shape changes
+ * (v2, 2026-10-23: added `seat` for the turnover banner).
  */
 const getLegislatorPublicSnapshot = unstable_cache(
-  (id: string) => publicSnapshot("legislator-public", "v1", id, 12 * 3600, () => loadLegislatorPublic(id)),
+  (id: string) => publicSnapshot("legislator-public", "v2", id, 12 * 3600, () => loadLegislatorPublic(id)),
   ["legislator-public"],
   { revalidate: 900, tags: ["legislator-detail"] },
 );
@@ -167,7 +174,7 @@ export default async function LegislatorDetailPage({
   // above. No cookie is read here — that is what keeps the route static.
   const snap = await getLegislatorPublicSnapshot(id);
   if (!snap) notFound();
-  const { leg, explicitCampaigns, roleCampaigns, voteRowsRaw, intel } = snap;
+  const { leg, explicitCampaigns, roleCampaigns, voteRowsRaw, intel, seat } = snap;
 
   // Intel came from the cached snapshot, computed as an anonymous viewer.
   // `pressureIndex` is deliberately NOT destructured here: it derives from
@@ -258,6 +265,8 @@ export default async function LegislatorDetailPage({
           </span>
         </div>
       </header>
+
+      {leg.active && <SeatTurnoverBanner seat={seat} name={leg.full_name} />}
 
       {/* Intel verdict — the dossier read at a glance (full memo at /briefing) */}
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">

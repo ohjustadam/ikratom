@@ -1,6 +1,7 @@
 "use server";
 
 import { cookies } from "next/headers";
+import { cleanRecordNonce } from "@/lib/send-record";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, releaseRateLimit } from "@/lib/rate-limit";
 import {
@@ -153,8 +154,11 @@ export async function logCampaignAction(input: {
   subject?: string;
   body?: string;
   isNonResident?: boolean;
+  /** B9: the BCC record address's nonce, so the copy can confirm this click. */
+  recordNonce?: string;
 }) {
   const { campaignId, legislatorIds, method, subject, body, isNonResident } = input;
+  const recordNonce = cleanRecordNonce(input.recordNonce);
   if (!campaignId || legislatorIds.length === 0) return { error: "Missing inputs." };
 
   // Read-only mode gate (admins bypass).
@@ -215,6 +219,7 @@ export async function logCampaignAction(input: {
     body: body?.slice(0, 5000) ?? null,
     is_non_resident: !!isNonResident,
     referred_from: referredFrom,
+    record_nonce: method === "mailto" ? recordNonce : null,
   }));
 
   const { error } = await supabase.from("campaign_actions").insert(rows);
