@@ -11,10 +11,12 @@ scratch, and one of them re-derived it wrongly.
 
 This file is the public half of that brief: everything a new session needs
 that is safe to commit to a public repository. It carries no secrets, no
-owner PII, and nothing about an unannounced plan. Its sibling
-**`OWNER_TODO.md`** holds the verified list of what only the owner can do.
-When the private plan is present it wins on any conflict — but when it is not
-there, these two files are the map. On the owner's machine, the session mesh
+owner PII, and nothing about an unannounced plan. What only the owner can do
+lives in ONE list, `private/OWNER_TODO.md` on his machine (2026-10-23; the old
+public root copy was absorbed into it). A session without `private/` asks
+him for nothing outside its task, and lists what only he can do in its PR body.
+When the private plan is present it wins on any conflict, but when it is not
+there, this file is the map. On the owner's machine, the session mesh
 (`scripts/session-mesh.mjs`, AGENTS.md rule 11) also tells you which other
 sessions are working right now.
 
