@@ -2,8 +2,10 @@ import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CoalitionAdminPanel } from "./CoalitionAdminPanel";
-import { Discussion, GettingStarted } from "./Discussion";
+import { Discussion } from "./Discussion";
 import { Events } from "./Events";
+import { Welcome } from "./Welcome";
+import { Wins } from "./Wins";
 import { GroupAction, JoinRequests } from "./GroupGrowth";
 import { GroupLinkCard, RequestToJoin, VisibilityToggle } from "./GroupGrowthClient";
 import { publicHandle } from "@/lib/public-handle";
@@ -28,20 +30,24 @@ export async function generateMetadata({ params }: { params: Params }) {
   };
 }
 
-export default async function CoalitionDetailPage({ params }: { params: Params }) {
+export default async function CoalitionDetailPage({ params, searchParams }: {
+  params: Params; searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { slug } = await params;
+  const sp = await searchParams;
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
 
   const { data: coalitionRow } = await sb
     .from("coalitions")
-    .select("id, slug, name, description, state, is_public, owner_id, created_at")
+    .select("id, slug, name, description, state, is_public, owner_id, created_at, featured_campaign_id, featured_set_at")
     .eq("slug", slug)
     .maybeSingle();
   if (!coalitionRow) notFound();
   const c = coalitionRow as {
     id: string; slug: string; name: string; description: string | null;
     state: string | null; is_public: boolean; owner_id: string; created_at: string;
+    featured_campaign_id: string | null; featured_set_at: string | null;
   };
 
   // Is the viewer a member? RLS will filter what they can see in
@@ -91,6 +97,21 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
       state: profByUser.get(r.user_id)?.state ?? null,
     }));
   }
+
+  // The welcome checklist's one-tap shortcuts (migration 0284): ?intro=1 opens
+  // a pre-filled hello, ?welcome=1 an organizer's pinned welcome post, and
+  // ?plan=1 the event form.
+  const isOrganizer = viewerRole === "owner" || viewerRole === "admin";
+  const { data: featuredCamp } = c.featured_campaign_id && viewerRole
+    ? await sb.from("campaigns").select("id, slug, active").eq("id", c.featured_campaign_id).maybeSingle()
+    : { data: null };
+  const featured = featuredCamp?.active ? { id: featuredCamp.id, slug: featuredCamp.slug, set_at: c.featured_set_at } : null;
+  const myHandle = user ? publicHandle(members.find((m) => m.user_id === user.id) ?? { username: null, state: null }) : "";
+  const prefill = sp.welcome === "1" && isOrganizer
+    ? { title: "👋 Welcome! Start here", body: welcomeBody(c.name), pin: true }
+    : sp.intro === "1"
+      ? { title: `👋 Hi, I'm ${myHandle}`, body: "Hi everyone! I live in ___ and kratom matters to me because ___.\n\nI can help by ___." }
+      : null;
 
   // Coalition contact log — aggregate team activity. Privacy: never
   // expose per-user attribution. RPCs guard by membership; aggregates
@@ -194,19 +215,22 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
         )}
       </header>
 
-      {/* A brand-new group used to open on little more than the admin box
-          (2026-10-21: "when I click on the name nothing happens"). Show the
-          first steps until it has teammates. */}
-      {viewerRole && members.length <= 1 && (
-        <GettingStarted state={c.state} isAdmin={viewerRole === "owner" || viewerRole === "admin"} />
+      {/* The welcome checklist (migration 0284): a new member's first four
+          steps, or the organizer's. Replaces the old static "get started". */}
+      {user && viewerRole && (
+        <Welcome coalitionId={c.id} slug={c.slug} userId={user.id} isOrganizer={isOrganizer} featuredCampaign={featured} />
       )}
+
+      {/* The group's wins this week, counts only (migration 0284). Public
+          groups show it to signed-in visitors too: it's the recruiting pitch. */}
+      {user && (viewerRole || c.is_public) && <Wins coalitionId={c.id} />}
 
       {/* Groups slice 1+2+3 (migration 0274): the shared action, the
           reusable invite link, and the organizers' request inbox. */}
       {viewerRole && (
-        <GroupAction coalitionId={c.id} state={c.state} isAdmin={viewerRole === "owner" || viewerRole === "admin"} />
+        <GroupAction coalitionId={c.id} state={c.state} isAdmin={isOrganizer} />
       )}
-      {viewerRole && <div id="invite"><GroupLinkCard coalitionId={c.id} /></div>}
+      {viewerRole && <div id="invite" className="scroll-mt-20"><GroupLinkCard coalitionId={c.id} groupName={c.name} /></div>}
       {(viewerRole === "owner" || viewerRole === "admin") && <JoinRequests coalitionId={c.id} />}
 
       {/* A public group's page is its recruiting page: non-members can ask in. */}
@@ -307,10 +331,10 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
       )}
 
       {/* Events and call-in days: members only (migration 0283). */}
-      {viewerRole && <Events coalitionId={c.id} slug={c.slug} isAdmin={viewerRole === "owner" || viewerRole === "admin"} />}
+      {viewerRole && <Events coalitionId={c.id} slug={c.slug} isAdmin={isOrganizer} openForm={sp.plan === "1"} />}
 
       {/* Private discussion board: members only (migration 0273). */}
-      {viewerRole && <Discussion coalitionId={c.id} slug={c.slug} />}
+      {viewerRole && <Discussion coalitionId={c.id} slug={c.slug} prefill={prefill} />}
 
       {/* Members list (gated) */}
       {viewerRole && (
@@ -357,4 +381,16 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
       )}
     </div>
   );
+}
+
+/** The organizer's pinned welcome post, pre-filled from the checklist; they edit it before posting. */
+function welcomeBody(name: string): string {
+  return [
+    `Welcome to ${name}! Reply below to introduce yourself: where you live, and why kratom matters to you.`,
+    "How we work:",
+    "• Each week we pick one group action. It takes about a minute.",
+    "• Call-in days and meetings are under Events. RSVP and you'll get a reminder.",
+    "• Share the group link with one person you trust.",
+    "Everyone here appears by @username only.",
+  ].join("\n\n");
 }
