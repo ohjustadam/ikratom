@@ -10,7 +10,10 @@
 // Recalls, company lawsuits / enforcement, arrests, court rulings, and general
 // news stay as ALERTS (informational), never auto-campaigns.
 
-const ALWAYS = new Set(["bill_event", "bop_hearing"]);
+// rule_filed (0278): an agency filed or proposed a rule (state register notice,
+// emergency rule, BoP rule proposal). A filed rule opens a comment period, so it
+// is a real trigger; the campaign still lands in pending_review.
+const ALWAYS = new Set(["bill_event", "bop_hearing", "rule_filed"]);
 
 // Within fda_action/dea_action the kind can't distinguish a ban push from a
 // recall/lawsuit, so disambiguate on the title.
@@ -89,6 +92,38 @@ export function isBillConcluded(bill) {
   if (status === "enacted" || status === "dead") return true;
   if (bill.active === false) return true;
   return CONCLUDED_BILL_ACTION_RE.test(String(bill.last_action ?? ""));
+}
+
+// ── Staleness gate (0278 trigger mirrors this exactly) ──────────────────────
+// isBillConcluded() catches a fight that is OVER. This catches a trigger that
+// is OLD: an expired alert, a hearing that already happened, a bill whose
+// session ended, or a story that was weeks old before anyone approved it. In
+// May 2026, 2,092 of 2,639 auto-campaigns came from news >14 days old at
+// creation; nothing at creation time checked the clock.
+//
+// storyAt = the linked news item's published_at, else the alert's created_at.
+// Returns the reason it is stale, or null when it is still a live trigger.
+export const STORY_MAX_AGE_DAYS = 21;
+const DAY_MS = 86_400_000;
+
+/**
+ * @param {{ alert: any, bill?: { session_sine_die?: boolean | null } | null,
+ *           storyAt?: string | null, now?: number }} args
+ * @returns {string | null}
+ */
+export function alertStaleReason({ alert, bill = null, storyAt = null, now = Date.now() }) {
+  if (!alert) return null;
+  const t = (v) => (v ? new Date(v).getTime() : NaN);
+  if (t(alert.expires_at) < now) return "alert expired";
+  if ((alert.kind === "bop_hearing" || alert.kind === "rule_filed") && t(alert.occurs_at) < now - DAY_MS) {
+    return "hearing/comment date already passed";
+  }
+  if (bill?.session_sine_die === true) return "linked bill's session ended (sine die)";
+  const story = t(storyAt ?? alert.created_at);
+  if (story < now - STORY_MAX_AGE_DAYS * DAY_MS) {
+    return `story is ${Math.floor((now - story) / DAY_MS)} days old (> ${STORY_MAX_AGE_DAYS})`;
+  }
+  return null;
 }
 
 // ── FP (false-positive) gate decision ───────────────────────────────────────
