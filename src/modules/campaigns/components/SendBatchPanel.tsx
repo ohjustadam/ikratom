@@ -133,7 +133,7 @@ export function SendBatchPanel({
           )}
           <p className="mt-1 text-xs text-zinc-400">
             Each official gets their own letter, addressed to them by name, exactly as written above
-            and closing with &ldquo;Sent via iKratom.org&rdquo;. Sending is paced to protect your account; you can close this page and it keeps going.
+            and closing with a small &ldquo;Sent via iKratom&rdquo; line. Sending is paced to protect your account; you can close this page and it keeps going.
           </p>
           <button
             type="button"

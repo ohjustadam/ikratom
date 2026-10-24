@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { recordAttachmentMetadata } from "../actions-attachments";
 import {
+  clipFileProblem,
   extForContentType,
+  isInAppBrowser,
   mediaErrorMessage,
   pickRecorderMime,
   uploadContentType,
@@ -24,12 +26,39 @@ import {
  *   5. Server action persists metadata, returns public URL
  *   6. Caller adds "Listen to my 30-second message: <url>" to the letter
  *
+ * Where the browser can't record (Facebook/Instagram/TikTok in-app browsers,
+ * old WebViews) the member records with the phone's own camera or voice app
+ * through a file input instead, or uploads a clip they already have; the same
+ * 30 s / 25 MB limits apply.
+ *
  * The page's Permissions-Policy must allow camera/microphone for 'self'
  * (next.config.ts); until 2026-10-24 it denied both, so the buttons did nothing.
  */
 
 const MAX_SECONDS = 30;
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB hard cap, same as the bucket (0217)
+
+const noop = () => () => {};
+/** True where in-page recording can't work, so the file-input path leads. */
+function cannotRecordHere(): boolean {
+  return isInAppBrowser(navigator.userAgent) || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined";
+}
+
+/** A picked file's length in seconds, or null when the browser can't tell. */
+function mediaDuration(url: string, kind: ClipKind): Promise<number | null> {
+  return new Promise((resolve) => {
+    const el = document.createElement(kind === "video" ? "video" : "audio");
+    let settled = false;
+    const done = (v: number | null) => { if (!settled) { settled = true; resolve(v); } };
+    el.preload = "metadata";
+    el.onloadedmetadata = () => done(Number.isFinite(el.duration) ? el.duration : null);
+    el.onerror = () => done(null);
+    setTimeout(() => done(null), 5000);
+    el.src = url;
+  });
+}
+
+const FILE_BUTTON = "cursor-pointer rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:border-emerald-500";
 
 export function AttachmentRecorder({
   onAttached,
@@ -44,6 +73,7 @@ export function AttachmentRecorder({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [attached, setAttached] = useState<ClipKind | null>(null);
+  const noRecorder = useSyncExternalStore(noop, cannotRecordHere, () => false);
 
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -178,6 +208,25 @@ export function AttachmentRecorder({
     blobRef.current = null;
   }
 
+  async function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const input = e.currentTarget; // read before any await (React reuses the event)
+    const file = input.files?.[0];
+    input.value = ""; // picking the same file again still fires onChange
+    if (!file) return;
+    setError(null);
+    setAttached(null);
+    const kind: ClipKind = file.type.startsWith("video/") ? "video" : "audio";
+    const url = URL.createObjectURL(file);
+    const secs = file.type.startsWith("audio/") || file.type.startsWith("video/") ? await mediaDuration(url, kind) : null;
+    const problem = clipFileProblem(file, secs, MAX_SECONDS, MAX_BYTES);
+    if (problem) { URL.revokeObjectURL(url); setError(problem); return; }
+    blobRef.current = new Blob([file], { type: uploadContentType(file.type, kind) });
+    durationRef.current = Math.max(1, Math.min(MAX_SECONDS, Math.round(secs ?? MAX_SECONDS)));
+    setTranscript("");
+    setMode(kind);
+    setPreviewUrl(url);
+  }
+
   async function upload() {
     const blob = blobRef.current;
     if (!blob || !mode) return;
@@ -236,7 +285,27 @@ export function AttachmentRecorder({
               ? `✓ ${attached === "video" ? "Video" : "Audio"} attached. Its link is at the end of your letter above.`
               : "Attach a 30-second video or audio clip. Legislators read these."}
           </p>
+          {noRecorder && (
+            <p className="mt-2 rounded-md border border-amber-800/50 bg-amber-950/20 px-2 py-1.5 text-xs text-amber-200">
+              This browser can&apos;t record inside the page (in-app browsers like Facebook&apos;s block it). Open this
+              page in Chrome or Safari to record here (tap ⋯ then &ldquo;Open in browser&rdquo;), or use your
+              phone&apos;s camera app below.
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
+            {noRecorder ? (
+              <>
+                <label className={FILE_BUTTON}>
+                  🎥 Record with your phone&apos;s camera app
+                  <input type="file" accept="audio/*,video/*" capture="user" onChange={pickFile} className="sr-only" />
+                </label>
+                <label className={FILE_BUTTON}>
+                  📁 Choose a clip
+                  <input type="file" accept="audio/*,video/*" onChange={pickFile} className="sr-only" />
+                </label>
+              </>
+            ) : (
+              <>
             <button
               type="button"
               onClick={() => start("audio")}
@@ -251,7 +320,15 @@ export function AttachmentRecorder({
             >
               📹 {attached ? "Record again (video)" : "Record video"}
             </button>
+              </>
+            )}
           </div>
+          {!noRecorder && (
+            <label className="mt-2 inline-block cursor-pointer text-[11px] text-zinc-500 underline hover:text-emerald-300">
+              or upload a clip you already have (up to 30 seconds)
+              <input type="file" accept="audio/*,video/*" onChange={pickFile} className="sr-only" />
+            </label>
+          )}
           {errorBox}
         </div>
       )}

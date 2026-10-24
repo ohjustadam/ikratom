@@ -151,7 +151,7 @@ export function GroupComposeModal({
     })();
   }
 
-  // What actually leaves: the letter plus "Sent via iKratom.org" (letter-extras.ts).
+  // What actually leaves: the letter plus the plain "Sent via iKratom — <link>" line (lib/email/letter-footer.ts).
   const letter = withLetterFooter(body);
 
   function logSend(via: string) {

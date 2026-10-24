@@ -24,11 +24,11 @@ describe("the footer", () => {
   it("closes the letter after the sender's name", () => {
     const out = sendRender(letter);
     expect(out.endsWith(`Paul E.\nGulfport, MS\n\n${LETTER_FOOTER}`)).toBe(true);
-    expect(LETTER_FOOTER).toBe("Sent via iKratom.org");
+    expect(LETTER_FOOTER).toBe("Sent via iKratom — https://www.ikratom.org");
   });
 
-  it("is plain: no link, no tracking, no placeholder", () => {
-    expect(LETTER_FOOTER).not.toMatch(/https?:|\?|utm|\{\{/i);
+  it("is plain: no tracking, no placeholder", () => {
+    expect(LETTER_FOOTER).not.toMatch(/\?|utm|\{\{/i);
     expect(unfilledPlaceholders(sendRender(letter))).toEqual([]);
   });
 
@@ -36,7 +36,7 @@ describe("the footer", () => {
     const once = withLetterFooter("Hi\n\nPaul");
     expect(withLetterFooter(once)).toBe(once);
     expect(withLetterFooter(`${once}\n\n  `)).toBe(once);
-    expect(once.match(/Sent via iKratom\.org/g)).toHaveLength(1);
+    expect(once.split(LETTER_FOOTER)).toHaveLength(2);
   });
 
   it("survives banned-state safe mode, which rewrites the template, not the rendered letter", () => {

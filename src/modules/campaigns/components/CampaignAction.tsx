@@ -595,7 +595,7 @@ export function CampaignAction({
             />
             <p className="mt-1 text-xs text-zinc-500">
               Personal touches get read. A sentence about why this matters to you doubles your impact.
-              Every letter ends with one quiet line, &ldquo;Sent via iKratom.org&rdquo;, so officials know where it came from.
+              Every letter ends with a small &ldquo;Sent via iKratom&rdquo; line and our logo, so officials know where it came from.
             </p>
             {sampleGreeting && (
               <p className="mt-1 text-xs text-zinc-500">

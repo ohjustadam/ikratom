@@ -41,6 +41,27 @@ export function extForContentType(type: string): string {
   return type.split("/")[1]?.replace(/[^a-z0-9]/g, "") || "bin";
 }
 
+/**
+ * In-app browsers (Facebook, Instagram, TikTok, Snapchat, LINE, LinkedIn, X,
+ * Android WebViews) often refuse getUserMedia, or prompt and then fail. There
+ * the recorder offers the phone's own camera/voice app through a file input.
+ */
+export function isInAppBrowser(ua: string): boolean {
+  return /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Line\/|Snapchat|musical_ly|BytedanceWebview|TikTok|LinkedInApp|Twitter|; wv\)/i.test(ua);
+}
+
+/** Why an uploaded file can't be attached, or null when it can. */
+export function clipFileProblem(file: { type: string; size: number }, durationSeconds: number | null, maxSeconds: number, maxBytes: number): string | null {
+  if (!/^(audio|video)\//.test(file.type)) return "That file isn't an audio or video clip.";
+  if (file.size > maxBytes) {
+    return `That clip is ${Math.ceil(file.size / 1024 / 1024)} MB; the limit is ${Math.round(maxBytes / 1024 / 1024)} MB. Record a shorter clip, or audio only.`;
+  }
+  if (durationSeconds != null && Number.isFinite(durationSeconds) && durationSeconds > maxSeconds + 1) {
+    return `Clips can be up to ${maxSeconds} seconds; this one is ${Math.round(durationSeconds)}.`;
+  }
+  return null;
+}
+
 /** A plain-English reason recording could not start, with what to do about it. */
 export function mediaErrorMessage(err: unknown, kind: ClipKind): string {
   const device = kind === "video" ? "camera and microphone" : "microphone";
@@ -57,7 +78,7 @@ export function mediaErrorMessage(err: unknown, kind: ClipKind): string {
     case "AbortError":
       return `Your ${device} is in use by another app. Close that app and try again.`;
     case "Unsupported":
-      return "This browser can't record clips. Try the latest Chrome or Safari.";
+      return "This browser can't record here. Use “Record with your phone's camera app” below, or open this page in Chrome or Safari.";
     default:
       return `Couldn't start recording${(err as Error)?.message ? `: ${(err as Error).message}` : "."}`;
   }

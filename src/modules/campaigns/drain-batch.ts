@@ -160,7 +160,8 @@ export async function drainBatch(
     try {
       const vars = buildVars(profile as never, (leg ?? null) as never, leg ? [leg as never] : []);
       const subject = renderTemplate(batch.subject_template, vars);
-      // "Sent via iKratom.org" closes every letter, after the sender's name.
+      // "Sent via iKratom — https://www.ikratom.org" closes every letter, after
+      // the sender's name (the HTML part gets the logo; lib/email/letter-footer.ts).
       const body = withLetterFooter(renderTemplate(batch.body_template, vars));
       const unfilled = unfilledPlaceholders(`${subject}\n${body}`);
       if (unfilled.length > 0) {
