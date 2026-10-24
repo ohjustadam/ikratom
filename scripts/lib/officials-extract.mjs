@@ -44,14 +44,20 @@ const JURIS_NAME_ENTRIES = [...JURIS_NAME_TO_ABBR.entries()].sort((a, b) => b[0]
  * Drop a term end the model invented from "Next election YYYY" (2026-10-07,
  * Middlesex MA: "Next election 2026" became term_end 2026-01-01, so the refresh
  * job saw three sitting officers as "term ended" and re-queued them daily).
- * A bare YYYY-01-01 is how that guess comes out; keep it only when the page
- * doesn't tie that year to an upcoming election.
+ * A bare YYYY-01-01 is how that guess comes out — and how a year-only
+ * "Term expires 2027" comes out too (Jefferson City MO, whose council terms
+ * really end in April; Skagit WA, stored a year early, fixed 2026-10-19). So
+ * a January 1 is kept only when the page actually prints that day.
  */
 export function termEndOrNull(value, pageText) {
   const v = typeof value === "string" ? value.trim() : "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   const m = /^(\d{4})-01-01$/.exec(v);
-  if (m && new RegExp(`(next|upcoming)\\s+election[^0-9]{0,20}${m[1]}`, "i").test(String(pageText ?? ""))) return null;
+  if (m) {
+    const y = m[1];
+    const printed = new RegExp(`(jan(uary)?\\.?\\s+(1|1st),?\\s+${y}|\\b0?1/0?1/${y}|${y}-01-01|\\b1\\s+jan(uary)?\\.?\\s+${y})`, "i");
+    if (!printed.test(String(pageText ?? ""))) return null;
+  }
   return v;
 }
 

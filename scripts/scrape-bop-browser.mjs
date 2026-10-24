@@ -37,9 +37,9 @@ const results = await runBopEngine({
   // needs its own browser context — 4 in-flight is plenty for the 4
   // TLS-blocked sites we currently have.
   concurrency: 2,
-  // Lower limit for safety — we don't expect more than ~10 playwright
-  // sources ever; if the table grows past that, increase explicitly.
-  limit: 20,
+  // Raised from 20 for the state agency watch (2026-10-23): several state
+  // .gov newsrooms 403 a plain fetch from GitHub's IPs and need a browser.
+  limit: 60,
 });
 const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 

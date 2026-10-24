@@ -167,7 +167,9 @@ export async function fetchLegistarRoster(tenant: LegistarTenant): Promise<Sugge
       website,
       party: null,
       source_note: `Legistar (official ${body.BodyName} roster), retrieved ${today.slice(0, 10)}`,
-      term_end_date: r.OfficeRecordEndDate ? r.OfficeRecordEndDate.slice(0, 10) : null,
+      // 2099-01-01 / 9999-12-31 are Legistar's "no end date" placeholders (mirror of
+      // legistarEndDate in scripts/lib/legistar-officials.mjs).
+      term_end_date: r.OfficeRecordEndDate && /^(199|20[0-8])\d-/.test(r.OfficeRecordEndDate) ? r.OfficeRecordEndDate.slice(0, 10) : null,
       source_url: `https://${tenant.subdomain}.legistar.com/People.aspx`,
       source_kind: "legistar",
     });

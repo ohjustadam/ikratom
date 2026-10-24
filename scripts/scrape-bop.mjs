@@ -27,7 +27,10 @@ console.log("Running BoP engine…");
 const t0 = Date.now();
 // The Playwright subset (TLS-blocked sites) has its own job,
 // scrape-bop-browser.mjs; this one walks every other source.
-const results = await runBopEngine({ supabase, excludeAdapters: ["playwright_browser"] });
+// limit: the engine's default of 75 sources predates the state agency watch
+// (~200 sources from 2026-10-23); below the source count it silently rotates,
+// walking each source only every few days.
+const results = await runBopEngine({ supabase, limit: 400, excludeAdapters: ["playwright_browser"] });
 const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
 console.log(`\nDone in ${elapsed}s — ${results.length} source(s) walked:\n`);
