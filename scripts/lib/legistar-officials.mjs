@@ -83,6 +83,18 @@ function pickCouncilBody(bodies, bodyHint) {
   return null;
 }
 
+/**
+ * Legistar's OfficeRecordEndDate, or null when it is a placeholder. Tenants
+ * enter 2099-01-01 (or 9999-12-31) for "no end date"; stored as-is it read as
+ * a real term end for Oklahoma County's three commissioners until 2026-10-23.
+ */
+export function legistarEndDate(value) {
+  const d = value ? String(value).slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const y = Number(d.slice(0, 4));
+  return y >= 2090 || y < 1990 ? null : d;
+}
+
 function mapRole({ level, title }) {
   const t = (title ?? "").toLowerCase();
   if (level === "county") {
@@ -178,7 +190,7 @@ export async function fetchLegistarOfficials({ client, bodyHint, level, subdomai
       phone: phone && phone.trim() ? phone.trim() : null,
       website,
       party: null,
-      term_end_date: r.OfficeRecordEndDate ? r.OfficeRecordEndDate.slice(0, 10) : null,
+      term_end_date: legistarEndDate(r.OfficeRecordEndDate),
       source_url: `https://${subdomain}.legistar.com/People.aspx`,
       source_note: `Legistar (official ${body.BodyName} roster), retrieved ${today.slice(0, 10)}`,
     });
