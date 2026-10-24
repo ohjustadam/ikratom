@@ -39,7 +39,7 @@
  *   node --env-file=.env.local scripts/auto-campaign-from-alert.mjs --all-pending --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
-import { isCampaignWorthyAlert } from "./lib/campaign-eligibility.mjs";
+import { alertStaleReason, isCampaignWorthyAlert } from "./lib/campaign-eligibility.mjs";
 import { cleanSourceUrl } from "./lib/source-url.mjs";
 
 const sb = createClient(
@@ -282,7 +282,7 @@ async function processAlert(alert) {
   // itself IS the action. Generic news_break / bill_event without a
   // bill_id link is too noisy and was producing 200+ duplicate
   // cross-state campaigns from syndicated news.
-  const ANCHORED_KINDS = new Set(["bop_hearing", "ag_enforcement", "fda_action"]);
+  const ANCHORED_KINDS = new Set(["bop_hearing", "rule_filed", "ag_enforcement", "fda_action"]);
   if (!alert.bill_id && !ANCHORED_KINDS.has(alert.kind)) {
     console.log(`  ⏭  no bill_id + kind=${alert.kind} not anchored — skipping (news-only alert)`);
     return "skip";
@@ -299,12 +299,27 @@ async function processAlert(alert) {
   // campaigns for dead/enacted bills — 20/22 junk). If this alert anchors a
   // bill that's already settled (dead / enacted / session-inactive), advocacy
   // is moot — skip. Anchored news events without a bill_id are unaffected.
+  let bill = null;
   if (alert.bill_id) {
-    const { data: b } = await sb.from("bills").select("status, active, bill_number").eq("id", alert.bill_id).maybeSingle();
+    const { data: b } = await sb.from("bills").select("status, active, bill_number, session_sine_die").eq("id", alert.bill_id).maybeSingle();
+    bill = b ?? null;
     if (b && (b.active === false || b.status === "dead" || b.status === "enacted")) {
       console.log(`  ⏭  bill ${b.bill_number ?? alert.bill_id} settled (${b.status}/active=${b.active}) — no live advocacy, skipping`);
       return "skip";
     }
+  }
+
+  // Staleness gate (0278, mirrors the trigger): an expired alert, a passed
+  // hearing, a sine-die session or a story >21 days old is not a live trigger.
+  let storyAt = null;
+  if (alert.source_url) {
+    const { data: n } = await sb.from("news_items").select("published_at").eq("url", alert.source_url).maybeSingle();
+    storyAt = n?.published_at ?? null;
+  }
+  const stale = alertStaleReason({ alert, bill, storyAt });
+  if (stale) {
+    console.log(`  ⏭  stale trigger: ${stale} — skipping`);
+    return "skip";
   }
 
   const { targets, roles, locality, tier, bopBoardId } = await pickTargets(alert);
