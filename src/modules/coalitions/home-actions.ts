@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { COVER_THEMES } from "./covers";
 
 /**
  * Group home (migration 0284): the welcome checklist's own state and the
@@ -47,6 +48,28 @@ export async function markGroupLinkShared(coalitionId: string): Promise<Res> {
 /** Close the welcome checklist for good. */
 export async function finishWelcome(coalitionId: string): Promise<Res> {
   return stampOwnRow(coalitionId, "welcome_done_at");
+}
+
+/**
+ * Edit the group's About text and cover theme. Organizers only; coalitions'
+ * UPDATE policy is owner-only, so admins write through the service role after
+ * the role check, as setGroupVisibility does.
+ */
+export async function updateGroupAbout(coalitionId: string, description: string, coverTheme: string): Promise<Res> {
+  const ro = await assertNotReadOnly();
+  if (ro) return { ok: false, error: ro };
+  const me = await ownMembership(coalitionId);
+  if (!me || (me.role !== "owner" && me.role !== "admin")) return { ok: false, error: "Only the group's organizers can edit this." };
+  if (!(COVER_THEMES as readonly string[]).includes(coverTheme)) return { ok: false, error: "Pick a cover." };
+  const text = String(description ?? "").trim();
+  if (text.length > 2000) return { ok: false, error: "Keep the About under 2,000 characters." };
+  if (!(await checkRateLimit(`coalition:about:${me.user.id}`, 20, 3600))) return { ok: false, error: "Slow down a little." };
+  const admin = createServiceRoleClient();
+  const { data, error } = await admin.from("coalitions")
+    .update({ description: text || null, cover_theme: coverTheme }).eq("id", coalitionId).select("slug").single();
+  if (error || !data) return { ok: false, error: "Couldn't save that." };
+  revalidatePath(`/coalitions/${data.slug}`);
+  return { ok: true };
 }
 
 /** Pin one discussion to the top of the board (or unpin it). Organizers only; RLS + a trigger enforce it too. */
