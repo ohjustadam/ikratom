@@ -232,6 +232,8 @@ export function renderUpdates(fresh) {
  *   - numbers reserved through `reserve-migration`;
  *   - numbers that a "reserving / claiming migration 0NNN" journal line names by hand.
  * Then it adds one. It errs toward a gap, never a collision.
+ * @param {{ fileNames?: string[], reserved?: Array<{ n: number }>, journalTexts?: string[] }} sources
+ * @returns {number}
  */
 export function nextMigrationNumber({ fileNames = [], reserved = [], journalTexts = [] }) {
   let max = 0;
