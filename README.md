@@ -40,8 +40,7 @@ The advocate's toolbelt. A nonpartisan political action platform for the kratom 
 ## Where things stand
 
 v1 shipped long ago. For what runs where today, start at
-[`STATE_OF_PLAY.md`](./STATE_OF_PLAY.md); for what the owner still has to do
-by hand, [`OWNER_TODO.md`](./OWNER_TODO.md).
+[`STATE_OF_PLAY.md`](./STATE_OF_PLAY.md).
 
 ## License
 
