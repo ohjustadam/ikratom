@@ -17,8 +17,10 @@ const btn = "rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc
 const ghost = "rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-emerald-500";
 
 /** The one reusable group link + QR. Members can share it once an organizer turns it on. */
-export function GroupLinkCard({ coalitionId, groupName }: { coalitionId: string; groupName?: string }) {
-  const [link, setLink] = useState<{ url: string; qrSvg: string } | null>(null);
+export function GroupLinkCard({ coalitionId, groupName, initial = null }: {
+  coalitionId: string; groupName?: string; initial?: { url: string; qrSvg: string } | null;
+}) {
+  const [link, setLink] = useState<{ url: string; qrSvg: string } | null>(initial);
   const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
