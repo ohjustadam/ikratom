@@ -113,7 +113,12 @@ describe("termEndOrNull — 'next election' is not a term end", () => {
   });
   it("keeps a real stated date", () => {
     expect(termEndOrNull("2026-12-07", "Term: December 5, 2022 - December 7, 2026")).toBe("2026-12-07");
-    expect(termEndOrNull("2027-01-01", page)).toBe("2027-01-01"); // year not tied to an election
+    expect(termEndOrNull("2027-01-01", "Term ends January 1, 2027")).toBe("2027-01-01");
+    expect(termEndOrNull("2027-01-01", "term: 01/01/2023 - 01/01/2027")).toBe("2027-01-01");
+  });
+  it("drops a January 1 the page never prints (a year-only 'term expires')", () => {
+    expect(termEndOrNull("2027-01-01", "Ward 2 Hal Dulle term expires 2027")).toBeNull();
+    expect(termEndOrNull("2027-01-01", page)).toBeNull();
   });
   it("rejects non-dates", () => {
     expect(termEndOrNull("2026", page)).toBeNull();
