@@ -2,7 +2,7 @@ import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { publicHandle } from "@/lib/public-handle";
-import { ReplyForm, RemoveButton } from "./ThreadClient";
+import { PinButton, ReplyForm, RemoveButton } from "./ThreadClient";
 
 /**
  * One discussion in a coalition's private board (migration 0273). RLS returns
@@ -27,7 +27,7 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
 
   const [{ data: thread }, { data: postRows }, { data: me }] = await Promise.all([
     sb.from("coalition_threads")
-      .select("id, title, body, author_id, created_at")
+      .select("id, title, body, author_id, created_at, pinned_at")
       .eq("id", threadId).eq("coalition_id", c.id).is("deleted_at", null).maybeSingle(),
     sb.from("coalition_posts")
       .select("id, body, author_id, created_at")
@@ -61,6 +61,7 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
         {(thread.author_id === user.id || canModerate) && (
           <RemoveButton slug={c.slug} kind="thread" id={thread.id} redirectTo={`/coalitions/${c.slug}#discussion`} />
         )}
+        {canModerate && <PinButton slug={c.slug} threadId={thread.id} pinned={!!thread.pinned_at} />}
       </article>
 
       <ul className="mt-4 space-y-2">
@@ -75,7 +76,7 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
         ))}
       </ul>
 
-      <ReplyForm slug={c.slug} threadId={thread.id} />
+      <div id="reply" className="scroll-mt-20"><ReplyForm slug={c.slug} threadId={thread.id} /></div>
     </div>
   );
 }

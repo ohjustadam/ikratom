@@ -4,12 +4,18 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createCoalitionThread } from "@/modules/coalitions/discussion-actions";
 
-/** "Start a discussion" for a coalition's private board. */
-export function NewThreadForm({ slug }: { slug: string }) {
+/**
+ * "Start a discussion" for a coalition's private board. The welcome checklist
+ * opens it pre-filled: a member's hello, or an organizer's pinned welcome post.
+ */
+export function NewThreadForm({ slug, prefill }: {
+  slug: string;
+  prefill?: { title: string; body: string; pin?: boolean } | null;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
+  const [open, setOpen] = useState(!!prefill);
+  const [title, setTitle] = useState(prefill?.title ?? "");
+  const [body, setBody] = useState(prefill?.body ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -29,7 +35,7 @@ export function NewThreadForm({ slug }: { slug: string }) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await createCoalitionThread(slug, title, body);
+      const res = await createCoalitionThread(slug, title, body, { pin: !!prefill?.pin });
       if (!res.ok) { setError(res.error); return; }
       router.push(`/coalitions/${slug}/t/${res.id}`);
     });
@@ -61,7 +67,7 @@ export function NewThreadForm({ slug }: { slug: string }) {
           disabled={pending}
           className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"
         >
-          {pending ? "Posting…" : "Post"}
+          {pending ? "Posting…" : prefill?.pin ? "Post and pin" : "Post"}
         </button>
         <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200">
           Cancel
