@@ -150,12 +150,15 @@ export function deriveTermStart(observations, target) {
  * @param {Record<string,string[]>} startsByChamber e.g. { upper: [...], lower: [...] }
  * @param {number[]} cycles observed election years
  * @param {number} target the cycle to predict
+ * @returns {Record<string, {date:string|null, rule?:string, evidence?:string, reason?:string}>}
  */
 export function deriveStateTermStarts(startsByChamber, cycles, target) {
+  /** @type {Record<string, any>} */
   const own = {};
   for (const [chamber, starts] of Object.entries(startsByChamber)) {
     own[chamber] = deriveTermStart(observedStarts(starts, cycles), target);
   }
+  /** @type {Record<string, any>} */
   const out = {};
   for (const [chamber, starts] of Object.entries(startsByChamber)) {
     const mine = own[chamber];
@@ -235,7 +238,12 @@ function sectionOf(table) {
  * the regular list is the qualifying table with the most districts, and a
  * table under a "Special election(s)" heading is the special list.
  *
- * @returns {{regular: Map<string,string>, special: Map<string,string>}} district → incumbent as listed
+ * Each district maps to the incumbent's name as listed (the first name-like
+ * cell) plus every cell of the row, because column order varies by page
+ * ("District | 2024 pres. | Incumbent", "Dist. | Location | Member") and the
+ * caller corroborates by finding OUR incumbent anywhere in the row.
+ *
+ * @returns {{regular: Map<string,{name:string,cells:string[]}>, special: Map<string,{name:string,cells:string[]}>}}
  */
 export function parseWikiSeatTables(html) {
   const { parseHTML } = require("linkedom");
@@ -244,19 +252,22 @@ export function parseWikiSeatTables(html) {
   const special = new Map();
   for (const table of document.querySelectorAll("table.wikitable")) {
     const trs = [...table.querySelectorAll("tr")];
-    const head = trs.slice(0, 2).map((tr) => [...tr.querySelectorAll("th")].map((c) => c.textContent).join("|")).join("|");
-    if (!/district/i.test(head) || !/incumbent|member/i.test(head)) continue;
+    const head = trs.slice(0, 2).map((tr) => [...tr.querySelectorAll("th")].map((c) => c.textContent.trim()).join("|")).join("|");
+    if (!/district|\bdist\.|(^|\|)no\.?(\||$)/i.test(head) || !/incumbent|member/i.test(head)) continue;
     const section = sectionOf(table);
     const isSpecial = /special/i.test(section);
     if (!isSpecial && SKIP_SECTION.test(section)) continue;
     const seats = new Map();
     for (const tr of trs) {
       const cells = [...tr.children].filter((c) => c.tagName === "TD" || c.tagName === "TH");
-      if (cells.length < 2 || cells[0].tagName !== "TD") continue;
+      // Some pages mark the district cell as a row header (<th>1st</th>); header
+      // rows never normalize to a district, so they still fall out below.
+      if (cells.length < 2 || !cells.slice(1).some((c) => c.tagName === "TD")) continue;
       const district = normalizeDistrict(cells[0].textContent);
       if (!district || seats.has(district)) continue;
-      const name = cells.slice(1).map((c) => c.textContent.replace(/\[[^\]]*\]/g, "").trim()).find((s) => /[a-z]{2,}\s+[a-z]/i.test(s) && !/^(rep|dem|republican|democratic|independent|vacant)/i.test(s));
-      seats.set(district, name ?? "");
+      const texts = cells.slice(1).map((c) => c.textContent.replace(/\[[^\]]*\]/g, "").replace(/\s+/g, " ").trim()).filter(Boolean);
+      const name = texts.find((s) => /[a-z]{2,}\s+[a-z]/i.test(s) && !/^(rep|dem|republican|democratic|independent|vacant|incumbent)/i.test(s));
+      seats.set(district, { name: (name ?? "").replace(/[†‡*]/g, "").trim(), cells: texts });
     }
     if (isSpecial) for (const [k, v] of seats) special.set(k, v);
     else if (seats.size > regular.size) regular = seats;
@@ -275,10 +286,24 @@ export function wikiTitles(year, stateName, office) {
     `${year} ${s} House of Delegates election`, `${year} ${s} State Assembly election`, `${year} ${s} House of Representatives elections`];
 }
 
-/** Last-name agreement: Wikipedia's incumbent vs ours (accents and suffixes ignored). */
+/**
+ * Surname agreement between a listed name and ours. Accents, footnote marks
+ * (Wikipedia's † for "retiring"), party tags and suffixes are ignored, and a
+ * compound surname matches either part: "Michael Brooks-Jimenez" is our
+ * "Michael Brooks", "Suzy Glowiak" is our "Suzy Glowiak Hilton". The surname
+ * of one must appear after the first name of the other, so "Scott Thomas"
+ * never matches "Thomas Scott".
+ */
 export function sameSurname(a, b) {
-  const last = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
-    .replace(/\(.*?\)|,?\s+(jr|sr|ii|iii|iv)\.?$/g, "").trim().split(/\s+/).pop() ?? "";
-  const x = last(a), y = last(b);
-  return x.length > 1 && x === y;
+  const tokens = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+    .replace(/\(.*?\)/g, " ").replace(/[^a-z\s'-]/g, " ").replace(/\b(jr|sr|ii|iii|iv)\b/g, " ")
+    .split(/[\s-]+/).filter((t) => t.length > 1);
+  const x = tokens(a), y = tokens(b);
+  if (x.length < 2 || y.length < 2) return false;
+  return y.slice(1).includes(x.at(-1)) || x.slice(1).includes(y.at(-1));
+}
+
+/** Does our official's surname appear anywhere in a listed table row? */
+export function rowNamesOfficial(row, fullName) {
+  return [row.name, ...row.cells].some((c) => sameSurname(c, fullName));
 }

@@ -1,4 +1,4 @@
--- 0276_officials_turnover_calendar.sql
+-- 0277_officials_turnover_calendar.sql
 --
 -- The officials-turnover engine, parts (a)-(d) (owner ask 2026-10-23: "no gaps
 -- in information loss when official turnover happens"; plan
@@ -57,6 +57,7 @@ create table if not exists public.seat_elections (
   state           text not null,
   office          text not null,
   district        text not null default '',    -- '' for a statewide office
+  seat            text not null default '',    -- '' for a single-member seat; the sitting member's id in a multi-member district
   election_date   date not null,
   kind            text not null default 'regular' check (kind in ('regular', 'special')),
   incumbent_id    uuid references public.legislators(id) on delete set null,
@@ -71,7 +72,7 @@ create table if not exists public.seat_elections (
   review_reason   text,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
-  unique (state, office, district, election_date, kind)
+  unique (state, office, district, seat, election_date, kind)
 );
 create index if not exists ix_seat_elections_incumbent on public.seat_elections (incumbent_id) where incumbent_id is not null;
 create index if not exists ix_seat_elections_open on public.seat_elections (status, handover_date)
