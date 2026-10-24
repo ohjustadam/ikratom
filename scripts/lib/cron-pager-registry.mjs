@@ -183,6 +183,9 @@ export const REGISTRY = [
 
   // Moved to the cloud 2026-10-21 (bill-embeddings.yml, daily, Cloudflare bge-base).
   { source: "bill_embeddings", interval_hours: 36, system: "github-actions", cadence: "daily" },
+  // Playbook-match alerts (intel step 2, 2026-10-23): the next step in the same
+  // job. Writes a row every run, even when no bill moved.
+  { source: "playbook_match_alerts", interval_hours: 36, system: "github-actions", cadence: "daily" },
   // Officials turnover (2026-10-23): which seats are on the next ballot and
   // when each changes hands. In cron-daily's roster-diff job, self-gated to
   // every 3 days, so 72h here pages after 9 silent days.
