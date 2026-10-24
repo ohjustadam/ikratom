@@ -1,0 +1,1210 @@
+[
+ {
+  "state": "WV",
+  "board_name": "WV Secretary of State",
+  "surface": "Emergency rules",
+  "kind": "rules",
+  "url": "https://sos.wv.gov/administrative-law/rule-making/emergency-rules",
+  "homepage": "https://sos.wv.gov/"
+ },
+ {
+  "state": "AL",
+  "board_name": "AL Dept of Public Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.alabamapublichealth.gov/news/index.html",
+  "homepage": "https://www.alabamapublichealth.gov/"
+ },
+ {
+  "state": "AL",
+  "board_name": "AL Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.alabamaag.gov/category/press-release/",
+  "homepage": "https://www.alabamaag.gov/"
+ },
+ {
+  "state": "AL",
+  "board_name": "AL Administrative Monthly",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://admincode.legislature.state.al.us/administrative-monthly",
+  "homepage": "https://admincode.legislature.state.al.us/"
+ },
+ {
+  "state": "AK",
+  "board_name": "AK Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://health.alaska.gov/en/news/",
+  "homepage": "https://health.alaska.gov/"
+ },
+ {
+  "state": "AK",
+  "board_name": "AK Dept of Law",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://law.alaska.gov/press/releases.html",
+  "homepage": "https://law.alaska.gov/"
+ },
+ {
+  "state": "AK",
+  "board_name": "AK Online Public Notices",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://aws.state.ak.us/OnlinePublicNotices/",
+  "homepage": "https://aws.state.ak.us/OnlinePublicNotices/"
+ },
+ {
+  "state": "AZ",
+  "board_name": "AZ Dept of Health Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.azdhs.gov/director/public-information-office/index.php",
+  "homepage": "https://www.azdhs.gov/"
+ },
+ {
+  "state": "AZ",
+  "board_name": "AZ Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.azag.gov/press-releases",
+  "homepage": "https://www.azag.gov/"
+ },
+ {
+  "state": "AZ",
+  "board_name": "AZ Administrative Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://azsos.gov/rules/arizona-administrative-register",
+  "homepage": "https://azsos.gov/rules"
+ },
+ {
+  "state": "AR",
+  "board_name": "AR Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://healthy.arkansas.gov/news/",
+  "homepage": "https://healthy.arkansas.gov/"
+ },
+ {
+  "state": "AR",
+  "board_name": "AR Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://arkansasag.gov/media-center/news-releases/",
+  "homepage": "https://arkansasag.gov/"
+ },
+ {
+  "state": "AR",
+  "board_name": "AR Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.sos.arkansas.gov/rules-regulations/arkansas-register",
+  "homepage": "https://www.sos.arkansas.gov/rules-regulations"
+ },
+ {
+  "state": "CA",
+  "board_name": "CA Dept of Public Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.cdph.ca.gov/Programs/OPA/Pages/News-Releases-2026.aspx",
+  "homepage": "https://www.cdph.ca.gov/"
+ },
+ {
+  "state": "CA",
+  "board_name": "CA Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://oag.ca.gov/media/news",
+  "homepage": "https://oag.ca.gov/"
+ },
+ {
+  "state": "CA",
+  "board_name": "CA Regulatory Notice Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://oal.ca.gov/publications/notice_register/",
+  "homepage": "https://oal.ca.gov/"
+ },
+ {
+  "state": "CO",
+  "board_name": "CO Dept of Public Health & Environment",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://cdphe.colorado.gov/press-releases",
+  "homepage": "https://cdphe.colorado.gov/"
+ },
+ {
+  "state": "CO",
+  "board_name": "CO Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://coag.gov/press-releases/",
+  "homepage": "https://coag.gov/"
+ },
+ {
+  "state": "CO",
+  "board_name": "CO Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.sos.state.co.us/CCR/RegisterHome.do",
+  "homepage": "https://www.sos.state.co.us/CCR/Welcome.do"
+ },
+ {
+  "state": "CT",
+  "board_name": "CT Dept of Public Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://portal.ct.gov/dph/press-room/press-releases",
+  "homepage": "https://portal.ct.gov/dph"
+ },
+ {
+  "state": "CT",
+  "board_name": "CT Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://portal.ct.gov/ag/press-releases",
+  "homepage": "https://portal.ct.gov/ag"
+ },
+ {
+  "state": "CT",
+  "board_name": "CT eRegulations",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://eregulations.ct.gov/eRegsPortal/",
+  "homepage": "https://eregulations.ct.gov/eRegsPortal/"
+ },
+ {
+  "state": "DE",
+  "board_name": "DE Health & Social Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://news.delaware.gov/category/department-of-health-and-social-services/",
+  "homepage": "https://dhss.delaware.gov/"
+ },
+ {
+  "state": "DE",
+  "board_name": "DE Dept of Justice",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://news.delaware.gov/category/department-of-justice/",
+  "homepage": "https://attorneygeneral.delaware.gov/"
+ },
+ {
+  "state": "DE",
+  "board_name": "DE Register of Regulations",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://regulations.delaware.gov/register/current_issue",
+  "homepage": "https://regulations.delaware.gov/"
+ },
+ {
+  "state": "DC",
+  "board_name": "DC Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://dchealth.dc.gov/newsroom",
+  "homepage": "https://dchealth.dc.gov/"
+ },
+ {
+  "state": "DC",
+  "board_name": "DC Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://oag.dc.gov/newsroom",
+  "homepage": "https://oag.dc.gov/"
+ },
+ {
+  "state": "DC",
+  "board_name": "DC Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.dcregs.dc.gov/",
+  "homepage": "https://www.dcregs.dc.gov/"
+ },
+ {
+  "state": "FL",
+  "board_name": "FL Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.floridahealth.gov/newsroom/index.html",
+  "homepage": "https://www.floridahealth.gov/"
+ },
+ {
+  "state": "FL",
+  "board_name": "FL Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.myfloridalegal.com/newsrelease",
+  "homepage": "https://www.myfloridalegal.com/"
+ },
+ {
+  "state": "FL",
+  "board_name": "FL Administrative Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.flrules.org/",
+  "homepage": "https://www.flrules.org/"
+ },
+ {
+  "state": "GA",
+  "board_name": "GA Dept of Public Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://dph.georgia.gov/press-releases",
+  "homepage": "https://dph.georgia.gov/"
+ },
+ {
+  "state": "GA",
+  "board_name": "GA Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://law.georgia.gov/press-releases",
+  "homepage": "https://law.georgia.gov/"
+ },
+ {
+  "state": "GA",
+  "board_name": "GA Rules and Regulations",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://rules.sos.ga.gov/",
+  "homepage": "https://rules.sos.ga.gov/"
+ },
+ {
+  "state": "HI",
+  "board_name": "HI Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://health.hawaii.gov/news/",
+  "homepage": "https://health.hawaii.gov/"
+ },
+ {
+  "state": "HI",
+  "board_name": "HI Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://ag.hawaii.gov/news/",
+  "homepage": "https://ag.hawaii.gov/"
+ },
+ {
+  "state": "HI",
+  "board_name": "HI Administrative Rules",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://ltgov.hawaii.gov/the-office/administrative-rules/",
+  "homepage": "https://ltgov.hawaii.gov/"
+ },
+ {
+  "state": "ID",
+  "board_name": "ID Health & Welfare",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://healthandwelfare.idaho.gov/news",
+  "homepage": "https://healthandwelfare.idaho.gov/"
+ },
+ {
+  "state": "ID",
+  "board_name": "ID Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.ag.idaho.gov/newsroom/",
+  "homepage": "https://www.ag.idaho.gov/"
+ },
+ {
+  "state": "ID",
+  "board_name": "ID Administrative Bulletin",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://adminrules.idaho.gov/bulletin/",
+  "homepage": "https://adminrules.idaho.gov/"
+ },
+ {
+  "state": "IL",
+  "board_name": "IL Dept of Public Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://dph.illinois.gov/resource-center/news.html",
+  "homepage": "https://dph.illinois.gov/"
+ },
+ {
+  "state": "IL",
+  "board_name": "IL Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://illinoisattorneygeneral.gov/news/",
+  "homepage": "https://illinoisattorneygeneral.gov/"
+ },
+ {
+  "state": "IL",
+  "board_name": "IL Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.ilsos.gov/departments/index/register/home.html",
+  "homepage": "https://www.ilsos.gov/departments/index/home.html"
+ },
+ {
+  "state": "IN",
+  "board_name": "IN Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.in.gov/health/about-the-agency/newsroom/",
+  "homepage": "https://www.in.gov/health/"
+ },
+ {
+  "state": "IN",
+  "board_name": "IN Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.in.gov/attorneygeneral/newsroom/",
+  "homepage": "https://www.in.gov/attorneygeneral/"
+ },
+ {
+  "state": "IN",
+  "board_name": "IN Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://iar.iga.in.gov/",
+  "homepage": "http://iac.iga.in.gov/"
+ },
+ {
+  "state": "IA",
+  "board_name": "IA Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://hhs.iowa.gov/news",
+  "homepage": "https://hhs.iowa.gov/"
+ },
+ {
+  "state": "IA",
+  "board_name": "IA Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.iowaattorneygeneral.gov/newsroom",
+  "homepage": "https://www.iowaattorneygeneral.gov/"
+ },
+ {
+  "state": "IA",
+  "board_name": "IA Administrative Bulletin",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.legis.iowa.gov/law/administrativeRules/bulletinSupplementListings",
+  "homepage": "https://www.legis.iowa.gov/law/administrativeRules"
+ },
+ {
+  "state": "KS",
+  "board_name": "KS Dept of Health & Environment",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.kdhe.ks.gov/m/newsflash",
+  "homepage": "https://www.kdhe.ks.gov/"
+ },
+ {
+  "state": "KS",
+  "board_name": "KS Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.ag.ks.gov/media-center/news-releases",
+  "homepage": "https://www.ag.ks.gov/"
+ },
+ {
+  "state": "KS",
+  "board_name": "KS Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://sos.ks.gov/publications/kansas-register.html",
+  "homepage": "https://sos.ks.gov/"
+ },
+ {
+  "state": "KY",
+  "board_name": "KY Health & Family Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.chfs.ky.gov/news/Pages/default.aspx",
+  "homepage": "https://www.chfs.ky.gov/"
+ },
+ {
+  "state": "KY",
+  "board_name": "KY Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.ag.ky.gov/news/Pages/default.aspx",
+  "homepage": "https://www.ag.ky.gov/"
+ },
+ {
+  "state": "KY",
+  "board_name": "KY Administrative Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://legislature.ky.gov/Law/kar/Pages/Registers.aspx",
+  "homepage": "https://legislature.ky.gov/Law/kar/"
+ },
+ {
+  "state": "LA",
+  "board_name": "LA Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://ldh.la.gov/news",
+  "homepage": "https://ldh.la.gov/"
+ },
+ {
+  "state": "LA",
+  "board_name": "LA Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.ag.state.la.us/News",
+  "homepage": "https://www.ag.state.la.us/"
+ },
+ {
+  "state": "LA",
+  "board_name": "LA Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.doa.la.gov/doa/osr/louisiana-register/",
+  "homepage": "https://www.doa.la.gov/doa/osr/"
+ },
+ {
+  "state": "ME",
+  "board_name": "ME Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.maine.gov/dhhs/news",
+  "homepage": "https://www.maine.gov/dhhs/"
+ },
+ {
+  "state": "ME",
+  "board_name": "ME Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.maine.gov/ag/news/",
+  "homepage": "https://www.maine.gov/ag/"
+ },
+ {
+  "state": "ME",
+  "board_name": "ME Weekly Rulemaking Notices",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.maine.gov/sos/cec/rules/notices.html",
+  "homepage": "https://www.maine.gov/sos/cec/rules/"
+ },
+ {
+  "state": "MD",
+  "board_name": "MD Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://health.maryland.gov/newsroom/Pages/default.aspx",
+  "homepage": "https://health.maryland.gov/"
+ },
+ {
+  "state": "MD",
+  "board_name": "MD Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.marylandattorneygeneral.gov/Pages/News/default.aspx",
+  "homepage": "https://www.marylandattorneygeneral.gov/"
+ },
+ {
+  "state": "MD",
+  "board_name": "MD Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://dsd.maryland.gov/Pages/MDRIndex.aspx",
+  "homepage": "https://dsd.maryland.gov/"
+ },
+ {
+  "state": "MA",
+  "board_name": "MA Dept of Public Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.mass.gov/orgs/department-of-public-health/news",
+  "homepage": "https://www.mass.gov/orgs/department-of-public-health"
+ },
+ {
+  "state": "MA",
+  "board_name": "MA Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.mass.gov/orgs/office-of-the-attorney-general/news",
+  "homepage": "https://www.mass.gov/orgs/office-of-the-attorney-general"
+ },
+ {
+  "state": "MA",
+  "board_name": "MA Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.sec.state.ma.us/divisions/regulations/",
+  "homepage": "https://www.sec.state.ma.us/"
+ },
+ {
+  "state": "MI",
+  "board_name": "MI Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.michigan.gov/mdhhs/inside-mdhhs/newsroom",
+  "homepage": "https://www.michigan.gov/mdhhs"
+ },
+ {
+  "state": "MI",
+  "board_name": "MI Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.michigan.gov/ag/news/press-releases",
+  "homepage": "https://www.michigan.gov/ag"
+ },
+ {
+  "state": "MI",
+  "board_name": "MI Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.michigan.gov/lara/bureau-list/moahr/admin-rules/michigan-register",
+  "homepage": "https://www.michigan.gov/lara/bureau-list/moahr/admin-rules"
+ },
+ {
+  "state": "MN",
+  "board_name": "MN Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.health.state.mn.us/news/pressrel/index.html",
+  "homepage": "https://www.health.state.mn.us/"
+ },
+ {
+  "state": "MN",
+  "board_name": "MN Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.ag.state.mn.us/Office/PressRelease.asp",
+  "homepage": "https://www.ag.state.mn.us/"
+ },
+ {
+  "state": "MN",
+  "board_name": "MN State Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://mn.gov/admin/bookstore/register.jsp",
+  "homepage": "https://mn.gov/admin/bookstore/"
+ },
+ {
+  "state": "MS",
+  "board_name": "MS State Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://msdh.ms.gov/page/23,0,341.html",
+  "homepage": "https://msdh.ms.gov/"
+ },
+ {
+  "state": "MS",
+  "board_name": "MS Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.ago.state.ms.us/news/",
+  "homepage": "https://www.ago.state.ms.us/"
+ },
+ {
+  "state": "MS",
+  "board_name": "MS Administrative Bulletin",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.sos.ms.gov/regulation-enforcement/administrative-bulletin",
+  "homepage": "https://www.sos.ms.gov/"
+ },
+ {
+  "state": "MO",
+  "board_name": "MO Dept of Health & Senior Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://health.mo.gov/news/newsreleases/",
+  "homepage": "https://health.mo.gov/"
+ },
+ {
+  "state": "MO",
+  "board_name": "MO Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://ago.mo.gov/press-releases/",
+  "homepage": "https://ago.mo.gov/"
+ },
+ {
+  "state": "MO",
+  "board_name": "MO Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.sos.mo.gov/adrules/moreg/moreg",
+  "homepage": "https://www.sos.mo.gov/adrules"
+ },
+ {
+  "state": "MT",
+  "board_name": "MT Public Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://dphhs.mt.gov/News/",
+  "homepage": "https://dphhs.mt.gov/"
+ },
+ {
+  "state": "MT",
+  "board_name": "MT Dept of Justice",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://dojmt.gov/category/press-release/",
+  "homepage": "https://dojmt.gov/"
+ },
+ {
+  "state": "MT",
+  "board_name": "MT Administrative Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://rules.mt.gov/",
+  "homepage": "https://sosmt.gov/arm/"
+ },
+ {
+  "state": "NE",
+  "board_name": "NE Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://dhhs.ne.gov/Pages/Newsroom.aspx",
+  "homepage": "https://dhhs.ne.gov/"
+ },
+ {
+  "state": "NE",
+  "board_name": "NE Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://ago.nebraska.gov/news",
+  "homepage": "https://ago.nebraska.gov/"
+ },
+ {
+  "state": "NE",
+  "board_name": "NE Rules and Regulations",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://rules.nebraska.gov/",
+  "homepage": "https://sos.nebraska.gov/"
+ },
+ {
+  "state": "NV",
+  "board_name": "NV Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://dhhs.nv.gov/News/Press_Releases/",
+  "homepage": "https://dhhs.nv.gov/"
+ },
+ {
+  "state": "NV",
+  "board_name": "NV Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://ag.nv.gov/News/PR/",
+  "homepage": "https://ag.nv.gov/"
+ },
+ {
+  "state": "NV",
+  "board_name": "NV Register of Administrative Regulations",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.leg.state.nv.us/Register/",
+  "homepage": "https://www.leg.state.nv.us/"
+ },
+ {
+  "state": "NH",
+  "board_name": "NH Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.dhhs.nh.gov/news-events",
+  "homepage": "https://www.dhhs.nh.gov/"
+ },
+ {
+  "state": "NH",
+  "board_name": "NH Dept of Justice",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.doj.nh.gov/resources/press-releases",
+  "homepage": "https://www.doj.nh.gov/"
+ },
+ {
+  "state": "NH",
+  "board_name": "NH Rulemaking Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://gc.nh.gov/rules/register/default.aspx",
+  "homepage": "https://gc.nh.gov/rules/"
+ },
+ {
+  "state": "NJ",
+  "board_name": "NJ Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.nj.gov/health/news/",
+  "homepage": "https://www.nj.gov/health/"
+ },
+ {
+  "state": "NJ",
+  "board_name": "NJ Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.njoag.gov/news/",
+  "homepage": "https://www.njoag.gov/"
+ },
+ {
+  "state": "NJ",
+  "board_name": "NJ Office of Administrative Law",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.nj.gov/oal/rules/",
+  "homepage": "https://www.nj.gov/oal/"
+ },
+ {
+  "state": "NM",
+  "board_name": "NM Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.nmhealth.org/news/",
+  "homepage": "https://www.nmhealth.org/"
+ },
+ {
+  "state": "NM",
+  "board_name": "NM Dept of Justice",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://nmdoj.gov/press-releases/",
+  "homepage": "https://nmdoj.gov/"
+ },
+ {
+  "state": "NM",
+  "board_name": "NM Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.srca.nm.gov/nmac-home/new-mexico-register/",
+  "homepage": "https://www.srca.nm.gov/"
+ },
+ {
+  "state": "NY",
+  "board_name": "NY Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.health.ny.gov/press/",
+  "homepage": "https://www.health.ny.gov/"
+ },
+ {
+  "state": "NY",
+  "board_name": "NY Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://ag.ny.gov/press-releases",
+  "homepage": "https://ag.ny.gov/"
+ },
+ {
+  "state": "NY",
+  "board_name": "NY State Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://dos.ny.gov/state-register",
+  "homepage": "https://dos.ny.gov/"
+ },
+ {
+  "state": "NC",
+  "board_name": "NC Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.ncdhhs.gov/news/press-releases",
+  "homepage": "https://www.ncdhhs.gov/"
+ },
+ {
+  "state": "NC",
+  "board_name": "NC Dept of Justice",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://ncdoj.gov/news/press-releases/",
+  "homepage": "https://ncdoj.gov/"
+ },
+ {
+  "state": "NC",
+  "board_name": "NC Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.oah.nc.gov/rules-division/north-carolina-register",
+  "homepage": "https://www.oah.nc.gov/rules-division"
+ },
+ {
+  "state": "ND",
+  "board_name": "ND Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.hhs.nd.gov/news",
+  "homepage": "https://www.hhs.nd.gov/"
+ },
+ {
+  "state": "ND",
+  "board_name": "ND Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://attorneygeneral.nd.gov/news/",
+  "homepage": "https://attorneygeneral.nd.gov/"
+ },
+ {
+  "state": "ND",
+  "board_name": "ND Agency Rules",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.ndlegis.gov/agency-rules",
+  "homepage": "https://www.ndlegis.gov/"
+ },
+ {
+  "state": "OH",
+  "board_name": "OH Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://odh.ohio.gov/media-center/odh-news-releases",
+  "homepage": "https://odh.ohio.gov/"
+ },
+ {
+  "state": "OH",
+  "board_name": "OH Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.ohioattorneygeneral.gov/Media/News-Releases",
+  "homepage": "https://www.ohioattorneygeneral.gov/"
+ },
+ {
+  "state": "OH",
+  "board_name": "Register of Ohio",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.registerofohio.state.oh.us/",
+  "homepage": "https://www.registerofohio.state.oh.us/"
+ },
+ {
+  "state": "OR",
+  "board_name": "OR Health Authority",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.oregon.gov/oha/ERD/Pages/News-Releases.aspx",
+  "homepage": "https://www.oregon.gov/oha/"
+ },
+ {
+  "state": "OR",
+  "board_name": "OR Dept of Justice",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.doj.state.or.us/media/news-media-releases/oregon-doj-news/",
+  "homepage": "https://www.doj.state.or.us/"
+ },
+ {
+  "state": "OR",
+  "board_name": "OR Bulletin",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://sos.oregon.gov/archives/Pages/oregon_bulletin.aspx",
+  "homepage": "https://sos.oregon.gov/archives/"
+ },
+ {
+  "state": "PA",
+  "board_name": "PA Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.pa.gov/agencies/health/newsroom",
+  "homepage": "https://www.pa.gov/agencies/health"
+ },
+ {
+  "state": "PA",
+  "board_name": "PA Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.attorneygeneral.gov/taking-action/",
+  "homepage": "https://www.attorneygeneral.gov/"
+ },
+ {
+  "state": "PA",
+  "board_name": "PA Bulletin",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.pacodeandbulletin.gov/Home/PaBulletin",
+  "homepage": "https://www.pacodeandbulletin.gov/"
+ },
+ {
+  "state": "RI",
+  "board_name": "RI Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://health.ri.gov/news",
+  "homepage": "https://health.ri.gov/"
+ },
+ {
+  "state": "RI",
+  "board_name": "RI Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://riag.ri.gov/press-releases",
+  "homepage": "https://riag.ri.gov/"
+ },
+ {
+  "state": "RI",
+  "board_name": "RI Proposed Regulations",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://rules.sos.ri.gov/Promulgations/",
+  "homepage": "https://rules.sos.ri.gov/"
+ },
+ {
+  "state": "SC",
+  "board_name": "SC Dept of Public Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://dph.sc.gov/news",
+  "homepage": "https://dph.sc.gov/"
+ },
+ {
+  "state": "SC",
+  "board_name": "SC Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.scag.gov/about-the-office/news/",
+  "homepage": "https://www.scag.gov/"
+ },
+ {
+  "state": "SC",
+  "board_name": "SC State Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.scstatehouse.gov/state_register.php",
+  "homepage": "https://www.scstatehouse.gov/"
+ },
+ {
+  "state": "SD",
+  "board_name": "SD Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://doh.sd.gov/sd-doh-press-releases/",
+  "homepage": "https://doh.sd.gov/"
+ },
+ {
+  "state": "SD",
+  "board_name": "SD Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://atg.sd.gov/OurOffice/Media/pressreleases.aspx",
+  "homepage": "https://atg.sd.gov/"
+ },
+ {
+  "state": "SD",
+  "board_name": "SD Rules Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://sdlegislature.gov/Rules/Register",
+  "homepage": "https://sdlegislature.gov/Rules"
+ },
+ {
+  "state": "TN",
+  "board_name": "TN Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.tn.gov/health/news.html",
+  "homepage": "https://www.tn.gov/health.html"
+ },
+ {
+  "state": "TN",
+  "board_name": "TN Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.tn.gov/attorneygeneral/news.html",
+  "homepage": "https://www.tn.gov/attorneygeneral.html"
+ },
+ {
+  "state": "TN",
+  "board_name": "TN Rulemaking Hearing Notices",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://sos.tn.gov/publications/services/rulemaking-hearing-notices",
+  "homepage": "https://sos.tn.gov/publications"
+ },
+ {
+  "state": "TX",
+  "board_name": "TX Dept of State Health Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.dshs.texas.gov/news-alerts",
+  "homepage": "https://www.dshs.texas.gov/"
+ },
+ {
+  "state": "TX",
+  "board_name": "TX Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.texasattorneygeneral.gov/news",
+  "homepage": "https://www.texasattorneygeneral.gov/"
+ },
+ {
+  "state": "TX",
+  "board_name": "TX Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://www.sos.texas.gov/texreg/index.shtml",
+  "homepage": "https://www.sos.texas.gov/"
+ },
+ {
+  "state": "UT",
+  "board_name": "UT Health & Human Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://dhhs.utah.gov/news/",
+  "homepage": "https://dhhs.utah.gov/"
+ },
+ {
+  "state": "UT",
+  "board_name": "UT Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://attorneygeneral.utah.gov/newsroom/",
+  "homepage": "https://attorneygeneral.utah.gov/"
+ },
+ {
+  "state": "UT",
+  "board_name": "UT State Bulletin",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://rules.utah.gov/publications/utah-state-bulletin/",
+  "homepage": "https://rules.utah.gov/"
+ },
+ {
+  "state": "VT",
+  "board_name": "VT Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.healthvermont.gov/media",
+  "homepage": "https://www.healthvermont.gov/"
+ },
+ {
+  "state": "VT",
+  "board_name": "VT Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://ago.vermont.gov/blog/category/press-releases",
+  "homepage": "https://ago.vermont.gov/"
+ },
+ {
+  "state": "VT",
+  "board_name": "VT Rulemaking Notices",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://sos.vermont.gov/vsara/rules/",
+  "homepage": "https://sos.vermont.gov/"
+ },
+ {
+  "state": "VA",
+  "board_name": "VA Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.vdh.virginia.gov/news/",
+  "homepage": "https://www.vdh.virginia.gov/"
+ },
+ {
+  "state": "VA",
+  "board_name": "VA Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.oag.state.va.us/media-center/news-releases",
+  "homepage": "https://www.oag.state.va.us/"
+ },
+ {
+  "state": "VA",
+  "board_name": "VA Register of Regulations",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://register.dls.virginia.gov/",
+  "homepage": "https://register.dls.virginia.gov/"
+ },
+ {
+  "state": "WA",
+  "board_name": "WA Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://doh.wa.gov/newsroom",
+  "homepage": "https://doh.wa.gov/"
+ },
+ {
+  "state": "WA",
+  "board_name": "WA Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.atg.wa.gov/pressrelease.aspx",
+  "homepage": "https://www.atg.wa.gov/"
+ },
+ {
+  "state": "WA",
+  "board_name": "WA State Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://leg.wa.gov/state-laws-and-rules/washington-state-register/",
+  "homepage": "https://leg.wa.gov/CodeReviser/"
+ },
+ {
+  "state": "WV",
+  "board_name": "WV Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://health.wv.gov/news",
+  "homepage": "https://dh.wv.gov/"
+ },
+ {
+  "state": "WV",
+  "board_name": "WV Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://ago.wv.gov/news",
+  "homepage": "https://ago.wv.gov/"
+ },
+ {
+  "state": "WV",
+  "board_name": "WV State Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://ovr.sos.wv.gov/Register/Landing",
+  "homepage": "https://sos.wv.gov/"
+ },
+ {
+  "state": "WI",
+  "board_name": "WI Dept of Health Services",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://www.dhs.wisconsin.gov/news/index.htm",
+  "homepage": "https://www.dhs.wisconsin.gov/"
+ },
+ {
+  "state": "WI",
+  "board_name": "WI Dept of Justice",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://www.wisdoj.gov/Pages/AboutUs/press-releases.aspx",
+  "homepage": "https://www.doj.state.wi.us/"
+ },
+ {
+  "state": "WI",
+  "board_name": "WI Administrative Register",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://docs.legis.wisconsin.gov/code/register",
+  "homepage": "https://docs.legis.wisconsin.gov/code"
+ },
+ {
+  "state": "WY",
+  "board_name": "WY Dept of Health",
+  "surface": "News releases",
+  "kind": "news",
+  "url": "https://health.wyo.gov/news/",
+  "homepage": "https://health.wyo.gov/"
+ },
+ {
+  "state": "WY",
+  "board_name": "WY Attorney General",
+  "surface": "Press releases",
+  "kind": "news",
+  "url": "https://ag.wyo.gov/news",
+  "homepage": "https://ag.wyo.gov/"
+ },
+ {
+  "state": "WY",
+  "board_name": "WY Administrative Rules",
+  "surface": "Rule notices",
+  "kind": "rule_proposal",
+  "url": "https://rules.wyo.gov/",
+  "homepage": "https://rules.wyo.gov/"
+ }
+]
