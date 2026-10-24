@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import NetworkNodes from "./NetworkNodes";
 
 export const metadata = { title: "Per-state Intel Health" };
 export const dynamic = "force-dynamic";
@@ -285,6 +286,8 @@ export default async function PerStateIntelHealthPage() {
           users = amber).
         </p>
       </header>
+
+      <NetworkNodes />
 
       {/* Ops blockers — entire-pipeline outages that need owner action
           rather than per-state work. Surfaced loudly because silent
