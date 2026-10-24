@@ -23,16 +23,22 @@
  *   Government Affairs (where pharmacy boards report)
  *   Agriculture (where hemp / cannabis bills live in some states)
  *
- * Free: OPENSTATES_API_KEY is the same key sync-legislators.mjs uses.
- * Rate-limit: 1 req/sec polite default. OpenStates rate limit is 100/min.
+ * SOURCE (2026-10-23): the keyless openstates/people repository by default —
+ * data/<st>/committees/*.yml, the same records the API serves, with no key and
+ * no quota. The API path (250 requests/day per key, spent daily, starving the
+ * bill sweeps) stays behind --api as a fallback. Members join on the exact
+ * ocd-person id, falling back to an exact full-name match, as before.
  *
  * Run:
  *   node --env-file=.env.local scripts/sync-committees-openstates.mjs
  *   node --env-file=.env.local scripts/sync-committees-openstates.mjs --state TX
  *   node --env-file=.env.local scripts/sync-committees-openstates.mjs --priority-only
  *   node --env-file=.env.local scripts/sync-committees-openstates.mjs --dry-run
+ *   node --env-file=.env.local scripts/sync-committees-openstates.mjs --api     # the quota'd v3 API
  */
 import { createClient } from "@supabase/supabase-js";
+import yaml from "js-yaml";
+import { PEOPLE_TARBALL, collectFromTarball } from "./lib/openstates-people.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -46,12 +52,13 @@ const PRIORITY_ONLY = args.includes("--priority-only");
 const MAX_MINUTES = parseInt(arg("--max-minutes") ?? "0");
 const MAX_RUN_MS = MAX_MINUTES > 0 ? MAX_MINUTES * 60_000 : Infinity;
 const DRY_RUN = args.includes("--dry-run");
+const USE_API = args.includes("--api");
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const OPENSTATES_KEY = process.env.OPENSTATES_API_KEY;
 if (!SB_URL || !SB_KEY) { console.error("Missing Supabase env"); process.exit(1); }
-if (!OPENSTATES_KEY) { console.warn("OPENSTATES_API_KEY not set — skipping committee sync (exit 0)."); process.exit(0); }
+if (USE_API && !OPENSTATES_KEY) { console.warn("OPENSTATES_API_KEY not set — skipping committee sync (exit 0)."); process.exit(0); }
 
 const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -98,7 +105,34 @@ function normalizeRole(r) {
   return "member";
 }
 
+/** Every state's committees from the keyless repo, in the API's response shape. */
+let bulk = null;
+async function loadBulk() {
+  const RE = /(?:^|\/)data\/(?!us\/)([a-z]{2})\/committees\/[^/]+\.ya?ml$/i;
+  const files = await collectFromTarball(PEOPLE_TARBALL, RE);
+  const byState = new Map();
+  for (const [path, text] of files) {
+    let doc;
+    try { doc = yaml.load(text); } catch { continue; }
+    if (!doc?.name) continue;
+    const st = path.match(RE)[1].toUpperCase();
+    if (!byState.has(st)) byState.set(st, []);
+    byState.get(st).push({
+      name: doc.name,
+      classification: doc.chamber,
+      memberships: (doc.members ?? []).map((m) => ({ person: { id: m.person_id ?? null, name: m.name }, role: m.role })),
+    });
+  }
+  console.log(`openstates/people: ${files.size} committees across ${byState.size} jurisdictions
+`);
+  return byState;
+}
+
 async function fetchCommittees(stateCode) {
+  if (!USE_API) {
+    bulk ??= await loadBulk();
+    return bulk.get(stateCode) ?? [];
+  }
   const out = [];
   const jurisdiction = `ocd-jurisdiction/country:us/state:${stateCode.toLowerCase()}/government`;
   // OpenStates v3 max per_page is 20. include=memberships flag returns
@@ -234,7 +268,7 @@ for (const s of targets) {
     totalUpserts += r.upserts ?? 0;
     totalKratomCommittees += r.kratomCommittees ?? 0;
   }
-  await sleep(1500);  // polite between states
+  if (USE_API) await sleep(1500);  // polite between states
 }
 
 const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
