@@ -96,3 +96,13 @@ jobs:
           PROVIDER="${{ github.event.inputs.provider }}"
           ARGS="$ARGS --provider ${PROVIDER:-cloudflare}"
           node --import=./scripts/lib/egress-meter.mjs scripts/compute-bill-embeddings.mjs $ARGS
+      # Intel step 2: a live restrictive bill that takes the same approach as a
+      # bill in another state becomes a 'watch' alert in the review queue. Runs
+      # after embedding so a newly filed bill has its vector. Telemetry:
+      # scraper_runs source "playbook_match_alerts".
+      - name: Playbook-match alerts
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/playbook-match-alerts.mjs --apply --days 3
