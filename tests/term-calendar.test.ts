@@ -152,6 +152,22 @@ describe("term-calendar: Wikipedia district tables", () => {
     expect(sameSurname("José Menéndez", "Jose Menendez")).toBe(true);
     expect(sameSurname("Bryan Hughes Jr.", "Bryan Hughes")).toBe(true);
     expect(sameSurname("Tom Woods", "Tom Wood")).toBe(false);
+    expect(sameSurname("Michael Brooks-Jimenez", "Michael Brooks")).toBe(true);
+    expect(sameSurname("Suzy Glowiak", "Suzy Glowiak Hilton")).toBe(true);
+    expect(sameSurname("Karla May†", "Karla May")).toBe(true);
+    // The real collision: his successor carries his surname as a middle name.
+    expect(sameSurname("Lindsey Graham", "Darline Graham Nordone")).toBe(false);
+    expect(sameSurname("Scott Thomas", "Thomas Scott")).toBe(false);
     expect(sameSurname("", "")).toBe(false);
+  });
+});
+
+describe("term-calendar: same person", () => {
+  it("needs the first initial as well as the surname", async () => {
+    const { samePerson } = await import("../scripts/lib/term-calendar.mjs");
+    expect(samePerson("Lindsey Graham", "Darline Graham")).toBe(false);
+    expect(samePerson("Darline Graham Nordone", "Darline Graham")).toBe(true);
+    expect(samePerson("Kevin Hern", "Kevin Hern (incumbent)")).toBe(true);
+    expect(samePerson("José Menéndez", "Jose Menendez")).toBe(true);
   });
 });

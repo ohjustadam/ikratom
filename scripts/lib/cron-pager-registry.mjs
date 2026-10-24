@@ -187,6 +187,10 @@ export const REGISTRY = [
   // when each changes hands. In cron-daily's roster-diff job, self-gated to
   // every 3 days, so 72h here pages after 9 silent days.
   { source: "seat_watch", interval_hours: 72, system: "github-actions", cadence: "daily" },
+  // Its two daily siblings in the same job; both write a row every run, even
+  // when nothing is due (before Election Day, or no handover today).
+  { source: "election_results", interval_hours: 36, system: "github-actions", cadence: "daily" },
+  { source: "turnover_swap", interval_hours: 36, system: "github-actions", cadence: "daily" },
   // Nightly cloud chassis (cron-nightly-cloud.yml @ 08:30 UTC).
   { source: "state_executives_sync", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "fetch_bill_texts", interval_hours: 72, system: "github-actions", cadence: "daily" },

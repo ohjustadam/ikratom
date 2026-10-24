@@ -526,7 +526,7 @@ jobs:
     # within a day. First run 2026-10-21: 63 departed state legislators and
     # 1 departed U.S. senator were still active; 32 + 4 members were missing.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -546,6 +546,23 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-congress-roster-diff.mjs
+      # On the handover day: retire the outgoing official (record kept) once a
+      # second, independent roster shows the successor in office. After the
+      # roster diffs, so the successor's row already exists.
+      - name: Turnover swap (dated, second-source)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/turnover-swap.mjs
+      # Who won each seat (Election Day + 1 to + 60). A reading lands only when
+      # a later day's reading names the same winner.
+      - name: Election results
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/ingest-election-results.mjs
       # Which seats are on the next ballot (NCSL counts + Wikipedia district
       # lists, cross-checked) and when each changes hands (term-start rules
       # proven against openstates/people). Fills term_end_date from the SEAT,

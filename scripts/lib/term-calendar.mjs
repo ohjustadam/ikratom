@@ -289,18 +289,36 @@ export function wikiTitles(year, stateName, office) {
 /**
  * Surname agreement between a listed name and ours. Accents, footnote marks
  * (Wikipedia's † for "retiring"), party tags and suffixes are ignored, and a
- * compound surname matches either part: "Michael Brooks-Jimenez" is our
- * "Michael Brooks", "Suzy Glowiak" is our "Suzy Glowiak Hilton". The surname
- * of one must appear after the first name of the other, so "Scott Thomas"
- * never matches "Thomas Scott".
+ * hyphenated surname matches either part ("Michael Brooks-Jimenez" is our
+ * "Michael Brooks"). A surname found in the MIDDLE of the other name counts
+ * only when the first names agree too: "Suzy Glowiak" is "Suzy Glowiak
+ * Hilton", but "Lindsey Graham" is NOT "Darline Graham Nordone" — the
+ * senator who replaced him (2026-07-14), whom a looser rule confirmed as him.
  */
 export function sameSurname(a, b) {
-  const tokens = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+  const words = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
     .replace(/\(.*?\)/g, " ").replace(/[^a-z\s'-]/g, " ").replace(/\b(jr|sr|ii|iii|iv)\b/g, " ")
-    .split(/[\s-]+/).filter((t) => t.length > 1);
-  const x = tokens(a), y = tokens(b);
+    .split(/\s+/).map((w) => w.replace(/^[-']+|[-']+$/g, "")).filter((t) => t.length > 1);
+  const x = words(a), y = words(b);
   if (x.length < 2 || y.length < 2) return false;
-  return y.slice(1).includes(x.at(-1)) || x.slice(1).includes(y.at(-1));
+  const lastParts = (w) => w.at(-1).split("-").filter((p) => p.length > 1);
+  const lx = lastParts(x), ly = lastParts(y);
+  if (lx.some((p) => ly.includes(p))) return true; // same surname, or one part of a hyphenated one
+  const sameFirst = x[0] === y[0];
+  return sameFirst && (y.slice(1, -1).some((w) => lx.includes(w)) || x.slice(1, -1).some((w) => ly.includes(w)));
+}
+
+/**
+ * The same PERSON, not just the same family name: surname agreement plus the
+ * same first initial. congress-legislators lists Sen. Darline Graham Nordone
+ * as "Darline Graham", whose surname alone matches "Lindsey Graham", the
+ * senator she replaced. Use this wherever a match retires or announces
+ * someone; a nickname mismatch (Bill / William) fails safe into review.
+ */
+export function samePerson(a, b) {
+  if (!sameSurname(a, b)) return false;
+  const initial = (s) => String(s ?? "").normalize("NFD").replace(/[^A-Za-z\s]/g, " ").trim().toLowerCase()[0];
+  return initial(a) === initial(b);
 }
 
 /** Does our official's surname appear anywhere in a listed table row? */
