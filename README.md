@@ -55,5 +55,5 @@ AI models, without prior written permission. The "iKratom" name and brand
 are reserved trademarks and are not licensed.
 
 Full terms govern in [`LICENSE.md`](./LICENSE.md). Licensing inquiries:
-ohjustadam@proton.me.
+contact@ikratom.org.
 
