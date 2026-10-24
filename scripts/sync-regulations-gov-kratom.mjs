@@ -51,7 +51,7 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
-const USER_AGENT = "iKratom-policy-monitor/1.0 (contact: ohjustadam@proton.me)";
+const USER_AGENT = "iKratom-policy-monitor/1.0 (contact: contact@ikratom.org)";
 
 /**
  * Map Regulations.gov agency IDs to friendlier labels. Most are

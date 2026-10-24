@@ -89,5 +89,5 @@ WITH THE SOFTWARE OR ITS USE.
 
 To request any permission not granted above (mirroring, hosting,
 redistribution, commercial or research use, etc.), contact the project
-maintainer at **ohjustadam@proton.me** or via the contact link at
+maintainer at **contact@ikratom.org** or via the contact link at
 <https://www.ikratom.org>.
