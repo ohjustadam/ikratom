@@ -27,7 +27,8 @@ export const TICKER_LIMITS = { campaignDays: 14, alertDays: 10, meetingDays: 21,
 const ON_TOPIC = /kratom|7-?oh\b|7-hydroxy|mitragyn/i;
 const DAY = 86_400_000;
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-const place = (loc: string | null | undefined) => (!loc || loc === "FED" || loc === "ALL" ? "Federal" : loc);
+// FED = a federal story; ALL (or no locality) = a multi-state story, which is not federal.
+const place = (loc: string | null | undefined) => (loc === "FED" ? "Federal" : !loc || loc === "ALL" ? "Nationwide" : loc);
 const clip = (s: string, n = 110) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 export function buildTicker(
