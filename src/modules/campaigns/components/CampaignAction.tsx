@@ -15,6 +15,8 @@ import { UseAdmissionWarning } from "./UseAdmissionWarning";
 import { findUseAdmissions } from "@/lib/use-admission";
 import { checkLetter } from "../send-batch-actions";
 import { EmailSafetyNote } from "@/components/EmailSafetyNote";
+import { makeRecordNonce, recordAddress, withRecordBcc } from "@/lib/send-record";
+import { SendRecordNotice } from "./SendRecordNotice";
 import Link from "@/components/Link";
 import {
   groupByRole,
@@ -101,6 +103,8 @@ export function CampaignAction({
   );
   const [sentVia, setSentVia] = useState<SendMethod | null>(null);
   const [copied, setCopied] = useState(false);
+  // B9: the external compose paths BCC a send-record copy unless the member opts out.
+  const [keepCopy, setKeepCopy] = useState(true);
   const [personalizing, setPersonalizing] = useState(false);
   const [personalizeError, setPersonalizeError] = useState<string | null>(null);
   const [personalizeChanges, setPersonalizeChanges] = useState<string | null>(null);
@@ -185,7 +189,7 @@ export function CampaignAction({
   const unknownFields = unfilledPlaceholders(renderTemplate(`${subject}\n${body}`, recipientVars(targetsWithEmail[0] ?? null)));
   const bccList = targetsWithEmail.slice(1).map((t) => t.email!).join(",");
 
-  function logAction(method: SendMethod) {
+  function logAction(method: SendMethod, recordNonce: string | null = null) {
     startTransition(async () => {
       // Logging the send is best-effort — the email/copy already happened
       // client-side. A server hiccup here must NOT throw to the route error
@@ -202,6 +206,7 @@ export function CampaignAction({
           subject: outSubject,
           body: outBody,
           isNonResident,
+          recordNonce: recordNonce ?? undefined,
         });
       } catch (e) {
         console.error("[campaign] logCampaignAction failed", e);
@@ -220,48 +225,66 @@ export function CampaignAction({
   // connected-account path, which posts the message through the provider API
   // and has no URL length limit at all.
   const MAILTO_SAFE_LIMIT = 1900;
-  const mailtoLength = buildMailto().length;
+  const mailtoLength = buildMailto(keepCopy ? "a".repeat(16) : null).length;
   const mailtoTooLong = mailtoLength > MAILTO_SAFE_LIMIT;
 
-  function buildMailto() {
+  function buildMailto(recordNonce: string | null = null) {
     // encodeURIComponent (%20), NOT URLSearchParams ('+') — RFC 6068 mailto
     // bodies treat '+' as a literal plus sign in several mail clients.
+    const bcc = withRecordBcc(bccList, recordNonce);
     const parts = [`subject=${encodeURIComponent(outSubject)}`];
-    if (bccList) parts.push(`bcc=${encodeURIComponent(bccList)}`);
+    if (bcc) parts.push(`bcc=${encodeURIComponent(bcc)}`);
     parts.push(`body=${encodeURIComponent(outBody)}`);
     return `mailto:${to}?${parts.join("&")}`;
   }
 
-  function buildGmailUrl() {
+  function buildGmailUrl(recordNonce: string | null = null) {
     // Gmail web compose URL — opens in user's logged-in Gmail tab
+    const bcc = withRecordBcc(bccList, recordNonce);
     const params = new URLSearchParams();
     params.set("view", "cm");
     params.set("fs", "1");
     params.set("to", to);
-    if (bccList) params.set("bcc", bccList);
+    if (bcc) params.set("bcc", bcc);
     params.set("su", outSubject);
     params.set("body", outBody);
     return `https://mail.google.com/mail/?${params.toString()}`;
   }
 
-  function buildOutlookUrl() {
+  function buildOutlookUrl(recordNonce: string | null = null) {
     // Outlook web compose URL
+    const bcc = withRecordBcc(bccList, recordNonce);
     const params = new URLSearchParams();
     params.set("to", to);
-    if (bccList) params.set("bcc", bccList);
+    if (bcc) params.set("bcc", bcc);
     params.set("subject", outSubject);
     params.set("body", outBody);
     return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
   }
 
+  // The nonce is minted at click time, not render time: the href is rewritten
+  // before the browser follows it, so the server render and hydration agree and
+  // each compose window gets its own record address.
+  function openWithRecord(
+    e: React.MouseEvent<HTMLAnchorElement>,
+    method: SendMethod,
+    build: (recordNonce: string | null) => string,
+  ) {
+    const recordNonce = keepCopy ? makeRecordNonce() : null;
+    e.currentTarget.href = build(recordNonce);
+    logAction(method, recordNonce);
+  }
+
   async function copyAll() {
     const allEmails = targetsWithEmail.map((t) => t.email).join(", ");
+    const recordNonce = keepCopy ? makeRecordNonce() : null;
+    const bccLine = recordNonce ? `Bcc: ${recordAddress(recordNonce)}\n` : "";
     const text =
-      `To: ${allEmails}\n\nSubject: ${outSubject}\n\n${outBody}`;
+      `To: ${allEmails}\n${bccLine}\nSubject: ${outSubject}\n\n${outBody}`;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      logAction("copy");
+      logAction("copy", recordNonce);
       setTimeout(() => setCopied(false), 4000);
     } catch {
       setCopied(false);
@@ -749,10 +772,10 @@ export function CampaignAction({
         <div className="border-t border-zinc-800 px-4 py-3">
           <p className="mb-3 text-xs text-zinc-500">
             These open your own email app or web compose and you press Send there. iKratom
-            can&apos;t see changes made after it opens, so it&apos;s{" "}
-            <strong className="text-zinc-400">not recorded as a verified iKratom send</strong>.
-            Connecting your email above is faster and keeps your record.
+            can&apos;t screen changes made after it opens. Connecting your email above is
+            faster and screens every letter.
           </p>
+          <SendRecordNotice keepCopy={keepCopy} onChange={setKeepCopy} />
           <div className="grid gap-2 sm:grid-cols-3">
             <SendOption
               href={buildGmailUrl()}
@@ -760,7 +783,7 @@ export function CampaignAction({
               label="Open in Gmail"
               disabled={externalLocked}
               sub="Web compose tab"
-              onClick={() => logAction("gmail")}
+              onClick={(e) => openWithRecord(e, "gmail", buildGmailUrl)}
               done={sentVia === "gmail"}
             />
             <SendOption
@@ -769,7 +792,7 @@ export function CampaignAction({
               label="Open in Outlook"
               disabled={externalLocked}
               sub="Web compose tab"
-              onClick={() => logAction("outlook")}
+              onClick={(e) => openWithRecord(e, "outlook", buildOutlookUrl)}
               done={sentVia === "outlook"}
             />
             <SendOption
@@ -777,7 +800,7 @@ export function CampaignAction({
               label="Default email app"
               disabled={externalLocked}
               sub="Apple Mail / Thunderbird"
-              onClick={() => logAction("mailto")}
+              onClick={(e) => openWithRecord(e, "mailto", buildMailto)}
               done={sentVia === "mailto"}
             />
           </div>
@@ -889,7 +912,7 @@ function SendOption({
   label: string;
   sub: string;
   primary?: boolean;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   done?: boolean;
   /** Edited letter not yet screened, or blocked: no compose window. */
   disabled?: boolean;
