@@ -1,4 +1,4 @@
-Contact: mailto:ohjustadam@proton.me
+Contact: mailto:security@ikratom.org
 Expires: 2027-01-01T00:00:00.000Z
 Preferred-Languages: en
 Canonical: https://ikratom.vercel.app/.well-known/security.txt
