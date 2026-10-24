@@ -45,7 +45,7 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
-const USER_AGENT = "iKratom-policy-monitor/1.0 (contact: ohjustadam@proton.me)";
+const USER_AGENT = "iKratom-policy-monitor/1.0 (contact: contact@ikratom.org)";
 const SENATE_URL = "https://raw.githubusercontent.com/timothycarambat/senate-stock-watcher-data/master/aggregate/all_transactions.json";
 const HOUSE_URL = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json";
 

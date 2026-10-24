@@ -410,4 +410,4 @@ The advocacy community for kratom is large, decentralized, and almost entirely r
 
 ---
 
-_Built and maintained by one operator + Claude (AI co-developer). Codebase at: `github.com/ohjustadam/ikratom` (private until v2 launch). Investor / partner inquiries: ohjustadam@proton.me._
+_Built and maintained by one operator + Claude (AI co-developer). Codebase at: `github.com/ohjustadam/ikratom` (private until v2 launch). Investor / partner inquiries: contact@ikratom.org._

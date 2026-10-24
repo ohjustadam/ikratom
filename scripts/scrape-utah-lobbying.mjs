@@ -91,7 +91,7 @@ const resp = await fetch(SOURCE_URL, {
   headers: {
     // Identify ourselves so the registry sysadmin can contact us if
     // they want to. Don't pretend to be a browser.
-    "User-Agent": "iKratom-policy-monitor/1.0 (contact: ohjustadam@proton.me)",
+    "User-Agent": "iKratom-policy-monitor/1.0 (contact: contact@ikratom.org)",
     "Accept": "text/html,application/xhtml+xml",
   },
 });

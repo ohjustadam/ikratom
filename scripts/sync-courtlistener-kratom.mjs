@@ -54,7 +54,7 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
-const USER_AGENT = "iKratom-policy-monitor/1.0 (contact: ohjustadam@proton.me)";
+const USER_AGENT = "iKratom-policy-monitor/1.0 (contact: contact@ikratom.org)";
 
 // =============================================================
 // court_id → 2-letter state mapping. CourtListener uses lowercase

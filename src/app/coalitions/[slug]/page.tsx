@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CoalitionAdminPanel } from "./CoalitionAdminPanel";
 import { Discussion, GettingStarted } from "./Discussion";
+import { Events } from "./Events";
 import { GroupAction, JoinRequests } from "./GroupGrowth";
 import { GroupLinkCard, RequestToJoin, VisibilityToggle } from "./GroupGrowthClient";
 import { publicHandle } from "@/lib/public-handle";
@@ -304,6 +305,9 @@ export default async function CoalitionDetailPage({ params }: { params: Params }
           )}
         </section>
       )}
+
+      {/* Events and call-in days: members only (migration 0283). */}
+      {viewerRole && <Events coalitionId={c.id} slug={c.slug} isAdmin={viewerRole === "owner" || viewerRole === "admin"} />}
 
       {/* Private discussion board: members only (migration 0273). */}
       {viewerRole && <Discussion coalitionId={c.id} slug={c.slug} />}

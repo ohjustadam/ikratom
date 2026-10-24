@@ -43,6 +43,11 @@ export async function GET(request: NextRequest) {
   const { sendWaveReminders } = await import("@/modules/waves/reminders");
   const reminderResult = await sendWaveReminders(supabase);
 
+  // 2b. Group event reminders (migration 0283): notification rows only, so
+  // the fan-out below delivers them in this same tick. Never blocks push.
+  const { sendGroupEventReminders } = await import("@/modules/coalitions/event-reminders");
+  const groupEvents = await sendGroupEventReminders(supabase).catch(() => ({ events: 0, notified: 0 }));
+
   // 3. Web Push fan-out — deliver any notifications inserted in the last
   // hour to subscribers' devices. No-ops cleanly when VAPID isn't set.
   const { fanoutPushNotifications } = await import("@/modules/notifications/push-fanout");
@@ -74,6 +79,7 @@ export async function GET(request: NextRequest) {
     elapsed_seconds: Math.round(elapsedMs / 1000),
     fire: fireResult,
     reminders: reminderResult,
+    group_events: groupEvents,
     push: pushResult,
   });
 }
