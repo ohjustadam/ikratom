@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { buildRecords, statusWord, voteLabel, type RecordBill } from "../src/lib/kratom-record";
+import { billAxes, buildRecords, recordByAxis, recordFact, statusWord, voteLabel, type RecordBill } from "../src/lib/kratom-record";
 
 /**
  * "Your legislators' kratom record" (B11, 2026-10-21): records, not
@@ -59,5 +59,44 @@ describe("records, not endorsements", () => {
     expect(page).toMatch(/createAnonClient\(\)/);
     expect(page).toMatch(/publicSnapshot\("kratom-record"/);
     expect(page).toMatch(/export function generateStaticParams/);
+  });
+});
+
+describe("the campaign recipient chips (Paul, 2026-10-24: \"stance MIA\")", () => {
+  const leaf = { stance: "schedules", confidence: 1 };
+  const oh = { stance: "restricts", confidence: "0.9" };
+
+  it("files a bill under the axes its text confidently addresses", () => {
+    expect(billAxes(bill({ leaf, seven_oh: oh }))).toEqual(["natural_leaf", "seven_oh"]);
+    expect(billAxes(bill({ leaf: { stance: "unaddressed", confidence: 1 }, seven_oh: oh }))).toEqual(["seven_oh"]);
+    expect(billAxes(bill({ leaf: { stance: "bans", confidence: 0.5 } }))).toEqual([]);
+    expect(billAxes(bill({}))).toEqual([]); // /record loads no substance map
+  });
+
+  it("states what the person did, never a verdict", () => {
+    const [e] = buildRecords(
+      [
+        { legislator_id: "L1", vote_text: "Yea", vote_value: "1", vote_date: "2025-05-05", motion: "Third reading", bill: bill({ leaf, seven_oh: oh }) },
+        { legislator_id: "L1", vote_text: "Nay", vote_value: "2", vote_date: "2025-03-01", motion: "Committee", bill: bill({ leaf, seven_oh: oh }) },
+      ],
+      [{ legislator_id: "L1", classification: "primary", bill: bill({ leaf, seven_oh: oh }) }],
+    ).get("L1")!;
+    expect(recordFact(e)).toBe("Primary sponsor · Voted Yes (Third reading, 2025-05-05) (+1 more vote)");
+    const byAxis = recordByAxis([e]);
+    expect(byAxis.natural_leaf).toHaveLength(1);
+    expect(byAxis.seven_oh).toHaveLength(1);
+    expect(byAxis.other).toHaveLength(0);
+  });
+
+  it("no longer read the champion/hostile labels, and say so when nothing is recorded", () => {
+    const chips = readFileSync(new URL("../src/modules/campaigns/components/RecipientChips.tsx", import.meta.url), "utf8");
+    const pageSrc = readFileSync(new URL("../src/app/campaigns/[slug]/page.tsx", import.meta.url), "utf8");
+    const code = (t: string) => t.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""); // comments may name what was removed
+    expect(code(chips)).not.toMatch(/\b(champion|sympathetic|hostile|ally|allies|opponents?)\b|title=\{`Stance/i);
+    expect(code(pageSrc)).not.toMatch(/from\("legislator_stance"\)/);
+    expect(chips).toContain("No recorded position yet");
+    expect(chips).toContain("Tap a name for details");
+    expect(chips).toMatch(/aria-expanded=\{open\}/);
+    expect(chips).toContain("/briefing");
   });
 });

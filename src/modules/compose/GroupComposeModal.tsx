@@ -13,6 +13,7 @@ import { EmailOfficialButton } from "./EmailOfficialButton";
 import { RecipientPicker } from "./RecipientPicker";
 import { TemplateFiller } from "./TemplateFiller";
 import type { ComposeGroup } from "./types";
+import { withLetterFooter } from "@/modules/campaigns/letter-extras";
 
 /**
  * Group email composer — one AI-assisted letter addressed to a whole group of
@@ -150,26 +151,29 @@ export function GroupComposeModal({
     })();
   }
 
+  // What actually leaves: the letter plus "Sent via iKratom.org" (letter-extras.ts).
+  const letter = withLetterFooter(body);
+
   function logSend(via: string) {
     setSentVia(via);
     if (loggedRef.current) return;
     loggedRef.current = true;
     // One summary row per group send (legislator_id null → no per-member point
     // farming; a group click counts as a single action). Best-effort.
-    logOfficialContact({ officialId: null, source, subject, body }).catch(() => {});
+    logOfficialContact({ officialId: null, source, subject, body: letter }).catch(() => {});
   }
 
   async function copyAll() {
     try {
       const header = emails.length ? `To: ${emails.join(", ")}\n` : "";
-      await navigator.clipboard.writeText(`${header}Subject: ${subject}\n\n${body}`);
+      await navigator.clipboard.writeText(`${header}Subject: ${subject}\n\n${letter}`);
       setCopied(true);
       logSend("copy");
       setTimeout(() => setCopied(false), 4000);
     } catch { setCopied(false); }
   }
 
-  const mailtoUrl = buildMailtoUrl(to, subject, body, bcc);
+  const mailtoUrl = buildMailtoUrl(to, subject, letter, bcc);
   const mailtoOk = mailtoWithinLimit(mailtoUrl);
   const total = group.emailable.length + group.formOnly.length;
 
@@ -289,8 +293,8 @@ export function GroupComposeModal({
                 {/* Delivery — Gmail/Outlook primary (handle long recipient lists) */}
                 <div className={`mt-4 ${selected.size === 0 ? "pointer-events-none opacity-40" : ""}`}>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <SendLink href={buildGmailComposeUrl(to, subject, body, bcc)} label="Open in Gmail" sub="Web compose" onClick={() => logSend("gmail")} done={sentVia === "gmail"} />
-                    <SendLink href={buildOutlookComposeUrl(to, subject, body, bcc)} label="Open in Outlook" sub="Web compose" onClick={() => logSend("outlook")} done={sentVia === "outlook"} />
+                    <SendLink href={buildGmailComposeUrl(to, subject, letter, bcc)} label="Open in Gmail" sub="Web compose" onClick={() => logSend("gmail")} done={sentVia === "gmail"} />
+                    <SendLink href={buildOutlookComposeUrl(to, subject, letter, bcc)} label="Open in Outlook" sub="Web compose" onClick={() => logSend("outlook")} done={sentVia === "outlook"} />
                   </div>
                   {mailtoOk ? (
                     <a

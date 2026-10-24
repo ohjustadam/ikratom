@@ -256,6 +256,18 @@ lists Sen. Darline Graham Nordone as "Darline Graham", and a surname match
    for a public surface gets a human read first.
 5. **Parallel sessions share one checkout.** Run `npm run preflight` before
    every commit. See standing rules 8 and 10 in `AGENTS.md`.
+6. **Letters get their iKratom lines at send time, never in templates.**
+   `src/modules/campaigns/letter-extras.ts` owns both: the recorder's clip line
+   ("Listen to my 30-second message: <url>", added to the member's own text)
+   and the footer "Sent via iKratom.org", added after rendering in every send
+   path (`drainBatch`, waves, the compose links). A new send path must call
+   `withLetterFooter`; `tests/letter-extras.test.ts` lists the paths. The
+   clip recorder needs `camera=(self), microphone=(self)` in the
+   Permissions-Policy (`next.config.ts`): with `()` it silently did nothing
+   from 2026-05 to 2026-10-24.
+7. **Recipient chips show the official record, never a stance label.** They
+   read sponsorships and votes (`src/lib/kratom-record.ts`), not
+   `legislator_stance`, whose champion/hostile labels no human reviewed.
 
 ---
 

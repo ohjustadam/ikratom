@@ -115,8 +115,8 @@ function withSecurityHeaders(res: NextResponse, nonce?: string): NextResponse {
   res.headers.set(
     "Permissions-Policy",
     [
-      "camera=()",
-      "microphone=()",
+      "camera=(self)", // campaign clip recorder (next.config.ts, 2026-10-24)
+      "microphone=(self)",
       "geolocation=()",
       "payment=()",
       "usb=()",

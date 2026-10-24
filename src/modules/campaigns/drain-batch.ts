@@ -7,6 +7,7 @@ import {
 } from "@/lib/email/user-send";
 import { resolveLimits } from "@/lib/email/provider-limits";
 import { buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
+import { withLetterFooter } from "./letter-extras";
 
 /**
  * Deliver one slice of ONE send batch, then stop at `deadline`.
@@ -159,7 +160,8 @@ export async function drainBatch(
     try {
       const vars = buildVars(profile as never, (leg ?? null) as never, leg ? [leg as never] : []);
       const subject = renderTemplate(batch.subject_template, vars);
-      const body = renderTemplate(batch.body_template, vars);
+      // "Sent via iKratom.org" closes every letter, after the sender's name.
+      const body = withLetterFooter(renderTemplate(batch.body_template, vars));
       const unfilled = unfilledPlaceholders(`${subject}\n${body}`);
       if (unfilled.length > 0) {
         // Never send a letter with "{{...}}" in it. Fail this recipient

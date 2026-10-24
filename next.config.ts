@@ -29,8 +29,10 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   // Don't leak full URLs in Referer
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // Lock down browser features
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=(), browsing-topics=()" },
+  // Lock down browser features. Camera and microphone are allowed for our own
+  // origin only: the campaign clip recorder and voice dictation need them, and
+  // `camera=()` denied getUserMedia to every origin, ours included (2026-10-24).
+  { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=(), interest-cohort=(), browsing-topics=()" },
   // Block legacy Flash/Java cross-domain policy lookups
   { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
   // Modern process isolation — Spectre-class defense in depth
