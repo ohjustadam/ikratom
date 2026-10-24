@@ -123,8 +123,7 @@ async function loadBulk() {
       memberships: (doc.members ?? []).map((m) => ({ person: { id: m.person_id ?? null, name: m.name }, role: m.role })),
     });
   }
-  console.log(`openstates/people: ${files.size} committees across ${byState.size} jurisdictions
-`);
+  console.log(`openstates/people: ${files.size} committees across ${byState.size} jurisdictions\n`);
   return byState;
 }
 
