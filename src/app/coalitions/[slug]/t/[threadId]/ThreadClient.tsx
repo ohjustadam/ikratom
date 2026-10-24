@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { removeCoalitionPost, replyCoalitionThread } from "@/modules/coalitions/discussion-actions";
+import { pinThread } from "@/modules/coalitions/home-actions";
 
 /** Reply box under a coalition discussion. */
 export function ReplyForm({ slug, threadId }: { slug: string; threadId: string }) {
@@ -69,6 +70,27 @@ export function RemoveButton({ slug, kind, id, redirectTo }: { slug: string; kin
         Remove
       </button>
       {error && <span className="text-[11px] text-red-300">{error}</span>}
+    </span>
+  );
+}
+
+/** Organizers pin one discussion (e.g. the welcome post) to the top of the board. */
+export function PinButton({ slug, threadId, pinned }: { slug: string; threadId: string; pinned: boolean }) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  return (
+    <span className="ml-3 inline-flex items-center gap-2">
+      <button type="button" disabled={pending} className="text-[11px] text-amber-400/80 hover:text-amber-300"
+        onClick={() => startTransition(async () => {
+          setError(null);
+          const res = await pinThread(slug, threadId, !pinned);
+          if (!res.ok) { setError(res.error ?? "Couldn't change that."); return; }
+          router.refresh();
+        })}>
+        {pending ? "…" : pinned ? "📌 Unpin" : "📌 Pin to top"}
+      </button>
+      {error && <span className="text-[11px] text-amber-300">{error}</span>}
     </span>
   );
 }

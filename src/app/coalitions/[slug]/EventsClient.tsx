@@ -53,9 +53,11 @@ export function RsvpButtons({ slug, eventId, current, compact = false }: {
   );
 }
 
-export function NewEventForm({ slug, featured }: { slug: string; featured: { slug: string; title: string } | null }) {
+export function NewEventForm({ slug, featured, initialOpen = false }: {
+  slug: string; featured: { slug: string; title: string } | null; initialOpen?: boolean;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [kind, setKind] = useState<EventKind>("call_in");
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
