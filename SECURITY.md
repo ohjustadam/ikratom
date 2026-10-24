@@ -211,7 +211,7 @@ revoke individual sessions is not yet built.
 
 ### Informational — backup-code recovery via owner
 If a user loses their phone *and* their backup codes, recovery requires
-the platform owner (`ohjustadam@proton.me`) to manually clear their
+the platform owner (`security@ikratom.org`) to manually clear their
 `auth.mfa_factors` row in the Supabase dashboard. Fine for current scale;
 will need a self-service flow if user count grows past hundreds.
 
@@ -237,7 +237,7 @@ will need a self-service flow if user count grows past hundreds.
 
 If you've found a vulnerability:
 
-- Email: `ohjustadam@proton.me` (PGP key on request)
+- Email: `security@ikratom.org` (PGP key on request)
 - Or use GitHub's private vulnerability disclosure: <https://github.com/ohjustadam/ikratom/security/advisories/new>
 
 Please include:

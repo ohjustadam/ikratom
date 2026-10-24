@@ -37,7 +37,7 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
-const USER_AGENT = "iKratom-policy-monitor/1.0 (contact: ohjustadam@proton.me)";
+const USER_AGENT = "iKratom-policy-monitor/1.0 (contact: contact@ikratom.org)";
 
 // =============================================================
 // Award-type buckets. The USAspending search endpoint requires
