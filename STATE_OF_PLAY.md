@@ -166,6 +166,42 @@ proposals automatically — read them before starting a session.
 
 ---
 
+## Officials turnover (built 2026-10-21 → 10-23)
+
+Promise to members: nobody emails someone who has left office, and nobody is
+dropped before they leave. One daily job (cron-daily `roster-diff`) runs, in
+order:
+
+| Step | Script | Rule |
+|---|---|---|
+| Roster diffs | `sync-state-roster-diff.mjs`, `sync-congress-roster-diff.mjs` | exact openstates / bioguide ids |
+| Swap on the handover day | `turnover-swap.mjs` | retires the incumbent only when openstates/people or congress-legislators shows the successor **in office**; the record is kept |
+| Election results | `ingest-election-results.mjs` | Election Day +1 to +60; a winner lands only when a **later day's** reading names the same person |
+| Seat watch | `sync-seat-watch.mjs` (every 3 days) | `term_calendar` + `seat_elections` (migration 0277) |
+
+Where the facts come from, all free and keyless:
+- **Seats up:** NCSL's per-chamber table. For staggered chambers, the Wikipedia
+  election article's district list, accepted only when its count equals NCSL's.
+- **Handover day:** a term-start rule that must reproduce the openstates/people
+  start dates of the two latest cycles.
+- **State `term_end_date`** is set from the SEAT's handover day, never from
+  start date + term length, which is wrong for every appointee.
+
+First run (10-23): 6,616 seats flagged on the Nov 3 ballot. Active officials
+with a term end went from 1,170 to 6,675 of 13,112.
+
+Known gaps, surfaced on `/admin/local-rep-requests`, never guessed:
+- Seat lists unverified: the CO, HI, IN and NV senates, and DC's council.
+- No proven handover day: CO, the IA senate, ME, the MN house, WI.
+- Local results: there is no machine-readable source. Local rosters rely on
+  `refresh-local-rosters.mjs` re-queuing a locality after a term end passes.
+
+**Match people with `samePerson`, never surname alone.** congress-legislators
+lists Sen. Darline Graham Nordone as "Darline Graham", and a surname match
+"confirmed" her as Lindsey Graham, the senator she replaced.
+
+---
+
 ## Things that will bite you
 
 1. **The changelog no longer lives in the repo.** As of 2026-09-18, patch
