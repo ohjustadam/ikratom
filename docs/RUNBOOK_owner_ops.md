@@ -90,8 +90,9 @@ being able to edit code (free models can't do that safely).
 
 When you get developer access (any capable AI coding tool or human):
 1. Point them at **`AGENTS.md`** (repo root) — the cold-start brief.
-2. Then **`STATE_OF_PLAY.md`** and **`OWNER_TODO.md`** (repo root), and
-   `private/PLAN_OF_ACTION.md` on your own machine — what's in flight.
+2. Then **`STATE_OF_PLAY.md`** (repo root), and on your own machine
+   `private/PLAN_OF_ACTION.md` (what's in flight) + `private/OWNER_TODO.md`
+   (your one to-do list).
 3. House rules: one focused PR, `npm run verify`, squash-merge, migrations via
    `npm run db:push`.
 

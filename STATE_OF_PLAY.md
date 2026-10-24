@@ -11,10 +11,12 @@ scratch, and one of them re-derived it wrongly.
 
 This file is the public half of that brief: everything a new session needs
 that is safe to commit to a public repository. It carries no secrets, no
-owner PII, and nothing about an unannounced plan. Its sibling
-**`OWNER_TODO.md`** holds the verified list of what only the owner can do.
-When the private plan is present it wins on any conflict — but when it is not
-there, these two files are the map. On the owner's machine, the session mesh
+owner PII, and nothing about an unannounced plan. What only the owner can do
+lives in ONE list, `private/OWNER_TODO.md` on his machine (2026-10-23; the old
+public root copy was absorbed into it). A session without `private/` asks
+him for nothing outside its task, and lists what only he can do in its PR body.
+When the private plan is present it wins on any conflict, but when it is not
+there, this file is the map. On the owner's machine, the session mesh
 (`scripts/session-mesh.mjs`, AGENTS.md rule 11) also tells you which other
 sessions are working right now.
 
@@ -163,6 +165,42 @@ posts what moved, what decayed and what it would do next as a comment on
 GitHub issue #929 (running since 2026-09-20). It catches what the pager
 cannot: a job that runs on time and writes nothing. Nothing acts on its
 proposals automatically — read them before starting a session.
+
+---
+
+## Officials turnover (built 2026-10-21 → 10-23)
+
+Promise to members: nobody emails someone who has left office, and nobody is
+dropped before they leave. One daily job (cron-daily `roster-diff`) runs, in
+order:
+
+| Step | Script | Rule |
+|---|---|---|
+| Roster diffs | `sync-state-roster-diff.mjs`, `sync-congress-roster-diff.mjs` | exact openstates / bioguide ids |
+| Swap on the handover day | `turnover-swap.mjs` | retires the incumbent only when openstates/people or congress-legislators shows the successor **in office**; the record is kept |
+| Election results | `ingest-election-results.mjs` | Election Day +1 to +60; a winner lands only when a **later day's** reading names the same person |
+| Seat watch | `sync-seat-watch.mjs` (every 3 days) | `term_calendar` + `seat_elections` (migration 0277) |
+
+Where the facts come from, all free and keyless:
+- **Seats up:** NCSL's per-chamber table. For staggered chambers, the Wikipedia
+  election article's district list, accepted only when its count equals NCSL's.
+- **Handover day:** a term-start rule that must reproduce the openstates/people
+  start dates of the two latest cycles.
+- **State `term_end_date`** is set from the SEAT's handover day, never from
+  start date + term length, which is wrong for every appointee.
+
+First run (10-23): 6,616 seats flagged on the Nov 3 ballot. Active officials
+with a term end went from 1,170 to 6,675 of 13,112.
+
+Known gaps, surfaced on `/admin/local-rep-requests`, never guessed:
+- Seat lists unverified: the CO, HI, IN and NV senates, and DC's council.
+- No proven handover day: CO, the IA senate, ME, the MN house, WI.
+- Local results: there is no machine-readable source. Local rosters rely on
+  `refresh-local-rosters.mjs` re-queuing a locality after a term end passes.
+
+**Match people with `samePerson`, never surname alone.** congress-legislators
+lists Sen. Darline Graham Nordone as "Darline Graham", and a surname match
+"confirmed" her as Lindsey Graham, the senator she replaced.
 
 ---
 
