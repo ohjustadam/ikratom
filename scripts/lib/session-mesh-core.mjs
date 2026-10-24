@@ -224,6 +224,26 @@ export function renderUpdates(fresh) {
   return lines.join("\n");
 }
 
+/**
+ * The next free migration number. Branch sessions picked the same number twice
+ * in a day (three took 0276 on 2026-10-23; two took 0283 on 10-24, both applied).
+ * It takes the highest of:
+ *   - migration files in the main checkout, every worktree and origin/main;
+ *   - numbers reserved through `reserve-migration`;
+ *   - numbers that a "reserving / claiming migration 0NNN" journal line names by hand.
+ * Then it adds one. It errs toward a gap, never a collision.
+ */
+export function nextMigrationNumber({ fileNames = [], reserved = [], journalTexts = [] }) {
+  let max = 0;
+  for (const f of fileNames) { const m = /^(\d{4})_/.exec(f); if (m) max = Math.max(max, Number(m[1])); }
+  for (const r of reserved) max = Math.max(max, Number(r.n) || 0);
+  for (const t of journalTexts) {
+    if (!/reserv|claiming migration/i.test(String(t))) continue;
+    for (const m of String(t).matchAll(/\b0\d{3}\b/g)) max = Math.max(max, Number(m[0]));
+  }
+  return max + 1;
+}
+
 /** Lines matching the most of `terms` across `docs` ([{source, text}]), best first. */
 export function recallMatches(docs, terms, limit = 15) {
   const ts = terms.map((t) => t.toLowerCase()).filter(Boolean);
