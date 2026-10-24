@@ -38,7 +38,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { normalizedTitleKey, strongTopicKey, billKey, federalTopicKey } from "./lib/topic-key.mjs";
-import { isCampaignWorthyAlert, isBillConcluded, fpGateDecision, eligibilityVetoSafe } from "./lib/campaign-eligibility.mjs";
+import { alertStaleReason, isCampaignWorthyAlert, isBillConcluded, fpGateDecision, eligibilityVetoSafe } from "./lib/campaign-eligibility.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 import { APPROVE_COLUMNS, REJECT_COLUMNS, SUPERSEDE_COLUMNS } from "./lib/campaign-review-columns.mjs";
 
@@ -118,7 +118,7 @@ const alertByCampaign = new Map();
 for (let i = 0; i < ids.length; i += 200) {
   const { data } = await sb
     .from("policy_alerts")
-    .select("id, campaign_id, kind, title, severity, source_url, bill_id, locality")
+    .select("id, campaign_id, kind, title, severity, source_url, bill_id, locality, expires_at, occurs_at, created_at")
     .in("campaign_id", ids.slice(i, i + 200));
   for (const a of data ?? []) if (a.campaign_id) alertByCampaign.set(a.campaign_id, a);
 }
@@ -149,16 +149,18 @@ const occupied = new Map(); // key -> canonical campaign id (earliest)
 // at ~3KB of URL text so every match is found, every run.
 const sourceUrls = [...new Set([...alertByCampaign.values()].map((a) => a.source_url).filter(Boolean))];
 const fpByUrl = new Map(); // url -> true | false | null
+const storyAtByUrl = new Map(); // url -> news published_at (staleness gate)
 {
   const FP_BATCH_CHARS = 3000;
   let batch = [], chars = 0;
   const flush = async () => {
     if (!batch.length) return;
     for (const col of ["url", "resolved_url"]) {
-      const { data } = await sb.from("news_items").select("url, resolved_url, body_has_kratom_keyword").in(col, batch);
+      const { data } = await sb.from("news_items").select("url, resolved_url, body_has_kratom_keyword, published_at").in(col, batch);
       for (const n of data ?? []) {
         const u = col === "url" ? n.url : n.resolved_url;
         if (u && !fpByUrl.has(u)) fpByUrl.set(u, n.body_has_kratom_keyword);
+        if (u && n.published_at && !storyAtByUrl.has(u)) storyAtByUrl.set(u, n.published_at);
       }
     }
     batch = []; chars = 0;
@@ -183,7 +185,7 @@ const billById = new Map();
 for (let i = 0; i < billIds.length; i += 200) {
   const { data } = await sb
     .from("bills")
-    .select("id, relevance_confidence, status, active, last_action, last_action_at, targets_natural_leaf, targets_synthetic_only, deep_analyzed_at")
+    .select("id, relevance_confidence, status, active, last_action, last_action_at, targets_natural_leaf, targets_synthetic_only, deep_analyzed_at, session_sine_die")
     .in("id", billIds.slice(i, i + 200));
   for (const b of data ?? []) billById.set(b.id, b);
 }
@@ -347,6 +349,12 @@ function decide(c) {
   if (linkedBill && isBillConcluded(linkedBill)) {
     return veto(c, key, { ...sig, billConcluded: true, billStatus: linkedBill.status, lastAction: linkedBill.last_action ?? null }, "linked bill already concluded (enacted/chaptered/in force) — moot", true);
   }
+
+  // STALENESS (0278): an expired alert, a passed hearing, a sine-die bill or a
+  // story weeks old is not a live trigger. The structural reasons auto-reject;
+  // story age alone only escalates (an old article can still describe a live bill).
+  const stale = alertStaleReason({ alert, bill: linkedBill, storyAt: storyAtByUrl.get(alert.source_url) ?? null, now });
+  if (stale) return veto(c, key, { ...sig, stale }, `stale trigger: ${stale}`, !stale.startsWith("story is"));
 
   // ELIGIBILITY (the primary categorical gate for ~100% of the backlog). Auto-
   // reject is SAFE only for categorical junk (recall/lawsuit/enforcement news,

@@ -9,7 +9,7 @@ import {
   REJECT_COLUMNS as TS_REJECT,
   SUPERSEDE_COLUMNS as TS_SUPERSEDE,
 } from "@/modules/admin/campaign-review-shared";
-import { isCampaignWorthyAlert, isBillConcluded, fpGateDecision, eligibilityVetoSafe, ELIGIBILITY_PATTERNS } from "../scripts/lib/campaign-eligibility.mjs";
+import { alertStaleReason, STORY_MAX_AGE_DAYS, isCampaignWorthyAlert, isBillConcluded, fpGateDecision, eligibilityVetoSafe, ELIGIBILITY_PATTERNS } from "../scripts/lib/campaign-eligibility.mjs";
 import { topicKey, normalizedTitleKey, strongTopicKey, billKey, federalTopicKey } from "../scripts/lib/topic-key.mjs";
 
 /**
@@ -411,5 +411,42 @@ describe("three-keyspace dedup relationship", () => {
     expect(topicKey("TX", title)).toBe("TX|kratom|action");      // janitor: broad EVENT_RX collapses on 'action'
     expect(strongTopicKey("TX", title)).toBeNull();              // engine: not a strong event → falls back to title
     expect(dbTopicKey("TX", title)).toBe("TX|kratom|unknown");   // DB: 'action' isn't a DB event
+  });
+});
+
+// 0278 staleness gate. The SQL trigger mirrors alertStaleReason(); these pin the
+// rules so the two cannot drift silently.
+describe("alertStaleReason (0278 staleness gate)", () => {
+  const now = Date.parse("2026-10-23T12:00:00Z");
+  const day = 86_400_000;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const fresh = { kind: "bill_event", created_at: iso(now - day) };
+
+  it("passes a fresh trigger", () => {
+    expect(alertStaleReason({ alert: fresh, now })).toBeNull();
+    expect(alertStaleReason({ alert: fresh, storyAt: iso(now - 3 * day), now })).toBeNull();
+  });
+  it("rejects an expired alert", () => {
+    expect(alertStaleReason({ alert: { ...fresh, expires_at: iso(now - 1000) }, now })).toBe("alert expired");
+  });
+  it("rejects a hearing or comment date already past, but only for dated kinds", () => {
+    const past = iso(now - 2 * day);
+    expect(alertStaleReason({ alert: { ...fresh, kind: "bop_hearing", occurs_at: past }, now })).toMatch(/passed/);
+    expect(alertStaleReason({ alert: { ...fresh, kind: "rule_filed", occurs_at: past }, now })).toMatch(/passed/);
+    // a bill_event's occurs_at is when the action happened, not a deadline
+    expect(alertStaleReason({ alert: { ...fresh, occurs_at: past }, now })).toBeNull();
+  });
+  it("rejects a bill whose session ended", () => {
+    expect(alertStaleReason({ alert: fresh, bill: { session_sine_die: true }, now })).toMatch(/sine die/);
+    expect(alertStaleReason({ alert: fresh, bill: { session_sine_die: false }, now })).toBeNull();
+  });
+  it("rejects an old story, falling back to the alert's own age", () => {
+    const old = iso(now - (STORY_MAX_AGE_DAYS + 1) * day);
+    expect(alertStaleReason({ alert: fresh, storyAt: old, now })).toMatch(/^story is 22 days old/);
+    expect(alertStaleReason({ alert: { kind: "bill_event", created_at: old }, now })).toMatch(/^story is/);
+  });
+  it("treats a filed rule as campaign-worthy", () => {
+    expect(isCampaignWorthyAlert("rule_filed", "Notice of intent: add 7-OH to Schedule I")).toBe(true);
+    expect(isCampaignWorthyAlert("rule_filed", "Kratom emergency rule takes effect")).toBe(false);
   });
 });
