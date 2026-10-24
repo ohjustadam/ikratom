@@ -33,11 +33,13 @@ export default async function CampaignStatsPage({
   // Per-method breakdown
   const { data: actions } = await supabase
     .from("campaign_actions")
-    .select("method, sent_at, legislator_id, referred_from")
+    .select("method, sent_at, legislator_id, referred_from, verified_at")
     .eq("campaign_id", c.id);
-  const allActions = (actions ?? []) as Array<{ method: string; sent_at: string; legislator_id: string | null; referred_from: string | null }>;
+  const allActions = (actions ?? []) as Array<{ method: string; sent_at: string; legislator_id: string | null; referred_from: string | null; verified_at: string | null }>;
 
   const methodCounts = { mailto: 0, platform_email: 0, call: 0 };
+  // B9: manual sends whose hidden record copy came back (migration 0276).
+  const confirmedManual = allActions.filter((a) => a.method === "mailto" && a.verified_at).length;
   for (const a of allActions) {
     if (a.method === "mailto") methodCounts.mailto++;
     else if (a.method === "platform_email") methodCounts.platform_email++;
@@ -147,6 +149,7 @@ export default async function CampaignStatsPage({
         </h2>
         <div className="space-y-2">
           <Bar label="Manual mailto / Outlook / Apple Mail" count={methodCounts.mailto} max={totalActions ?? 1} />
+          <Bar label="…of which confirmed by the record copy" count={confirmedManual} max={totalActions ?? 1} />
           <Bar label="Gmail one-click batch" count={methodCounts.platform_email} max={totalActions ?? 1} />
           <Bar label="Phone calls" count={methodCounts.call} max={totalActions ?? 1} />
         </div>
