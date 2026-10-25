@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   EVENT_COLUMNS, EVENT_KIND_LABEL, formatEventWhen, googleCalendarUrl, type GroupEvent,
 } from "@/modules/coalitions/events";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { CancelEventButton, RsvpButtons, type RsvpStatus } from "../../EventsClient";
 
 /**
@@ -25,13 +26,13 @@ export default async function GroupEventPage({ params }: { params: Params }) {
   const { data: c } = await sb.from("coalitions").select("id, slug, name").eq("slug", slug).maybeSingle();
   if (!c) notFound();
   const [{ data: evRow }, { data: me }, { data: mine }, { data: counts }] = await Promise.all([
-    sb.from("coalition_events").select(EVENT_COLUMNS).eq("id", eventId).eq("coalition_id", c.id).maybeSingle(),
+    sb.from("coalition_events").select(`${EVENT_COLUMNS}, created_by`).eq("id", eventId).eq("coalition_id", c.id).maybeSingle(),
     sb.from("coalition_members").select("role").eq("coalition_id", c.id).eq("user_id", user.id).maybeSingle(),
     sb.from("coalition_event_rsvps").select("status").eq("event_id", eventId).eq("user_id", user.id).maybeSingle(),
     sb.rpc("coalition_event_counts", { p_coalition_id: c.id }),
   ]);
   if (!evRow || !me) notFound();
-  const ev = evRow as GroupEvent;
+  const ev = evRow as GroupEvent & { created_by: string | null };
   const isOrganizer = me.role === "owner" || me.role === "admin";
   const count = ((counts ?? []) as { event_id: string; going: number; maybe: number }[]).find((r) => r.event_id === ev.id);
   const { data: campaign } = ev.campaign_id
@@ -85,6 +86,9 @@ export default async function GroupEventPage({ params }: { params: Params }) {
         <p className="mt-3 text-[11px] text-zinc-500">Only members see this event. Nobody sees who RSVP&apos;d, only the counts.</p>
 
         {isOrganizer && !ev.cancelled_at && <div className="mt-4 border-t border-zinc-800 pt-3"><CancelEventButton slug={c.slug} eventId={ev.id} /></div>}
+        {ev.created_by !== user.id && (
+          <div className="mt-3 text-right"><ReportButton targetType="group_event" targetId={ev.id} className="text-[11px] text-zinc-500 hover:text-amber-300" /></div>
+        )}
       </article>
     </div>
   );

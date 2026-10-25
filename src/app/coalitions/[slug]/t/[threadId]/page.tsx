@@ -2,6 +2,7 @@ import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { publicHandle } from "@/lib/public-handle";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { PinButton, ReplyForm, RemoveButton } from "./ThreadClient";
 
 /**
@@ -62,6 +63,7 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
           <RemoveButton slug={c.slug} kind="thread" id={thread.id} redirectTo={`/coalitions/${c.slug}#discussion`} />
         )}
         {canModerate && <PinButton slug={c.slug} threadId={thread.id} pinned={!!thread.pinned_at} />}
+        {thread.author_id !== user.id && <ReportButton targetType="group_thread" targetId={thread.id} className="ml-3 text-[11px] text-zinc-500 hover:text-amber-300" />}
       </article>
 
       <ul className="mt-4 space-y-2">
@@ -72,6 +74,7 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
             {(p.author_id === user.id || canModerate) && (
               <RemoveButton slug={c.slug} kind="post" id={p.id} />
             )}
+            {p.author_id !== user.id && <ReportButton targetType="group_post" targetId={p.id} className="ml-3 text-[11px] text-zinc-500 hover:text-amber-300" />}
           </li>
         ))}
       </ul>
