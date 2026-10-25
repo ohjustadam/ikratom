@@ -65,6 +65,6 @@ describe("public anonymity", () => {
   });
 
   it("the board renders only for members", () => {
-    expect(page).toMatch(/\{viewerRole && <Discussion coalitionId=\{c\.id\} slug=\{c\.slug\} \/>\}/);
+    expect(page).toMatch(/\{viewerRole && <Discussion coalitionId=\{c\.id\} slug=\{c\.slug\}[^>]*\/>\}/);
   });
 });

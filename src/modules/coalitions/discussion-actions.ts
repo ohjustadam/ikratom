@@ -34,7 +34,7 @@ async function memberContext(slug: string) {
     .from("coalition_members").select("role")
     .eq("coalition_id", c.id).eq("user_id", user.id).maybeSingle();
   if (!m) return { error: "Only members of this group can post here." } as const;
-  return { supabase, user, coalition: c } as const;
+  return { supabase, user, coalition: c, isOrganizer: m.role === "owner" || m.role === "admin" } as const;
 }
 
 /** Tell the group's other members (or one thread's participants) about a post. */
@@ -46,7 +46,12 @@ async function notify(userIds: string[], title: string, body: string, link: stri
   ).then(() => {}, () => {}); // a missed notice must never fail the post
 }
 
-export async function createCoalitionThread(slug: string, title: string, body: string): Promise<Result> {
+export async function createCoalitionThread(
+  slug: string,
+  title: string,
+  body: string,
+  opts: { pin?: boolean } = {},
+): Promise<Result> {
   const ro = await assertNotReadOnly();
   if (ro) return { ok: false, error: ro };
   const t = String(title ?? "").trim();
@@ -62,9 +67,17 @@ export async function createCoalitionThread(slug: string, title: string, body: s
 
   const { data, error } = await ctx.supabase
     .from("coalition_threads")
-    .insert({ coalition_id: ctx.coalition.id, author_id: ctx.user.id, title: t, body: b })
+    .insert({
+      coalition_id: ctx.coalition.id, author_id: ctx.user.id, title: t, body: b,
+      // An organizer's welcome post goes straight to the top (migration 0284's trigger checks the role).
+      ...(opts.pin && ctx.isOrganizer ? { pinned_at: new Date().toISOString() } : {}),
+    })
     .select("id").single();
   if (error || !data) return { ok: false, error: "Couldn't post that. Try again." };
+  if (opts.pin && ctx.isOrganizer) {
+    await ctx.supabase.from("coalition_threads").update({ pinned_at: null })
+      .eq("coalition_id", ctx.coalition.id).not("pinned_at", "is", null).neq("id", data.id);
+  }
 
   const { data: others } = await ctx.supabase
     .from("coalition_members").select("user_id")

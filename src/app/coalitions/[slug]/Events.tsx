@@ -9,8 +9,8 @@ import { NewEventForm, RsvpButtons, type RsvpStatus } from "./EventsClient";
  * The group's upcoming events (migration 0283). Members only (RLS). Shows
  * going/maybe COUNTS and the viewer's own RSVP, never who else is coming.
  */
-export async function Events({ coalitionId, slug, isAdmin, limit = 5 }: {
-  coalitionId: string; slug: string; isAdmin: boolean; limit?: number;
+export async function Events({ coalitionId, slug, isAdmin, limit = 5, openForm = false }: {
+  coalitionId: string; slug: string; isAdmin: boolean; limit?: number; openForm?: boolean;
 }) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -78,7 +78,7 @@ export async function Events({ coalitionId, slug, isAdmin, limit = 5 }: {
           })}
         </ul>
       )}
-      {isAdmin && <NewEventForm slug={slug} featured={featured?.active ? { slug: featured.slug, title: featured.title } : null} />}
+      {isAdmin && <NewEventForm slug={slug} initialOpen={openForm} featured={featured?.active ? { slug: featured.slug, title: featured.title } : null} />}
     </section>
   );
 }
