@@ -1,6 +1,6 @@
 # Discord integration — design
 
-**Status:** design only. Implementation tracked in todo. Owner picks scope from the options below; nothing ships until then.
+**Status (reviewed 2026-10-25):** Phase 1 (outbound webhooks) and Phase 2 (Discord account linking over OAuth) are built — see `src/modules/discord/`, `/admin/discord-integrations`, `src/lib/discord/webhook.ts` and `src/app/api/oauth/discord/`. Attribution links (Phase 3) work through the generic `?ref=` capture, without a separate Discord-server partner kind. The verified-badge bot (Phase 4) and slash commands are not built. The sections below are the original 2026-06 design and still describe what is allowed and what is not.
 
 The kratom community has several large active Discord servers (kratom-focused subreddits' linked Discords, vendor communities, harm-reduction groups). Hundreds to thousands of users each. Recruiting from these into political action — without disrupting their existing community fabric — is the underground-network play.
 
@@ -28,7 +28,7 @@ This doc lays out **what we can do**, **what we can't**, and **what's worth buil
 - Like the partner kit but for digital deployment
 - Server admin generates `https://www.ikratom.org/?ref=discord&host=<server-slug>`
 - Pastes anywhere — `#resources`, server description, channel topic, pinned message
-- Existing `proxy.ts` referral capture credits attribution back
+- The referral capture (`AttributionCapture` → `/api/attribution`, a 60-day cookie) credits attribution back
 - Server admin gets a public stats page at `/partners/<server-slug>` showing the impact
 
 ### 4. "Discord verified" community badge (optional, requires bot)
@@ -147,15 +147,15 @@ Already 90% done — extend the existing partner-kit pattern:
 
 ### Phase 4 (later): Verified badge bot
 
-Discord bot in Node, deployed as a separate Vercel project (or runs on the same Ollama machine as a long-running script). Subscribes to `GUILD_MEMBERS` intent on the 2-3 trusted servers we're invited to. Endpoint: `POST /api/discord/verify-membership` checks if `discord_id` is in roster. Updates `profiles.discord_verified_servers`.
+Discord bot in Node, deployed as a separate free-tier service (it cannot live on Netlify's serverless functions, which cannot hold a gateway connection) or run on the same machine as Ollama as a long-running script. Subscribes to `GUILD_MEMBERS` intent on the 2-3 trusted servers we're invited to. Endpoint: `POST /api/discord/verify-membership` checks if `discord_id` is in roster. Updates `profiles.discord_verified_servers`.
 
 ---
 
-## What I need from you to start
+## What was needed to start (done for Phases 1 and 2; still applies to Phase 4)
 
 1. **Confirm phase 1 scope** (webhook outbound) is what you want first — or pick a different starting point
 2. **Discord developer account** — sign up at https://discord.com/developers/applications, create a new application named `iKratom`
-3. **OAuth credentials** (only if doing Phase 2 now): under your application → OAuth2 → Client ID + Client Secret. Add redirect URI `https://www.ikratom.org/api/oauth/discord/callback`. Add to Vercel env as `DISCORD_OAUTH_CLIENT_ID` + `DISCORD_OAUTH_CLIENT_SECRET`.
+3. **OAuth credentials** (only if doing Phase 2 now): under your application → OAuth2 → Client ID + Client Secret. Add redirect URI `https://www.ikratom.org/api/oauth/discord/callback`. Add to the Netlify environment variables (and `.env.local`) as `DISCORD_OAUTH_CLIENT_ID` + `DISCORD_OAUTH_CLIENT_SECRET`.
 4. **Identify 2-3 target servers** — which kratom Discords do you want to onboard first? I'll draft the outreach copy for the server admins (template for "hey I'd love to put a webhook in your #kratom-bills channel — here's exactly what it'd post").
 
 When you're ready, say "build phase 1" and I'll ship the webhook outbound feature on a fresh PR.

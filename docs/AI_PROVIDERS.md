@@ -35,13 +35,13 @@ Ranked by what is worth your five minutes first.
 
 | # | Provider | Secret name | Free tier | Get a key at |
 |---|---|---|---|---|
-| 1 | **Gemini** | `GEMINI_API_KEY` | Flash / Flash-Lite free, plus the only free grounded web search. **The key's Google project must have NO billing linked** — since 2026-04 a project with prepaid billing answers 402 "prepayment credits are depleted" instead of using the free tier. Create the key in a NEW project. | https://aistudio.google.com/apikey |
+| 1 | **Gemini** | `GEMINI_API_KEY` | Flash / Flash-Lite free, plus the only free grounded web search. **The key's Google project must have NO billing linked** — since 2026-04 a project with prepaid billing answers 402 "prepayment credits are depleted" instead of using the free tier. Create the key in a NEW project. **Status 2026-10-23: the primary key answers 402 for exactly that reason**, so Groq is the working provider until a key from a no-billing project replaces it. | https://aistudio.google.com/apikey |
 | 2 | **Groq** | `GROQ_API_KEY` | ~30 req/min, daily token caps; fastest in the pool | https://console.groq.com/keys |
 | 3 | **Mistral** | `MISTRAL_API_KEY` | Free plan: $10/month of API credit, no card | https://console.mistral.ai/api-keys |
-| 4 | **OpenRouter** | `OPENROUTER_API_KEY` | ~20 req/min, 50 req/day on free models | https://openrouter.ai/keys |
+| 4 | **OpenRouter** | `OPENROUTER_API_KEY` | ~20 req/min, 50 req/day on free models (1,000/day after a one-time $10 credit purchase, which is not required) | https://openrouter.ai/keys |
 | 5 | **Cloudflare** | `CLOUDFLARE_AI_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` | 10k neurons/day | https://dash.cloudflare.com → AI → Workers AI |
 | 6 | **NVIDIA NIM** | `NVIDIA_API_KEY` | ~40 req/min, 100+ models, no card | https://build.nvidia.com |
-| 7 | **Vercel AI Gateway** | `AI_GATEWAY_API_KEY` | $5 credit every 30 days, no card, never bills unless you buy credits. Last in the chain on purpose (a reserve). | https://vercel.com/dashboard → AI Gateway → API Keys |
+| 7 | **Vercel AI Gateway** | `AI_GATEWAY_API_KEY` | $5 credit every 30 days, no card, never bills unless you buy credits. Last in the chain on purpose (a reserve). **The current key is REJECTED (401)** — the router drops it for the run; replace it only if you want the reserve back. Using the gateway does not mean the site is hosted on Vercel; it is on Netlify. | https://vercel.com/dashboard → AI Gateway → API Keys |
 | 8 | **SambaNova** | `SAMBANOVA_API_KEY` | Fast Llama; current key is REJECTED (401) — replace it only if signup is still free without a card | https://cloud.sambanova.ai/apis |
 | — | Cerebras | `CEREBRAS_API_KEY` | **Left the free tier** (answers 402). Kept wired in case it returns. | https://cloud.cerebras.ai |
 | — | GitHub Models | `GH_MODELS_TOKEN` | **Being retired** (answers plain "OK", not JSON). Kept wired in case it returns. | https://github.com/settings/tokens |
@@ -113,8 +113,18 @@ Scripts read it via `node --env-file=.env.local scripts/<name>.mjs`.
 
 ### 3. Netlify (the website itself)
 
-**Nothing to do.** No AI provider key is needed at build or request time — all
-model calls happen in scheduled jobs. Do not add these to Netlify.
+**The site makes model calls too**, so it needs keys of its own: the AI Editor-in-Chief
+(`/admin/ai-editor`), letter personalize and compose, rebuttals and moderation run at
+request time through `src/lib/ai/`. Set the same secret names as above under Netlify →
+Site configuration → Environment variables, for **all deploy contexts**.
+
+- Today that router reads `GROQ_API_KEY` and `GEMINI_API_KEY` (and `OLLAMA_HOST`, which is
+  unreachable from Netlify by design). A key that is missing or dead means that site
+  feature fails, not the scheduled jobs.
+- Netlify reads an environment change only on the **next build**, unlike GitHub Actions
+  secrets, which the next scheduled run picks up.
+- Never put a key in the repo. Names only live here; values live in Netlify, GitHub
+  secrets and `.env.local`.
 
 ---
 

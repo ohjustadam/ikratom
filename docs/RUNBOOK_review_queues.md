@@ -38,9 +38,9 @@
 
 ## 3. Clear the queues
 
-**In the admin site (no CLI/Claude needed):** go to **`/admin/moderation`** (the unified hub — also linked from the Admin home and from each queue page). Each queue has **✨ Auto-resolve all** = one click, full-auto: dedup → supersede, junk → reject, confident-real+live → approve, uncertain → safely rejected. "Review each first" opens the per-item preview if you want control. This is `src/modules/admin/queue-resolve-actions.ts` (`autoResolveQueue`) + `src/app/admin/_components/ResolveQueue.tsx`; grounding in prod = Gemini Google Search (SearXNG is box-only).
+**In the admin site (no CLI/Claude needed):** go to **`/admin/moderation`** (the unified hub — also linked from the Admin home and from each queue page). Each queue has **✨ Auto-resolve all** = one click, full-auto: dedup → supersede, junk → reject, confident-real+live → approve, uncertain → safely rejected. "Review each first" opens the per-item preview if you want control. This is `src/modules/admin/queue-resolve-actions.ts` (`autoResolveQueue`) + `src/app/admin/_components/ResolveQueue.tsx`; grounding in prod = Gemini Google Search (SearXNG is not reachable from the site), which needs a Gemini key from a Google project with no billing; the primary key answered 402 as of 2026-10-23, so check `docs/AI_PROVIDERS.md` before relying on it.
 
-**Zero-click:** the nightly (`scripts/run-nightly-steps.cmd` → `clear-review-queues.mjs --ai --apply --approve`) drains both queues automatically — auto-approve is HIGH-confidence only, capped, and honors `read_only_mode`/`emergency_mode`.
+**Zero-click:** `.github/workflows/cron-grounded-queues.yml` runs `clear-review-queues.mjs --ai --apply --approve` twice a day (03:10 and 15:10 UTC) on GitHub Actions, with an in-job SearXNG container, and drains both queues automatically — auto-approve is HIGH-confidence only, capped, and honors `read_only_mode`/`emergency_mode`. (It used to run from the owner's PC via `scripts/run-nightly-steps.cmd`; that box had not run it for 66 days, so it moved on 2026-09-07. Do not re-add it there.)
 
 **CLI (box), for a manual pass:**
 ```bash
@@ -49,7 +49,7 @@ node --env-file=.env.local scripts/clear-review-queues.mjs --ai --apply         
 node --env-file=.env.local scripts/clear-review-queues.mjs --ai --apply --approve    # full autonomy
 ```
 
-`clear-review-queues.mjs` fills the gap in §2: grounds each survivor with a keyless SearXNG search + a free-tier verdict (`aiRouter`, never Claude), auto-**rejects** the clearly stale/dead/enacted/hallucinated/wrong-geo/partisan ones (medium+ confidence, evidence-backed, reversible, audit-logged, `scraper_runs`-tracked), and **leaves genuine + ambiguous items** for the engine or a human to approve. Requires `SEARXNG_URL` (owner box `:8080`); without it every item is kept.
+`clear-review-queues.mjs` fills the gap in §2: grounds each survivor with a keyless SearXNG search + a free-tier verdict (`aiRouter`, never Claude), auto-**rejects** the clearly stale/dead/enacted/hallucinated/wrong-geo/partisan ones (medium+ confidence, evidence-backed, reversible, audit-logged, `scraper_runs`-tracked), and **leaves genuine + ambiguous items** for the engine or a human to approve. Requires `SEARXNG_URL` (owner box `:8080` for a manual run; the GitHub Actions job starts its own SearXNG container); without it every item is kept.
 
 Then approve the few real survivors via `/admin/campaigns/pending` + `/admin/intel-queue`, or leave them for the hourly engine.
 
@@ -66,5 +66,5 @@ Direct writes go through the Supabase **Management API** (the MCP is often point
 ## 5. Make the residue self-clear (owner decisions — surface, don't flip)
 
 - **Enable engine reject:** `campaign_auto_reject_enabled` (in `site_config`, via `setCampaignAutoApprovePolicy`, owner-only) lets the hourly engine reject the junk it currently escalates. Asymmetric risk (a wrong reject buries a real CTA) — that's why it's off; the fact-check in §3 is the safer middle path.
-- **Wire `clear-review-queues.mjs --ai --apply` as a daily cron step** (add to `cron-daily.yml`, register in `check-cron-staleness.mjs` per standing rule 6) so the human queue stays near-empty with zero ongoing cost.
+- ~~Wire `clear-review-queues.mjs --ai --apply` as a cron step~~ — done 2026-09-07 (`cron-grounded-queues.yml`, twice daily, registered with the staleness pager), so the human queue stays near-empty with zero ongoing cost.
 - **Root cause:** the news→campaign generator (`trg_auto_campaign_on_alert`, `auto-campaign-from-alert.mjs`) has no bill-liveness/geo gate — see memory `auto-campaign-pipeline-no-staleness-gate`.

@@ -16,19 +16,19 @@ While most "civic engagement" tools are glorified email forms, we are
 building a coordinated action engine:
 
 - **Real-time bill tracking** across all 50 states + federal Congress, with deep PDF analysis classifying every bill as friendly or hostile to natural-leaf kratom — not via keyword matching, but via local LLM understanding the actual statute text.
-- **One-click legislator emails** that find your reps from your address, prefill a personalized message, and send via your own Gmail — so the email appears genuinely from you, not from a service.
-- **Auto-generated campaigns** the moment a hostile bill drops. Within seconds, every matched advocate gets a push notification, an in-app alert, and an email.
+- **One-click legislator emails** that find your reps from your address, prefill a personalized message, and send from your own mailbox (Gmail, Outlook, Yahoo, AOL or iCloud, or your mail app via `mailto:`) — so the email appears genuinely from you, not from a service.
+- **Auto-generated campaigns** when a hostile bill drops. A confidence-gated engine (or a human reviewer) approves each one, and an expired alert or a sine-die bill is skipped rather than turned into a campaign. Matched advocates then get an in-app alert and a push notification, and can send in one click.
 - **A live community Lounge** with realtime chat, presence ("12 online now"), spam/bot defenses (URL gating, flood detection, rate limits, mute history with ban-review queue).
 - **A printable shop kit** — register a partner shop in the admin portal, print a 4-piece counter set with QR codes that credit signups back to that shop.
 - **Multi-language support** — Indonesian, Thai, Malay, Vietnamese, Filipino — for the SE Asian farmers and distributors at the source of supply.
 - **End-to-end encrypted DMs** so the war-room can plan privately.
 - **Web push notifications** for instant alerts even when the browser is closed.
-- **Multi-AI orchestration** — Claude for novel work, Gemini for grounded research, Ollama (local) for privacy-sensitive bulk work, Groq for speed — with a router that picks the right model for each task.
+- **Free-tier multi-AI orchestration** — a router over Groq, Gemini, Mistral, NVIDIA, Cloudflare and OpenRouter free models, with Ollama (local) for privacy-sensitive bulk work — that falls through to the next provider when one is rate-limited or leaves its free tier. The platform never calls a paid AI API.
 - **Discord integration** so existing kratom communities can paste a webhook and get bill alerts in their server channels.
 - **A vendor verification system** so businesses can co-advocate with dual signatures legally and clearly.
 - **Audit logs on every privileged action**, MFA, password breach detection, IP-based rate limiting, security policies in the database itself.
 
-All free-tier hosted (Vercel + Supabase + Cloudflare + Ollama), open architecture, everything documented in `/docs`. Built so any engineer could be productive in a week.
+All free-tier hosted (Netlify + Supabase + Cloudflare + GitHub Actions + Ollama), open architecture, everything documented in `/docs`. Built so any engineer could be productive in a week.
 
 **Most "send emails to your reps" tools are sending postcards. We're building air traffic control.**
 
@@ -57,7 +57,7 @@ build that layer — not to lead it, just to enable it.
 - **Free-tier only for v1** — proves we can scale before raising money or charging users.
 - **Real data only** — bill status, legislator info, news scraped/synced; never manually curated past initial seed.
 - **Recruitment angle.** Shop owners, medical pros, SE Asian farmers, Discord communities are first-class users.
-- **Open source aesthetic.** Code documented, decisions logged, AI-assisted from day one.
+- **Transparent by default.** The code is public and source-available (`LICENSE.md`; it is not open source), with decisions logged and AI-assisted work documented from day one.
 
 ---
 
@@ -88,7 +88,7 @@ What this is **not**:
 - Major Discord communities (multi-thousand-member) integrated via webhook
 - Average advocate sends 10+ legislator emails per quarter (~40K/year for a 10K userbase)
 - One major win: a hostile bill dies in committee with iKratom-driven email volume cited as a factor
-- The platform itself is open source enough that other movements (cannabis, psychedelics, gun rights, anti-surveillance) could fork it
+- The pattern is documented well enough that other movements (cannabis, psychedelics, gun rights, anti-surveillance) could build the same thing. The code is source-available, not open source (`LICENSE.md`), so a copy needs the owner's written permission
 
 ---
 

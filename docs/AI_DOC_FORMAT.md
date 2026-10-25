@@ -6,7 +6,7 @@ Short answer: **mostly no, but with one specific exception.**
 
 ## Where Markdown is actually fine for AI
 
-For our `CLAUDE.md`, `AGENTS.md`, `ROADMAP.md`, `ARCHITECTURE.md`, etc. — Markdown is the right choice and switching to HTML would be a regression:
+For our `CLAUDE.md`, `AGENTS.md`, `STATE_OF_PLAY.md`, `ARCHITECTURE.md`, etc. — Markdown is the right choice and switching to HTML would be a regression:
 
 - Modern LLMs (GPT-4, Claude 3.5+, Gemini 1.5+) are trained on massive Markdown corpora (GitHub, StackOverflow, Wikipedia which serializes as MD). They parse it natively.
 - Markdown's whitespace structure (headings, lists, code fences) maps cleanly to attention patterns. Adding `<h2>` / `<p>` / `<ul>` tags doesn't help and slightly bloats the token count.
@@ -30,7 +30,7 @@ For the content we serve users via `/research`, `/briefings`, `/news`, etc.: we 
 
 | Doc type | Current | Recommendation |
 |---|---|---|
-| `CLAUDE.md` / `AGENTS.md` / `ROADMAP.md` | MD | **Keep MD.** Humans edit them; AI parses them fine. |
+| `CLAUDE.md` / `AGENTS.md` / `STATE_OF_PLAY.md` | MD | **Keep MD.** Humans edit them; AI parses them fine. |
 | `docs/*.md` (technical refs) | MD | **Keep MD.** Same reasoning. |
 | `src/content/briefings/*.md` (published content) | MD → rendered HTML by Next | **Keep MD source.** The rendered HTML is what AI/Google parse. |
 | `src/content/patch-notes/*.md` | MD → rendered HTML by Next | **Keep MD source.** |
