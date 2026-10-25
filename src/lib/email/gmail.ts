@@ -100,33 +100,54 @@ function base64UrlEncode(s: string): string {
     .replace(/=+$/, "");
 }
 
-function buildRfc2822({
+/** Base64 for a MIME part body, wrapped at 76 columns (RFC 2045). */
+function base64Mime(s: string): string {
+  return (Buffer.from(s, "utf-8").toString("base64").match(/.{1,76}/g) ?? []).join("\r\n");
+}
+
+export function buildRfc2822({
   fromName,
   fromEmail,
   to,
   subject,
   body,
+  html,
+  boundary = `ikratom_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`,
 }: {
   fromName: string | null;
   fromEmail: string;
   to: string;
   subject: string;
   body: string;
+  html?: string;
+  boundary?: string;
 }): string {
   const fromHeader = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
-  // RFC-2822 plain text. Subject is RFC 2047 encoded for safety with non-ASCII.
+  // Subject is RFC 2047 encoded for safety with non-ASCII. Bodies are base64:
+  // the old "7bit" label was wrong for letters with curly quotes or dashes.
   const subjectEncoded = `=?utf-8?B?${Buffer.from(subject, "utf-8").toString("base64")}?=`;
-  const lines = [
-    `From: ${fromHeader}`,
-    `To: ${to}`,
-    `Subject: ${subjectEncoded}`,
-    "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: 7bit",
+  const head = [`From: ${fromHeader}`, `To: ${to}`, `Subject: ${subjectEncoded}`, "MIME-Version: 1.0"];
+  if (!html) {
+    return [...head, 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", base64Mime(body)].join("\r\n");
+  }
+  // multipart/alternative: plain text first, HTML last (the part clients prefer).
+  return [
+    ...head,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
-    body,
-  ];
-  return lines.join("\r\n");
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    base64Mime(body),
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    base64Mime(html),
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
 }
 
 /**
@@ -140,6 +161,7 @@ export async function sendViaGmail(input: {
   to: string;
   subject: string;
   body: string;
+  html?: string;
 }): Promise<{ messageId: string }> {
   const accessToken = await mintAccessToken(input.refreshToken);
 
@@ -149,6 +171,7 @@ export async function sendViaGmail(input: {
     to: input.to,
     subject: input.subject,
     body: input.body,
+    html: input.html,
   });
   const raw = base64UrlEncode(rfc);
 

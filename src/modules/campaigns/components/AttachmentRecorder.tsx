@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { recordAttachmentMetadata } from "../actions-attachments";
+import {
+  clipFileProblem,
+  extForContentType,
+  isInAppBrowser,
+  mediaErrorMessage,
+  pickRecorderMime,
+  uploadContentType,
+  type ClipKind,
+} from "../recorder-support";
 
 /**
  * Browser MediaRecorder → Supabase Storage uploader. Lets advocates
@@ -10,32 +19,70 @@ import { recordAttachmentMetadata } from "../actions-attachments";
  *
  * Flow:
  *   1. User clicks "Record video" or "Record audio"
- *   2. getUserMedia → MediaRecorder collects 30s max
- *   3. Optional Web Speech API live transcript runs alongside (audio only)
- *   4. On stop: upload Blob to storage at <user_id>/<uuid>.webm
+ *   2. getUserMedia → MediaRecorder collects 30s max (WebM, or MP4 on iOS)
+ *   3. Optional Web Speech API live transcript runs alongside (desktop only:
+ *      on phones it fights the recorder for the microphone)
+ *   4. On stop: upload the Blob to storage at <user_id>/<uuid>.<ext>
  *   5. Server action persists metadata, returns public URL
- *   6. Caller appends "📹 Watch my message: <url>\n\n<transcript>" to email body
+ *   6. Caller adds "Listen to my 30-second message: <url>" to the letter
+ *
+ * Where the browser can't record (Facebook/Instagram/TikTok in-app browsers,
+ * old WebViews) the member records with the phone's own camera or voice app
+ * through a file input instead, or uploads a clip they already have; the same
+ * 30 s / 25 MB limits apply.
+ *
+ * The page's Permissions-Policy must allow camera/microphone for 'self'
+ * (next.config.ts); until 2026-10-24 it denied both, so the buttons did nothing.
  */
 
 const MAX_SECONDS = 30;
-const MAX_BYTES = 25 * 1024 * 1024; // 25 MB hard cap
+const MAX_BYTES = 25 * 1024 * 1024; // 25 MB hard cap, same as the bucket (0217)
+
+const noop = () => () => {};
+/** True where in-page recording can't work, so the file-input path leads. */
+function cannotRecordHere(): boolean {
+  return isInAppBrowser(navigator.userAgent) || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined";
+}
+
+/** A picked file's length in seconds, or null when the browser can't tell. */
+function mediaDuration(url: string, kind: ClipKind): Promise<number | null> {
+  return new Promise((resolve) => {
+    const el = document.createElement(kind === "video" ? "video" : "audio");
+    let settled = false;
+    const done = (v: number | null) => { if (!settled) { settled = true; resolve(v); } };
+    el.preload = "metadata";
+    el.onloadedmetadata = () => done(Number.isFinite(el.duration) ? el.duration : null);
+    el.onerror = () => done(null);
+    setTimeout(() => done(null), 5000);
+    el.src = url;
+  });
+}
+
+const FILE_BUTTON = "cursor-pointer rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:border-emerald-500";
 
 export function AttachmentRecorder({
   onAttached,
 }: {
-  onAttached: (attachment: { url: string; kind: "audio" | "video"; transcript: string | null; durationSeconds: number }) => void;
+  onAttached: (attachment: { url: string; kind: ClipKind; transcript: string | null; durationSeconds: number }) => void;
 }) {
-  const [mode, setMode] = useState<null | "audio" | "video">(null);
+  const [mode, setMode] = useState<null | ClipKind>(null);
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
+  const [attached, setAttached] = useState<ClipKind | null>(null);
+  const noRecorder = useSyncExternalStore(noop, cannotRecordHere, () => false);
 
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  // The finished clip. Kept as a Blob: fetch()ing its blob: URL is refused by
+  // our CSP's connect-src, which does not list blob:.
+  const blobRef = useRef<Blob | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const startedAtRef = useRef(0);
+  const durationRef = useRef(0);
   // Web Speech recognition is gated behind a browser check
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -49,46 +96,65 @@ export function AttachmentRecorder({
       try { recognitionRef.current?.stop(); } catch { /* ignore */ }
     };
   }, []);
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
-  async function start(kind: "audio" | "video") {
+  async function start(kind: ClipKind) {
     setError(null);
+    setAttached(null);
     setPreviewUrl(null);
     setTranscript("");
     chunksRef.current = [];
-    setMode(kind);
+    blobRef.current = null;
     setElapsed(0);
 
     try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        throw Object.assign(new Error("unsupported"), { name: "Unsupported" });
+      }
+      // getUserMedia must be the first await, so iOS still sees the tap.
       const stream = await navigator.mediaDevices.getUserMedia(
-        kind === "video" ? { video: true, audio: true } : { audio: true },
+        kind === "video"
+          ? { video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: true }
+          : { audio: true },
       );
       streamRef.current = stream;
-      if (kind === "video" && videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.muted = true;
-        videoRef.current.play();
-      }
+      setMode(kind);
 
-      const recorder = new MediaRecorder(stream);
+      const mimeType = pickRecorderMime(kind, (t) => MediaRecorder.isTypeSupported(t));
+      // Modest bitrates keep 30 s of phone video well under the 25 MB cap.
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: 64_000,
+        ...(kind === "video" ? { videoBitsPerSecond: 1_000_000 } : {}),
+      });
       mediaRef.current = recorder;
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type ?? "audio/webm" });
-        if (blob.size > MAX_BYTES) {
-          setError("Recording is too large (max 25 MB).");
+        const type = uploadContentType(chunksRef.current[0]?.type || recorder.mimeType, kind);
+        const blob = new Blob(chunksRef.current, { type });
+        if (blob.size === 0) {
+          setError("Nothing was recorded. Try again.");
+          setMode(null);
           return;
         }
+        if (blob.size > MAX_BYTES) {
+          setError("Recording is too large (max 25 MB). Try a shorter clip.");
+          return;
+        }
+        blobRef.current = blob;
         setPreviewUrl(URL.createObjectURL(blob));
       };
       recorder.start();
+      startedAtRef.current = Date.now();
 
-      // Live transcript via Web Speech API (best-effort, Chromium only)
+      // Live transcript via Web Speech API (best-effort, desktop Chromium only)
       const SR =
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-      if (SR) {
+      const phone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (SR && !phone) {
         const r = new SR();
         r.continuous = true;
         r.interimResults = true;
@@ -105,30 +171,31 @@ export function AttachmentRecorder({
         try { r.start(); recognitionRef.current = r; } catch { /* ignore */ }
       }
 
-      // Elapsed timer + auto-stop at MAX
+      // Elapsed timer + auto-stop at MAX (side effects stay out of state updaters)
       tickRef.current = setInterval(() => {
-        setElapsed((e) => {
-          const next = e + 1;
-          if (next >= MAX_SECONDS) stop();
-          return next;
-        });
-      }, 1000);
+        const secs = Math.floor((Date.now() - startedAtRef.current) / 1000);
+        setElapsed(Math.min(secs, MAX_SECONDS));
+        if (secs >= MAX_SECONDS) stop();
+      }, 250);
 
       setRecording(true);
     } catch (e) {
-      setError((e as Error).message || "Could not access microphone/camera.");
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setError(mediaErrorMessage(e, kind));
       setMode(null);
     }
   }
 
   function stop() {
+    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+    durationRef.current = Math.max(1, Math.min(MAX_SECONDS, Math.round((Date.now() - startedAtRef.current) / 1000)));
     if (mediaRef.current && mediaRef.current.state !== "inactive") {
       mediaRef.current.stop();
     }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     try { recognitionRef.current?.stop(); } catch { /* ignore */ }
-    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
     setRecording(false);
   }
 
@@ -138,10 +205,31 @@ export function AttachmentRecorder({
     setTranscript("");
     setElapsed(0);
     chunksRef.current = [];
+    blobRef.current = null;
+  }
+
+  async function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const input = e.currentTarget; // read before any await (React reuses the event)
+    const file = input.files?.[0];
+    input.value = ""; // picking the same file again still fires onChange
+    if (!file) return;
+    setError(null);
+    setAttached(null);
+    const kind: ClipKind = file.type.startsWith("video/") ? "video" : "audio";
+    const url = URL.createObjectURL(file);
+    const secs = file.type.startsWith("audio/") || file.type.startsWith("video/") ? await mediaDuration(url, kind) : null;
+    const problem = clipFileProblem(file, secs, MAX_SECONDS, MAX_BYTES);
+    if (problem) { URL.revokeObjectURL(url); setError(problem); return; }
+    blobRef.current = new Blob([file], { type: uploadContentType(file.type, kind) });
+    durationRef.current = Math.max(1, Math.min(MAX_SECONDS, Math.round(secs ?? MAX_SECONDS)));
+    setTranscript("");
+    setMode(kind);
+    setPreviewUrl(url);
   }
 
   async function upload() {
-    if (!previewUrl || !mode) return;
+    const blob = blobRef.current;
+    if (!blob || !mode) return;
     setBusy(true);
     setError(null);
     try {
@@ -149,19 +237,16 @@ export function AttachmentRecorder({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setError("Sign in to attach."); setBusy(false); return; }
 
-      const blob = await fetch(previewUrl).then((r) => r.blob());
-      const ext = mode === "video" ? "webm" : "webm";
-      const filename = `${user.id}/${crypto.randomUUID()}.${ext}`;
-
+      const filename = `${user.id}/${crypto.randomUUID()}.${extForContentType(blob.type)}`;
       const { error: upErr } = await supabase.storage
         .from("campaign-attachments")
         .upload(filename, blob, { contentType: blob.type, upsert: false });
-      if (upErr) { setError(upErr.message); setBusy(false); return; }
+      if (upErr) { setError(`Upload failed: ${upErr.message}`); setBusy(false); return; }
 
       const r = await recordAttachmentMetadata({
         kind: mode,
         storagePath: filename,
-        durationSeconds: elapsed,
+        durationSeconds: durationRef.current,
         sizeBytes: blob.size,
         transcript: transcript.trim() || undefined,
       });
@@ -171,8 +256,9 @@ export function AttachmentRecorder({
         url: r.publicUrl,
         kind: mode,
         transcript: transcript.trim() || null,
-        durationSeconds: elapsed,
+        durationSeconds: durationRef.current,
       });
+      setAttached(mode);
       discard();
     } catch (e) {
       setError((e as Error).message);
@@ -180,6 +266,12 @@ export function AttachmentRecorder({
       setBusy(false);
     }
   }
+
+  const errorBox = error && (
+    <p role="alert" className="mt-2 rounded-md border border-red-900/40 bg-red-950/40 px-3 py-1.5 text-xs text-red-300">
+      {error}
+    </p>
+  );
 
   return (
     <div className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
@@ -189,32 +281,69 @@ export function AttachmentRecorder({
             🎙 Personal message
           </p>
           <p className="mt-1 text-xs text-zinc-400">
-            Attach a 30-second video or audio clip. Legislators read these.
+            {attached
+              ? `✓ ${attached === "video" ? "Video" : "Audio"} attached. Its link is at the end of your letter above.`
+              : "Attach a 30-second video or audio clip. Legislators read these."}
           </p>
+          {noRecorder && (
+            <p className="mt-2 rounded-md border border-amber-800/50 bg-amber-950/20 px-2 py-1.5 text-xs text-amber-200">
+              This browser can&apos;t record inside the page (in-app browsers like Facebook&apos;s block it). Open this
+              page in Chrome or Safari to record here (tap ⋯ then &ldquo;Open in browser&rdquo;), or use your
+              phone&apos;s camera app below.
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
+            {noRecorder ? (
+              <>
+                <label className={FILE_BUTTON}>
+                  🎥 Record with your phone&apos;s camera app
+                  <input type="file" accept="audio/*,video/*" capture="user" onChange={pickFile} className="sr-only" />
+                </label>
+                <label className={FILE_BUTTON}>
+                  📁 Choose a clip
+                  <input type="file" accept="audio/*,video/*" onChange={pickFile} className="sr-only" />
+                </label>
+              </>
+            ) : (
+              <>
             <button
               type="button"
               onClick={() => start("audio")}
               className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:border-emerald-500"
             >
-              🎤 Record audio
+              🎤 {attached ? "Record again (audio)" : "Record audio"}
             </button>
             <button
               type="button"
               onClick={() => start("video")}
               className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:border-emerald-500"
             >
-              📹 Record video
+              📹 {attached ? "Record again (video)" : "Record video"}
             </button>
+              </>
+            )}
           </div>
+          {!noRecorder && (
+            <label className="mt-2 inline-block cursor-pointer text-[11px] text-zinc-500 underline hover:text-emerald-300">
+              or upload a clip you already have (up to 30 seconds)
+              <input type="file" accept="audio/*,video/*" onChange={pickFile} className="sr-only" />
+            </label>
+          )}
+          {errorBox}
         </div>
       )}
 
       {mode && (
         <div>
-          {mode === "video" && (
+          {mode === "video" && recording && (
             <video
-              ref={videoRef}
+              ref={(el) => {
+                videoRef.current = el;
+                if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                  el.srcObject = streamRef.current;
+                  el.play().catch(() => { /* autoplay refusal: the stream still records */ });
+                }
+              }}
               className="aspect-video w-full max-w-sm rounded-md bg-zinc-950"
               playsInline
               autoPlay
@@ -241,7 +370,7 @@ export function AttachmentRecorder({
               <>
                 {mode === "audio" && <audio src={previewUrl} controls className="max-w-full" />}
                 {mode === "video" && (
-                  <video src={previewUrl} controls className="aspect-video max-w-sm rounded-md bg-zinc-950" />
+                  <video src={previewUrl} controls playsInline className="aspect-video max-w-sm rounded-md bg-zinc-950" />
                 )}
               </>
             ) : null}
@@ -254,11 +383,7 @@ export function AttachmentRecorder({
             </details>
           )}
 
-          {error && (
-            <p className="mt-2 rounded-md border border-red-900/40 bg-red-950/40 px-3 py-1.5 text-xs text-red-300">
-              {error}
-            </p>
-          )}
+          {errorBox}
 
           <div className="mt-3 flex flex-wrap gap-2">
             {previewUrl && !recording && (
@@ -273,7 +398,7 @@ export function AttachmentRecorder({
             )}
             <button
               type="button"
-              onClick={discard}
+              onClick={() => { if (recording) stop(); discard(); }}
               disabled={busy}
               className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:border-zinc-500 disabled:opacity-50"
             >
