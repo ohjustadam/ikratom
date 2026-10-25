@@ -86,3 +86,40 @@ describe("pinned post", () => {
     expect(page).toMatch(/openForm=\{sp\.plan === "1"\}/);
   });
 });
+
+describe("group home layout", () => {
+  const header = read("src/app/coalitions/[slug]/GroupHeader.tsx");
+  const members = read("src/app/coalitions/[slug]/Members.tsx");
+  const about = read("src/app/coalitions/[slug]/About.tsx");
+
+  it("a cover is a preset theme, never an upload (no storage, no egress)", async () => {
+    const { coverClass, handleInitial, COVER_THEMES } = await import("@/modules/coalitions/covers");
+    expect(coverClass("ocean")).toMatch(/from-sky-500/);
+    expect(coverClass("<script>")).toBe(coverClass("emerald"));
+    expect(handleInitial("@arri_717lynxx")).toBe("A");
+    for (const t of COVER_THEMES) expect(sql).toContain(`'${t}'`);
+    expect(header).not.toMatch(/upload|storage\.from/);
+  });
+
+  it("identity on every group surface is the @handle, never a real name", () => {
+    for (const src of [page, header, members, about]) expect(src).not.toMatch(/full_name|\.email\b/);
+    expect(page).toMatch(/handle: publicHandle\(/);
+  });
+
+  it("tabs are for members only; a private group 404s for everyone else", () => {
+    expect(page).toMatch(/if \(!c\.is_public && !viewerRole\) notFound\(\)/);
+    expect(page).toMatch(/showTabs=\{!!viewerRole\}/);
+    expect(page).toMatch(/const tab: GroupTab = viewerRole && /);
+  });
+
+  it("members can leave (the button used to sit in the organizers-only panel)", () => {
+    expect(about).toMatch(/viewerRole && viewerRole !== "owner" && <div className="mb-6"><LeaveGroup/);
+  });
+
+  it("About edits are organizer-only and validated server-side", () => {
+    const fn = actions.slice(actions.indexOf("export async function updateGroupAbout"));
+    expect(fn.indexOf('me.role !== "owner" && me.role !== "admin"')).toBeLessThan(fn.indexOf("createServiceRoleClient()"));
+    expect(fn).toMatch(/COVER_THEMES as readonly string\[\]\)\.includes\(coverTheme\)/);
+    expect(fn).toMatch(/text\.length > 2000/);
+  });
+});

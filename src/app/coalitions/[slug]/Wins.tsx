@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server";
 import { plural, winLines, type WinsRow } from "@/modules/coalitions/home";
 
 /**
@@ -7,11 +6,7 @@ import { plural, winLines, type WinsRow } from "@/modules/coalitions/home";
  * does a signed-in visitor, because the numbers are the recruiting pitch.
  */
 
-export async function Wins({ coalitionId }: { coalitionId: string }) {
-  const sb = await createClient();
-  const { data } = await sb.rpc("coalition_wins", { p_coalition_id: coalitionId });
-  const w = (Array.isArray(data) ? data[0] : null) as WinsRow | null;
-  if (!w) return null;
+export function Wins({ w }: { w: WinsRow }) {
   const lines = winLines(w);
 
   return (

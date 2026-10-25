@@ -1,32 +1,41 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { CoalitionAdminPanel } from "./CoalitionAdminPanel";
+import { publicHandle } from "@/lib/public-handle";
+import { getGroupLink } from "@/modules/coalitions/growth-actions";
+import type { WinsRow } from "@/modules/coalitions/home";
+import { About } from "./About";
 import { Discussion } from "./Discussion";
 import { Events } from "./Events";
+import { GroupAction, JoinRequests } from "./GroupGrowth";
+import { GroupLinkCard, RequestToJoin } from "./GroupGrowthClient";
+import { GroupHeader, type GroupTab } from "./GroupHeader";
+import { Members, type MemberView } from "./Members";
+import { TeamActivity } from "./TeamActivity";
 import { Welcome } from "./Welcome";
 import { Wins } from "./Wins";
-import { GroupAction, JoinRequests } from "./GroupGrowth";
-import { GroupLinkCard, RequestToJoin, VisibilityToggle } from "./GroupGrowthClient";
-import { publicHandle } from "@/lib/public-handle";
 
+/**
+ * A group's home, laid out like a familiar social group (owner ask
+ * 2026-10-24, for the first community): cover, name, members, one-tap Invite,
+ * then Home (checklist, group action, wins, events, the board), Events,
+ * Members and About tabs. Phone first. Members only, except a public group's
+ * landing view (About, wins, "Ask to join"). Identity is @handle only.
+ */
 export const dynamic = "force-dynamic";
 
 type Params = Promise<{ slug: string }>;
+type Role = "owner" | "admin" | "member";
 
 export async function generateMetadata({ params }: { params: Params }) {
   const { slug } = await params;
   const sb = await createClient();
-  const { data } = await sb
-    .from("coalitions")
-    .select("name, description, is_public")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (!data) return { title: "Coalition" };
+  const { data } = await sb.from("coalitions").select("name, description, is_public").eq("slug", slug).maybeSingle();
+  if (!data) return { title: "Group" };
   return {
-    title: (data as { name: string }).name,
-    description: (data as { description: string | null }).description ?? undefined,
-    robots: (data as { is_public: boolean }).is_public ? undefined : { index: false },
+    title: data.name as string,
+    description: (data.description as string | null) ?? undefined,
+    robots: data.is_public ? undefined : { index: false },
   };
 }
 
@@ -38,347 +47,123 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
 
-  const { data: coalitionRow } = await sb
+  const { data: row } = await sb
     .from("coalitions")
-    .select("id, slug, name, description, state, is_public, owner_id, created_at, featured_campaign_id, featured_set_at")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (!coalitionRow) notFound();
-  const c = coalitionRow as {
-    id: string; slug: string; name: string; description: string | null;
-    state: string | null; is_public: boolean; owner_id: string; created_at: string;
-    featured_campaign_id: string | null; featured_set_at: string | null;
+    .select("id, slug, name, description, state, is_public, owner_id, created_at, featured_campaign_id, featured_set_at, cover_theme")
+    .eq("slug", slug).maybeSingle();
+  if (!row) notFound();
+  const c = row as {
+    id: string; slug: string; name: string; description: string | null; state: string | null; is_public: boolean;
+    owner_id: string; created_at: string; featured_campaign_id: string | null; featured_set_at: string | null; cover_theme: string | null;
   };
 
-  // Is the viewer a member? RLS will filter what they can see in
-  // member lists anyway — but we use this to gate the admin panel UX.
-  let viewerRole: "owner" | "admin" | "member" | null = null;
+  let viewerRole: Role | null = null;
   if (user) {
-    const { data } = await sb
-      .from("coalition_members")
-      .select("role")
-      .eq("coalition_id", c.id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    viewerRole = (data as { role: "owner" | "admin" | "member" } | null)?.role ?? null;
+    const { data } = await sb.from("coalition_members").select("role").eq("coalition_id", c.id).eq("user_id", user.id).maybeSingle();
+    viewerRole = (data?.role as Role | undefined) ?? null;
   }
+  // A private group doesn't exist for anyone outside it.
+  if (!c.is_public && !viewerRole) notFound();
+  const isOrganizer = viewerRole === "owner" || viewerRole === "admin";
 
-  // If the coalition is private and viewer isn't a member, hide it.
-  if (!c.is_public && !viewerRole) {
-    notFound();
-  }
-
-  // Members list — RLS only returns rows if the viewer is a member.
-  // Names render via publicHandle() (hard anonymity rule): @username, NEVER
-  // the real full_name, even to fellow coalition members. get_public_profiles
-  // is the public-safe SECURITY DEFINER read (profiles RLS is admin-or-self).
-  type MemberRow = { user_id: string; role: string; joined_at: string };
-  type MemberView = MemberRow & { username: string | null; state: string | null };
+  // Members (RLS returns rows to members only). @handle via get_public_profiles, never a real name.
   let members: MemberView[] = [];
   if (viewerRole) {
-    const { data: memberRows } = await sb
-      .from("coalition_members")
-      .select("user_id, role, joined_at")
-      .eq("coalition_id", c.id)
-      .order("joined_at", { ascending: true });
-    const rows = (memberRows ?? []) as MemberRow[];
-    const userIds = rows.map((r) => r.user_id);
-    const profByUser = new Map<string, { username: string | null; state: string | null }>();
-    if (userIds.length > 0) {
-      // NOTE: the RPC arg is p_ids (was incorrectly passed as `ids`, which
-      // silently returned nothing → blank roster).
-      const { data: profs } = await sb.rpc("get_public_profiles", { p_ids: userIds });
-      type PProf = { id: string; username: string | null; state: string | null };
-      for (const p of (profs ?? []) as PProf[]) profByUser.set(p.id, { username: p.username, state: p.state });
+    const { data: rows } = await sb.from("coalition_members").select("user_id, role, joined_at")
+      .eq("coalition_id", c.id).order("joined_at", { ascending: true });
+    const list = (rows ?? []) as { user_id: string; role: string; joined_at: string }[];
+    const prof = new Map<string, { username: string | null; state: string | null; avatar_url: string | null }>();
+    if (list.length > 0) {
+      const { data: profs } = await sb.rpc("get_public_profiles", { p_ids: list.map((r) => r.user_id) });
+      for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null; avatar_url: string | null }[]) prof.set(p.id, p);
     }
-    members = rows.map((r) => ({
-      ...r,
-      username: profByUser.get(r.user_id)?.username ?? null,
-      state: profByUser.get(r.user_id)?.state ?? null,
-    }));
+    members = list.map((r) => {
+      const p = prof.get(r.user_id);
+      return { ...r, handle: publicHandle({ username: p?.username ?? null, state: p?.state ?? null }), avatarUrl: p?.avatar_url ?? null };
+    });
   }
 
-  // The welcome checklist's one-tap shortcuts (migration 0284): ?intro=1 opens
-  // a pre-filled hello, ?welcome=1 an organizer's pinned welcome post, and
-  // ?plan=1 the event form.
-  const isOrganizer = viewerRole === "owner" || viewerRole === "admin";
+  // Wins: members, plus signed-in visitors of a public group (counts only).
+  const { data: winsData } = user ? await sb.rpc("coalition_wins", { p_coalition_id: c.id }) : { data: null };
+  const wins = (Array.isArray(winsData) ? winsData[0] : null) as WinsRow | null;
+  const memberCount = viewerRole ? members.length : (wins?.members_total ?? null);
+
+  // The group link, fetched up front so Invite opens the share sheet in one
+  // tap. An organizer's first visit turns it on (one reusable link per group).
+  const link = viewerRole ? await getGroupLink(c.id) : null;
+
+  const tabParam = typeof sp.tab === "string" ? sp.tab : "home";
+  const tab: GroupTab = viewerRole && ["events", "members", "about"].includes(tabParam) ? (tabParam as GroupTab) : "home";
+
+  // The welcome checklist's one-tap shortcuts: ?intro=1 a pre-filled hello,
+  // ?welcome=1 an organizer's pinned welcome post, ?plan=1 the event form.
   const { data: featuredCamp } = c.featured_campaign_id && viewerRole
     ? await sb.from("campaigns").select("id, slug, active").eq("id", c.featured_campaign_id).maybeSingle()
     : { data: null };
-  const featured = featuredCamp?.active ? { id: featuredCamp.id, slug: featuredCamp.slug, set_at: c.featured_set_at } : null;
-  const myHandle = user ? publicHandle(members.find((m) => m.user_id === user.id) ?? { username: null, state: null }) : "";
+  const featured = featuredCamp?.active ? { id: featuredCamp.id as string, slug: featuredCamp.slug as string, set_at: c.featured_set_at } : null;
+  const myHandle = members.find((m) => m.user_id === user?.id)?.handle ?? "";
   const prefill = sp.welcome === "1" && isOrganizer
     ? { title: "👋 Welcome! Start here", body: welcomeBody(c.name), pin: true }
     : sp.intro === "1"
       ? { title: `👋 Hi, I'm ${myHandle}`, body: "Hi everyone! I live in ___ and kratom matters to me because ___.\n\nI can help by ___." }
       : null;
 
-  // Coalition contact log — aggregate team activity. Privacy: never
-  // expose per-user attribution. RPCs guard by membership; aggregates
-  // only. Defensive against pre-migration deploys.
-  type ActivitySummary = {
-    total_sends: number;
-    active_members: number;
-    legislators_contacted: number;
-    campaigns_used: number;
-  };
-  type TopLegRow = {
-    legislator_id: string;
-    full_name: string;
-    state: string;
-    role: string;
-    send_count: number;
-    distinct_senders: number;
-  };
-  let activitySummary: ActivitySummary | null = null;
-  let topLegislators: TopLegRow[] = [];
-  if (viewerRole) {
-    try {
-      const [sumRes, legsRes] = await Promise.all([
-        sb.rpc("coalition_activity_summary", { p_coalition_id: c.id, p_days: 14 }),
-        sb.rpc("coalition_top_legislators", { p_coalition_id: c.id, p_days: 14, p_limit: 8 }),
-      ]);
-      const sumRows = sumRes.data as ActivitySummary[] | null;
-      if (sumRows && sumRows.length > 0) activitySummary = sumRows[0];
-      topLegislators = (legsRes.data as TopLegRow[] | null) ?? [];
-    } catch { /* pre-migration */ }
-  }
-
-  // For coalitions scoped to a state, pull a tiny slice of state intel
-  // so the page is useful at-a-glance — number of recent alerts +
-  // active operations. Defensive; pre-cluster-migration deploys skip.
-  let stateActiveOps = 0;
-  let stateAlerts = 0;
-  if (c.state) {
-    try {
-      const cutoff30 = new Date(Date.now() - 30 * 86400 * 1000).toISOString().slice(0, 10);
-      const cutoff7 = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
-      const [opsRes, alertsRes] = await Promise.all([
-        sb.from("bill_cluster_members")
-          .select("bill_clusters!inner(slug), bills!inner(state, last_action_at, active)")
-          .eq("bills.state", c.state)
-          .eq("bills.active", true)
-          .gte("bills.last_action_at", cutoff30),
-        sb.from("policy_alerts")
-          .select("id", { count: "exact", head: true })
-          .eq("locality", c.state)
-          .in("severity", ["critical", "alert"])
-          .gte("created_at", cutoff7),
-      ]);
-      type Row = { bill_clusters: { slug: string } | Array<{ slug: string }> | null };
-      const slugs = new Set<string>();
-      for (const r of (opsRes.data ?? []) as Row[]) {
-        const cl = Array.isArray(r.bill_clusters) ? r.bill_clusters[0] : r.bill_clusters;
-        if (cl) slugs.add(cl.slug);
-      }
-      stateActiveOps = slugs.size;
-      stateAlerts = alertsRes.count ?? 0;
-    } catch { /* defensive */ }
-  }
+  const invite = viewerRole && (
+    <div id="invite" className="scroll-mt-20">
+      <GroupLinkCard coalitionId={c.id} groupName={c.name} initial={link?.ok ? { url: link.url, qrSvg: link.qrSvg } : null} />
+    </div>
+  );
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="text-xs">
-        <Link href="/coalitions" className="text-zinc-500 hover:text-emerald-400">
-          ← Coalitions
-        </Link>
-      </div>
+    <div className="mx-auto max-w-3xl px-4 pb-10 sm:px-6 sm:pt-6">
+      <GroupHeader
+        group={c}
+        memberCount={memberCount}
+        faces={members.slice(0, 7).map((m) => ({ handle: m.handle, avatarUrl: m.avatarUrl }))}
+        viewerRole={viewerRole}
+        tab={tab}
+        showTabs={!!viewerRole}
+        link={{ url: link?.ok ? link.url : null, error: link && !link.ok ? link.error : null }}
+      />
 
-      <header className="mb-6 mt-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
-          ◉ Coalition
-        </p>
-        <div className="mt-2 flex flex-wrap items-baseline gap-3">
-          <h1 className="text-3xl font-bold sm:text-4xl">{c.name}</h1>
-          {c.state && (
-            <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-xs uppercase text-zinc-300">
-              {c.state}
-            </span>
+      {!viewerRole && (
+        <>
+          {c.description && <p className="mb-6 whitespace-pre-wrap text-sm text-zinc-300">{c.description}</p>}
+          {wins && <Wins w={wins} />}
+          {user && !viewerRole && c.is_public && <RequestToJoin coalitionId={c.id} />}
+          {!user && (
+            <p className="rounded-md border border-amber-700/40 bg-amber-950/10 p-3 text-sm text-amber-200">
+              💡 <Link href={`/login?redirect=${encodeURIComponent(`/coalitions/${c.slug}`)}`} className="font-semibold underline">Sign in or create a free account</Link> to ask to join this group.
+            </p>
           )}
-          {viewerRole && (
-            <span className={`rounded px-2 py-0.5 text-[10px] uppercase ${
-              viewerRole === "owner"
-                ? "bg-amber-500 text-zinc-950"
-                : viewerRole === "admin"
-                ? "bg-emerald-700 text-zinc-100"
-                : "bg-zinc-800 text-zinc-300"
-            }`}>
-              You: {viewerRole}
-            </span>
-          )}
-          {!c.is_public && <span className="text-[10px] text-zinc-500">🔒 private</span>}
-        </div>
-        {c.description && (
-          <p className="mt-3 max-w-2xl whitespace-pre-wrap text-sm text-zinc-300">
-            {c.description}
-          </p>
-        )}
-      </header>
-
-      {/* The welcome checklist (migration 0284): a new member's first four
-          steps, or the organizer's. Replaces the old static "get started". */}
-      {user && viewerRole && (
-        <Welcome coalitionId={c.id} slug={c.slug} userId={user.id} isOrganizer={isOrganizer} featuredCampaign={featured} />
+        </>
       )}
 
-      {/* The group's wins this week, counts only (migration 0284). Public
-          groups show it to signed-in visitors too: it's the recruiting pitch. */}
-      {user && (viewerRole || c.is_public) && <Wins coalitionId={c.id} />}
-
-      {/* Groups slice 1+2+3 (migration 0274): the shared action, the
-          reusable invite link, and the organizers' request inbox. */}
-      {viewerRole && (
-        <GroupAction coalitionId={c.id} state={c.state} isAdmin={isOrganizer} />
-      )}
-      {viewerRole && <div id="invite" className="scroll-mt-20"><GroupLinkCard coalitionId={c.id} groupName={c.name} /></div>}
-      {(viewerRole === "owner" || viewerRole === "admin") && <JoinRequests coalitionId={c.id} />}
-
-      {/* A public group's page is its recruiting page: non-members can ask in. */}
-      {user && !viewerRole && c.is_public && <RequestToJoin coalitionId={c.id} />}
-
-      {/* State intel widget */}
-      {c.state && viewerRole && (stateActiveOps > 0 || stateAlerts > 0) && (
-        <section className="mb-6 rounded-lg border border-emerald-700/30 bg-emerald-950/10 p-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
-            What&apos;s moving in {c.state} right now
-          </h2>
-          <ul className="mt-2 flex flex-wrap gap-2 text-[11px]">
-            {stateActiveOps > 0 && (
-              <li>
-                <Link
-                  href={`/states/${c.state}`}
-                  className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1 hover:border-emerald-500"
-                >
-                  🕸 <strong>{stateActiveOps}</strong> active operation{stateActiveOps === 1 ? "" : "s"}
-                </Link>
-              </li>
-            )}
-            {stateAlerts > 0 && (
-              <li>
-                <Link
-                  href={`/pulse?state=${c.state}`}
-                  className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1 hover:border-emerald-500"
-                >
-                  🚨 <strong>{stateAlerts}</strong> alert{stateAlerts === 1 ? "" : "s"} · last 7d
-                </Link>
-              </li>
-            )}
-            <li>
-              <Link
-                href="/brief"
-                className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1 hover:border-emerald-500"
-              >
-                ☕ Your daily brief
-              </Link>
-            </li>
-          </ul>
-        </section>
+      {viewerRole && user && tab === "home" && (
+        <>
+          <Welcome coalitionId={c.id} slug={c.slug} userId={user.id} isOrganizer={isOrganizer} featuredCampaign={featured} />
+          {isOrganizer && <JoinRequests coalitionId={c.id} />}
+          <GroupAction coalitionId={c.id} state={c.state} isAdmin={isOrganizer} />
+          {wins && <Wins w={wins} />}
+          <Events coalitionId={c.id} slug={c.slug} isAdmin={isOrganizer} limit={3} openForm={sp.plan === "1"} />
+          {viewerRole && <Discussion coalitionId={c.id} slug={c.slug} prefill={prefill} />}
+          {invite}
+        </>
       )}
 
-      {/* Team activity — aggregate only, no per-user attribution. */}
-      {viewerRole && activitySummary && activitySummary.total_sends > 0 && (
-        <section className="mb-6 rounded-lg border border-emerald-700/30 bg-emerald-950/10 p-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
-            🤝 Team activity · last 14 days
-          </h2>
-          <p className="mt-1 text-[11px] text-zinc-400">
-            Aggregate stats only — individual sends aren&apos;t attributed to specific members.
-            Privacy first.
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2 text-center">
-              <p className="text-2xl font-bold text-emerald-300">{activitySummary.total_sends}</p>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-500">total sends</p>
-            </div>
-            <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2 text-center">
-              <p className="text-2xl font-bold text-emerald-300">{activitySummary.active_members}</p>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-500">members active</p>
-            </div>
-            <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2 text-center">
-              <p className="text-2xl font-bold text-emerald-300">{activitySummary.legislators_contacted}</p>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-500">legislators contacted</p>
-            </div>
-            <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2 text-center">
-              <p className="text-2xl font-bold text-emerald-300">{activitySummary.campaigns_used}</p>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-500">campaigns used</p>
-            </div>
-          </div>
-
-          {topLegislators.length > 0 && (
-            <>
-              <h3 className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                Most-contacted legislators
-              </h3>
-              <ul className="mt-2 space-y-1 text-[11px]">
-                {topLegislators.map((l) => (
-                  <li key={l.legislator_id} className="flex flex-wrap items-baseline gap-x-2 rounded border border-zinc-800 bg-zinc-950/40 px-2 py-1">
-                    <Link href={`/legislators/${l.legislator_id}/briefing`} className="font-semibold text-zinc-100 hover:underline">
-                      {l.full_name}
-                    </Link>
-                    <span className="font-mono text-[10px] text-zinc-500">{l.state}</span>
-                    <span className="rounded bg-zinc-900/60 px-1 py-0.5 font-mono text-[9px] uppercase text-zinc-400">
-                      {l.role.replace(/_/g, " ")}
-                    </span>
-                    <span className="ml-auto font-mono text-[10px] text-zinc-400">
-                      <strong className="text-emerald-300">{l.send_count}</strong> send{l.send_count === 1 ? "" : "s"} · <strong>{l.distinct_senders}</strong> member{l.distinct_senders === 1 ? "" : "s"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
+      {viewerRole && tab === "events" && (
+        <Events coalitionId={c.id} slug={c.slug} isAdmin={isOrganizer} limit={30} openForm={sp.plan === "1"} />
       )}
 
-      {/* Events and call-in days: members only (migration 0283). */}
-      {viewerRole && <Events coalitionId={c.id} slug={c.slug} isAdmin={isOrganizer} openForm={sp.plan === "1"} />}
-
-      {/* Private discussion board: members only (migration 0273). */}
-      {viewerRole && <Discussion coalitionId={c.id} slug={c.slug} prefill={prefill} />}
-
-      {/* Members list (gated) */}
-      {viewerRole && (
-        <section className="mb-6">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-300">
-            Members ({members.length})
-          </h2>
-          <ul className="space-y-1">
-            {members.map((m) => (
-              <li key={m.user_id} className="flex flex-wrap items-baseline gap-2 rounded border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 text-[11px]">
-                <span className="font-semibold text-zinc-100">
-                  {publicHandle({ username: m.username, state: m.state })}
-                </span>
-                <span className={`rounded px-1.5 py-0.5 text-[9px] uppercase ${
-                  m.role === "owner"
-                    ? "bg-amber-500 text-zinc-950"
-                    : m.role === "admin"
-                    ? "bg-emerald-700 text-zinc-100"
-                    : "bg-zinc-800 text-zinc-300"
-                }`}>
-                  {m.role}
-                </span>
-                <span className="ml-auto text-[10px] text-zinc-500">
-                  joined {new Date(m.joined_at).toLocaleDateString()}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+      {viewerRole && tab === "members" && (
+        <>
+          {invite}
+          <Members members={members} />
+          <TeamActivity coalitionId={c.id} />
+        </>
       )}
 
-      {/* Admin actions — only owner/admin */}
-      {(viewerRole === "owner" || viewerRole === "admin") && (
-        <div id="admin-actions">
-          <VisibilityToggle coalitionId={c.id} isPublic={c.is_public} />
-          <CoalitionAdminPanel coalitionId={c.id} viewerRole={viewerRole} />
-        </div>
-      )}
-
-      {!user && c.is_public && (
-        <p className="mt-6 rounded-md border border-amber-700/40 bg-amber-950/10 p-3 text-[11px] text-amber-200">
-          💡 <Link href={`/login?redirect=${encodeURIComponent(`/coalitions/${c.slug}`)}`} className="font-semibold underline">Sign in or create a free account</Link> to ask to join this group.
-        </p>
-      )}
+      {viewerRole && tab === "about" && <About group={c} memberCount={memberCount} viewerRole={viewerRole} />}
     </div>
   );
 }
