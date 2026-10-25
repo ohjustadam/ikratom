@@ -12,6 +12,7 @@ import {
 } from "@/lib/crypto/e2e";
 import { sendMessage } from "@/modules/dm/actions";
 import { blockUser } from "@/modules/dm/block-actions";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { createClient } from "@/lib/supabase/client";
 
 import Link from "@/components/Link";
@@ -275,7 +276,11 @@ export function ConversationView({
             Settings
           </a>
         ) : other ? (
-          <BlockMenu otherId={other.id} otherName={display} />
+          <div className="flex flex-col items-end gap-1">
+            <BlockMenu otherId={other.id} otherName={display} />
+            {/* Messages are end-to-end encrypted: the reporter pastes what matters. */}
+            <ReportButton targetType="dm_user" targetId={other.id} label="Report user" excerpt />
+          </div>
         ) : null}
       </header>
 

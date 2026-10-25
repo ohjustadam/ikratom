@@ -2,6 +2,7 @@ import { listPublicStories } from "@/modules/stories/actions";
 import { STORY_TAG_LABELS } from "@/modules/stories/labels";
 import { createClient } from "@/lib/supabase/server";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 
 export const metadata = { title: "Story bank" };
 export const dynamic = "force-dynamic";
@@ -132,13 +133,14 @@ export default async function StoriesPage({
               <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-zinc-300">
                 {s.body}
               </p>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-wrap items-center gap-3">
                 <a
                   href={`/campaigns?story=${s.id}`}
                   className="inline-flex items-center gap-1 rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
                 >
                   📨 Use this story in a letter →
                 </a>
+                {user && <ReportButton targetType="story" targetId={s.id} />}
               </div>
             </li>
           ))}

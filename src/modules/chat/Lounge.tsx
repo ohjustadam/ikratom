@@ -5,6 +5,7 @@ import { publicHandle } from "@/lib/public-handle";
 import { createClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { postChatMessage, deleteChatMessage, type ChatMessage } from "./actions";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 
 /**
  * Live community chat for the forum index. Three jobs in one component:
@@ -218,7 +219,7 @@ export function Lounge({
           const author = authorMap[m.user_id];
           const canDelete = signedIn && (isAdmin || (me && me.id === m.user_id));
           return (
-            <div key={m.id} className="group flex gap-2">
+            <div key={m.id} className="group flex flex-wrap gap-x-2">
               <a
                 href={`/profile/${m.user_id}`}
                 className={`shrink-0 font-semibold ${
@@ -245,6 +246,10 @@ export function Lounge({
                 >
                   ✕
                 </button>
+              )}
+              {signedIn && me?.id !== m.user_id && (
+                <ReportButton targetType="lounge_message" targetId={m.id} label="⚑"
+                  className="text-[10px] text-zinc-700 hover:text-red-400" />
               )}
             </div>
           );
