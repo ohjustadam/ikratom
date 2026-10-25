@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 /**
  * /account/profile — the member's public-facing profile: bio, advocacy story,
  * interests, links, and who can see each one (Only me / Friends / Members /
- * Public). Settings come from get_my_profile_social (0283), which applies the
+ * Public). Settings come from get_my_profile_social (0285), which applies the
  * safe defaults when the member has never saved.
  */
 export default async function EditProfilePage() {
@@ -41,6 +41,9 @@ export default async function EditProfilePage() {
           You appear as <strong className="text-zinc-200">@{me?.username ?? "you"}</strong> everywhere on iKratom. Choose what to share and who sees it.
           Members in states where kratom is banned: start with <em>Friends</em> or <em>Only me</em>, and add more when you are comfortable.
         </p>
+        <a href="/account/photos" className="mt-4 inline-flex items-center gap-2 rounded-md border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500">
+          📷 Profile photo, cover and album →
+        </a>
       </header>
       <ProfileEditor
         profileUrl={profileHref({ id: user.id, username: me?.username ?? null })}

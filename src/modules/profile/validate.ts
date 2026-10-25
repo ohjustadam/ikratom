@@ -1,6 +1,6 @@
 /**
  * Server-side validation for the profile editor. Pure, so it is unit-tested
- * (tests/social-profile.test.ts). The DB constraints in 0283 are the backstop;
+ * (tests/social-profile.test.ts). The DB constraints in 0285 are the backstop;
  * this turns a bad input into a readable message before it gets there.
  */
 import { isSafePublicUrl } from "@/lib/url-safety";
