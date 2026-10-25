@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getBillOfficialGroups, type BillOfficialGroups } from "@/modules/compose/bill-officials";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
 
 /**
  * /api/bills/[id]/viewer — everything on a bill page that differs per reader.
@@ -199,7 +200,9 @@ async function buildCommitteeLeverage(
 
     const memberIds = matched.map((c) => c.legislator_id);
     const [stancesRes, sponsorsRes, donorsRes, tradesRes] = await Promise.all([
-      supabase.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom").in("legislator_id", memberIds),
+      STANCE_LABELS_RETIRED
+        ? Promise.resolve({ data: [] })
+        : supabase.from("legislator_stance").select("legislator_id, stance").eq("topic", "kratom").in("legislator_id", memberIds),
       supabase.from("bill_sponsors")
         .select("legislator_id, classification, bills!inner(kratom_relevance, active)")
         .in("legislator_id", memberIds).eq("bills.active", true),
@@ -212,7 +215,7 @@ async function buildCommitteeLeverage(
 
     const stanceByLeg = new Map<string, string>();
     for (const r of (stancesRes.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
-      stanceByLeg.set(r.legislator_id, r.stance);
+      stanceByLeg.set(r.legislator_id, publishedStance(r.stance));
     }
     type SpAgg = { primary_count: number; cosponsor_count: number; has_anti: boolean; has_pro: boolean; anti_primary: number; pro_primary: number };
     const spByLeg = new Map<string, SpAgg>();

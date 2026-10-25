@@ -1,5 +1,6 @@
 import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
+import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
 
 export const metadata = {
   title: "Coordinated operations — model legislation detector",
@@ -146,7 +147,7 @@ export default async function OperationsIntelPage() {
           .eq("topic", "kratom")
           .in("legislator_id", sponsorLegIds);
         for (const s of (stances ?? []) as Array<{ legislator_id: string; stance: string }>) {
-          stanceByLeg.set(s.legislator_id, s.stance);
+          stanceByLeg.set(s.legislator_id, publishedStance(s.stance));
         }
       }
       // Map bill_id → clusters that contain it
@@ -353,7 +354,7 @@ export default async function OperationsIntelPage() {
                     </p>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {order
-                        .filter((s) => (agg.by_stance[s] ?? 0) > 0)
+                        .filter((s) => !STANCE_LABELS_RETIRED && (agg.by_stance[s] ?? 0) > 0)
                         .map((s) => (
                           <span
                             key={s}

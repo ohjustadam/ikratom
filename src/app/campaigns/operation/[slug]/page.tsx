@@ -5,6 +5,7 @@ import { OperationResponseClient } from "./OperationResponseClient";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { POSTURE_STANCE } from "@/modules/compose/default-letter";
 import { matchStoriesForCluster, type MatchedStory } from "@/modules/stories/match";
+import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
 
 export const dynamic = "force-dynamic";
 
@@ -210,14 +211,14 @@ export default async function OperationResponsePage({
   // Per-bill stance signal on the primary sponsor — helps the advocate
   // calibrate the message tone (e.g. hostile sponsor = firm oppose).
   const stanceByLeg = new Map<string, string>();
-  if (legIds.length > 0) {
+  if (legIds.length > 0 && !STANCE_LABELS_RETIRED) {
     const { data: stances } = await sb
       .from("legislator_stance")
       .select("legislator_id, stance")
       .eq("topic", "kratom")
       .in("legislator_id", legIds);
     for (const s of (stances ?? []) as Array<{ legislator_id: string; stance: string }>) {
-      stanceByLeg.set(s.legislator_id, s.stance);
+      stanceByLeg.set(s.legislator_id, publishedStance(s.stance));
     }
   }
 

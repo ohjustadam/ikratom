@@ -27,6 +27,7 @@ import { committeesMatch } from "@/lib/bill-committee";
 import { assessThreat, type ThreatAssessment } from "@/lib/legislator-threat-score";
 import { buildMoneyConflict, type MoneyConflict } from "@/lib/legislator-money-analysis";
 import type { Stance } from "@/lib/legislator-action-plan";
+import { publishedStance } from "@/lib/published-stance";
 
 type SB = Awaited<ReturnType<typeof createClient>>;
 
@@ -281,7 +282,7 @@ export async function getLegislatorIntel(sb: SB, leg: IntelLegislator): Promise<
       : Promise.resolve({ data: null }),
   ]);
 
-  const stance = (((stanceRes.data as { stance?: string } | null)?.stance) ?? "unknown") as Stance;
+  const stance = publishedStance((stanceRes.data as { stance?: string } | null)?.stance);
   const donor = (donorRes.data as IntelDonorRow | null) ?? null;
   const donorMatched = donor?.resolved_status === "matched";
 
