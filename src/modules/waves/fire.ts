@@ -30,6 +30,7 @@ import {
   markEmailIntegrationRevoked,
 } from "@/lib/email/user-send";
 import { renderTemplate, buildVars } from "@/modules/campaigns/templates";
+import { withLetterFooter } from "@/modules/campaigns/letter-extras";
 import type { Legislator } from "@/lib/legislators";
 
 const MAX_USERS_PER_TICK = 30; // ≈ 60s budget at 2s/send
@@ -199,7 +200,7 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
           try {
             const vars = buildVars(profile ?? null, target, sendable);
             const subject = renderTemplate(effSubject, vars);
-            const body = renderTemplate(effBody, vars);
+            const body = withLetterFooter(renderTemplate(effBody, vars));
             await sendOnUserBehalf({
               integration,
               fromName: profile?.full_name ?? null,

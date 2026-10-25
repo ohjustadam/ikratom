@@ -92,6 +92,8 @@ export async function sendViaSmtp(input: {
   to: string;
   subject: string;
   body: string;
+  /** HTML alternative; nodemailer sends multipart/alternative when present. */
+  html?: string;
 }): Promise<{ messageId: string }> {
   try {
     const info = await transport(input.provider, input.user, input.appPassword).sendMail({
@@ -99,6 +101,7 @@ export async function sendViaSmtp(input: {
       to: input.to,
       subject: input.subject,
       text: input.body,
+      ...(input.html ? { html: input.html } : {}),
     });
     return { messageId: String(info.messageId ?? "") };
   } catch (e) {

@@ -11,6 +11,7 @@ import {
   isContactFormUrl,
 } from "./send-links";
 import type { ComposeOfficial, ComposeContext } from "./types";
+import { withLetterFooter } from "@/modules/campaigns/letter-extras";
 
 /**
  * The uniform email composer behind every "✉ Email" CTA. One feature set,
@@ -149,6 +150,9 @@ export function ComposeModal({
     })();
   }
 
+  // What actually leaves: the letter plus the plain "Sent via iKratom — <link>" line (lib/email/letter-footer.ts).
+  const letter = withLetterFooter(body);
+
   function logSend(via: string) {
     setSentVia(via);
     // One letter = one logged action, no matter how many delivery buttons the
@@ -163,14 +167,14 @@ export function ComposeModal({
         officialId: official.id ?? null,
         source,
         subject,
-        body,
+        body: letter,
       }).catch(() => {});
     });
   }
 
   async function copyMessage() {
     try {
-      const text = `${to ? `To: ${to}\n` : ""}Subject: ${subject}\n\n${body}`;
+      const text = `${to ? `To: ${to}\n` : ""}Subject: ${subject}\n\n${letter}`;
       await navigator.clipboard.writeText(text);
       setCopied(true);
       logSend("copy");
@@ -311,7 +315,7 @@ export function ComposeModal({
               <div className="mt-4">
                 <div className="grid gap-2 sm:grid-cols-3">
                   <SendLink
-                    href={buildGmailComposeUrl(to, subject, body)}
+                    href={buildGmailComposeUrl(to, subject, letter)}
                     newTab
                     label="Open in Gmail"
                     sub="Web compose"
@@ -319,7 +323,7 @@ export function ComposeModal({
                     done={sentVia === "gmail"}
                   />
                   <SendLink
-                    href={buildOutlookComposeUrl(to, subject, body)}
+                    href={buildOutlookComposeUrl(to, subject, letter)}
                     newTab
                     label="Open in Outlook"
                     sub="Web compose"
@@ -327,7 +331,7 @@ export function ComposeModal({
                     done={sentVia === "outlook"}
                   />
                   <SendLink
-                    href={buildMailtoUrl(to, subject, body)}
+                    href={buildMailtoUrl(to, subject, letter)}
                     label="Default email app"
                     sub="Gmail app / Mail"
                     onClick={() => logSend("mailto")}
