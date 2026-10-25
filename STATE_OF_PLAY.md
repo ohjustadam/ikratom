@@ -236,6 +236,38 @@ lists Sen. Darline Graham Nordone as "Darline Graham", and a surname match
 
 ---
 
+## Groups (coalitions), built 2026-10-21 → 10-25
+
+Groups are how a local community organizes. Module `src/modules/coalitions`,
+pages under `/coalitions/[slug]`, migrations 0153, 0273, 0274,
+0283_coalition_events and 0284.
+The first real community is "Rein In Chaos Coalition" (MI, private).
+
+- **Join:** one reusable group link + QR per group (single-use links stalled the
+  first group: 6 made, 0 used). Public groups also take "Ask to join".
+- **Home:** a cover theme (preset gradients, no uploads), member faces, a one-tap
+  Invite through the phone's share sheet, and Home / Events / Members / About tabs.
+- **Act together:** "this week's group action" with a members-acted bar, and a
+  "wins" card (`coalition_wins()`). Both show counts only, never who.
+- **Events and call-in days** (`coalition_events`, `coalition_event_rsvps`):
+  organizers post them, and members RSVP and add them to a calendar (private
+  `.ics` or a Google link). Reminders go to RSVPs the day before and again
+  within 2 h. The hourly `fire-waves` route inserts notification rows, and
+  `fanoutPushNotifications` delivers them.
+- **Welcome checklist:** derived from what people actually did. Members: join,
+  introduce yourself, take the action, invite one. Organizers: share the link,
+  pin a welcome post, pick the action, plan an event.
+- **Board:** private threads + replies, with one organizer-pinned post; a trigger
+  stops anyone else from pinning.
+
+Privacy, everywhere: `@handle` only. A private group 404s for outsiders. RSVPs
+are own-row-only, and everyone else sees counts.
+
+Not built yet: reporting group content (waits on B4b's shared report system),
+editing an event's time (cancel and re-post), and a real cover photo.
+
+---
+
 ## Things that will bite you
 
 1. **The changelog no longer lives in the repo.** As of 2026-09-18, patch
