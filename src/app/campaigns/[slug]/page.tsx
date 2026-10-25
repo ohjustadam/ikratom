@@ -9,7 +9,8 @@ import { SafeModeCard } from "@/modules/campaigns/components/SafeModeCard";
 import { getMyCampaignProgress } from "@/modules/campaigns/actions";
 import { getEmailIntegration } from "@/lib/email/user-send";
 import { getMyWaveStatus } from "@/modules/waves/actions";
-import { CampaignAction } from "@/modules/campaigns/components/CampaignAction";
+import { CampaignAction, type TargetIntelSignal } from "@/modules/campaigns/components/CampaignAction";
+import { getTargetRecords } from "@/modules/campaigns/target-record";
 import { LocalActionPlaybook, type LocalMeta } from "@/modules/campaigns/components/LocalActionPlaybook";
 import { ShareButtons } from "@/components/ShareButtons";
 import { Markdown } from "@/components/Markdown";
@@ -253,28 +254,24 @@ export default async function CampaignPage({
 
   // Per-target intel signals — surfaced as chips next to each
   // legislator in the recipient list. Three signals cheaply joined:
-  //   1. Kratom stance (champion / sympathetic / neutral / hostile / unknown)
+  //   1. Their kratom record: bills sponsored + recorded votes, each bill
+  //      tagged with the axis it addresses (natural leaf / 7-OH). Facts from
+  //      the official record, public read. This replaced legislator_stance
+  //      (champion/hostile labels nobody reviewed, readable only by verified
+  //      members) on 2026-10-24: never label a named official.
   //   2. Count of advocate-flagged donor industries (federal only)
   //   3. Count of kratom-adjacent personal stock trades (federal only)
   // All three queries are scoped to the target id set so they stay
   // cheap regardless of how many bills a state-wide campaign covers.
   // Pre-migration deploys (before 0149 / 0150) just see empty data.
   const targetIds = targets.map((t) => t.id);
-  const targetIntel: Record<string, {
-    stance?: string;
-    flagged_industries: Array<{ industry: string; label: string; amount: number }>;
-    kratom_adjacent_trades: number;
-  }> = {};
+  const targetIntel: Record<string, TargetIntelSignal> = {};
   for (const id of targetIds) {
-    targetIntel[id] = { flagged_industries: [], kratom_adjacent_trades: 0 };
+    targetIntel[id] = { record: [], flagged_industries: [], kratom_adjacent_trades: 0 };
   }
   if (targetIds.length > 0) {
-    const [stancesRes, donorsRes, tradesRes] = await Promise.all([
-      supabase
-        .from("legislator_stance")
-        .select("legislator_id, stance")
-        .eq("topic", "kratom")
-        .in("legislator_id", targetIds),
+    const [records, donorsRes, tradesRes] = await Promise.all([
+      getTargetRecords(targetIds),
       supabase
         .from("legislator_donors")
         .select("legislator_id, top_industries")
@@ -286,8 +283,8 @@ export default async function CampaignPage({
         .in("legislator_id", targetIds)
         .eq("is_kratom_adjacent", true),
     ]);
-    for (const s of (stancesRes.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
-      if (targetIntel[s.legislator_id]) targetIntel[s.legislator_id].stance = s.stance;
+    for (const [legId, entries] of records) {
+      if (targetIntel[legId]) targetIntel[legId].record = entries;
     }
     for (const d of (donorsRes.data ?? []) as Array<{
       legislator_id: string;

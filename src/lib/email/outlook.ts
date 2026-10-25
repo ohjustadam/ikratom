@@ -121,16 +121,17 @@ export async function sendViaOutlook(input: {
   to: string;
   subject: string;
   body: string;
+  /** Graph takes ONE body; when HTML is given it is sent instead of the text. */
+  html?: string;
 }): Promise<{ messageId: string }> {
   const accessToken = await mintAccessToken(input.refreshToken);
 
   const message = {
     message: {
       subject: input.subject,
-      body: {
-        contentType: "Text",
-        content: input.body,
-      },
+      body: input.html
+        ? { contentType: "HTML", content: input.html }
+        : { contentType: "Text", content: input.body },
       toRecipients: [
         {
           emailAddress: { address: input.to },
