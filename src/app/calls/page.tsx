@@ -4,6 +4,7 @@ import { getUserLegislators } from "@/lib/legislators";
 import { listMyCalls, listMyAchievements } from "@/modules/calls/actions";
 import { listUpcomingMeetingsForState } from "@/modules/calls/upcoming-meetings";
 import { CallsTour } from "./CallsTour";
+import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
 
 export const metadata = { title: "Call your reps — track + earn" };
 export const dynamic = "force-dynamic";
@@ -83,7 +84,8 @@ export default async function CallsPage() {
   // Supabase types the joined `legislators` as an array even when !inner
   // returns a single row — coerce explicitly.
   let leverageTargets: Array<{ id: string; full_name: string; role: string; district: string | null; phone: string | null; party: string | null; stance: string }> = [];
-  if (profile?.state) {
+  // Champion/hostile labels are retired (published-stance.ts), so this list is off.
+  if (profile?.state && !STANCE_LABELS_RETIRED) {
     const { data: stances } = await sb
       .from("legislator_stance")
       .select("stance, legislators!inner(id, full_name, role, district, phone, party, state)")
@@ -99,7 +101,7 @@ export default async function CallsPage() {
       district: s.legislators.district,
       phone: s.legislators.phone,
       party: s.legislators.party,
-      stance: s.stance,
+      stance: publishedStance(s.stance),
     })).filter((t) => t.phone);
   }
 
