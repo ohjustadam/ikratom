@@ -149,6 +149,14 @@ export default async function AccountPage({
             intro="Two-factor auth, encryption status, blocklist."
           >
             <LinkCard
+              href="/account/privacy"
+              accent
+              title="🔒 Privacy settings"
+              body="Who sees each part of your profile (Only me, Friends, Members or Public), whether your @handle can be found, and a preview of what others see."
+              cta="Open privacy settings"
+            />
+
+            <LinkCard
               href="/account/security"
               title="Two-factor authentication"
               body="Add an authenticator app for a second sign-in step. Required for admin + leader accounts. Manage trusted devices, sessions, backup codes."

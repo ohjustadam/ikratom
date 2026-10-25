@@ -79,7 +79,7 @@ function HeaderActions({ p, signedIn }: { p: ProfileView; signedIn: boolean }) {
     return (
       <div className="flex gap-2">
         <a href="/account/profile" className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400">Edit profile</a>
-        <a href="/account/profile#privacy" className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500">Privacy</a>
+        <a href="/account/privacy" className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500">Privacy</a>
       </div>
     );
   }
