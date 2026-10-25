@@ -4,6 +4,7 @@ import { getAdminContext } from "@/modules/admin/actions";
 import { queueCounts } from "@/modules/admin/queue-resolve-actions";
 import ResolveQueue from "@/app/admin/_components/ResolveQueue";
 import type { QueueKind } from "@/modules/admin/queue-resolve-types";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const metadata = { title: "Moderation" };
 export const dynamic = "force-dynamic";
@@ -35,7 +36,10 @@ const QUEUES: { kind: QueueKind; title: string; blurb: string; href: string }[] 
 export default async function ModerationPage() {
   const ctx = await getAdminContext({ require: "moderate_forum" });
   if (!ctx.ok) redirect("/dashboard");
-  const counts = await queueCounts();
+  const [counts, { count: openReports }] = await Promise.all([
+    queueCounts(),
+    createServiceRoleClient().from("content_reports").select("id", { count: "exact", head: true }).eq("status", "open"),
+  ]);
   const countOf = (k: QueueKind) => (k === "campaigns" ? counts.campaigns : counts.intel);
   const total = counts.campaigns + counts.intel;
 
@@ -78,13 +82,14 @@ export default async function ModerationPage() {
         })}
       </div>
 
-      <Link href="/admin/moderation/photos" className="mt-4 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 hover:border-emerald-700/50">
+      <Link href="/admin/moderation/reports" className="mt-4 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 hover:border-emerald-700/50">
         <span>
-          <span className="block text-lg font-semibold text-zinc-100">Reported photos</span>
-          <span className="text-xs text-zinc-500">Member photos reported by other members. Three reports hide a photo until you restore or remove it.</span>
+          <span className="block text-lg font-semibold text-zinc-100">Member reports</span>
+          <span className="text-xs text-zinc-500">Everything members reported: photos, profiles, Lounge messages, stories, videos, DMs and group posts. Three reports hide a photo until you decide.</span>
         </span>
-        <span className="text-zinc-500">→</span>
+        <span className={`text-2xl font-bold ${openReports ? "text-amber-400" : "text-zinc-600"}`}>{openReports ?? 0}</span>
       </Link>
+      <Link href="/admin/moderation/photos" className="mt-2 inline-block text-[11px] text-zinc-500 hover:text-emerald-400">Reported photos →</Link>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ReportPhotoForm } from "./ReportPhotoForm";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 
 export type GridPhoto = { id: string; caption: string | null; width: number; height: number };
 
@@ -33,7 +33,7 @@ export function PhotoGrid({ photos, canReport }: { photos: GridPhoto[]; canRepor
             <div className="mt-2 flex flex-wrap items-start justify-between gap-2 text-sm text-zinc-200">
               <p className="min-w-0 flex-1 whitespace-pre-line">{open.caption}</p>
               <div className="flex items-center gap-3">
-                {canReport && <ReportPhotoForm photoId={open.id} />}
+                {canReport && <ReportButton targetType="member_photo" targetId={open.id} />}
                 <button type="button" onClick={() => setOpen(null)} className="rounded-md border border-zinc-600 px-3 py-1 text-xs">Close</button>
               </div>
             </div>

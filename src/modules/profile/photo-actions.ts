@@ -3,15 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { checkRateLimit } from "@/lib/rate-limit";
 import { detectModerationSignals } from "@/lib/moderation";
 import { isAudience } from "./audience";
 import { deletePhotoRow } from "./photo-upload";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const REASONS = new Set(["nudity", "harassment", "personal_info", "spam", "violence", "other"]);
 
 type Result = { ok: true } | { error: string };
+
+// Reporting a photo goes through the shared system: <ReportButton
+// targetType="member_photo" /> (modules/reports, migration 0288).
 
 /**
  * Change a photo's audience or caption. Runs as the member: the column grant
@@ -55,21 +56,5 @@ export async function deletePhoto(id: string): Promise<Result> {
   revalidatePath(`/profile/${user.id}`);
   revalidatePath("/account/photos");
   revalidatePath("/account/profile");
-  return { ok: true };
-}
-
-/** Report a photo you can see. Three different reporters hide it for review. */
-export async function reportPhoto(id: string, reason: string, note?: string): Promise<Result> {
-  if (!UUID_RE.test(id) || !REASONS.has(reason)) return { error: "Pick a reason." };
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Sign in to report." };
-  if (!(await checkRateLimit(`photo-report:${user.id}`, 20, 86_400))) return { error: "You've sent a lot of reports today." };
-  const { data, error } = await supabase.rpc("report_member_photo", {
-    p_photo: id,
-    p_reason: reason,
-    p_note: (note ?? "").trim().slice(0, 300) || null,
-  });
-  if (error || data !== true) return { error: "Could not report that photo." };
   return { ok: true };
 }

@@ -19,7 +19,9 @@ const REF = process.env.SUPABASE_PROJECT_REF;
 
 const SUITES = [
   { file: "tests/sql/social-privacy.sql", marker: "SOCIAL_PRIVACY", what: "profile sections" },
-  { file: "tests/sql/social-photos.sql", marker: "SOCIAL_PHOTOS", what: "photos, avatars and reports" },
+  { file: "tests/sql/social-photos.sql", marker: "SOCIAL_PHOTOS", what: "photos, avatars and photo reports" },
+  { file: "tests/sql/social-connections.sql", marker: "SOCIAL_CONNECTIONS", what: "connections and friend lists" },
+  { file: "tests/sql/social-reports.sql", marker: "SOCIAL_REPORTS", what: "the generic report system" },
 ];
 
 describe.skipIf(!TOKEN || !REF)("social privacy levels (live DB, rolled back)", () => {

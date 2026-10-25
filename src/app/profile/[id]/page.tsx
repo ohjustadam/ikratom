@@ -43,7 +43,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
-      <ProfileHeader p={p} isPowerUser={!!isPowerUser} />
+      <ProfileHeader p={p} isPowerUser={!!isPowerUser} signedIn={!!user} />
 
       {!p.profile_visible ? (
         <div className="mt-4">

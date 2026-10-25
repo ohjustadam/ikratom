@@ -6,6 +6,7 @@ import { publicHandle } from "@/lib/public-handle";
 import { createClient } from "@/lib/supabase/client";
 import { useSignIn } from "@/components/auth/SignInContext";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { postChatMessage, deleteChatMessage, loadInitialChat, type ChatMessage } from "./actions";
 
 import Link from "@/components/Link";
@@ -226,7 +227,7 @@ export function ChatPopup() {
           const author = authorMap[m.user_id];
           const canDelete = signedIn && meId === m.user_id;
           return (
-            <div key={m.id} className="group flex gap-2">
+            <div key={m.id} className="group flex flex-wrap gap-x-2">
               <a
                 href={`/profile/${m.user_id}`}
                 className={`shrink-0 font-semibold ${author?.isAdmin ? "text-amber-300" : "text-emerald-300"} hover:underline`}
@@ -240,6 +241,10 @@ export function ChatPopup() {
               </span>
               {canDelete && (
                 <button onClick={() => onDelete(m.id)} className="hidden text-[10px] text-zinc-600 hover:text-red-400 group-hover:inline" aria-label="Delete message">✕</button>
+              )}
+              {signedIn && meId !== m.user_id && (
+                <ReportButton targetType="lounge_message" targetId={m.id} label="⚑"
+                  className="text-[10px] text-zinc-700 hover:text-red-400" />
               )}
             </div>
           );
