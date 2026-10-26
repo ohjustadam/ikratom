@@ -15,6 +15,7 @@ import {
   type Stance,
   type LeverageSignal,
 } from "@/lib/legislator-action-plan";
+import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
 import { actorsForLegislator, FACTION_META, ROLE_LABEL } from "@/lib/kratom-industry-actors";
 import { computeIntelVerdict, industriesFromDonor } from "@/lib/legislator-intel";
 import { RemindMeButton } from "@/components/RemindMeButton";
@@ -303,7 +304,8 @@ export default async function BriefingPage({ params }: { params: Params }) {
   const sb = await createClient();
   const viewerData = await sb.auth.getUser();
   const viewerSignedIn = !!viewerData.data.user;
-  const [stanceRow, allStanceRes]: [{ data: unknown }, { data: unknown }] = viewerSignedIn
+  // Champion/hostile labels are retired (published-stance.ts): nothing to read.
+  const [stanceRow, allStanceRes]: [{ data: unknown }, { data: unknown }] = viewerSignedIn && !STANCE_LABELS_RETIRED
     ? await Promise.all([
         sb.from("legislator_stance")
           .select("stance, rationale_md, last_evidence_url, last_updated_at")
@@ -326,8 +328,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
     ? [{ data: pub.trades.adjacent }, { data: pub.trades.other }, { count: pub.trades.total }]
     : null;
 
-  const stance: Stance =
-    ((stanceRow.data as { stance?: Stance } | null)?.stance) ?? "unknown";
+  const stance: Stance = publishedStance((stanceRow.data as { stance?: string } | null)?.stance);
   const stanceRationale = (stanceRow.data as { rationale_md?: string | null } | null)?.rationale_md ?? null;
   const stanceEvidence = (stanceRow.data as { last_evidence_url?: string | null } | null)?.last_evidence_url ?? null;
   const stanceUpdated = (stanceRow.data as { last_updated_at?: string | null } | null)?.last_updated_at ?? null;
@@ -768,9 +769,11 @@ export default async function BriefingPage({ params }: { params: Params }) {
           {leg.party && <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono">{leg.party}</span>}
           <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono">{leg.state}</span>
           {leg.district && <span className="rounded bg-zinc-900 px-2 py-0.5">District {leg.district}</span>}
-          <span className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${stanceMeta.tone}`}>
-            {stanceMeta.emoji} {stanceMeta.label}
-          </span>
+          {stance !== "unknown" && (
+            <span className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${stanceMeta.tone}`}>
+              {stanceMeta.emoji} {stanceMeta.label}
+            </span>
+          )}
           {/* Threat-matrix tier chip — surfaces /intel/threat-matrix's
               composite ranking so users coming from the matrix see the
               tier + scores in context. Click navigates back to that
@@ -869,7 +872,9 @@ export default async function BriefingPage({ params }: { params: Params }) {
         </section>
       )}
 
-      {/* ── Stance across issues (multi-topic dossier grid) ─────── */}
+      {/* ── Stance across issues (multi-topic dossier grid). Off while
+          stance labels are retired: every cell would be a label. ─── */}
+      {!STANCE_LABELS_RETIRED && (
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
         <div className="mb-3 flex flex-wrap items-baseline gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">Stance across issues</h2>
@@ -898,6 +903,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
           iKratom tracks officials across {STANCE_TOPICS.length} substance-policy issues. Positions are evidence-based (votes, sponsorship, public statements) and visible to verified advocates.
         </p>
       </section>
+      )}
 
       {/* ── Leverage flags ─────────────────────────────────────── */}
       {plan.leverage_flags.length > 0 && (

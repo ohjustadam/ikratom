@@ -13,6 +13,7 @@ import { StateHQLocalReps } from "./StateHQLocalReps";
 import { AudioReader } from "@/components/AudioReader";
 import { renderMarkdown, mdToPlainText } from "@/lib/markdown";
 import { STATE_NAMES } from "@/lib/state-names";
+import { publishedStance } from "@/lib/published-stance";
 
 /**
  * Static + ISR, 15 minutes — matching the snapshot's own revalidate window.
@@ -382,7 +383,7 @@ async function loadStateHubLegislative(codeUpper: string): Promise<SnapshotLoad<
     const legIds = new Set(legs.map((l) => l.id));
     const stanceByLeg = new Map<string, string>();
     for (const r of (stateStances.data ?? []) as Array<{ legislator_id: string; stance: string }>) {
-      if (legIds.has(r.legislator_id)) stanceByLeg.set(r.legislator_id, r.stance);
+      if (legIds.has(r.legislator_id)) stanceByLeg.set(r.legislator_id, publishedStance(r.stance));
     }
     type SpAgg = { has_anti: boolean; has_pro: boolean; anti_primary: number; primary_count: number; cosponsor_count: number };
     const spByLeg = new Map<string, SpAgg>();
