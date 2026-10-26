@@ -4,6 +4,7 @@ import { getGmailStatus } from "@/modules/auth/actions-gmail";
 import { GmailConnect } from "@/modules/auth/components/GmailConnect";
 import { EmailSafetyNote } from "@/components/EmailSafetyNote";
 import { SmtpConnect } from "@/modules/auth/components/SmtpConnect";
+import { TestLetterButton } from "@/modules/auth/components/TestLetterButton";
 import { getEmailIntegration } from "@/lib/email/user-send";
 import { SMTP_PROVIDERS, isSmtpProvider } from "@/lib/email/smtp";
 import { createClient as createServerClient } from "@/lib/supabase/server";
@@ -204,6 +205,13 @@ export default async function AccountPage({
               <h3 className="mb-3 text-sm font-semibold">Yahoo, AOL or iCloud (one-click batch sending)</h3>
               <SmtpConnect options={smtpOptions} connected={smtpConnected} />
             </div>
+
+            {anyIntegration && (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+                <h3 className="mb-3 text-sm font-semibold">Test letter</h3>
+                <TestLetterButton email={anyIntegration.account_email} />
+              </div>
+            )}
 
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
               <h3 className="mb-3 text-sm font-semibold">Discord</h3>
