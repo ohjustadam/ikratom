@@ -1,5 +1,5 @@
 -- ============================================================
--- 0283 — Social profiles: per-section audiences + the one privacy rule
+-- 0285 — Social profiles: per-section audiences + the one privacy rule
 -- ============================================================
 -- Owner ask 2026-10-24 (B4b, private/plans/SOCIAL_PLAYBOOK.md): a familiar,
 -- Facebook-like profile that members can customize, with per-item privacy
@@ -8,7 +8,7 @@
 --
 -- 1. member_connections — the friend graph (mutual request/accept). Table only
 --    in this migration (the privacy rule needs it); the write RPCs ship with the
---    connections slice (0285). Writes are RPC-only, so no INSERT/UPDATE grant.
+--    connections slice (0287). Writes are RPC-only, so no INSERT/UPDATE grant.
 -- 2. profile_social — bio, profile story, interests, and one audience per
 --    section. Own-row RLS; other members read it ONLY through get_profile_view.
 -- 3. profile_links — up to 5 https links. Own-row RLS.
@@ -185,7 +185,7 @@ grant execute on function public.default_profile_audience(text) to anon, authent
 grant execute on function public.can_view_audience(uuid, text) to anon, authenticated, service_role;
 
 comment on function public.can_view_audience is
-  'THE privacy rule (0283): may auth.uid() see an item owned by p_owner at audience only_me|friends|members|public? Owner always; a block either way never. No viewer parameter by design (no friend-graph probing).';
+  'THE privacy rule (0285): may auth.uid() see an item owned by p_owner at audience only_me|friends|members|public? Owner always; a block either way never. No viewer parameter by design (no friend-graph probing).';
 
 -- ---- 5. The caller's own settings (defaults applied) ----------------------
 create or replace function public.get_my_profile_social()
@@ -401,4 +401,4 @@ grant execute on function public.get_profile_view(uuid) to anon, authenticated, 
 grant execute on function public.get_profile_view_by_username(text) to anon, authenticated, service_role;
 
 comment on function public.get_profile_view is
-  'Profile page read (0283). Sections NULL unless can_view_audience allows; never full_name/email/city/account age/public_key/kratom_story. No row = blocked by owner, or hidden and not discoverable.';
+  'Profile page read (0285). Sections NULL unless can_view_audience allows; never full_name/email/city/account age/public_key/kratom_story. No row = blocked by owner, or hidden and not discoverable.';
