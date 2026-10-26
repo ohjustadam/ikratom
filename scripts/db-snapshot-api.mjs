@@ -58,8 +58,15 @@ async function sql(query) {
       signal: AbortSignal.timeout(60_000),
     });
     if (r.ok) return r.json();
-    if (attempt >= 4 || (r.status < 500 && r.status !== 429)) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
-    await new Promise((res) => setTimeout(res, 2000 * attempt));
+    // The Management API's throttler window outlasts a few seconds: the 2026-10-25
+    // backup died on a 429 after 4 tries in ~12 s. Honor Retry-After, else back off
+    // 15/30/45/60 s, so one busy minute can't cost a day's backup (~2.5 min worst case).
+    const throttled = r.status === 429;
+    if (attempt >= (throttled ? 6 : 4) || (r.status < 500 && !throttled)) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
+    const retryAfter = Number(r.headers.get("retry-after")) * 1000;
+    const wait = throttled ? Math.max(retryAfter || 0, Math.min(15_000 * attempt, 60_000)) : 2000 * attempt;
+    console.error(`Management API ${r.status}; retry ${attempt} in ${Math.round(wait / 1000)}s`);
+    await new Promise((res) => setTimeout(res, wait));
   }
 }
 

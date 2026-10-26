@@ -9,6 +9,7 @@ import {
   type LeverageSignal,
   type ActionPlan,
 } from "@/lib/legislator-action-plan";
+import { publishedStance } from "@/lib/published-stance";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function generateMetadata({ params }: { params: Params }) {
   const STATE = code.toUpperCase();
   return {
     title: `${STATE} kratom intel — legislator triage`,
-    description: `Per-legislator intel briefing across ${STATE}: who's hostile, who's allied, who's deciding bills right now, and what to do about each.`,
+    description: `Per-legislator intel briefing across ${STATE}: who sponsored what, who sits on the deciding committees, who's deciding bills right now, and what to do about each.`,
     robots: { index: false }, // advocate-facing, not SEO
   };
 }
@@ -105,7 +106,7 @@ export default async function StateBriefingPage({ params }: { params: Params }) 
   // Stance map
   const stanceByLeg = new Map<string, Stance>();
   for (const s of (stancesRaw.data ?? []) as Array<{ legislator_id: string; stance: Stance }>) {
-    stanceByLeg.set(s.legislator_id, s.stance);
+    stanceByLeg.set(s.legislator_id, publishedStance(s.stance));
   }
 
   // Sponsorship aggregation

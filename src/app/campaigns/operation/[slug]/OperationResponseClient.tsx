@@ -41,17 +41,8 @@ export type ActionRow = {
   stance: string;
 };
 
-const STANCE_TONE: Record<string, string> = {
-  hostile: "border-red-700/50 bg-red-950/15 text-red-200",
-  neutral: "border-zinc-700 bg-zinc-900/40 text-zinc-300",
-  unknown: "border-zinc-700 bg-zinc-900/40 text-zinc-400",
-  sympathetic: "border-emerald-700/50 bg-emerald-950/15 text-emerald-200",
-  champion: "border-emerald-500/50 bg-emerald-950/20 text-emerald-200",
-};
-const STANCE_EMOJI: Record<string, string> = {
-  hostile: "🚫", neutral: "⚖", unknown: "❓",
-  sympathetic: "🤝", champion: "⭐",
-};
+// No stance chip on the sponsor: champion/hostile labels on named officials are
+// retired (src/lib/published-stance.ts). The briefing link carries the record.
 
 export function OperationResponseClient({
   cluster,
@@ -139,7 +130,6 @@ function ScopePill({ href, active, label, count }: { href: string; active: boole
 
 function ActionRowCard({ row, posture }: { row: ActionRow; posture: string }) {
   const target = row.target;
-  const stanceClass = STANCE_TONE[row.stance] ?? STANCE_TONE.unknown;
 
   return (
     <li className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
@@ -170,9 +160,6 @@ function ActionRowCard({ row, posture }: { row: ActionRow; posture: string }) {
             </Link>
             <span className="font-mono text-[9px] uppercase text-zinc-500">{target.role.replace(/_/g, " ")}</span>
             {target.party && <span className="text-[10px] text-zinc-500">{target.party}</span>}
-            <span className={`rounded border px-1.5 py-0.5 text-[10px] ${stanceClass}`}>
-              {STANCE_EMOJI[row.stance]} {row.stance}
-            </span>
           </div>
           <div className="mt-1 font-mono text-[10px] text-zinc-400">{target.email}</div>
         </div>

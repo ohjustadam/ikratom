@@ -7,6 +7,7 @@ import {
   type ThreatAssessment,
   type ThreatTier,
 } from "@/lib/legislator-threat-score";
+import { publishedStance } from "@/lib/published-stance";
 import type { Stance } from "@/lib/legislator-action-plan";
 
 export const metadata = {
@@ -184,7 +185,7 @@ export default async function ThreatMatrixPage({
   // ── Build lookup maps from each batch query
   const stanceByLeg = new Map<string, Stance>();
   for (const r of (stancesRaw.data ?? []) as Array<{ legislator_id: string; stance: Stance }>) {
-    stanceByLeg.set(r.legislator_id, r.stance);
+    stanceByLeg.set(r.legislator_id, publishedStance(r.stance));
   }
 
   type SponsorshipAgg = {

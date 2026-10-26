@@ -171,7 +171,7 @@ STATE CAPITAL: (no row in state_capital_info — admin has not curated yet)
   const renderFull = s => `${s.legislators?.full_name ?? "?"} (${s.legislators?.role ?? "?"}${s.legislators?.district ? ` · D${s.legislators.district}` : ""}) — ${(s.rationale_md ?? "").slice(0, 180)}`;
   const renderShort = s => `${s.legislators?.full_name ?? "?"}${s.legislators?.district ? ` (D${s.legislators.district})` : ""}`;
   const stanceSection = (data.stances ?? []).length === 0
-    ? `\nLEGISLATOR STANCES (AI-drafted): (none drafted yet)`
+    ? `\nLEGISLATOR STANCES: not used. Never label a named legislator an ally, champion, opponent or hostile; describe only what they sponsored and how they voted.`
     : `\nLEGISLATOR STANCES (AI-drafted, admin-reviewable at /admin/stance):
   CHAMPIONS (${stanceGroups.champion.length}):${stanceGroups.champion.length === 0 ? " (none yet)" : "\n" + stanceGroups.champion.slice(0, 5).map(s => "    - " + renderFull(s)).join("\n")}
   HOSTILE (${stanceGroups.hostile.length}):${stanceGroups.hostile.length === 0 ? " (none yet)" : "\n" + stanceGroups.hostile.slice(0, 5).map(s => "    - " + renderFull(s)).join("\n")}
@@ -261,7 +261,7 @@ STATE STATUS (from states table):
 MUNICIPAL OFFICIALS ON FILE:
   ${data.municipalCount} (city councils, mayors) — anything below ~5 means we don't have meaningful local coverage yet.
 
-Synthesize this into the briefing. Name primary bill sponsors when discussing each bill. Use capital + scheduling info verbatim when relevant. Quote admin stance rationales when listing champions/hostiles.`;
+Synthesize this into the briefing. Name primary bill sponsors when discussing each bill. Use capital + scheduling info verbatim when relevant. Never call a named legislator a champion, ally, opponent or hostile.`;
 }
 
 /**
@@ -403,11 +403,10 @@ async function loadStateData(state) {
       .limit(10),
     sb.from("campaigns")
       .select("id, title, active, review_state").eq("state", state),
-    // Per-legislator kratom stance (champion / hostile / etc) joined to legislators
-    sb.from("legislator_stance")
-      .select("legislator_id, stance, rationale_md, last_evidence_url, legislators!inner(full_name, role, district, state)")
-      .eq("topic", "kratom")
-      .eq("legislators.state", state),
+    // Per-legislator stance labels are RETIRED (src/lib/published-stance.ts,
+    // 2026-10-25): the AI drafter's champion/hostile labels on named
+    // legislators never reach a briefing. Sponsors and votes still do.
+    Promise.resolve({ data: [] }),
     // Kratom-relevant committee chairs in this state
     sb.from("legislator_committees")
       .select("committee_name, chamber, role, legislator_id, legislators!inner(full_name, role, district, state)")
