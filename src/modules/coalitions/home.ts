@@ -67,3 +67,25 @@ export function organizerChecklist(s: {
     { key: "event", label: "Plan your first event", done: s.hasEvent, href: `/coalitions/${s.slug}?plan=1#events`, cta: "Plan it" },
   ];
 }
+
+/**
+ * The group badge (B4 g): a tier earned by the letters the group has sent
+ * since it began (coalition_wins().letters_total). A collective count only.
+ */
+export const GROUP_BADGES = [
+  { min: 10, icon: "🌱", name: "Seedling" },
+  { min: 50, icon: "🍃", name: "Leaf" },
+  { min: 250, icon: "🌿", name: "Grove" },
+  { min: 1000, icon: "🌳", name: "Forest" },
+] as const;
+
+export type GroupBadge = { icon: string; name: string; next: { name: string; at: number } | null };
+
+/** The badge for this many letters (null below the first tier), and the next one to aim for. */
+export function groupBadge(letters: number): GroupBadge | null {
+  const n = Math.max(0, Math.floor(letters || 0));
+  const i = GROUP_BADGES.findLastIndex((b) => n >= b.min);
+  const nextTier = GROUP_BADGES[i + 1];
+  const next = nextTier ? { name: nextTier.name, at: nextTier.min } : null;
+  return i < 0 ? null : { icon: GROUP_BADGES[i].icon, name: GROUP_BADGES[i].name, next };
+}

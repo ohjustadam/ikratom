@@ -14,11 +14,11 @@ import { isAudience, type Audience } from "./audience";
  */
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 export const MAX_ALBUM_PHOTOS = 60;
-export type PhotoKind = "avatar" | "cover" | "album";
+export type PhotoKind = "avatar" | "cover" | "album" | "wall";
 
 const EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" } as const;
 const AUDIENCE_KEYS = ["profile_audience", "bio_audience", "story_audience", "links_audience", "interests_audience",
-  "photos_default_audience", "friends_audience", "activity_audience"] as const;
+  "photos_default_audience", "friends_audience", "activity_audience", "wall_audience"] as const;
 
 export async function storeMemberPhoto(input: {
   userClient: SupabaseClient;
@@ -35,7 +35,9 @@ export async function storeMemberPhoto(input: {
   const { data: mineRows } = await input.userClient.rpc("get_my_profile_social");
   const mine = ((mineRows ?? []) as Record<string, unknown>[])[0] ?? {};
   const fallback: Audience = input.kind === "album" && isAudience(mine.photos_default_audience) ? mine.photos_default_audience : input.kind === "album" ? "friends" : "members";
-  const audience: Audience = isAudience(input.audience) ? input.audience : fallback;
+  // A wall photo is stored as only_me: the media route serves it to whoever can
+  // see its post (0292), so it can never be wider than the post itself.
+  const audience: Audience = input.kind === "wall" ? "only_me" : isAudience(input.audience) ? input.audience : fallback;
 
   const svc = createServiceRoleClient();
   if (input.kind === "album") {
@@ -60,7 +62,7 @@ export async function storeMemberPhoto(input: {
     return { error: "Could not save the photo. Please try again.", status: 500 };
   }
 
-  if (input.kind !== "album") await pointAt(svc, input.userId, input.kind, id, mine);
+  if (input.kind === "avatar" || input.kind === "cover") await pointAt(svc, input.userId, input.kind, id, mine);
   return { ok: true, id };
 }
 

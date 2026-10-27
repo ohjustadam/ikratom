@@ -29,7 +29,7 @@ import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
 import { ChromeProvider } from "@/components/chrome/ChromeProvider";
 import { StateQuestionGate } from "@/components/chrome/StateQuestionGate";
 import { AttributionCapture } from "@/components/chrome/AttributionCapture";
-import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGate } from "@/components/chrome/ChromeGates";
+import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGate, BuildStampGate } from "@/components/chrome/ChromeGates";
 import "./globals.css";
 
 import Link from "@/components/Link";
@@ -307,6 +307,7 @@ export default function RootLayout({
         <RegisterSW />
         <PushBackStop />
         <PresenceHeartbeatGate />
+        <BuildStampGate />
         <InstallPrompt />
         <FeedbackWidget />
         {/* Floating appearance control — a small icon on every screen, sitting

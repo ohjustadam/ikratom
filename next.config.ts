@@ -45,6 +45,12 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false, // Hide "X-Powered-By: Next.js"
+  // The admin build stamp (BuildStampGate): which commit is live, and when it
+  // was built. Netlify sets COMMIT_REF during the build; locally it's "dev".
+  env: {
+    NEXT_PUBLIC_BUILD_SHA: (process.env.COMMIT_REF ?? "").slice(0, 7) || "dev",
+    NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
+  },
   // Don't ship JS source maps to production browsers — keeps minified
   // bundle the only artifact a copycat sees. (Server-side stack-trace
   // decoding still works via the build's hidden source maps.)

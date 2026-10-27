@@ -257,3 +257,10 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 **Decision:** `scripts/push-state-news.mjs` skips an item that is the same story (`scripts/lib/story-dedupe.mjs`, shared with the email digest) as one the state was pushed in the last 72h, caps each state at one news push per 20h, and skips headlines that name other states but not this one. Skipped items are stamped `auto_pushed_count = 0` and still reach the digest and /news.
 
 **Why:** each outlet was its own push. Louisiana got 6 pushes about the Ole Miss deaths on 2026-09-23; a member read the stream as the same news on repeat. Replaying the 45 days to 2026-10-23: 47 pushes would have been 29.
+
+## Send record: which compose paths BCC the copy (2026-10-27)
+
+**Decision:** every path that opens the member's own mail program BCCs `r-<nonce>@ikratom.org` (B9, migration 0276) behind the visible notice and opt-out: `CampaignAction`, `ComposeModal`, `GroupComposeModal` and the alerts `DraftResponsePanel`. The nonce is minted at click time and stored on the logged `campaign_actions` row (`record_nonce`).
+- **One row, one nonce.** The two modals log a single row per letter, so later clicks reuse its nonce (`nonceForClick`); a fresh one would BCC an address no row holds and the ingest drops it. `DraftResponsePanel` logs every click, so each click mints its own.
+- **No BCC where it can't work:** the contact-form/website flow (a web form has no BCC), a signed-out visitor (no logged click to match), and `DraftResponsePanel`'s Copy (mostly pasted into an agency portal).
+- Every letter still goes through the uniform composer and ends with the "Sent via iKratom" footer.

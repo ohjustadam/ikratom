@@ -50,7 +50,9 @@ describe("profile editor validation", () => {
 });
 
 describe("audience vocabulary matches the database", () => {
-  const sql = readFileSync("supabase/migrations/0285_social_profiles.sql", "utf8");
+  // Section columns: 0285, plus wall_audience from the wall migration (0292).
+  const sql = ["0285_social_profiles", "0292_profile_wall"]
+    .map((f) => readFileSync(`supabase/migrations/${f}.sql`, "utf8")).join("\n");
 
   it("has the same four levels as the check constraint", () => {
     expect([...AUDIENCES]).toEqual(["only_me", "friends", "members", "public"]);
