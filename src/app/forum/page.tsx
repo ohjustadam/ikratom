@@ -55,7 +55,7 @@ export default async function ForumIndexPage() {
       .from("profiles")
       .select("state, username, is_admin")
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
     userState = prof?.state ?? null;
     me = { id: user.id, name: publicHandle(prof) };
     isAdmin = !!prof?.is_admin;
