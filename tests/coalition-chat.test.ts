@@ -71,7 +71,7 @@ describe("group chat moderation", () => {
     const { targetHref } = await import("@/modules/reports/types");
     expect(targetHref("group_chat_message", "c1")).toBe("/coalitions/go/chat/c1");
     const go = read("src/app/coalitions/go/[kind]/[id]/route.ts");
-    expect(go).toMatch(/"chat"\]\.includes\(kind\)/);
+    expect(go).toMatch(/\[[^\]]*"chat"[^\]]*\]\.includes\(kind\)/);
     expect(go).toMatch(/path = `chat\?m=\$\{id\}#m-\$\{id\}`/);
   });
 });

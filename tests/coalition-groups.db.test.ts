@@ -20,6 +20,7 @@ const REF = process.env.SUPABASE_PROJECT_REF;
 
 const SUITES = [
   { file: "tests/sql/coalition-chat.sql", marker: "COALITION_CHAT", what: "group chat" },
+  { file: "tests/sql/coalition-resources.sql", marker: "COALITION_RESOURCES", what: "pinned resources and templates" },
 ];
 
 describe.skipIf(!TOKEN || !REF)("group features (live DB, rolled back)", () => {

@@ -11,6 +11,7 @@ import { GroupAction, JoinRequests } from "./GroupGrowth";
 import { GroupLinkCard, RequestToJoin } from "./GroupGrowthClient";
 import { GroupHeader, type GroupTab } from "./GroupHeader";
 import { Members, type MemberView } from "./Members";
+import { Resources } from "./Resources";
 import { TeamActivity } from "./TeamActivity";
 import { Welcome } from "./Welcome";
 import { Wins } from "./Wins";
@@ -144,6 +145,7 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
           <Welcome coalitionId={c.id} slug={c.slug} userId={user.id} isOrganizer={isOrganizer} featuredCampaign={featured} />
           {isOrganizer && <JoinRequests coalitionId={c.id} />}
           <GroupAction coalitionId={c.id} state={c.state} isAdmin={isOrganizer} />
+          <Resources coalitionId={c.id} slug={c.slug} isOrganizer={isOrganizer} userId={user.id} />
           {wins && <Wins w={wins} />}
           <Events coalitionId={c.id} slug={c.slug} isAdmin={isOrganizer} limit={3} openForm={sp.plan === "1"} />
           {viewerRole && <Discussion coalitionId={c.id} slug={c.slug} prefill={prefill} />}
