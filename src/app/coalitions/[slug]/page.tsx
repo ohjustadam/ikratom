@@ -3,14 +3,17 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { publicHandle } from "@/lib/public-handle";
 import { getGroupLink } from "@/modules/coalitions/growth-actions";
-import type { WinsRow } from "@/modules/coalitions/home";
+import { groupBadge, type WinsRow } from "@/modules/coalitions/home";
 import { About } from "./About";
 import { Discussion } from "./Discussion";
 import { Events } from "./Events";
 import { GroupAction, JoinRequests } from "./GroupGrowth";
 import { GroupLinkCard, RequestToJoin } from "./GroupGrowthClient";
 import { GroupHeader, type GroupTab } from "./GroupHeader";
+import { Coverage } from "./Coverage";
+import { Leaderboard } from "./Leaderboard";
 import { Members, type MemberView } from "./Members";
+import { Resources } from "./Resources";
 import { TeamActivity } from "./TeamActivity";
 import { Welcome } from "./Welcome";
 import { Wins } from "./Wins";
@@ -124,6 +127,7 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
         tab={tab}
         showTabs={!!viewerRole}
         link={{ url: link?.ok ? link.url : null, error: link && !link.ok ? link.error : null }}
+        badge={wins ? groupBadge(wins.letters_total) : null}
       />
 
       {!viewerRole && (
@@ -144,6 +148,7 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
           <Welcome coalitionId={c.id} slug={c.slug} userId={user.id} isOrganizer={isOrganizer} featuredCampaign={featured} />
           {isOrganizer && <JoinRequests coalitionId={c.id} />}
           <GroupAction coalitionId={c.id} state={c.state} isAdmin={isOrganizer} />
+          <Resources coalitionId={c.id} slug={c.slug} isOrganizer={isOrganizer} userId={user.id} />
           {wins && <Wins w={wins} />}
           <Events coalitionId={c.id} slug={c.slug} isAdmin={isOrganizer} limit={3} openForm={sp.plan === "1"} />
           {viewerRole && <Discussion coalitionId={c.id} slug={c.slug} prefill={prefill} />}
@@ -159,6 +164,12 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
         <>
           {invite}
           <Members members={members} />
+          {user && (
+            <Coverage coalitionId={c.id} slug={c.slug} state={c.state} isOrganizer={isOrganizer} userId={user.id}
+              chamber={typeof sp.chamber === "string" ? sp.chamber : undefined}
+              members={members.map((m) => ({ user_id: m.user_id, handle: m.handle }))} />
+          )}
+          {user && <Leaderboard coalitionId={c.id} slug={c.slug} userId={user.id} lettersTotal={wins?.letters_total ?? 0} />}
           <TeamActivity coalitionId={c.id} />
         </>
       )}

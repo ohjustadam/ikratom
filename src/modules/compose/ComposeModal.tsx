@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { draftOfficialEmail, getComposePrefill, logOfficialContact } from "./actions";
-import { buildDefaultLetter } from "./default-letter";
+import { buildDefaultLetter, officialGreeting } from "./default-letter";
+import { fillGroupTemplate } from "./letter-templates";
 import {
   buildGmailComposeUrl,
   buildMailtoUrl,
@@ -28,12 +29,16 @@ export function ComposeModal({
   official,
   context,
   source,
+  template,
 }: {
   open: boolean;
   onClose: () => void;
   official: ComposeOfficial;
   context?: ComposeContext;
   source: string;
+  /** A group's pinned template (migration 0293) in place of the default
+   *  letter, filled with the sender's details and this official's greeting. */
+  template?: { subject: string; body: string } | null;
 }) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -81,8 +86,14 @@ export function ComposeModal({
           ask: context?.ask ?? null,
         });
         if (cancelled) return;
-        setSubject(r.subject);
-        setBody(r.body);
+        if (template) {
+          const known = templateValues(official, r.sender);
+          setSubject(fillGroupTemplate(template.subject, known) || r.subject);
+          setBody(fillGroupTemplate(template.body, known));
+        } else {
+          setSubject(r.subject);
+          setBody(r.body);
+        }
         setSignedIn(r.signedIn);
         setHasStory(r.hasStory);
       } catch {
@@ -101,15 +112,16 @@ export function ComposeModal({
             ? { kind: context.kind, stance: context.stance ?? null, ask: context.ask ?? null }
             : null,
         });
-        setSubject(fb.subject);
-        setBody(fb.body);
+        const known = templateValues(official, { name: null, city: null, state: null });
+        setSubject(template ? fillGroupTemplate(template.subject, known) || fb.subject : fb.subject);
+        setBody(template ? fillGroupTemplate(template.body, known) : fb.body);
         setSignedIn(false);
       } finally {
         if (!cancelled) setLoaded(true);
       }
     })();
     return () => { cancelled = true; };
-  }, [open, loaded, official, context]);
+  }, [open, loaded, official, context, template]);
 
   // Esc to close
   useEffect(() => {
@@ -431,4 +443,15 @@ function SendLink({
       <span className={`text-[11px] ${done ? "text-zinc-900/70" : "text-zinc-500"}`}>{sub}</span>
     </a>
   );
+}
+
+/** What a group template's {{placeholders}} can be filled with, for this sender and official. */
+function templateValues(official: ComposeOfficial, sender: { name: string | null; city: string | null; state: string | null }) {
+  return {
+    my_name: sender.name,
+    my_city: sender.city,
+    my_state: sender.state,
+    official_name: official.name,
+    official_greeting: officialGreeting({ full_name: official.name, role: official.role ?? null, title: official.title ?? null, state: official.state ?? null }),
+  };
 }
