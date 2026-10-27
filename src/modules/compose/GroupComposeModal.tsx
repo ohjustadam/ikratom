@@ -14,6 +14,8 @@ import { RecipientPicker } from "./RecipientPicker";
 import { TemplateFiller } from "./TemplateFiller";
 import type { ComposeGroup } from "./types";
 import { withLetterFooter } from "@/modules/campaigns/letter-extras";
+import { SendRecordNotice } from "@/modules/campaigns/components/SendRecordNotice";
+import { bccCopyLine, nonceForClick, withRecordBcc } from "@/lib/send-record";
 
 /**
  * Group email composer — one AI-assisted letter addressed to a whole group of
@@ -27,7 +29,8 @@ import { withLetterFooter } from "@/modules/campaigns/letter-extras";
  * buttons (they handle long recipient lists); the default-app mailto is offered
  * only when the URL stays under the ~2000-char client limit, else we steer to
  * copy. Officials with only a webform are listed separately, each contacted via
- * the shared single-official contact-form flow.
+ * the shared single-official contact-form flow. The email paths BCC a
+ * send-record copy (B9) unless the member opts out.
  */
 export function GroupComposeModal({
   open,
@@ -67,6 +70,9 @@ export function GroupComposeModal({
   const [sentVia, setSentVia] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const loggedRef = useRef(false);
+  // B9: the nonce the one logged row holds (null = it carries none).
+  const loggedNonceRef = useRef<string | null>(null);
+  const [keepCopy, setKeepCopy] = useState(true);
 
   // A synthetic "official" standing in for the whole group so the shared
   // drafting backend produces a group-addressed letter ("Dear Members of the
@@ -83,6 +89,11 @@ export function GroupComposeModal({
   const emails = group.emailable.map((o) => o.email!).filter((e) => e && selected.has(e));
   const to = emails[0] ?? "";
   const bcc = emails.slice(1).join(",");
+  // The record copy needs a logged click to match, which only a signed-in member
+  // has, and a recipient list to ride along with.
+  const recordOn = keepCopy && signedIn && emails.length > 0;
+  const clickNonce = () =>
+    nonceForClick({ keepCopy: recordOn, logged: loggedRef.current, loggedNonce: loggedNonceRef.current });
 
   useEffect(() => {
     if (!open || loaded) return;
@@ -154,27 +165,44 @@ export function GroupComposeModal({
   // What actually leaves: the letter plus the plain "Sent via iKratom — <link>" line (lib/email/letter-footer.ts).
   const letter = withLetterFooter(body);
 
-  function logSend(via: string) {
+  // The nonce is minted at click time, not render time: the href is rewritten
+  // before the browser follows it, so server render and hydration agree.
+  function openWithRecord(
+    e: React.MouseEvent<HTMLAnchorElement>,
+    via: string,
+    build: (bcc: string) => string,
+  ) {
+    const nonce = clickNonce();
+    e.currentTarget.href = build(withRecordBcc(bcc, nonce));
+    logSend(via, nonce);
+  }
+
+  function logSend(via: string, recordNonce: string | null = null) {
     setSentVia(via);
     if (loggedRef.current) return;
     loggedRef.current = true;
+    loggedNonceRef.current = recordNonce;
     // One summary row per group send (legislator_id null → no per-member point
     // farming; a group click counts as a single action). Best-effort.
-    logOfficialContact({ officialId: null, source, subject, body: letter }).catch(() => {});
+    logOfficialContact({ officialId: null, source, subject, body: letter, recordNonce: recordNonce ?? undefined }).catch(() => {});
   }
 
   async function copyAll() {
     try {
-      const header = emails.length ? `To: ${emails.join(", ")}\n` : "";
+      const nonce = clickNonce();
+      const header = emails.length ? `To: ${emails.join(", ")}\n${bccCopyLine(nonce)}` : "";
       await navigator.clipboard.writeText(`${header}Subject: ${subject}\n\n${letter}`);
       setCopied(true);
-      logSend("copy");
+      logSend("copy", nonce);
       setTimeout(() => setCopied(false), 4000);
     } catch { setCopied(false); }
   }
 
   const mailtoUrl = buildMailtoUrl(to, subject, letter, bcc);
-  const mailtoOk = mailtoWithinLimit(mailtoUrl);
+  // Judged with a stand-in record address so the real one can't push it past the cap.
+  const mailtoOk = mailtoWithinLimit(
+    buildMailtoUrl(to, subject, letter, withRecordBcc(bcc, recordOn ? "a".repeat(16) : null)),
+  );
   const total = group.emailable.length + group.formOnly.length;
 
   return (
@@ -292,14 +320,15 @@ export function GroupComposeModal({
 
                 {/* Delivery — Gmail/Outlook primary (handle long recipient lists) */}
                 <div className={`mt-4 ${selected.size === 0 ? "pointer-events-none opacity-40" : ""}`}>
+                  {signedIn && <SendRecordNotice keepCopy={keepCopy} onChange={setKeepCopy} />}
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <SendLink href={buildGmailComposeUrl(to, subject, letter, bcc)} label="Open in Gmail" sub="Web compose" onClick={() => logSend("gmail")} done={sentVia === "gmail"} />
-                    <SendLink href={buildOutlookComposeUrl(to, subject, letter, bcc)} label="Open in Outlook" sub="Web compose" onClick={() => logSend("outlook")} done={sentVia === "outlook"} />
+                    <SendLink href={buildGmailComposeUrl(to, subject, letter, bcc)} label="Open in Gmail" sub="Web compose" onClick={(e) => openWithRecord(e, "gmail", (b) => buildGmailComposeUrl(to, subject, letter, b))} done={sentVia === "gmail"} />
+                    <SendLink href={buildOutlookComposeUrl(to, subject, letter, bcc)} label="Open in Outlook" sub="Web compose" onClick={(e) => openWithRecord(e, "outlook", (b) => buildOutlookComposeUrl(to, subject, letter, b))} done={sentVia === "outlook"} />
                   </div>
                   {mailtoOk ? (
                     <a
                       href={mailtoUrl}
-                      onClick={() => logSend("mailto")}
+                      onClick={(e) => openWithRecord(e, "mailto", (b) => buildMailtoUrl(to, subject, letter, b))}
                       className={`mt-2 block w-full rounded-md border px-4 py-2 text-center text-sm ${sentVia === "mailto" ? "border-emerald-600 bg-emerald-700 text-zinc-950" : "border-zinc-700 text-zinc-200 hover:border-emerald-500"}`}
                     >
                       {sentVia === "mailto" ? "✓ " : ""}Open in default email app
@@ -358,7 +387,7 @@ export function GroupComposeModal({
   );
 }
 
-function SendLink({ href, label, sub, onClick, done }: { href: string; label: string; sub: string; onClick: () => void; done?: boolean }) {
+function SendLink({ href, label, sub, onClick, done }: { href: string; label: string; sub: string; onClick: (e: React.MouseEvent<HTMLAnchorElement>) => void; done?: boolean }) {
   return (
     <a
       href={href}

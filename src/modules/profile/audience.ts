@@ -44,6 +44,7 @@ export const SECTION_AUDIENCES = [
   { key: "links_audience", label: "Links", hint: "Your website, blog or channels." },
   { key: "friends_audience", label: "Friends list", hint: "Who can see who you are connected with." },
   { key: "activity_audience", label: "Activity", hint: "Forum threads you started and your action count." },
+  { key: "wall_audience", label: "Wall", hint: "Posts on your profile, yours and your friends'. Never wider than your profile page." },
   { key: "photos_default_audience", label: "New photos", hint: "The starting audience for photos you add to your album." },
 ] as const;
 
@@ -58,8 +59,19 @@ export const DEFAULT_AUDIENCES: Record<SectionAudienceKey, Audience> = {
   links_audience: "members",
   friends_audience: "friends",
   activity_audience: "members",
+  wall_audience: "members",
   photos_default_audience: "friends",
 };
+
+/** Who may post on your wall besides you (profile_social.wall_posting, 0292). */
+export const WALL_POSTING = [
+  { id: "friends", label: "My friends" },
+  { id: "only_me", label: "Only me" },
+] as const;
+export type WallPosting = (typeof WALL_POSTING)[number]["id"];
+export function isWallPosting(v: unknown): v is WallPosting {
+  return v === "friends" || v === "only_me";
+}
 
 /** Fixed interest vocabulary: free text would become a doxing channel. */
 export const INTERESTS = [

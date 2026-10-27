@@ -15,6 +15,10 @@ export const REPORT_TARGETS = [
   "group_post",
   "group_thread",
   "group_event",
+  "group_chat_message",
+  "group_resource",
+  "wall_post",
+  "wall_comment",
 ] as const;
 export type ReportTarget = (typeof REPORT_TARGETS)[number];
 
@@ -39,6 +43,10 @@ export const TARGET_LABEL: Record<ReportTarget, string> = {
   group_post: "Group reply",
   group_thread: "Group thread",
   group_event: "Group event",
+  group_chat_message: "Group chat message",
+  group_resource: "Group resource",
+  wall_post: "Wall post",
+  wall_comment: "Wall comment",
 };
 
 export const NOTE_MAX = 1000;
@@ -67,5 +75,10 @@ export function targetHref(type: ReportTarget, id: string): string | null {
     case "group_post": return `/coalitions/go/post/${encodeURIComponent(id)}`;
     case "group_thread": return `/coalitions/go/thread/${encodeURIComponent(id)}`;
     case "group_event": return `/coalitions/go/event/${encodeURIComponent(id)}`;
+    case "group_chat_message": return `/coalitions/go/chat/${encodeURIComponent(id)}`;
+    case "group_resource": return `/coalitions/go/resource/${encodeURIComponent(id)}`;
+    // The reports queue shows the text itself and links the wall.
+    case "wall_post":
+    case "wall_comment": return null;
   }
 }

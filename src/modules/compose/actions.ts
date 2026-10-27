@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { completeStructured } from "@/lib/ai";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { cleanRecordNonce } from "@/lib/send-record";
 import {
   buildDefaultLetter,
   type LetterContext,
@@ -290,6 +291,8 @@ export async function logOfficialContact(input: {
   source: string;
   subject: string;
   body: string;
+  /** B9: the BCC record address's nonce, so the copy can confirm this click. */
+  recordNonce?: string;
 }): Promise<{ ok: boolean }> {
   try {
     const sb = await createClient();
@@ -312,6 +315,7 @@ export async function logOfficialContact(input: {
       subject: input.subject.slice(0, 500),
       body: input.body.slice(0, 8000),
       source,
+      record_nonce: cleanRecordNonce(input.recordNonce),
     });
     // Achievement points accrue via the campaign_actions insert trigger
     // (Academy P1, mig 0236) — one award per contacted official, skipped when

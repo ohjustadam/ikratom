@@ -1,5 +1,5 @@
 /**
- * Open a group thread, reply or event by id alone, the way a report in
+ * Open a group thread, reply, event, chat message or pinned resource by id alone, the way a report in
  * /admin/moderation/reports refers to it. Resolves the group's slug and
  * redirects, for a member of that group or a site moderator only; everyone
  * else gets a 404, so the route never confirms that a private item exists.
@@ -17,7 +17,7 @@ const notFound = () => new NextResponse("Not found", { status: 404, headers: { "
 
 export async function GET(req: Request, ctx: { params: Promise<{ kind: string; id: string }> }) {
   const { kind, id } = await ctx.params;
-  if (!["thread", "post", "event"].includes(kind) || !UUID_RE.test(id)) return notFound();
+  if (!["thread", "post", "event", "chat", "resource"].includes(kind) || !UUID_RE.test(id)) return notFound();
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return notFound();
@@ -29,6 +29,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ kind: string; i
     const { data } = await svc.from("coalition_events").select("coalition_id").eq("id", id).maybeSingle();
     coalitionId = data?.coalition_id ?? null;
     path = `events/${id}`;
+  } else if (kind === "chat") {
+    const { data } = await svc.from("coalition_chat_messages").select("coalition_id").eq("id", id).maybeSingle();
+    coalitionId = data?.coalition_id ?? null;
+    path = `chat?m=${id}#m-${id}`;
+  } else if (kind === "resource") {
+    const { data } = await svc.from("coalition_resources").select("coalition_id").eq("id", id).maybeSingle();
+    coalitionId = data?.coalition_id ?? null;
+    path = `r/${id}`;
   } else if (kind === "thread") {
     const { data } = await svc.from("coalition_threads").select("coalition_id").eq("id", id).maybeSingle();
     coalitionId = data?.coalition_id ?? null;

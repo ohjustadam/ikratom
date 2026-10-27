@@ -32,7 +32,7 @@ export async function groupForViewer(sb: SupabaseClient, slug: string, userId: s
   return group ? { group: group as Group, role: null, moderator: true } : null;
 }
 
-export const GROUP_REPORT_KINDS = { group_thread: "thread", group_post: "post", group_event: "event" } as const;
+export const GROUP_REPORT_KINDS = { group_thread: "thread", group_post: "post", group_event: "event", group_chat_message: "chat", group_resource: "resource" } as const;
 
 /** Where a reported group item opens: a redirect that resolves the group's slug server-side. */
 export function groupReportHref(type: keyof typeof GROUP_REPORT_KINDS, id: string): string {
