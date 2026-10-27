@@ -629,7 +629,6 @@
 | `bill_text_versions` | jsonb | ✓ |  |
 | `summary_long` | text | ✓ |  |
 | `text_synced_at` | timestamp with time zone | ✓ |  |
-| `fulltext_tsv` | tsvector | ✓ |  |
 | `local_meta` | jsonb | ✓ |  |
 | `local_meta_extracted_at` | timestamp with time zone | ✓ |  |
 | `forum_thread_id` | uuid | ✓ |  |
@@ -673,7 +672,6 @@
 - `bills_unembedded_idx`: `CREATE INDEX bills_unembedded_idx ON public.bills USING btree (id) WHERE ((active = true) AND (embedding IS NULL))`
 - `idx_bills_verification_status`: `CREATE INDEX idx_bills_verification_status ON public.bills USING btree (verification_status) WHERE (verification_status IS NOT NULL)`
 - `ix_bills_forum_thread`: `CREATE INDEX ix_bills_forum_thread ON public.bills USING btree (forum_thread_id) WHERE (forum_thread_id IS NOT NULL)`
-- `ix_bills_fulltext_tsv`: `CREATE INDEX ix_bills_fulltext_tsv ON public.bills USING gin (fulltext_tsv)`
 - `ix_bills_journey_stale`: `CREATE INDEX ix_bills_journey_stale ON public.bills USING btree (journey_analyzed_at) WHERE (journey_narrative IS NOT NULL)`
 - `ix_bills_local_meta_meeting`: `CREATE INDEX ix_bills_local_meta_meeting ON public.bills USING btree (((local_meta ->> 'meeting_at'::text))) WHERE ((local_meta IS NOT NULL) AND ((local_meta ->> 'meeting_at'::text) IS NOT NULL))`
 - `ix_bills_substance_targeting`: `CREATE INDEX ix_bills_substance_targeting ON public.bills USING gin (substance_targeting jsonb_path_ops)`
