@@ -5,6 +5,7 @@ import type { ProfileView } from "../view";
 import { PhotoUploadButton } from "./PhotoUploadButton";
 import { BlockButton } from "./BlockButton";
 import { ReportButton } from "@/modules/reports/components/ReportButton";
+import { ConnectButton } from "@/modules/connections/components/ConnectButton";
 
 /**
  * Cover band + avatar + @handle + role badges + the viewer's actions.
@@ -79,12 +80,16 @@ function HeaderActions({ p, signedIn }: { p: ProfileView; signedIn: boolean }) {
     return (
       <div className="flex gap-2">
         <a href="/account/profile" className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400">Edit profile</a>
+        <a href="/account/connections" className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500">Friends</a>
         <a href="/account/privacy" className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500">Privacy</a>
       </div>
     );
   }
   return (
     <div className="flex flex-wrap items-center gap-3">
+      {signedIn && p.relationship !== "blocked" && (
+        <ConnectButton userId={p.id} handle={publicHandle(p)} state={p.relationship} />
+      )}
       {p.can_message && (
         <a href={`/messages/new?to=${p.id}`} className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400">
           Message

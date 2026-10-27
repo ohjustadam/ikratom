@@ -248,6 +248,8 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 
 **Why:** field report from a Louisiana member: writing hard for kratom while signing from a banned state felt unsafe, so they switched their profile to Mississippi, which made their letters to other states claim the wrong home. The state itself is not the exposure (petitioning is protected speech, and the street address was already removed on 2026-07-09); a signed, present-tense statement of using a Schedule I substance is. Our own preset example read "As a {{state}} resident who relies on kratom".
 
+**Waves (2026-10-27):** `fireDueWaves` sends with nobody watching, so it applies the same two rules itself (`src/modules/waves/safe-mode.ts`): out-of-state officials get no home, and current-use lines are put in the past tense. A line `rewordUseAdmissions` can't fix (for example "my daily kratom use") **stops that member's copy** (`skipped`, `safe_mode_use_admission`) instead of warning, because there is no member to decide at fire time. If `state_status` can't be read, nothing fires that tick. The admin wave form and the join panel say so.
+
 **Don't** hide city/state on letters to the member's own legislators: staff discard mail they can't tie to a district, and those legislators are the only ones who can lift the ban. **Don't** turn the warning into a block; the member decides what they sign.
 
 ## State-news pushes: one per story, one per state per day (2026-10-23)
