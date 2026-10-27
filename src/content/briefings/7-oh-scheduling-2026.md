@@ -64,6 +64,9 @@ html[data-theme="light"] .briefing-md .k7-yes{color:#047857}
 html[data-theme="light"] .briefing-md .k7-no{color:#b91c1c}
 </style>
 
+> **Out of date (updated Oct 27, 2026).** This August packet covers the July 7-OH proposal and the comment window that closed Sept 10. On Oct 14 the DEA withdrew that proposal and filed a new one with a different threshold. **Read the current report: [Where 7-OH stands with the DEA](/briefings/7-oh-dea-october-2026).**
+
+
 <div class="cover">
 <div class="ribbon">Federal Scheduling Intel Packet · Nonpartisan · Freely Shareable</div>
 

@@ -256,6 +256,7 @@ export default function RootLayout({
               <a href="/ethics" className="hover:text-emerald-400">Ethics</a>
               <Link href="/research" className="hover:text-emerald-400">Research</Link>
               <a href="/intel" className="hover:text-emerald-400">Intel hub</a>
+              <a href="/briefings" className="hover:text-emerald-400">Special reports</a>
               <a href="/calendar" className="hover:text-emerald-400">Calendar</a>
               <a href="/deadlines" className="hover:text-emerald-400">Deadlines</a>
               <Link href="/whats-new" className="hover:text-emerald-400">What&apos;s new</Link>

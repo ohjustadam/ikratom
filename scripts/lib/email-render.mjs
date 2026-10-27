@@ -11,7 +11,35 @@
  *  - A one-click unsubscribe link and a "manage settings" link in every email.
  *  - Identity is never rendered beyond @username (public-anonymity rule).
  */
+import { marked } from "marked";
+
 const C = { ink: "#14171c", mute: "#5d6673", line: "#e3e6eb", bg: "#f4f6f8", brand: "#1a7f4b", warn: "#b26b00" };
+
+/**
+ * A site markdown page (a briefing or report) as email HTML, so the reader gets
+ * the whole thing in the inbox instead of a teaser. Same file as the page, so the
+ * two can't disagree. Styles go inline (Gmail strips <style>); site-relative links
+ * become absolute.
+ */
+export function mdToEmailHtml(md, appUrl) {
+  const S = {
+    h1: `font:700 20px/1.3 Arial,sans-serif;margin:0 0 10px;color:${C.ink};`,
+    h2: `font:700 17px/1.3 Arial,sans-serif;margin:24px 0 8px;color:${C.ink};`,
+    h3: `font:700 15px/1.3 Arial,sans-serif;margin:18px 0 6px;color:${C.ink};`,
+    p: "margin:0 0 10px;",
+    ul: "margin:0 0 12px;padding-left:20px;",
+    ol: "margin:0 0 12px;padding-left:20px;",
+    li: "margin:0 0 7px;",
+    table: "border-collapse:collapse;width:100%;margin:6px 0 14px;font-size:13px;line-height:1.4;",
+    th: `text-align:left;vertical-align:top;border:1px solid ${C.line};padding:6px;background:${C.bg};`,
+    td: `vertical-align:top;border:1px solid ${C.line};padding:6px;`,
+    a: `color:${C.brand};`,
+  };
+  const body = String(md).replace(/^---\n[\s\S]*?\n---\n/, "");
+  return marked.parse(body, { gfm: true, async: false })
+    .replace(/<(h1|h2|h3|p|ul|ol|li|table|th|td|a)(\s[^>]*)?>/g, (_, tag, attrs = "") => `<${tag}${attrs} style="${S[tag]}">`)
+    .replace(/href="\/(?!\/)/g, `href="${String(appUrl).replace(/\/$/, "")}/`);
+}
 
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const abs = (appUrl, link) => (!link ? appUrl : /^https?:\/\//.test(link) ? link : `${appUrl}${link.startsWith("/") ? "" : "/"}${link}`);
@@ -137,9 +165,14 @@ export function renderMeetingAlert({ username, meetings, appUrl, unsubscribeUrl 
  * The same content lives on the site at `pageLink`, which the in-app
  * notification also opens, so email and site never disagree.
  */
-export function renderAnnouncement({ username, subject, preheader, intro, blocks, pageLink, appUrl, unsubscribeUrl }) {
+export function renderAnnouncement({ username, subject, preheader, intro, blocks = [], md = null, reason: reasonOverride = null, pageLink, appUrl, unsubscribeUrl }) {
   const html = [`<p style="margin:0 0 12px;">Hi @${esc(username || "advocate")},</p><p style="margin:0 0 14px;">${esc(intro)}</p>`];
   const text = [`Hi @${username || "advocate"},\n\n${intro}\n`];
+  // A full report (md) reads in the inbox exactly as on the site.
+  if (md) {
+    html.push(mdToEmailHtml(md, appUrl));
+    text.push(String(md).replace(/^---\n[\s\S]*?\n---\n/, ""));
+  }
   for (const b of blocks) {
     html.push(`<h2 style="font:700 16px/1.3 Arial,sans-serif;margin:20px 0 4px;color:${C.ink};">${esc(b.heading)}</h2><p style="margin:0 0 6px;">${esc(b.body)}</p>` +
       (b.link ? `<p style="margin:0 0 6px;">${button(abs(appUrl, b.link), b.linkLabel || "Open on iKratom", false)}</p>` : ""));
@@ -147,7 +180,7 @@ export function renderAnnouncement({ username, subject, preheader, intro, blocks
   }
   html.push(`<p style="margin:22px 0 0;">${button(abs(appUrl, pageLink), "See the full update on iKratom")}</p>`);
   text.push(`\nFull update: ${abs(appUrl, pageLink)}`);
-  const reason = "You get this because you have an iKratom account. Product updates are rare; settings below.";
+  const reason = reasonOverride || "You get this because you have an iKratom account. Product updates are rare; settings below.";
   return {
     subject,
     html: shell({ preheader, title: subject, bodyHtml: html.join(""), footer: footerHtml({ appUrl, unsubscribeUrl, reason }) }),

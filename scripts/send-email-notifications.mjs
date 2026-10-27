@@ -191,6 +191,8 @@ async function runAnnounce() {
   const file = arg("content", null);
   if (!file) throw new Error("--content <file.json> is required");
   const content = JSON.parse(fs.readFileSync(file, "utf8"));
+  // md_file: send a site page (briefing/report) whole, from the same file the page renders.
+  if (content.md_file) content.md = fs.readFileSync(content.md_file, "utf8");
   const audience = arg("audience", "all");
   const slug = content.slug || path.basename(file, ".json");
   if (!DRY && !ONLY) {

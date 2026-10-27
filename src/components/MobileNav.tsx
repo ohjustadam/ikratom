@@ -40,6 +40,7 @@ const PRIMARY_LINKS = [
   { href: "/legislators", label: "Legislators", icon: "🏛️" },
   { href: "/people", label: "People", icon: "🧠" },
   { href: "/intel", label: "Intel hub", icon: "◉" },
+  { href: "/briefings", label: "Special reports", icon: "🚨" },
   { href: "/intel/threat-matrix", label: "Threat matrix", icon: "🎯" },
   { href: "/intel/operations", label: "Coordinated operations", icon: "🕸" },
   { href: "/intel/donations", label: "Donor leaderboard", icon: "🧮" },
