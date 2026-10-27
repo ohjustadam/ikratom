@@ -24,12 +24,15 @@ export function WavePanel({
   initialJoined,
   signedIn,
   gmailConnected,
+  safeModeState,
 }: {
   wave: Wave;
   initialCount: number;
   initialJoined: boolean;
   signedIn: boolean;
   gmailConnected: boolean;
+  /** The member's state name while banned-state safe mode is on (0275). */
+  safeModeState?: string | null;
 }) {
   const router = useRouter();
   const [count, setCount] = useState(initialCount);
@@ -235,6 +238,14 @@ export function WavePanel({
           >
             {pending ? "Joining…" : `Join the wave →`}
           </button>
+        )}
+
+        {safeModeState && (
+          <p className="mt-3 text-xs text-zinc-400">
+            🛡️ Safe mode is on for {safeModeState}, where kratom is banned. Your copy leaves out your city,
+            state and ZIP for officials outside {safeModeState}, and a line saying you use kratom now goes out
+            in the past tense. If a line can&apos;t be reworded safely, your copy is skipped instead of sent.
+          </p>
         )}
 
         {error && (
