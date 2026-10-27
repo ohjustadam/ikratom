@@ -131,23 +131,59 @@ console.log(`current transmit counter: ${(currentBytes / 1e9).toFixed(3)} GB (si
  * 2026-09-24, when a dashboard check found it at 65% — the closest ceiling we
  * had, and completely unmonitored. The same metrics payload we already fetched
  * carries it, so this costs nothing extra.
+ *
+ * SUM EVERY DATABASE (2026-10-25). The dashboard's "Database Size", the number
+ * the cap is enforced on, includes template0 and template1: it read 0.383 GB
+ * while `postgres` alone was 0.368. Reading only `postgres` put the ceiling
+ * 15 MB (3 points) further away than it was. And until this date the check
+ * only PRINTED at 80%, into a cron log nobody reads, so it now pages.
  */
 const DB_BUDGET_BYTES = 0.5e9;
+const DB_THRESHOLDS = [0.75, 0.85, 0.95];
 let dbBytes = 0;
+let pgDbBytes = 0;
 for (const line of text.split("\n")) {
-  if (line.startsWith("pg_database_size_bytes") && line.includes('datname="postgres"')) {
-    dbBytes = parseFloat(line.trim().split(/\s+/).pop()) || 0;
-    break;
-  }
+  if (!line.startsWith("pg_database_size_bytes")) continue;
+  const v = parseFloat(line.trim().split(/\s+/).pop()) || 0;
+  dbBytes += v;
+  if (line.includes('datname="postgres"')) pgDbBytes = v;
 }
 const dbPct = dbBytes / DB_BUDGET_BYTES;
-const dbNote = dbBytes > 0 ? ` · db ${(dbBytes / 1e9).toFixed(3)}/0.5GB (${(dbPct * 100).toFixed(0)}%)` : "";
+
+// Growth over the last ~7 days, from the `postgres` size each reading kept
+// (`pg <MB>` since 2026-10-25; before that `db <GB>` held the same figure).
+async function dbGrowth() {
+  const since = new Date(Date.now() - 7 * 864e5).toISOString();
+  const { data } = await sb.from("scraper_runs").select("finished_at, notes")
+    .eq("source", "egress_watchdog").gte("finished_at", since).like("notes", "%db %")
+    .order("finished_at", { ascending: true }).limit(1);
+  const r = data?.[0];
+  const pg = r?.notes?.match(/ pg ([0-9.]+)MB/)?.[1];
+  const oldGb = r?.notes?.match(/db ([0-9.]+)\/0\.5GB/)?.[1];
+  const thenMb = pg ? Number(pg) : oldGb ? Number(oldGb) * 1000 : NaN;
+  const days = r ? (Date.now() - new Date(r.finished_at).getTime()) / 864e5 : 0;
+  if (!(thenMb > 0) || days < 2) return null;
+  const mbPerDay = (pgDbBytes / 1e6 - thenMb) / days;
+  if (mbPerDay <= 0) return { mbPerDay, fullOn: null };
+  const daysLeft = (DB_BUDGET_BYTES - dbBytes) / 1e6 / mbPerDay;
+  return { mbPerDay, daysLeft, fullOn: new Date(Date.now() + daysLeft * 864e5).toISOString().slice(0, 10) };
+}
+const dbTrend = dbBytes > 0 ? await dbGrowth().catch(() => null) : null;
+const dbNote = dbBytes > 0
+  ? ` · db ${(dbBytes / 1e9).toFixed(3)}/0.5GB (${(dbPct * 100).toFixed(0)}%) pg ${(pgDbBytes / 1e6).toFixed(1)}MB`
+    + (dbTrend?.fullOn ? ` +${dbTrend.mbPerDay.toFixed(1)}MB/d full~${dbTrend.fullOn}` : "")
+  : "";
 if (dbBytes > 0) {
-  console.log(`database size: ${(dbBytes / 1e9).toFixed(3)} GB of 0.5 GB (${(dbPct * 100).toFixed(1)}%)`);
-  if (dbPct >= 0.8) {
+  console.log(`database size: ${(dbBytes / 1e9).toFixed(3)} GB of 0.5 GB (${(dbPct * 100).toFixed(1)}%), all databases`);
+  if (dbTrend) {
+    console.log(dbTrend.fullOn
+      ? `  growing ${dbTrend.mbPerDay.toFixed(1)} MB/day over ~7 days → full on ~${dbTrend.fullOn} (${dbTrend.daysLeft.toFixed(0)} days)`
+      : `  not growing over ~7 days (${dbTrend.mbPerDay.toFixed(1)} MB/day)`);
+  }
+  if (dbPct >= DB_THRESHOLDS[0]) {
     console.log(`⚠ DATABASE at ${(dbPct * 100).toFixed(0)}% of the free-tier cap. This does NOT reset`);
-    console.log(`  monthly like egress — at 100% writes stop. Biggest table is usually news_items;`);
-    console.log(`  prune old rows or archive before it lands.`);
+    console.log(`  monthly like egress — at 100% writes stop. Deleting rows alone does not lower`);
+    console.log(`  this number: the space returns only after VACUUM FULL rewrites the table.`);
   }
 }
 
@@ -271,38 +307,61 @@ if (proj) {
   }
 }
 
+async function pageOwner(message) {
+  if (DRY) return;
+  const { data: owner } = await sb.from("profiles").select("id").eq("is_owner", true).maybeSingle();
+  if (!owner) return;
+  const { data: subs } = await sb.from("push_subscriptions").select("endpoint, p256dh, auth").eq("user_id", owner.id);
+  const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY, priv = process.env.VAPID_PRIVATE_KEY;
+  if (!subs?.length || !pub || !priv) return;
+  const require = createRequire(import.meta.url);
+  const webpush = require("web-push");
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:support@ikratom.org", pub, priv);
+  const payload = JSON.stringify({ ...message, link: "/admin/automation" });
+  for (const s of subs) {
+    try { await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 6 * 3600 }); } catch { /* per-sub best-effort */ }
+  }
+}
+
 // 3. Threshold paging — once per threshold per cycle (dedupe via notes history).
 const crossed = THRESHOLDS.filter((t) => pct >= t);
-const already = new Set((prior ?? []).flatMap((r) => (r.notes?.match(/paged@(\d+)%/g) ?? []).map((m) => m.replace("paged@", "").replace("%", ""))));
+const already = new Set((prior ?? []).flatMap((r) => (r.notes?.match(/ paged@(\d+)%/g) ?? []).map((m) => m.replace(" paged@", "").replace("%", ""))));
 const toPage = crossed.filter((t) => !already.has(String(t * 100)));
 let pagedNote = "";
 if (toPage.length > 0) {
   const top = Math.max(...toPage);
   pagedNote = ` paged@${top * 100}%`;
   console.log(`⚠ crossing ${top * 100}% of monthly egress budget — paging owner`);
-  if (!DRY) {
-    const { data: owner } = await sb.from("profiles").select("id").eq("is_owner", true).maybeSingle();
-    if (owner) {
-      const { data: subs } = await sb.from("push_subscriptions").select("endpoint, p256dh, auth").eq("user_id", owner.id);
-      const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY, priv = process.env.VAPID_PRIVATE_KEY;
-      if (subs?.length && pub && priv) {
-        const require = createRequire(import.meta.url);
-        const webpush = require("web-push");
-        webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:support@ikratom.org", pub, priv);
-        const payload = JSON.stringify({
-          title: `📊 Supabase egress at ${(pct * 100).toFixed(0)}% of free tier`,
-          body: `${(billableBytes / 1e9).toFixed(2)} GB of ${BUDGET_GB} GB this cycle`
-            + (proj && proj.daysToBreach < proj.daysToReset
-              ? ` — on track to hit the cap in ~${proj.daysToBreach.toFixed(0)} day(s), before the ${proj.resetOn} reset. Needs ≤${proj.safeRate.toFixed(0)} MB/day to stay under.`
-              : `.`)
-            + ` At 100% the project gets RESTRICTED (the 2026-07-16 incident).`,
-          link: "/admin/automation", tag: "egress-watchdog",
-        });
-        for (const s of subs) {
-          try { await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 6 * 3600 }); } catch { /* per-sub best-effort */ }
-        }
-      }
-    }
+  await pageOwner({
+    title: `📊 Supabase egress at ${(pct * 100).toFixed(0)}% of free tier`,
+    body: `${(billableBytes / 1e9).toFixed(2)} GB of ${BUDGET_GB} GB this cycle`
+      + (proj && proj.daysToBreach < proj.daysToReset
+        ? ` — on track to hit the cap in ~${proj.daysToBreach.toFixed(0)} day(s), before the ${proj.resetOn} reset. Needs ≤${proj.safeRate.toFixed(0)} MB/day to stay under.`
+        : `.`)
+      + ` At 100% the project gets RESTRICTED (the 2026-07-16 incident).`,
+    tag: "egress-watchdog",
+  });
+}
+
+// Database paging. The size never resets, so dedupe over the last 30 days
+// rather than per cycle: a ceiling still crossed a month later pages again.
+if (dbBytes > 0 && dbPct >= DB_THRESHOLDS[0]) {
+  const { data: recent } = await sb.from("scraper_runs").select("notes")
+    .eq("source", "egress_watchdog").like("notes", "%dbpaged@%")
+    .gte("finished_at", new Date(Date.now() - 30 * 864e5).toISOString()).limit(100);
+  const dbAlready = new Set((recent ?? []).flatMap((r) => (r.notes?.match(/dbpaged@(\d+)%/g) ?? []).map((m) => m.slice(8, -1))));
+  const dbToPage = DB_THRESHOLDS.filter((t) => dbPct >= t && !dbAlready.has(String(t * 100)));
+  if (dbToPage.length > 0) {
+    const top = Math.max(...dbToPage);
+    pagedNote += ` dbpaged@${top * 100}%`;
+    console.log(`⚠ database past ${top * 100}% of the 0.5 GB cap — paging owner`);
+    await pageOwner({
+      title: `🗄️ Database at ${(dbPct * 100).toFixed(0)}% of the free 0.5 GB`,
+      body: `${(dbBytes / 1e9).toFixed(3)} GB used`
+        + (dbTrend?.fullOn ? `, growing ${dbTrend.mbPerDay.toFixed(1)} MB/day: full around ${dbTrend.fullOn}.` : ".")
+        + " This limit never resets; at 100% the site stops saving anything. The prune plan in OWNER_TODO frees the space.",
+      tag: "db-size-watchdog",
+    });
   }
 }
 
