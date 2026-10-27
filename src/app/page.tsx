@@ -85,18 +85,21 @@ const getHomeData = unstable_cache(
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(3),
-      supabase.from("bills").select("state", { count: "exact", head: true })
-        .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
-        .eq("status", "enacted").not("opposition_summary_md", "is", null),
+      // Same sources as /banned, so the home strip and the tracker can't disagree
+      // (the bills heuristic read 6 states and 2 "imminent" TN bills after TN's
+      // ban was already law; state_status read 8 and /banned showed 0).
+      supabase.from("state_status").select("state", { count: "exact", head: true })
+        .eq("admin_leaf_status", "banned"),
       supabase.from("bills").select("id", { count: "exact", head: true })
         .eq("active", true).in("kratom_relevance", ["anti", "pro"])
-        .gte("last_action_at", new Date(Date.now() - 365 * 86_400_000).toISOString()),
+        .gte("last_action_at", `${new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }).slice(0, 4)}-01-01`),
       supabase.from("bills").select("id", { count: "exact", head: true })
         .eq("kratom_relevance", "anti").eq("active", true).eq("scope", "state")
-        .eq("status", "passed_chamber"),
+        .eq("status", "passed_chamber").not("opposition_summary_md", "is", null),
       supabase.from("bills").select("id", { count: "exact", head: true })
         .eq("kratom_relevance", "anti").eq("active", true).eq("status", "enacted")
-        .in("scope", ["county", "municipal"]),
+        .in("scope", ["county", "municipal"])
+        .or("verification_status.is.null,verification_status.eq.confirmed"),
     ]);
 
     const campaigns = (campaignsRes.data ?? []) as HomeCampaign[];

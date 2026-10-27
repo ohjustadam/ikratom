@@ -117,16 +117,19 @@ export async function personalizeCampaignBody(input: {
   try {
     // Dynamic import — this is server-side anyway
     const { aiRouter } = await import("../../../scripts/lib/ai-router.mjs");
-    const r = await aiRouter({
-      systemPrompt: SYSTEM_PROMPT,
-      userPrompt,
-      maxTokens: 2048,
-      verbose: false,
-    });
+    // A web request can't wait out a throttled pool: the router's default
+    // maxWaitMs (75 s) outlived the function, so the member saw "check your
+    // connection" while a provider cooled down (Paul, 10-27). No waiting, a
+    // reply budget that fits a letter (fewer Groq TPM 413s), and a hard deadline
+    // inside the function limit.
+    const r = await Promise.race([
+      aiRouter({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1200, maxWaitMs: 0, verbose: false }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("PERSONALIZE_TIMEOUT")), 9_000)),
+    ]);
     const personalized = r.parsed?.personalized_body;
     const whatChanged = r.parsed?.what_changed;
     if (typeof personalized !== "string" || personalized.length < 100) {
-      return { error: "Personalization returned an empty or too-short result. Try again." };
+      return { error: "The AI writer sent back an incomplete letter. Your letter is unchanged: tap Personalize again." };
     }
     return {
       ok: true,
@@ -137,6 +140,9 @@ export async function personalizeCampaignBody(input: {
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "PERSONALIZE_TIMEOUT" || /429|rate|cooldown|all providers failed/i.test(msg)) {
+      return { error: "The free AI writers are busy right now. Your letter is unchanged: try again in a minute, or add a line about yourself and send it." };
+    }
     return { error: `Personalization failed: ${msg.slice(0, 200)}. Try again or send the template as-is.` };
   }
 }

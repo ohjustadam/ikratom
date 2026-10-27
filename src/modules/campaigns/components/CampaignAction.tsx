@@ -540,7 +540,7 @@ export function CampaignAction({
                 // A rejected server-action POST (connection drop / 504) never
                 // returns an {error} shape — without this catch the spinner just
                 // stops and the user gets zero feedback.
-                setPersonalizeError("Personalization failed — check your connection and try again.");
+                setPersonalizeError("Personalization didn't finish. Your letter is unchanged: try again in a minute, or add a line about yourself and send it.");
               } finally {
                 setPersonalizing(false);
               }
