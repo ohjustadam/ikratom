@@ -8,9 +8,10 @@ import { InviteButton } from "./GroupHomeClient";
  * (@handle initials only), and the one-tap Invite. Then the tab bar.
  */
 
-export type GroupTab = "home" | "events" | "members" | "about";
+export type GroupTab = "home" | "chat" | "events" | "members" | "about";
 const TABS: { key: GroupTab; label: string }[] = [
   { key: "home", label: "Home" },
+  { key: "chat", label: "💬 Chat" },
   { key: "events", label: "Events" },
   { key: "members", label: "Members" },
   { key: "about", label: "About" },
@@ -83,7 +84,7 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
           <ul className="flex gap-1 overflow-x-auto">
             {TABS.map((t) => (
               <li key={t.key}>
-                <Link href={t.key === "home" ? `/coalitions/${group.slug}` : `/coalitions/${group.slug}?tab=${t.key}`}
+                <Link href={tabHref(group.slug, t.key)}
                   aria-current={tab === t.key ? "page" : undefined}
                   className={`flex min-h-11 items-center whitespace-nowrap border-b-2 px-3 text-sm font-semibold ${
                     tab === t.key ? "border-emerald-400 text-emerald-300" : "border-transparent text-zinc-400 hover:text-zinc-200"}`}>
@@ -96,4 +97,11 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
       )}
     </header>
   );
+}
+
+/** Chat is its own page (a full-height room on a phone); the rest are tabs of the group home. */
+function tabHref(slug: string, key: GroupTab): string {
+  if (key === "home") return `/coalitions/${slug}`;
+  if (key === "chat") return `/coalitions/${slug}/chat`;
+  return `/coalitions/${slug}?tab=${key}`;
 }

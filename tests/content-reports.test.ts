@@ -9,20 +9,27 @@ import { REPORT_REASONS, REPORT_TARGETS, isReportReason, isReportTarget, isTarge
  * refuses. And no surface may grow a private report table again.
  */
 const sql = readFileSync("supabase/migrations/0288_content_reports.sql", "utf8");
-const listIn = (constraint: string) => {
-  const m = new RegExp(`${constraint} check \\([a-z_]+ in \\(([^)]*)\\)`, "s").exec(sql);
+// A later migration that adds a target (0291: group chat) redefines the type
+// check and report_content() whole; the newest one is the authority.
+const latestTypes = readdirSync("supabase/migrations")
+  .filter((f) => /^\d{4}_.*\.sql$/.test(f) && Number(f.slice(0, 4)) >= 288).sort()
+  .map((f) => readFileSync(join("supabase/migrations", f), "utf8"))
+  .filter((s) => s.includes("content_reports_type_chk check")).at(-1) ?? sql;
+const listIn = (constraint: string, src = sql) => {
+  const m = new RegExp(`${constraint} check \\([a-z_]+ in \\(([^)]*)\\)`, "s").exec(src);
   return (m?.[1].match(/'([a-z_]+)'/g) ?? []).map((s) => s.slice(1, -1));
 };
 
 describe("content_reports vocabulary", () => {
   it("targets match the check constraint", () => {
-    expect([...REPORT_TARGETS].sort()).toEqual(listIn("content_reports_type_chk").sort());
+    expect([...REPORT_TARGETS].sort()).toEqual(listIn("content_reports_type_chk", latestTypes).sort());
   });
   it("reasons match the check constraint", () => {
     expect(REPORT_REASONS.map((r) => r.id).sort()).toEqual(listIn("content_reports_reason_chk").sort());
   });
   it("every target is handled by report_content", () => {
-    for (const t of REPORT_TARGETS) expect(sql).toContain(`p_type = '${t}'`);
+    expect(latestTypes).toContain("create or replace function public.report_content");
+    for (const t of REPORT_TARGETS) expect(latestTypes).toContain(`p_type = '${t}'`);
   });
   it("validates inputs like the RPC does", () => {
     expect(isReportTarget("profile")).toBe(true);

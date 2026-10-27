@@ -1,5 +1,5 @@
 /**
- * The ONE member report system (migration 0288): vocabulary shared by the
+ * The ONE member report system (migration 0288; group chat added in 0291): vocabulary shared by the
  * ReportButton, the server action and the admin queue. Pure, so client and
  * server can both import it. The database check constraints are the authority;
  * tests/content-reports.test.ts keeps these lists equal to them.
@@ -15,6 +15,7 @@ export const REPORT_TARGETS = [
   "group_post",
   "group_thread",
   "group_event",
+  "group_chat_message",
 ] as const;
 export type ReportTarget = (typeof REPORT_TARGETS)[number];
 
@@ -39,6 +40,7 @@ export const TARGET_LABEL: Record<ReportTarget, string> = {
   group_post: "Group reply",
   group_thread: "Group thread",
   group_event: "Group event",
+  group_chat_message: "Group chat message",
 };
 
 export const NOTE_MAX = 1000;
@@ -67,5 +69,6 @@ export function targetHref(type: ReportTarget, id: string): string | null {
     case "group_post": return `/coalitions/go/post/${encodeURIComponent(id)}`;
     case "group_thread": return `/coalitions/go/thread/${encodeURIComponent(id)}`;
     case "group_event": return `/coalitions/go/event/${encodeURIComponent(id)}`;
+    case "group_chat_message": return `/coalitions/go/chat/${encodeURIComponent(id)}`;
   }
 }
