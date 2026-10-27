@@ -5,6 +5,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { publicHandle } from "@/lib/public-handle";
 import { REPORT_REASONS, TARGET_LABEL, targetHref, type ReportTarget } from "@/modules/reports/types";
 import { ReportResolveButtons } from "./ReportResolveButtons";
+import { loadWallExcerpts } from "@/modules/wall/admin";
 
 export const metadata = { title: "Member reports" };
 export const dynamic = "force-dynamic";
@@ -44,6 +45,7 @@ export default async function ReportsQueuePage() {
     : { data: [] };
   const who = new Map(((profs ?? []) as { id: string; username: string | null; state: string | null }[]).map((p) => [p.id, p]));
   const reasonLabel = (id: string) => REPORT_REASONS.find((r) => r.id === id)?.label ?? id;
+  const wallText = await loadWallExcerpts(svc, cards);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -57,7 +59,8 @@ export default async function ReportsQueuePage() {
       {cards.length === 0 && <p className="mt-6 rounded-lg border border-emerald-800/40 bg-emerald-950/10 p-4 text-sm text-emerald-300">✓ No open member reports.</p>}
       <ul className="mt-6 space-y-3">
         {cards.map((c) => {
-          const href = targetHref(c.type, c.id);
+          const wall = wallText.get(`${c.type}:${c.id}`);
+          const href = targetHref(c.type, c.id) ?? (wall?.wallOwnerId ? `/profile/${wall.wallOwnerId}` : null);
           return (
             <li key={`${c.type}:${c.id}`} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 text-sm">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -68,6 +71,7 @@ export default async function ReportsQueuePage() {
                 </p>
                 {href && <a href={href} className="text-xs text-emerald-400 hover:underline" target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer">Open →</a>}
               </div>
+              {wall && <blockquote className="mt-2 whitespace-pre-line break-words border-l-2 border-zinc-700 pl-3 text-zinc-300">{wall.body.slice(0, 600)}</blockquote>}
               <ul className="mt-2 space-y-1 text-xs text-zinc-400">
                 {c.rows.slice(0, 8).map((r, i) => (
                   <li key={i}>• {reasonLabel(r.reason)}{r.note ? <>: <span className="whitespace-pre-line text-zinc-300">{r.note}</span></> : null}</li>

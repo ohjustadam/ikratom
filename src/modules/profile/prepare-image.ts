@@ -5,7 +5,7 @@
  * The server strips again regardless (lib/image-strip.ts): this pass is for
  * the member's bandwidth and privacy, not the security boundary.
  */
-export const MAX_DIM = { avatar: 768, cover: 2048, album: 2048 } as const;
+export const MAX_DIM = { avatar: 768, cover: 2048, album: 2048, wall: 2048 } as const;
 
 export async function prepareImage(file: File, maxDim: number): Promise<Blob> {
   if (!/^image\/(jpeg|png|webp|heic|heif|gif|bmp)$/i.test(file.type) && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) {
