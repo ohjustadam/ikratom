@@ -170,4 +170,17 @@ describe("term-calendar: same person", () => {
     expect(samePerson("Kevin Hern", "Kevin Hern (incumbent)")).toBe(true);
     expect(samePerson("José Menéndez", "Jose Menendez")).toBe(true);
   });
+
+  it("reads a leading initial or a first name used as the middle one (2026 Wikipedia tables)", async () => {
+    const { samePerson } = await import("../scripts/lib/term-calendar.mjs");
+    expect(samePerson("N. Scott Phillips", "Scott Phillips")).toBe(true);
+    expect(samePerson("C. Anthony Muse", "Anthony Muse")).toBe(true);
+    expect(samePerson("Michael Sarge Pollock", "Sarge Pollock")).toBe(true);
+    expect(samePerson("W. Gregory Wims", "Greg Wims")).toBe(true);
+    expect(samePerson('James "Jay" Jones', "Jay Jones")).toBe(true);
+    // Still different people: the Graham trap, a shared middle name, a true nickname.
+    expect(samePerson("Darline Graham", "Lindsey Graham")).toBe(false);
+    expect(samePerson("Mary Ann Santos", "Kim Ann Santos")).toBe(false);
+    expect(samePerson("Doc Rhett", "Michael Rhett")).toBe(false);
+  });
 });

@@ -29,7 +29,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { STATE_NAMES } from "./lib/us-states.mjs";
 import { electionDay, normalizeDistrict, wikiTitles, sameSurname, samePerson } from "./lib/term-calendar.mjs";
-import { parseWikiResults } from "./lib/election-results.mjs";
+import { parseWikiResults, parseInfoboxResult } from "./lib/election-results.mjs";
 
 const args = process.argv.slice(2);
 const DRY = args.includes("--dry-run");
@@ -49,6 +49,16 @@ const STATEWIDE_PAGE = {
   attorney_general: "United States attorney general elections",
   secretary_of_state: "United States secretary of state elections",
 };
+// The single-race article per state, whose infobox names the winner. The
+// national pages above give statewide offices only "Stitt 55.4% R" (0 of 36
+// governors read on the 2022 page), so these come first.
+const STATE_RACE_PAGE = {
+  governor: (s) => `${CYCLE} ${s} gubernatorial election`,
+  lt_governor: (s) => `${CYCLE} ${s} lieutenant gubernatorial election`,
+  attorney_general: (s) => `${CYCLE} ${s} Attorney General election`,
+  secretary_of_state: (s) => `${CYCLE} ${s} Secretary of State election`,
+};
+const wikiDays = (sources) => new Set((sources ?? []).filter((s) => s.startsWith("wikipedia:")).map((s) => s.slice("wikipedia:".length)));
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
@@ -77,13 +87,17 @@ for (let from = 0; ; from += 1000) {
   if (ONLY) q = q.eq("state", ONLY);
   const { data, error } = await q;
   if (error) { await telemetry("error", `read: ${error.message}`); throw error; }
-  seats.push(...data);
+  // A needs_review row whose winner was already read on two days is not this
+  // stage's any more: turnover-swap filed it (handover passed, no second
+  // source yet). Re-reading it would flip it back to successor_elected each
+  // morning and empty the admin queue the swap just filled.
+  seats.push(...data.filter((s) => !(s.status === "needs_review" && s.winner_name && wikiDays(s.result_sources).size >= 2)));
   if (data.length < 1000) break;
 }
 if (seats.length === 0) { console.log("no open seats"); await telemetry("empty", "no open seats"); process.exit(0); }
 
 const pages = new Map(); // title list key -> Map | null
-async function results(titles, mode) {
+async function results(titles, mode, key) {
   const k = `${mode}:${titles[0]}`;
   if (pages.has(k)) return pages.get(k);
   let found = null;
@@ -92,7 +106,11 @@ async function results(titles, mode) {
       const r = await fetch(`https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&prop=text&format=json&formatversion=2&redirects=1`,
         { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(45_000) });
       const j = await r.json();
-      if (j.parse?.text) { found = parseWikiResults(j.parse.text, mode); if (found.size) break; }
+      if (mode === "infobox") {
+        const box = j.parse?.text ? parseInfoboxResult(j.parse.text) : null;
+        found = box ? new Map([[key, [box]]]) : null;
+        if (found) break;
+      } else if (j.parse?.text) { found = parseWikiResults(j.parse.text, mode); if (found.size) break; }
     } catch { /* next title */ }
     await new Promise((res) => setTimeout(res, 300));
   }
@@ -100,23 +118,32 @@ async function results(titles, mode) {
   return found;
 }
 
-function lookup(seat) {
+/** Where a seat's result is read, best source first. */
+function lookups(seat) {
   if (seat.office === "state_senate" || seat.office === "state_house") {
-    return { titles: wikiTitles(CYCLE, STATE_NAMES[seat.state], seat.office), mode: "district", key: normalizeDistrict(seat.district) ?? seat.district.toLowerCase() };
+    return [{ titles: wikiTitles(CYCLE, STATE_NAMES[seat.state], seat.office), mode: "district", key: normalizeDistrict(seat.district) ?? seat.district.toLowerCase() }];
   }
-  if (seat.office === "us_house") return { titles: [`${CYCLE} United States House of Representatives elections`], mode: "state-district", key: `${seat.state}-${seat.district}` };
-  if (STATEWIDE_PAGE[seat.office]) return { titles: [`${CYCLE} ${STATEWIDE_PAGE[seat.office]}`], mode: "state", key: seat.state };
-  return null;
+  if (seat.office === "us_house") return [{ titles: [`${CYCLE} United States House of Representatives elections`], mode: "state-district", key: `${seat.state}-${seat.district}` }];
+  const out = [];
+  if (STATE_RACE_PAGE[seat.office]) out.push({ titles: [STATE_RACE_PAGE[seat.office](STATE_NAMES[seat.state])], mode: "infobox", key: seat.state });
+  if (STATEWIDE_PAGE[seat.office]) out.push({ titles: [`${CYCLE} ${STATEWIDE_PAGE[seat.office]}`], mode: "state", key: seat.state });
+  return out;
 }
 
 let sightings = 0, finalized = 0, changed = 0, noResult = 0, noPage = 0, failed = 0;
 const errors = [];
 for (const seat of seats) {
-  const where = lookup(seat);
-  if (!where) continue;
-  const map = await results(where.titles, where.mode);
-  if (!map) { noPage++; continue; }
-  const rows = (map.get(where.key) ?? []).filter((r) => r.incumbent);
+  const where = lookups(seat);
+  if (!where.length) continue;
+  let rows = [], anyPage = false;
+  for (const w of where) {
+    const map = await results(w.titles, w.mode, w.key);
+    if (!map) continue;
+    anyPage = true;
+    rows = (map.get(w.key) ?? []).filter((r) => r.incumbent);
+    if (rows.some((r) => r.winners.length)) break;
+  }
+  if (!anyPage) { noPage++; continue; }
   let decision = null, winner = null;
   if (seat.seat) {
     // Multi-member district: decided only when every row in it names a winner.

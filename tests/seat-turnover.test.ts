@@ -30,6 +30,13 @@ describe("seat turnover banner", () => {
     expect(seatBanner(seat({}), "Jane Doe", "2026-11-05")?.title).toBe("Results pending for the November 3, 2026 election");
   });
 
+  it("'pending' never outlives the handover day (or 60 days without one)", () => {
+    expect(seatBanner(seat({}), "Jane Doe", "2026-11-18")?.tone).toBe("ballot");
+    expect(seatBanner(seat({}), "Jane Doe", "2026-11-19")).toBeNull();
+    expect(seatBanner(seat({ handover_date: null }), "Jane Doe", "2027-01-02")?.tone).toBe("ballot");
+    expect(seatBanner(seat({ handover_date: null }), "Jane Doe", "2027-01-03")).toBeNull();
+  });
+
   it("a successor elected: leaving on the date, contactable until then", () => {
     const b = seatBanner(seat({ status: "successor_elected", winner_name: "John Roe" }), "Jane Doe", "2026-11-06");
     expect(b?.tone).toBe("leaving");

@@ -114,6 +114,28 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier bulk
 
+  budget-normal:
+    # Routine syncs that keep "who holds this office" right (roster diffs,
+    # election results, the dated swap) shed at the normal tier (92%), not
+    # with the bulk backfills at 80%: a lost day here can mean a member
+    # writing to someone who has left office.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - id: gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier normal
+
   vercel-migrated-crons:
     # MIGRATED OFF VERCEL 2026-07-26. These were declared in vercel.json's
     # "crons" block, which ONLY Vercel executes — after the move to Netlify
@@ -517,8 +539,8 @@ jobs:
         run: node --import=./scripts/lib/egress-meter.mjs scripts/scrape-bop-browser.mjs
 
   roster-diff:
-    needs: budget
-    if: needs.budget.outputs.run == 'true'
+    needs: budget-normal
+    if: needs.budget-normal.outputs.run == 'true'
     # The officials-turnover engine (private/plans/OFFICIALS_TURNOVER_ELECTIONS_GROUPS.md):
     # keep every state legislature and Congress roster current with nobody in
     # the loop. Departed members go inactive (so nobody emails them), new ones
