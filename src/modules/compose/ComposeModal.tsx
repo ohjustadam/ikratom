@@ -12,12 +12,15 @@ import {
 } from "./send-links";
 import type { ComposeOfficial, ComposeContext } from "./types";
 import { withLetterFooter } from "@/modules/campaigns/letter-extras";
+import { SendRecordNotice } from "@/modules/campaigns/components/SendRecordNotice";
+import { bccCopyLine, nonceForClick, withRecordBcc } from "@/lib/send-record";
 
 /**
  * The uniform email composer behind every "✉ Email" CTA. One feature set,
  * platform-wide: instant prefilled letter, ✨ AI draft (free-tier router),
  * in-app editing, mailto / Gmail / Outlook / copy delivery, contact-form
  * fallback when the office has no public inbox, and best-effort send logging.
+ * The email paths BCC a send-record copy (B9) unless the member opts out.
  */
 export function ComposeModal({
   open,
@@ -44,6 +47,9 @@ export function ComposeModal({
   const [sentVia, setSentVia] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const loggedRef = useRef(false);
+  // B9: the nonce the one logged row holds (null = it carries none).
+  const loggedNonceRef = useRef<string | null>(null);
+  const [keepCopy, setKeepCopy] = useState(true);
   const [, startTransition] = useTransition();
 
   // Channel resolution: real inbox → normal compose; email column holding an
@@ -153,7 +159,25 @@ export function ComposeModal({
   // What actually leaves: the letter plus the plain "Sent via iKratom — <link>" line (lib/email/letter-footer.ts).
   const letter = withLetterFooter(body);
 
-  function logSend(via: string) {
+  // The record copy needs a logged click to match, which only a signed-in
+  // member has; the contact-form flow has nowhere to put a BCC.
+  const recordOn = keepCopy && signedIn && !formUrl;
+  const clickNonce = () =>
+    nonceForClick({ keepCopy: recordOn, logged: loggedRef.current, loggedNonce: loggedNonceRef.current });
+
+  // The nonce is minted at click time, not render time: the href is rewritten
+  // before the browser follows it, so server render and hydration agree.
+  function openWithRecord(
+    e: React.MouseEvent<HTMLAnchorElement>,
+    via: string,
+    build: (bcc: string) => string,
+  ) {
+    const nonce = clickNonce();
+    e.currentTarget.href = build(withRecordBcc("", nonce));
+    logSend(via, nonce);
+  }
+
+  function logSend(via: string, recordNonce: string | null = null) {
     setSentVia(via);
     // One letter = one logged action, no matter how many delivery buttons the
     // user tries (Gmail → mailto → copy). Without this guard each click would
@@ -161,6 +185,7 @@ export function ComposeModal({
     // public scoreboard. Reset per modal-open (component remounts on open).
     if (loggedRef.current) return;
     loggedRef.current = true;
+    loggedNonceRef.current = recordNonce;
     startTransition(() => {
       // Best-effort — the compose window already opened client-side.
       logOfficialContact({
@@ -168,16 +193,18 @@ export function ComposeModal({
         source,
         subject,
         body: letter,
+        recordNonce: recordNonce ?? undefined,
       }).catch(() => {});
     });
   }
 
   async function copyMessage() {
     try {
-      const text = `${to ? `To: ${to}\n` : ""}Subject: ${subject}\n\n${letter}`;
+      const nonce = clickNonce();
+      const text = `${to ? `To: ${to}\n` : ""}${bccCopyLine(nonce)}Subject: ${subject}\n\n${letter}`;
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      logSend("copy");
+      logSend("copy", nonce);
       setTimeout(() => setCopied(false), 4000);
     } catch {
       setCopied(false);
@@ -313,13 +340,14 @@ export function ComposeModal({
               </div>
             ) : (
               <div className="mt-4">
+                {signedIn && <SendRecordNotice keepCopy={keepCopy} onChange={setKeepCopy} />}
                 <div className="grid gap-2 sm:grid-cols-3">
                   <SendLink
                     href={buildGmailComposeUrl(to, subject, letter)}
                     newTab
                     label="Open in Gmail"
                     sub="Web compose"
-                    onClick={() => logSend("gmail")}
+                    onClick={(e) => openWithRecord(e, "gmail", (bcc) => buildGmailComposeUrl(to, subject, letter, bcc))}
                     done={sentVia === "gmail"}
                   />
                   <SendLink
@@ -327,14 +355,14 @@ export function ComposeModal({
                     newTab
                     label="Open in Outlook"
                     sub="Web compose"
-                    onClick={() => logSend("outlook")}
+                    onClick={(e) => openWithRecord(e, "outlook", (bcc) => buildOutlookComposeUrl(to, subject, letter, bcc))}
                     done={sentVia === "outlook"}
                   />
                   <SendLink
                     href={buildMailtoUrl(to, subject, letter)}
                     label="Default email app"
                     sub="Gmail app / Mail"
-                    onClick={() => logSend("mailto")}
+                    onClick={(e) => openWithRecord(e, "mailto", (bcc) => buildMailtoUrl(to, subject, letter, bcc))}
                     done={sentVia === "mailto"}
                   />
                 </div>
@@ -384,7 +412,7 @@ function SendLink({
   newTab?: boolean;
   label: string;
   sub: string;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   done?: boolean;
 }) {
   return (
