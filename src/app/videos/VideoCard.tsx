@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 
 /**
  * Click-to-play YouTube card. Shows YouTube's own thumbnail until clicked, so a
@@ -49,6 +50,7 @@ export function VideoCard({
           <a href={watch} target="_blank" rel="noopener noreferrer" className={link}>▶ Watch on YouTube</a>
           <a href={watch} target="_blank" rel="noopener noreferrer" className={link} title="Likes count on YouTube itself">👍 Like</a>
           <a href={subscribeHref} target="_blank" rel="noopener noreferrer" className={link}>🔔 Subscribe</a>
+          <ReportButton targetType="community_video" targetId={id} label="⚑ Report" className="px-1 text-[11px] text-zinc-600 hover:text-red-400" />
         </div>
       </div>
     </li>

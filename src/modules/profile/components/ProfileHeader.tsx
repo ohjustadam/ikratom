@@ -3,12 +3,14 @@ import { PowerUserBadge } from "@/components/PowerUserBadge";
 import { AUDIENCE_ICON, AUDIENCE_LABEL } from "../audience";
 import type { ProfileView } from "../view";
 import { PhotoUploadButton } from "./PhotoUploadButton";
+import { BlockButton } from "./BlockButton";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 
 /**
  * Cover band + avatar + @handle + role badges + the viewer's actions.
  * Identity is publicHandle() only — never a real name (standing rule 1).
  */
-export function ProfileHeader({ p, isPowerUser }: { p: ProfileView; isPowerUser: boolean }) {
+export function ProfileHeader({ p, isPowerUser, signedIn }: { p: ProfileView; isPowerUser: boolean; signedIn: boolean }) {
   const handle = publicHandle(p);
   const badges: { label: string; cls: string }[] = [];
   if (p.is_admin) badges.push({ label: "Admin", cls: "bg-emerald-950/40 text-emerald-300" });
@@ -60,7 +62,7 @@ export function ProfileHeader({ p, isPowerUser }: { p: ProfileView; isPowerUser:
               ))}
             </div>
           </div>
-          <HeaderActions p={p} />
+          <HeaderActions p={p} signedIn={signedIn} />
         </div>
         {p.relationship === "self" && p.profile_audience && (
           <p className="mt-3 text-xs text-zinc-500">
@@ -72,7 +74,7 @@ export function ProfileHeader({ p, isPowerUser }: { p: ProfileView; isPowerUser:
   );
 }
 
-function HeaderActions({ p }: { p: ProfileView }) {
+function HeaderActions({ p, signedIn }: { p: ProfileView; signedIn: boolean }) {
   if (p.relationship === "self") {
     return (
       <div className="flex gap-2">
@@ -81,10 +83,19 @@ function HeaderActions({ p }: { p: ProfileView }) {
       </div>
     );
   }
-  if (!p.can_message) return null;
   return (
-    <a href={`/messages/new?to=${p.id}`} className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400">
-      Message
-    </a>
+    <div className="flex flex-wrap items-center gap-3">
+      {p.can_message && (
+        <a href={`/messages/new?to=${p.id}`} className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400">
+          Message
+        </a>
+      )}
+      {signedIn && p.relationship !== "blocked" && (
+        <>
+          <ReportButton targetType="profile" targetId={p.id} />
+          <BlockButton userId={p.id} handle={publicHandle(p)} />
+        </>
+      )}
+    </div>
   );
 }
