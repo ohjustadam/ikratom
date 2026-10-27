@@ -81,6 +81,7 @@ export const CATEGORIES: Category[] = [
       { href: "/news", label: "News", description: "AI-classified kratom news from every state." },
       { href: "/library", label: "Library", description: "Research, white papers, talking points." },
       { href: "/briefings", label: "Briefings", description: "Short reads. Print-friendly PDFs available." },
+      { href: "/search", label: "🔎 Search", description: "Search bills, research, legislators, campaigns, and discussions across the whole site." },
       { href: "/glossary", label: "📖 Glossary", description: "KCPA, 7-OH, scheduling, BoP — every term of art in plain English." },
       { href: "/ethics", label: "🌿 Code of Morals", description: "What iKratom stands for. Choosing peace via cooperation, not war." },
     ],
