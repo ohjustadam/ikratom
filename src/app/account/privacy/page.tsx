@@ -47,7 +47,11 @@ export default async function PrivacyPage() {
         <a href={profileHref({ id: user.id, username: me?.username ?? null })} className="mt-3 inline-block text-sm text-emerald-400 hover:underline">View my profile →</a>
       </header>
 
-      <PrivacySettings initial={audiences} discoverability={typeof s.profile_visibility === "string" ? s.profile_visibility : "public"} />
+      <PrivacySettings
+        initial={audiences}
+        discoverability={typeof s.profile_visibility === "string" ? s.profile_visibility : "public"}
+        wallPosting={s.wall_posting === "only_me" ? "only_me" : "friends"}
+      />
 
       <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 sm:p-5">
         <h2 className="mb-1 text-sm font-semibold">Blocked members</h2>

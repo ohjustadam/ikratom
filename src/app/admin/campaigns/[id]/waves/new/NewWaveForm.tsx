@@ -8,10 +8,13 @@ export function NewWaveForm({
   campaignId,
   campaignSlug,
   campaignTitle,
+  useAdmissions,
 }: {
   campaignId: string;
   campaignSlug: string;
   campaignTitle: string;
+  /** Lines in the letter that say the sender uses kratom now (safe mode rewords them). */
+  useAdmissions: string[];
 }) {
   // Default to 7 days from now at 9am local
   const defaultScheduled = (() => {
@@ -108,6 +111,16 @@ export function NewWaveForm({
           className="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
         />
       </div>
+
+      {useAdmissions.length > 0 && (
+        <p className="rounded-md border border-amber-800/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+          <strong>🛡️ Safe mode:</strong> this letter says the sender uses kratom now (
+          {useAdmissions.map((p) => `“${p}”`).join(", ")}). A wave sends unattended, so for members in a state
+          where kratom is banned, those lines go out in the past tense. If a line can&apos;t be reworded
+          safely, that member&apos;s copy is skipped (shown as <span className="font-mono">safe_mode_use_admission</span>)
+          rather than sent. Rewording the campaign letter before you schedule keeps every copy the same.
+        </p>
+      )}
 
       {error && (
         <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">

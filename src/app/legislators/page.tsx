@@ -27,7 +27,7 @@ export default async function LegislatorsPage({
         "state, congressional_district, state_senate_district, state_house_district, city, county"
       )
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
     if (!state) state = prof?.state ?? undefined;
     if (prof) myReps = await getUserLegislators(supabase, prof);
   }

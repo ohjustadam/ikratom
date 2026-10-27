@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { isDisallowed } from "@/lib/crawl-policy";
+import { advertisableRoutes } from "@/lib/sitemap-routes";
 import fs from "fs";
 import path from "path";
 
@@ -80,6 +81,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.2 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.2 },
   ];
+
+  // Public, cheap-to-crawl routes the route tree has that nobody listed above
+  // (B6 c). Generated: `npm run docs:routes`; eligibility: lib/sitemap-routes.ts.
+  // Hand-set entries above keep their priority; these get a low default.
+  const listed = new Set(STATIC.map((e) => new URL(e.url).pathname));
+  for (const route of advertisableRoutes()) {
+    if (listed.has(route)) continue;
+    STATIC.push({ url: `${base}${route}`, lastModified: now, changeFrequency: "monthly", priority: 0.4 });
+  }
 
   // Dynamic surfaces: pull recent rows from each table. Caps keep
   // sitemap size sane while staying inside Google's 50,000 URL limit

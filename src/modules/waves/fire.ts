@@ -4,7 +4,8 @@
  * For each due wave (active, scheduled_at <= now, not yet fired):
  *   1. Load all 'pending' signups
  *   2. For each signup: load user's profile + Gmail integration + targets
- *   3. Render the campaign template with their info
+ *   3. Render the campaign template with their info (banned-state safe mode
+ *      first: see ./safe-mode.ts)
  *   4. Send via their Gmail OAuth refresh token
  *   5. Mark signup row 'sent' or 'failed' with error
  *   6. Insert campaign_actions row so impact stats reflect it
@@ -31,6 +32,8 @@ import {
 } from "@/lib/email/user-send";
 import { renderTemplate, buildVars } from "@/modules/campaigns/templates";
 import { withLetterFooter } from "@/modules/campaigns/letter-extras";
+import { safeModeOn } from "@/modules/campaigns/safe-mode";
+import { hidesHomeFrom, waveLetter } from "./safe-mode";
 import type { Legislator } from "@/lib/legislators";
 
 const MAX_USERS_PER_TICK = 30; // ≈ 60s budget at 2s/send
@@ -62,6 +65,20 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
     return out;
   }
   if (!waves || waves.length === 0) return out;
+
+  // Banned-state safe mode (0275) needs to know which states ban kratom. A wave
+  // sends with nobody watching, so if this can't be read, nothing fires: the
+  // waves stay due and the next tick tries again, rather than sending a banned-
+  // state member's letter unprotected.
+  const { data: bannedRows, error: bannedErr } = await supabase
+    .from("state_status")
+    .select("state")
+    .eq("admin_leaf_status", "banned");
+  if (bannedErr) {
+    out.errors.push({ wave_id: "(safe-mode)", reason: bannedErr.message });
+    return out;
+  }
+  const bannedStates = new Set((bannedRows ?? []).map((r: { state: string }) => r.state));
 
   let usersThisTick = 0;
 
@@ -148,11 +165,14 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
       usersThisTick++;
       try {
         // User profile + targets
-        const { data: profile } = await supabase
+        const { data: profile, error: profileErr } = await supabase
           .from("profiles")
-          .select("full_name, street, city, state, zip, congressional_district, state_senate_district, state_house_district")
+          .select("full_name, street, city, county, state, zip, congressional_district, state_senate_district, state_house_district, banned_state_safe_mode")
           .eq("id", signup.user_id)
           .single();
+        // Not knowing the member's state means not knowing whether safe mode applies.
+        if (profileErr) throw new Error(`profile_unavailable: ${profileErr.message}`);
+        const safeMode = !!profile?.state && bannedStates.has(profile.state) && safeModeOn(profile.banned_state_safe_mode);
 
         // Provider-agnostic: returns the user's connected gmail OR
         // outlook row, whichever is set. Skips them if they revoked.
@@ -192,15 +212,38 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
           continue;
         }
 
+        // Safe mode: a line admitting current use that can't be reworded stops
+        // this member's copy before anything leaves their mailbox.
+        const letterFor = (target: Legislator) =>
+          waveLetter(
+            { subject: effSubject, body: effBody },
+            {
+              safeMode,
+              hideHome: !!profile && hidesHomeFrom({
+                campaignState: campaign.state,
+                campaignLocality: campaign.target_locality,
+                member: profile,
+                targetState: target.state,
+              }),
+            },
+          );
+        const unsafe = safeMode ? letterFor(sendable[0]) : null;
+        if (unsafe && !unsafe.ok) {
+          await markSignup(supabase, signup.id, "skipped", unsafe.reason);
+          continue;
+        }
+
         // Send to each target
         let userSent = 0;
         let userFailed = 0;
         let lastError: string | null = null;
         for (const target of sendable) {
           try {
+            const letter = letterFor(target);
+            if (!letter.ok) throw new Error(letter.reason);
             const vars = buildVars(profile ?? null, target, sendable);
-            const subject = renderTemplate(effSubject, vars);
-            const body = withLetterFooter(renderTemplate(effBody, vars));
+            const subject = renderTemplate(letter.subject, vars);
+            const body = withLetterFooter(renderTemplate(letter.body, vars));
             await sendOnUserBehalf({
               integration,
               fromName: profile?.full_name ?? null,

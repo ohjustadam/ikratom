@@ -83,7 +83,7 @@ describe("every send path closes with the footer", () => {
   const src = (p: string) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
   it.each([
     ["modules/campaigns/drain-batch.ts", /withLetterFooter\(renderTemplate\(batch\.body_template/],
-    ["modules/waves/fire.ts", /withLetterFooter\(renderTemplate\(effBody/],
+    ["modules/waves/fire.ts", /withLetterFooter\(renderTemplate\(letter\.body/],
     ["modules/campaigns/actions.ts", /withLetterFooter\(renderTemplate\(bodyTemplate/],
     ["modules/campaigns/components/CampaignAction.tsx", /outBody = withLetterFooter\(renderTemplate\(body, groupFill\)\)/],
     ["modules/compose/ComposeModal.tsx", /letter = withLetterFooter\(body\)/],

@@ -7,6 +7,9 @@ import { ProfileIntro } from "@/modules/profile/components/ProfileIntro";
 import { ProfileThreads } from "@/modules/profile/components/ProfileThreads";
 import { ProfileLockedCard } from "@/modules/profile/components/ProfileLockedCard";
 import { ProfilePhotos } from "@/modules/profile/components/ProfilePhotos";
+import { ProfileFriends } from "@/modules/connections/components/ProfileFriends";
+import { ProfileWall } from "@/modules/wall/components/ProfileWall";
+import { publicHandle } from "@/lib/public-handle";
 
 /**
  * /profile/<uuid> or /profile/@handle — a member's profile, as THIS viewer may
@@ -53,6 +56,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
         <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
           <div className="space-y-4">
             <ProfileIntro p={p} />
+            {!!p.friend_count && <ProfileFriends ownerId={p.id} total={p.friend_count} />}
           </div>
           <div className="space-y-6">
             {p.story && (
@@ -61,6 +65,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
                 <p className="whitespace-pre-line text-sm leading-relaxed text-zinc-200">{p.story}</p>
               </section>
             )}
+            <ProfileWall ownerId={p.id} handle={publicHandle(p)} viewerId={user?.id ?? null} />
             <ProfilePhotos ownerId={p.id} isSelf={p.relationship === "self"} signedIn={!!user} />
             {p.activity_visible && <ProfileThreads authorId={p.id} />}
             {p.relationship === "self" && !p.bio && !p.story && (

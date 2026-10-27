@@ -248,6 +248,8 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 
 **Why:** field report from a Louisiana member: writing hard for kratom while signing from a banned state felt unsafe, so they switched their profile to Mississippi, which made their letters to other states claim the wrong home. The state itself is not the exposure (petitioning is protected speech, and the street address was already removed on 2026-07-09); a signed, present-tense statement of using a Schedule I substance is. Our own preset example read "As a {{state}} resident who relies on kratom".
 
+**Waves (2026-10-27):** `fireDueWaves` sends with nobody watching, so it applies the same two rules itself (`src/modules/waves/safe-mode.ts`): out-of-state officials get no home, and current-use lines are put in the past tense. A line `rewordUseAdmissions` can't fix (for example "my daily kratom use") **stops that member's copy** (`skipped`, `safe_mode_use_admission`) instead of warning, because there is no member to decide at fire time. If `state_status` can't be read, nothing fires that tick. The admin wave form and the join panel say so.
+
 **Don't** hide city/state on letters to the member's own legislators: staff discard mail they can't tie to a district, and those legislators are the only ones who can lift the ban. **Don't** turn the warning into a block; the member decides what they sign.
 
 ## State-news pushes: one per story, one per state per day (2026-10-23)
@@ -255,3 +257,10 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 **Decision:** `scripts/push-state-news.mjs` skips an item that is the same story (`scripts/lib/story-dedupe.mjs`, shared with the email digest) as one the state was pushed in the last 72h, caps each state at one news push per 20h, and skips headlines that name other states but not this one. Skipped items are stamped `auto_pushed_count = 0` and still reach the digest and /news.
 
 **Why:** each outlet was its own push. Louisiana got 6 pushes about the Ole Miss deaths on 2026-09-23; a member read the stream as the same news on repeat. Replaying the 45 days to 2026-10-23: 47 pushes would have been 29.
+
+## Send record: which compose paths BCC the copy (2026-10-27)
+
+**Decision:** every path that opens the member's own mail program BCCs `r-<nonce>@ikratom.org` (B9, migration 0276) behind the visible notice and opt-out: `CampaignAction`, `ComposeModal`, `GroupComposeModal` and the alerts `DraftResponsePanel`. The nonce is minted at click time and stored on the logged `campaign_actions` row (`record_nonce`).
+- **One row, one nonce.** The two modals log a single row per letter, so later clicks reuse its nonce (`nonceForClick`); a fresh one would BCC an address no row holds and the ingest drops it. `DraftResponsePanel` logs every click, so each click mints its own.
+- **No BCC where it can't work:** the contact-form/website flow (a web form has no BCC), a signed-out visitor (no logged click to match), and `DraftResponsePanel`'s Copy (mostly pasted into an agency portal).
+- Every letter still goes through the uniform composer and ends with the "Sent via iKratom" footer.
