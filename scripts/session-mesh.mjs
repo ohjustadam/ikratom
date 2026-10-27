@@ -212,10 +212,16 @@ function runHook(name) {
       } catch { return; }
     }
     if (ev.kind === "merged" && !process.env.SESSION_MESH_OFFLINE) {
+      // `gh pr merge` on a strict branch, with checks pending or auto-merge armed,
+      // exits without merging. Journal "merged" only when GitHub says MERGED:
+      // on 2026-10-27 three PRs were journaled merged that were still open, and the
+      // trunk repeated it to the owner.
       try {
-        const title = execFileSync("gh", ["pr", "view", String(ev.ref), "--json", "title", "-q", ".title"], { cwd, encoding: "utf8", timeout: 8000 }).trim();
-        if (title) ev.text = `PR #${ev.ref} merged — ${title}`;
-      } catch { /* number alone is still news */ }
+        const [prState, ...t] = execFileSync("gh", ["pr", "view", String(ev.ref), "--json", "state,title", "-q", '.state + "\\t" + .title'], { cwd, encoding: "utf8", timeout: 8000 }).trim().split("\t");
+        const title = t.join("\t");
+        if (prState === "MERGED") ev.text = `PR #${ev.ref} merged — ${title}`;
+        else { ev.kind = "merging"; ev.text = `merge requested for PR #${ev.ref}, still ${prState || "unknown"} (NOT merged) — ${title}`; }
+      } catch { ev.kind = "merging"; ev.text = `merge requested for PR #${ev.ref} (state unverified)`; }
     }
     withLock(dir, () => {
       const state = loadState(dir);
