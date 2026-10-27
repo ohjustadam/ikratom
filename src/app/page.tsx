@@ -31,8 +31,7 @@ export const dynamic = "force-dynamic";
  *   5. Soft close (B). "We don't need a million people. We need the
  *      right ones — paying attention." Free, nonpartisan, no org politics.
  *
- * Other home variants (/home-a war-room, /home-b recruitment, /home-c
- * action-first) remain accessible for A/B comparison and as design refs.
+ * The unused /home-a, /home-b and /home-c drafts were deleted (B6 a).
  */
 /**
  * All the public landing-page data, snapshotted across visitors (5-min

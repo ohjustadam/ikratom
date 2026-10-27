@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { CategoryLanding } from "@/components/CategoryLanding";
 import { categoryBySlug } from "@/config/nav-categories";
 
@@ -8,5 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default function CommunityPage() {
-  return <CategoryLanding category={categoryBySlug("community")!} />;
+  const category = categoryBySlug("community");
+  if (!category) notFound();
+  return <CategoryLanding category={category} />;
 }
