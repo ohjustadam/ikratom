@@ -21,6 +21,7 @@ export function EmailOfficialButton({
   variant = "chip",
   label,
   className,
+  template,
 }: {
   official: ComposeOfficial;
   context?: ComposeContext;
@@ -30,6 +31,8 @@ export function EmailOfficialButton({
   /** Override the visible label (default: '✉ Email' / '🌐 Contact form') */
   label?: string;
   className?: string;
+  /** A group's pinned template to start from (ComposeModal fills it in). */
+  template?: { subject: string; body: string } | null;
 }) {
   const [open, setOpen] = useState(false);
   // Only a real inbox or a safe http(s) website/form is a usable channel.
@@ -59,6 +62,7 @@ export function EmailOfficialButton({
           official={official}
           context={context}
           source={source}
+          template={template}
         />
       )}
     </>

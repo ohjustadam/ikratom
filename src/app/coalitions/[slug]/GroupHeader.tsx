@@ -1,5 +1,6 @@
 import Link from "@/components/Link";
 import { coverClass, handleInitial } from "@/modules/coalitions/covers";
+import type { GroupBadge } from "@/modules/coalitions/home";
 import { InviteButton } from "./GroupHomeClient";
 
 /**
@@ -8,15 +9,16 @@ import { InviteButton } from "./GroupHomeClient";
  * (@handle initials only), and the one-tap Invite. Then the tab bar.
  */
 
-export type GroupTab = "home" | "events" | "members" | "about";
+export type GroupTab = "home" | "chat" | "events" | "members" | "about";
 const TABS: { key: GroupTab; label: string }[] = [
   { key: "home", label: "Home" },
+  { key: "chat", label: "💬 Chat" },
   { key: "events", label: "Events" },
   { key: "members", label: "Members" },
   { key: "about", label: "About" },
 ];
 
-export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTabs, link }: {
+export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTabs, link, badge = null }: {
   group: { id: string; slug: string; name: string; state: string | null; is_public: boolean; cover_theme: string | null };
   memberCount: number | null;
   faces: { handle: string; avatarUrl: string | null }[];
@@ -24,6 +26,8 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
   tab: GroupTab;
   showTabs: boolean;
   link: { url: string | null; error: string | null };
+  /** The group badge (B4 g), from the letters the group has sent; null below the first tier. */
+  badge?: GroupBadge | null;
 }) {
   const isOrganizer = viewerRole === "owner" || viewerRole === "admin";
   return (
@@ -41,6 +45,12 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
           {group.is_public ? "🌐 Public group" : "🔒 Private group"}
           {memberCount !== null && <> · <strong className="text-zinc-200">{memberCount}</strong> member{memberCount === 1 ? "" : "s"}</>}
           {group.state && <> · {group.state}</>}
+          {badge && (
+            <span title={badge.next ? `Next: ${badge.next.name} at ${badge.next.at} letters` : "The top badge"}
+              className="ml-2 rounded bg-emerald-950/60 px-1.5 py-0.5 text-[11px] text-emerald-200">
+              {badge.icon} {badge.name}
+            </span>
+          )}
           {viewerRole && viewerRole !== "member" && (
             <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] uppercase ${viewerRole === "owner" ? "bg-amber-500 text-zinc-950" : "bg-emerald-700 text-zinc-100"}`}>
               {viewerRole === "owner" ? "Organizer" : "Admin"}
@@ -83,7 +93,7 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
           <ul className="flex gap-1 overflow-x-auto">
             {TABS.map((t) => (
               <li key={t.key}>
-                <Link href={t.key === "home" ? `/coalitions/${group.slug}` : `/coalitions/${group.slug}?tab=${t.key}`}
+                <Link href={tabHref(group.slug, t.key)}
                   aria-current={tab === t.key ? "page" : undefined}
                   className={`flex min-h-11 items-center whitespace-nowrap border-b-2 px-3 text-sm font-semibold ${
                     tab === t.key ? "border-emerald-400 text-emerald-300" : "border-transparent text-zinc-400 hover:text-zinc-200"}`}>
@@ -96,4 +106,11 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
       )}
     </header>
   );
+}
+
+/** Chat is its own page (a full-height room on a phone); the rest are tabs of the group home. */
+function tabHref(slug: string, key: GroupTab): string {
+  if (key === "home") return `/coalitions/${slug}`;
+  if (key === "chat") return `/coalitions/${slug}/chat`;
+  return `/coalitions/${slug}?tab=${key}`;
 }

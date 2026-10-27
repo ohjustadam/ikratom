@@ -150,6 +150,16 @@ export function fillTemplate(text: string, values: Record<string, string | null 
     .trim();
 }
 
+/**
+ * A group's own template (migration 0293): fill what we know about the sender
+ * and the official, collapse an empty optional line, and leave a visible ___
+ * for anything else, so the member sees what to fill in before sending.
+ */
+export function fillGroupTemplate(text: string, values: Record<string, string | null | undefined>): string {
+  const marked = text.replace(RX, (m, k: string) => (values[k] ?? "").trim() || (PLACEHOLDER_PROMPTS[k]?.optional ? m : "___"));
+  return fillTemplate(marked, values);
+}
+
 export function templatesFor(kind: "local" | "bill" | "legislator"): LetterTemplate[] {
   return LETTER_TEMPLATES.filter((t) => t.for.includes(kind));
 }
