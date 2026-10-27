@@ -28,7 +28,7 @@ export default async function CommunitiesPage() {
       .from("profiles")
       .select("is_admin, is_owner")
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
     isAdmin = !!(prof?.is_admin || prof?.is_owner);
   }
 

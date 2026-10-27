@@ -68,7 +68,7 @@ export default async function CallsPage() {
     .from("profiles")
     .select("state, state_senate_district, state_house_district, congressional_district, full_name")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   // Their own reps (top 4 = state senate, state house, US senate × 2 in their state)
   const myReps = profile
