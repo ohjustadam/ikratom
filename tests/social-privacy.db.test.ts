@@ -22,6 +22,7 @@ const SUITES = [
   { file: "tests/sql/social-photos.sql", marker: "SOCIAL_PHOTOS", what: "photos, avatars and photo reports" },
   { file: "tests/sql/social-connections.sql", marker: "SOCIAL_CONNECTIONS", what: "connections and friend lists" },
   { file: "tests/sql/social-reports.sql", marker: "SOCIAL_REPORTS", what: "the generic report system" },
+  { file: "tests/sql/social-wall.sql", marker: "SOCIAL_WALL", what: "the profile wall, its comments and photos" },
 ];
 
 describe.skipIf(!TOKEN || !REF)("social privacy levels (live DB, rolled back)", () => {

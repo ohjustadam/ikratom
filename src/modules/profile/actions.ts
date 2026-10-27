@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { validateProfileInput, type ProfileInput } from "./validate";
-import { SECTION_AUDIENCES, isAudience, type Audience, type SectionAudienceKey } from "./audience";
+import { SECTION_AUDIENCES, isAudience, isWallPosting, type Audience, type SectionAudienceKey } from "./audience";
 
 const DISCOVERABILITY = ["public", "recruiters_only", "private"] as const;
 
@@ -56,11 +56,13 @@ export async function saveProfileSocial(input: ProfileInput): Promise<{ ok: true
 export async function savePrivacySettings(input: {
   audiences: Partial<Record<SectionAudienceKey, string>>;
   discoverability: string;
+  wallPosting: string;
 }): Promise<{ ok: true } | { error: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in first." };
   if (!DISCOVERABILITY.includes(input.discoverability as (typeof DISCOVERABILITY)[number])) return { error: "Invalid choice." };
+  if (!isWallPosting(input.wallPosting)) return { error: "Invalid choice." };
   const audiences: Partial<Record<SectionAudienceKey, Audience>> = {};
   for (const { key } of SECTION_AUDIENCES) {
     const v = input.audiences[key];
@@ -72,7 +74,7 @@ export async function savePrivacySettings(input: {
   }
 
   const { error } = await supabase.from("profile_social").upsert(
-    { user_id: user.id, ...audiences, updated_at: new Date().toISOString() },
+    { user_id: user.id, ...audiences, wall_posting: input.wallPosting, updated_at: new Date().toISOString() },
     { onConflict: "user_id" },
   );
   if (error) return { error: "Could not save your privacy settings." };

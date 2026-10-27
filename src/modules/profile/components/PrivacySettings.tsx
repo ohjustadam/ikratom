@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { savePrivacySettings } from "../actions";
-import { SECTION_AUDIENCES, type Audience, type SectionAudienceKey } from "../audience";
+import { SECTION_AUDIENCES, WALL_POSTING, type Audience, type SectionAudienceKey } from "../audience";
 import { VIEWERS, previewFor } from "../privacy-preview";
 import { PrivacyTable } from "./PrivacyTable";
 
@@ -13,15 +13,28 @@ const DISCOVERABILITY = [
 ] as const;
 
 /** /account/privacy — every audience, discoverability, and a live preview. */
-export function PrivacySettings({ initial, discoverability }: { initial: Record<SectionAudienceKey, Audience>; discoverability: string }) {
+export function PrivacySettings({ initial, discoverability, wallPosting }: {
+  initial: Record<SectionAudienceKey, Audience>;
+  discoverability: string;
+  wallPosting: string;
+}) {
   const [aud, setAud] = useState(initial);
   const [disc, setDisc] = useState(discoverability);
+  const [wall, setWall] = useState(wallPosting);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, start] = useTransition();
 
   return (
     <div className="space-y-6">
       <PrivacyTable value={aud} onChange={(k, v) => setAud((a) => ({ ...a, [k]: v }))} />
+
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 sm:p-5">
+        <label htmlFor="wall-posting" className="text-sm font-semibold">Who can post on your wall</label>
+        <select id="wall-posting" value={wall} onChange={(e) => setWall(e.target.value)}
+          className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm">
+          {WALL_POSTING.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+      </section>
 
       <section className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 sm:p-5">
         <h2 className="text-sm font-semibold">Being found</h2>
@@ -67,7 +80,7 @@ export function PrivacySettings({ initial, discoverability }: { initial: Record<
       <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center gap-3 border-t border-zinc-800 bg-zinc-950/95 px-4 py-3 sm:mx-0 sm:rounded-lg sm:border">
         <button type="button" disabled={pending}
           onClick={() => { setMsg(null); start(async () => {
-            const r = await savePrivacySettings({ audiences: aud, discoverability: disc });
+            const r = await savePrivacySettings({ audiences: aud, discoverability: disc, wallPosting: wall });
             setMsg("error" in r ? { ok: false, text: r.error } : { ok: true, text: "Saved." });
           }); }}
           className="rounded-md bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50">

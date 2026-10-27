@@ -8,7 +8,7 @@ import { MAX_UPLOAD_BYTES, storeMemberPhoto, type PhotoKind } from "@/modules/pr
 
 export const dynamic = "force-dynamic";
 
-const KINDS = new Set<PhotoKind>(["avatar", "cover", "album"]);
+const KINDS = new Set<PhotoKind>(["avatar", "cover", "album", "wall"]);
 
 /**
  * POST /api/media/upload (multipart: file, kind, caption?, audience?).

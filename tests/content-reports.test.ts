@@ -9,20 +9,30 @@ import { REPORT_REASONS, REPORT_TARGETS, isReportReason, isReportTarget, isTarge
  * refuses. And no surface may grow a private report table again.
  */
 const sql = readFileSync("supabase/migrations/0288_content_reports.sql", "utf8");
-const listIn = (constraint: string) => {
-  const m = new RegExp(`${constraint} check \\([a-z_]+ in \\(([^)]*)\\)`, "s").exec(sql);
+// Later migrations extend the vocabulary by re-creating the constraint and the
+// RPC, so compare against the LATEST migration that defines each one.
+const migrations = readdirSync("supabase/migrations").filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
+const latest = (needle: string) => {
+  const f = [...migrations].reverse().find((m) => readFileSync(join("supabase/migrations", m), "utf8").includes(needle));
+  return readFileSync(join("supabase/migrations", f ?? "0288_content_reports.sql"), "utf8");
+};
+const typeSql = latest("content_reports_type_chk check");
+const rpcSql = latest("function public.report_content(");
+const listIn = (constraint: string, src = sql) => {
+  const m = new RegExp(`${constraint} check \\([a-z_]+ in \\(([^)]*)\\)`, "s").exec(src);
   return (m?.[1].match(/'([a-z_]+)'/g) ?? []).map((s) => s.slice(1, -1));
 };
 
 describe("content_reports vocabulary", () => {
   it("targets match the check constraint", () => {
-    expect([...REPORT_TARGETS].sort()).toEqual(listIn("content_reports_type_chk").sort());
+    expect([...REPORT_TARGETS].sort()).toEqual(listIn("content_reports_type_chk", typeSql).sort());
+    expect(listIn("content_reports_type_chk", typeSql)).toContain("wall_post"); // non-vacuous: found the newer one
   });
   it("reasons match the check constraint", () => {
     expect(REPORT_REASONS.map((r) => r.id).sort()).toEqual(listIn("content_reports_reason_chk").sort());
   });
   it("every target is handled by report_content", () => {
-    for (const t of REPORT_TARGETS) expect(sql).toContain(`p_type = '${t}'`);
+    for (const t of REPORT_TARGETS) expect(rpcSql).toContain(`p_type = '${t}'`);
   });
   it("validates inputs like the RPC does", () => {
     expect(isReportTarget("profile")).toBe(true);

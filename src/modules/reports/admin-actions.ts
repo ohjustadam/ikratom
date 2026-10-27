@@ -9,7 +9,8 @@ import { isReportTarget, isTargetId } from "./types";
 /**
  * Close every open report on one target (/admin/moderation/reports).
  *   dismissed — nothing wrong
- *   actioned  — the moderator dealt with it (in that surface's own tool)
+ *   actioned  — the moderator dealt with it (in that surface's own tool;
+ *               for wall posts and comments, this removes the item)
  * Member photos are resolved on /admin/moderation/photos instead, because
  * there the decision also restores or removes the photo itself.
  */
@@ -32,6 +33,14 @@ export async function resolveContentReports(
     .eq("status", "open")
     .select("id, target_owner_id");
   if (error) return { error: "Could not update the reports." };
+
+  // Wall posts and comments are acted on right here: "handled" removes the
+  // item for good; "dismissed" restores one that 3 reports had auto-hidden.
+  const wallTable = targetType === "wall_post" ? "wall_posts" : targetType === "wall_comment" ? "wall_comments" : null;
+  if (wallTable) {
+    const q = svc.from(wallTable).update({ status: decision === "actioned" ? "removed" : "active" }).eq("id", targetId);
+    await (decision === "actioned" ? q.neq("status", "removed") : q.eq("status", "hidden"));
+  }
 
   await recordAdminAction({
     action: `content_report_${decision}`,
