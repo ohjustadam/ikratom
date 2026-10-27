@@ -10,6 +10,7 @@ import { Events } from "./Events";
 import { GroupAction, JoinRequests } from "./GroupGrowth";
 import { GroupLinkCard, RequestToJoin } from "./GroupGrowthClient";
 import { GroupHeader, type GroupTab } from "./GroupHeader";
+import { Coverage } from "./Coverage";
 import { Leaderboard } from "./Leaderboard";
 import { Members, type MemberView } from "./Members";
 import { Resources } from "./Resources";
@@ -163,6 +164,11 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
         <>
           {invite}
           <Members members={members} />
+          {user && (
+            <Coverage coalitionId={c.id} slug={c.slug} state={c.state} isOrganizer={isOrganizer} userId={user.id}
+              chamber={typeof sp.chamber === "string" ? sp.chamber : undefined}
+              members={members.map((m) => ({ user_id: m.user_id, handle: m.handle }))} />
+          )}
           {user && <Leaderboard coalitionId={c.id} slug={c.slug} userId={user.id} lettersTotal={wins?.letters_total ?? 0} />}
           <TeamActivity coalitionId={c.id} />
         </>

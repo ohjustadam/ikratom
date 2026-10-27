@@ -22,6 +22,7 @@ const SUITES = [
   { file: "tests/sql/coalition-chat.sql", marker: "COALITION_CHAT", what: "group chat" },
   { file: "tests/sql/coalition-resources.sql", marker: "COALITION_RESOURCES", what: "pinned resources and templates" },
   { file: "tests/sql/coalition-leaderboard.sql", marker: "COALITION_LEADERBOARD", what: "the opt-in leaderboard" },
+  { file: "tests/sql/coalition-captains.sql", marker: "COALITION_CAPTAINS", what: "district captains and the coverage map" },
 ];
 
 describe.skipIf(!TOKEN || !REF)("group features (live DB, rolled back)", () => {
