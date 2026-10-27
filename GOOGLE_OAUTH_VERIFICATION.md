@@ -18,27 +18,25 @@ Make sure these are live and stable:
 | ✅ Terms of Service | `https://<yourdomain>/terms` | Shipped |
 | ✅ Homepage that explains the app | `https://<yourdomain>/` | Shipped |
 | ✅ App logo (120x120) | Auto-generated at `/icon` (we can also export a PNG manually) | Shipped |
-| ⚠ Verified production domain | Need real `ikratom.com` (or whichever) — `vercel.app` subdomains are not eligible for verification | **Need real domain** |
-| ⚠ Domain ownership verified in Google Search Console | One DNS TXT record | Pending |
+| ✅ Production domain | `www.ikratom.org` (hosted on Netlify behind Cloudflare). Shared-host subdomains such as `*.netlify.app` are not eligible for verification, and none is used | Live |
+| ⚠ Domain ownership verified in Google Search Console | One DNS TXT record, added in Cloudflare DNS | Check it before submitting |
 
-**Critical:** Google won't verify an OAuth client that uses a `*.vercel.app` URL. You **must** have a real custom domain pointing at the app + ownership verified before submitting.
+**Critical:** Google won't verify an OAuth client that uses a shared-host URL (`*.netlify.app`, `*.vercel.app`). The client must use the custom domain, with ownership verified in Search Console, before you submit.
+
+**Status (2026-10-24):** the client is still in **Testing** mode and has not been submitted for verification. Until it is, only the 100 listed test users (a lifetime cap) can connect Gmail, and each sees an "unverified app" warning. Outlook, Yahoo, AOL and iCloud sending do not need this review.
 
 ---
 
-## Step 1 — Get a real domain (if not already)
+## Step 1 — The domain (already done)
 
-1. Buy a domain (Cloudflare Registrar = cheapest, no markup): `ikratom.com`, `ikratom.org`, `ikratom.org`, etc.
-2. In Vercel: project → **Settings → Domains** → add the domain → Vercel gives you DNS records to set
-3. Set them at your registrar
-4. Wait ~10 min for propagation
-5. Confirm `https://ikratom.com` (or whatever) loads the app
+The production domain is `ikratom.org` (canonical host `www.ikratom.org`), with DNS on Cloudflare in front of the Netlify site. Nothing to buy or point. Just confirm `https://www.ikratom.org` loads the app, `/privacy` and `/terms` load, and the domain is the one on the OAuth client's authorized redirect URIs (`https://www.ikratom.org/api/oauth/google/callback`).
 
 ---
 
 ## Step 2 — Verify domain ownership at Google
 
 1. Open **[Google Search Console](https://search.google.com/search-console)**
-2. Click **Add property** → **URL prefix** → enter `https://ikratom.com`
+2. Click **Add property** → **URL prefix** → enter `https://www.ikratom.org`
 3. Google gives you a TXT record like `google-site-verification=abc123...`
 4. Add the TXT record at your DNS provider (Cloudflare/etc.)
 5. Click **Verify** in Search Console → confirms within ~1 min
@@ -47,24 +45,24 @@ Make sure these are live and stable:
 
 ## Step 3 — Fill out the OAuth consent screen
 
-Open **[OAuth consent screen settings](https://console.cloud.google.com/apis/credentials/consent)** for your iKratom project.
+Open **[Google Auth Platform → Branding and Verification Center](https://console.cloud.google.com/auth/verification)** for your iKratom project. (Google moved the old "OAuth consent screen" page here; the fields below are the same, split across Branding, Audience and Data Access.)
 
 ### App information
 | Field | Value |
 |---|---|
 | App name | `iKratom` |
 | User support email | your verified email (the one tied to your Google Cloud account) |
-| App logo | Upload a 120x120 PNG. **Tip:** open `https://ikratom.com/icon` in a browser, save as PNG, scale to 120x120 |
+| App logo | Upload a 120x120 PNG. **Tip:** open `https://www.ikratom.org/icon` in a browser, save as PNG, scale to 120x120 |
 
 ### App domain
 | Field | Value |
 |---|---|
-| Application home page | `https://ikratom.com` |
-| Application privacy policy link | `https://ikratom.com/privacy` |
-| Application terms of service link | `https://ikratom.com/terms` |
+| Application home page | `https://www.ikratom.org` |
+| Application privacy policy link | `https://www.ikratom.org/privacy` |
+| Application terms of service link | `https://www.ikratom.org/terms` |
 
 ### Authorized domains
-Add: `ikratom.com` (or whatever your real domain is). **Without `https://` and without paths.**
+Add: `ikratom.org`. **Without `https://` and without paths.**
 
 ### Developer contact information
 Your email.
@@ -118,7 +116,7 @@ A 2–4 minute screen recording showing:
 
 > "Hi, this is the iKratom verification demo. iKratom is a nonpartisan platform for the kratom advocacy community — it helps users send personalized emails to their elected legislators in one click. I'll show how we use the gmail.send scope.
 >
-> Here's the homepage at ikratom.com. I'll sign in to an account I've set up.
+> Here's the homepage at www.ikratom.org. I'll sign in to an account I've set up.
 >
 > On the Account page, the user clicks Connect Gmail. They see Google's consent screen — only the gmail.send scope is requested, nothing else. After granting, they're returned to iKratom showing the email connected.
 >

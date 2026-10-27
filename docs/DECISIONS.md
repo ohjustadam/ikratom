@@ -44,6 +44,8 @@ News-spawned campaigns were pasting raw `news.google.com` redirect URLs into leg
 
 ## Use `mailto:` not Resend for legislator emails (v1)
 
+> **Superseded 2026-10-23 (owner).** Members now send letters from their OWN mailbox: one-click through a connected Gmail or Outlook account, or an app password for Yahoo, AOL and iCloud (`src/lib/email/user-send.ts`), or a `mailto:` link. Platform mail (signup, resets, notices) runs on the free tiers of Resend and Brevo. The reasoning below still holds for one thing: the platform never sends letters from its own domain, so letter volume never touches a platform mail quota.
+
 **Why:** Resend is paid past 100/day. With 1,000 advocates × 2 actions/week = 8,000+/month, we'd be paying. mailto: opens the user's mail client — they hit send themselves. Slightly worse UX, but $0 + works without any sender-domain setup + the recipient sees a real human's address.
 
 **Watch:** if conversion-on-send drops below 50%, revisit (could mean the mail-client friction is killing actions).
@@ -52,7 +54,9 @@ News-spawned campaigns were pasting raw `news.google.com` redirect URLs into leg
 
 ## `proxy.ts` not `middleware.ts`
 
-Next.js 16 renamed middleware to proxy. Same purpose. AI training data still calls it middleware — don't be confused, the new file is `src/proxy.ts`.
+Next.js 16 renamed middleware to proxy. Same purpose. AI training data still calls it middleware — don't be confused, the new file was `src/proxy.ts`.
+
+**Update 2026-07-26:** the proxy is disabled. It was renamed `src/proxy.disabled.ts` because Netlify's adapter cannot bundle Next 16 middleware. Don't restore it without proving a Netlify build; see `STATE_OF_PLAY.md` for what it used to do and where each job went.
 
 ---
 
@@ -71,7 +75,7 @@ Don't try to upgrade or refactor without testing the import. v1 had `pdf(buffer)
 
 ## `FED` as a state code for federal
 
-Reserved value for the `state` column on bills, campaigns, threads. Cleaner than a separate `is_federal` boolean (which would require all queries to filter both). The `STATE_RE` regex in `proxy.ts` allows `^([A-Z]{2}|FED)$`.
+Reserved value for the `state` column on bills, campaigns, threads. Cleaner than a separate `is_federal` boolean (which would require all queries to filter both). The state-code regex (`STATE_RE`, allowing `^([A-Z]{2}|FED)$`) was first written in `proxy.ts`; the proxy is disabled now, and the live copies are in the modules and routes that validate input (e.g. `src/app/api/attribution/route.ts`, `src/modules/admin/entity-edit.ts`).
 
 ---
 
@@ -80,6 +84,8 @@ Reserved value for the `state` column on bills, campaigns, threads. Cleaner than
 Vercel Hobby plan only allows daily crons. Our `fire-waves` job needs to run hourly (so users wait ≤1h after their wave's scheduled time). Solution: hourly cron lives in `.github/workflows/cron-hourly.yml`, hits `/api/cron/fire-waves` with bearer auth. Free, reliable enough (~5 min skew during high GH load is fine).
 
 **Don't** try to add another sub-daily cron to `vercel.json` — the deploy will fail. Add to the GitHub Actions workflow instead.
+
+**Update 2026-10:** the site moved to Netlify on 2026-07-26 (Vercel is a paused cold spare, `vercel.json` `crons` is `[]`), and the rule got stronger: ALL scheduled work is GitHub Actions. `fire-waves` runs every 2 hours from `cron-hourly.yml`, and Supabase `pg_cron` starts the workflows on time (migration 0263) because GitHub's own scheduler dropped most runs.
 
 ---
 
@@ -119,11 +125,13 @@ Vercel WAF is a paid feature. Our free substitute: a regex of declared AI crawle
 
 **Limit:** doesn't stop bots that lie about UA. For real defense we'd need rate-limit-per-IP (we have it for some endpoints) or paid WAF. Acceptable for v1.
 
+**Superseded 2026-07-26:** the proxy is disabled, so there is no UA blocklist in the app any more. Bot blocking is Cloudflare Bot Fight Mode plus anonymous page caching, and `robots.txt` carries the cost-control crawl blocks (see the 2026-09-17 entry below). Bot Fight Mode also challenges GitHub-runner `curl`s, so a scheduled job that calls the site needs a WAF skip rule or an origin-direct URL.
+
 ---
 
 ## VAPID keys: rotated once, currently in plain `.env.local`
 
-The first VAPID keypair was leaked in chat (regenerated). Current keypair only lives in `.env.local` (gitignored) + Vercel env. **Don't ever paste these in chat or commit them.** Rotate again if exposure suspected.
+The first VAPID keypair was leaked in chat (regenerated). Current keypair only lives in `.env.local` (gitignored) + the Netlify environment variables. **Don't ever paste these in chat or commit them.** Rotate again if exposure suspected.
 
 Web Push uses asymmetric crypto: leaking the *public* key is fine (browsers expose it anyway). Leaking the *private* key means anyone could push to subscribed devices.
 
@@ -172,7 +180,7 @@ Treat AGENTS.md as the cold-start brief. Treat this DECISIONS.md as "what we alr
 
 ## AI provider routing (toolkit)
 
-See `docs/AI_TOOLKIT.md`. Short version: Claude for novel work, Gemini for grounded research, Ollama for bulk + privacy, Groq for fast bulk fallback. Don't burn Claude (paid seat) on tasks Ollama can do for free.
+See `docs/AI_TOOLKIT.md` (the "Layered priority scale"). Short version, 2026-10: deterministic code and data first, then local Ollama for privacy-sensitive work, then the free cloud pool (Groq first; see `docs/AI_PROVIDERS.md` for which keys work), then fetch-the-page-and-read for fresh facts. Claude is the scarce last layer for judgment and verification, never bulk. The platform itself never calls a paid AI API; the router disables `claude`.
 
 ---
 
@@ -221,7 +229,7 @@ Campaign de-duplication is enforced in three places that **do not share a key fo
 
 ## Cost-control crawl blocks are re-armed past the unattended window, not just to the next reset (2026-09-17)
 
-**Decision:** `COST_CONTROL_EXPIRES_AT` in `src/app/robots.ts` is set to **2026-11-16**, beyond the owner's 60-day-untouched requirement, rather than to the next egress reset. `tests/robots-cost-control.test.ts` now goes red **two weeks before** that date instead of only after it passes.
+**Decision:** `COST_CONTROL_EXPIRES_AT` is set past the owner's 60-day-untouched requirement, rather than to the next egress reset. It was set to 2026-11-16 on 2026-09-17; it now lives in `src/lib/crawl-policy.ts` and reads **2027-01-16** (a billing-cycle boundary). `tests/robots-cost-control.test.ts` goes red **two weeks before** that date instead of only after it passes.
 
 **Why:** the 09-08 plan was two halves — block the ~28 high-cardinality dynamic route families now, and make them CDN-cacheable so the block could be deleted for good. Only the first half was automated. The expiry fired at 2026-09-16T00:00Z, the hourly `revalidate` put the permissive robots.txt live with no deploy exactly as designed, the caching work had never shipped, and within ~36 hours egress was running ~189 MB/day against a sustainable 167 — projecting a breach on ~2026-10-11, five days before the 10-16 reset. The prior cycle with these paths open peaked at 96.3%; the one before it breached and restricted the project (2026-07-16).
 

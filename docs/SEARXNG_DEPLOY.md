@@ -40,14 +40,19 @@ curl "http://localhost:8080/search?q=tulsa+oklahoma+city+council&format=json"
 ## 2. Ollama (local LLM extractor)
 
 Already on the owner box. Defaults to `http://localhost:11434`. Pull a model
-the extractor can use (70B if the box has the RAM, else an 8B is fine):
+the extractor can use. `scripts/lib/ai-router.mjs` `callOllama()` defaults to
+`llama3.3:70b`, which no longer fits in RAM beside Docker on the owner's PC (it
+fails fast and the router falls through to the cloud pool). On a box with less
+memory, pull an 8B and point the router at it:
 
 ```powershell
-ollama pull llama3.3:70b   # used by scripts/lib/ai-router.mjs callOllama()
+ollama pull llama3.1:8b
+# then, in .env.local:  OLLAMA_ROUTER_MODEL=llama3.1:8b
 ```
 
 If Ollama is down, the extractor falls back through the free-tier cloud
-providers already configured (`GROQ_API_KEY`, `CEREBRAS_API_KEY`) — still no
+providers already configured (`GROQ_API_KEY`, `MISTRAL_API_KEY`,
+`NVIDIA_API_KEY` and the rest of the pool in `docs/AI_PROVIDERS.md`) — still no
 Gemini grounding, still keyless search.
 
 ## 3. Point the batch at it
@@ -73,7 +78,7 @@ node --env-file=.env.local scripts/seed-bill-officials.mjs --all-municipal
 |---|---|---|
 | **Owner box / self-hosted GH runner** | ✅ yes | Legistar **+** SearXNG/Ollama long tail |
 | **GitHub-hosted cloud cron** (`ubuntu-latest`) | ❌ no | Legistar only; long tail **queued** |
-| **Vercel (live admin button / reverify)** | ❌ no | Legistar only; rest queued for batch |
+| **Netlify (live admin button / reverify)** | ❌ no | Legistar only; rest queued for batch |
 
 So the cloud crons do the deterministic Legistar coverage (a big share) and
 leave the rest queued; run the batch scripts where SearXNG/Ollama are reachable

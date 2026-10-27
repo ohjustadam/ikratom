@@ -10,7 +10,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
  * Resolve a reported member photo (/admin/moderation/photos).
- *   restore — the reports were wrong: clear them and make the photo visible again
+ *   restore — the reports were wrong: dismiss them and make the photo visible again
  *   remove  — delete the row and the R2 object (the audit log keeps the record)
  */
 export async function resolvePhotoReport(photoId: string, decision: "restore" | "remove"): Promise<{ ok: true } | { error: string }> {
@@ -23,11 +23,16 @@ export async function resolvePhotoReport(photoId: string, decision: "restore" | 
   const photo = data as { owner_id: string; kind: string; report_count: number; status: string } | null;
   if (!photo) return { error: "That photo no longer exists." };
 
-  const { data: reports } = await svc.from("member_photo_reports").select("reason").eq("photo_id", photoId);
+  const { data: reports } = await svc.from("content_reports").select("reason")
+    .eq("target_type", "member_photo").eq("target_id", photoId).eq("status", "open");
   const reasons = ((reports ?? []) as { reason: string }[]).map((r) => r.reason);
 
+  // Close the reports either way; they stay as the record of what happened.
+  await svc.from("content_reports")
+    .update({ status: decision === "restore" ? "dismissed" : "actioned", resolved_at: new Date().toISOString(), resolved_by: ctx.userId, resolution: decision })
+    .eq("target_type", "member_photo").eq("target_id", photoId).eq("status", "open");
+
   if (decision === "restore") {
-    await svc.from("member_photo_reports").delete().eq("photo_id", photoId);
     const { error } = await svc.from("member_photos").update({ status: "active", report_count: 0 }).eq("id", photoId);
     if (error) return { error: "Could not restore the photo." };
   } else if (!(await deletePhotoRow(svc, photo.owner_id, photoId))) {

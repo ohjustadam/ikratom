@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * /admin/moderation/photos — member photos that were reported. Three distinct
- * reporters hide a photo automatically (0286) until a moderator restores or
+ * reporters hide a photo automatically (0288) until a moderator restores or
  * removes it here. Images are signed directly with the service role, so a
  * moderator sees hidden photos without widening any member-facing rule.
  */
@@ -34,12 +34,14 @@ export default async function ReportedPhotosPage() {
   const ids = photos.map((p) => p.id);
   const owners = [...new Set(photos.map((p) => p.owner_id))];
   const [{ data: reports }, { data: profiles }] = await Promise.all([
-    ids.length ? svc.from("member_photo_reports").select("photo_id, reason, note").in("photo_id", ids) : Promise.resolve({ data: [] }),
+    ids.length
+      ? svc.from("content_reports").select("target_id, reason, note").eq("target_type", "member_photo").eq("status", "open").in("target_id", ids)
+      : Promise.resolve({ data: [] }),
     owners.length ? svc.from("profiles").select("id, username, state").in("id", owners) : Promise.resolve({ data: [] }),
   ]);
   const byPhoto = new Map<string, { reason: string; note: string | null }[]>();
-  for (const r of (reports ?? []) as { photo_id: string; reason: string; note: string | null }[]) {
-    byPhoto.set(r.photo_id, [...(byPhoto.get(r.photo_id) ?? []), r]);
+  for (const r of (reports ?? []) as { target_id: string; reason: string; note: string | null }[]) {
+    byPhoto.set(r.target_id, [...(byPhoto.get(r.target_id) ?? []), r]);
   }
   const who = new Map(((profiles ?? []) as { id: string; username: string | null; state: string | null }[]).map((p) => [p.id, p]));
   const urls = await Promise.all(photos.map((p) => signedMemberPhotoUrl(p.r2_key, p.content_type).catch(() => null)));

@@ -33,7 +33,7 @@ High-altitude map of iKratom. _Hosting and cron corrected 2026-10-17: Netlify, G
                                          └──────────────────────────────────────┘
 ```
 
-Outbound to Gemini Flash 2.5 (free tier) for grounded research happens from **scripts** (sync-state-capitals, etc.), not from the live app. Production paths only call services we control + Supabase.
+Outbound calls to the free AI pool (Groq, Gemini, Mistral, NVIDIA, Cloudflare, OpenRouter free models) mostly happen from **scripts** on GitHub Actions, not from the live app. The few request-time AI features (the AI Editor, letter personalize and compose, moderation) go through `src/lib/ai/` with their own keys in Netlify. Production paths otherwise call only services we control + Supabase.
 
 ---
 
@@ -50,6 +50,8 @@ ikratom/
 │   ├── DECISIONS.md           # Tradeoff log
 │   ├── TASK_PATTERNS.md       # Recipes
 │   ├── AI_TOOLKIT.md          # Provider routing playbook
+│   ├── AI_PROVIDERS.md        # Every free AI key: what it is, where it is set
+│   └── RUNBOOK_*.md           # Owner ops and review-queue runbooks
 ├── public/
 │   ├── sw.js                  # Service worker (offline + push)
 │   ├── how-it-works/          # Annotated screenshots
@@ -87,7 +89,7 @@ ikratom/
 | **auth** | login/signup, profile, MFA, password reset, sessions, push subscribe, OAuth (Gmail) | `actions.ts`, `actions-mfa.ts`, `actions-push.ts`, `actions-password.ts`, etc. |
 | **admin** | Admin/owner/leader context guards, lounge moderation, emergency mode | `actions.ts` (guards), `lounge-actions.ts`, `campaign-review-actions.ts` |
 | **campaigns** | Action templates, sends, scope matching, auto-create | `actions.ts`, `auto-create.ts` |
-| **waves** | Scheduled batch sends (Gmail-based), reminders | `fire.ts`, `reminders.ts` |
+| **waves** | Scheduled batch sends (from the member's own connected mailbox), reminders | `fire.ts`, `reminders.ts` |
 | **forum** | Threads, posts, reactions, moderation, reports | `actions.ts`, `types.ts` |
 | **chat** | Lounge realtime room | `actions.ts`, `Lounge.tsx`, `RecentActivity.tsx` |
 | **notifications** | In-app preferences, push fan-out | `actions.ts`, `push-fanout.ts` |
@@ -168,10 +170,11 @@ Every source is registered in `scripts/lib/cron-pager-registry.mjs`; the stalene
 | Netlify | Hosting | Account | 1000 credits/month; `npm run credits` reads the real meter |
 | Cloudflare | DNS, cache, Bot Fight Mode, R2 snapshots | Account | Yes |
 | GitHub | Repo + every scheduled job | PAT / repo secrets | Yes |
-| Gemini API | Grounded research (scripts only) | API key | 1500/day Flash 2.5 |
-| Ollama | Local AI (translation, enrichment) | None — local | ∞ |
+| Groq, Gemini, Mistral, NVIDIA, Cloudflare Workers AI, OpenRouter | The free AI pool (scripts and a few site features) | API keys | Free tiers only; a provider that starts charging is dropped. Gemini needs a key from a Google project with no billing. See `docs/AI_PROVIDERS.md` |
+| Ollama | Local AI (privacy-sensitive work, embeddings) | None — local | ∞ (owner's PC only) |
+| Resend, Brevo | Platform mail: signup, resets, notices | API keys | Free tiers (Resend: 100/day) |
 | Web Push (FCM/APNs/Mozilla) | Push notifications | VAPID keypair | Yes |
-| Google OAuth (Gmail) | Wave email sending | OAuth | Yes |
+| Google OAuth (Gmail), Microsoft Graph (Outlook), SMTP app passwords (Yahoo/AOL/iCloud) | One-click letters and waves, sent from the member's own mailbox | OAuth / encrypted app password | Yes. Gmail needs Google verification beyond 100 test users |
 | OpenStates | State legislator sync | API key | Yes |
 | LegiScan | State bills sync | API key | 30k/month |
 | US Census Geocoder | Address → district | None | Public |
@@ -213,7 +216,7 @@ See `docs/DECISIONS.md` for tradeoffs.
 - A merge to `main` → Netlify production build (15 credits) unless the diff only touches build-ignored paths. Verify on a draft first: push `preview/<name>`
 - Migrations: `npm run db:push` (Supabase Management API)
 - Schema dump: `npm run docs:schema`
-- Hourly cron: any commit to main triggers GitHub Actions to start using new code on the next hour boundary
+- Scheduled jobs: scripts run from the repo, so a merge to `main` is picked up by the next scheduled run, no deploy needed. Only `/api/cron/*` routes and anything else under `src/` need the Netlify build to go live.
 
 ---
 
