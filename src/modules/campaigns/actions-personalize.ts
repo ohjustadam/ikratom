@@ -91,7 +91,9 @@ export async function personalizeCampaignBody(input: {
     "",
     `User's profile:`,
     `  Name: ${profile.full_name ?? "(not provided)"}`,
-    `  State: ${profile.state ?? "(not provided)"}`,
+    // Safe mode withholds the state: the model can't add "as a Louisiana
+    // resident" if it never sees it (Paul, 10-27). The template's own place names stay.
+    `  State: ${banned ? "(withheld for the member's safety)" : profile.state ?? "(not provided)"}`,
     banned
       ? `  Years used kratom before the ban: ${profile.kratom_years ?? "(not provided)"}`
       : `  Years using kratom: ${profile.kratom_years ?? "(not provided)"}`,
@@ -107,6 +109,8 @@ export async function personalizeCampaignBody(input: {
       ? [
           `SAFETY: kratom is banned in ${banned}, where this user lives. Write about their kratom use ONLY in the`,
           "past tense, as life before the ban. Never say or imply they use, buy or have kratom now.",
+          "Do NOT add where the user lives (no state, city or region), even if their story mentions it. Keep any",
+          "place names already in the template exactly as they are.",
           "",
         ]
       : []),
