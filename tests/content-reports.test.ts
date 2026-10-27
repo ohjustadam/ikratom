@@ -31,7 +31,7 @@ describe("content_reports vocabulary", () => {
     expect(isReportReason("i hate it")).toBe(false);
     expect(isTargetId("dQw4w9WgXcQ")).toBe(true);
     expect(isTargetId("../../etc")).toBe(false);
-    for (const t of REPORT_TARGETS) expect(targetHref(t, "x", null) === null || typeof targetHref(t, "x", null) === "string").toBe(true);
+    for (const t of REPORT_TARGETS) expect(targetHref(t, "x") === null || typeof targetHref(t, "x") === "string").toBe(true);
   });
 });
 

@@ -57,7 +57,7 @@ export default async function ReportsQueuePage() {
       {cards.length === 0 && <p className="mt-6 rounded-lg border border-emerald-800/40 bg-emerald-950/10 p-4 text-sm text-emerald-300">✓ No open member reports.</p>}
       <ul className="mt-6 space-y-3">
         {cards.map((c) => {
-          const href = targetHref(c.type, c.id, c.owner);
+          const href = targetHref(c.type, c.id);
           return (
             <li key={`${c.type}:${c.id}`} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 text-sm">
               <div className="flex flex-wrap items-baseline justify-between gap-2">

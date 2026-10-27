@@ -62,3 +62,12 @@ describe("moderators can open a reported group item", () => {
     expect(thread).toMatch(/id=\{`post-\$\{p\.id\}`\}/);
   });
 });
+
+describe("the reports queue links group items to the moderator view", () => {
+  it("maps each group type to its go-link", async () => {
+    const { targetHref } = await import("@/modules/reports/types");
+    expect(targetHref("group_thread", "t1")).toBe("/coalitions/go/thread/t1");
+    expect(targetHref("group_post", "p1")).toBe("/coalitions/go/post/p1");
+    expect(targetHref("group_event", "e1")).toBe("/coalitions/go/event/e1");
+  });
+});
