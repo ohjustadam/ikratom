@@ -108,6 +108,13 @@ export default async function AccountPage({
             />
 
             <LinkCard
+              href="/account/connections"
+              title="🤝 Friends"
+              body="Friend requests waiting for you, requests you sent, and your friends. Friends see what you share with Friends."
+              cta="Open your connections"
+            />
+
+            <LinkCard
               href="/account/character"
               title="🎭 Your character"
               body="Optional fields that power AI tailoring on legislator emails — your kratom story, what's at stake, advocate type, video clip URL, profile visibility."
