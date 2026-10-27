@@ -253,7 +253,7 @@ function BillCard({ b, userState, stale }: { b: Bill; userState: string | null; 
     && Date.now() - new Date(b.last_action_at).getTime() <= MOVING_MS;
   return (
               <li
-                className={`rounded-lg border ${
+                className={`ik-lift overflow-hidden rounded-xl border ${
                   stale
                     ? "border-zinc-900 bg-zinc-950/20 opacity-70"
                     : isMine

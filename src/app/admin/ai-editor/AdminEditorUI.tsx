@@ -106,7 +106,7 @@ export function AdminEditorUI() {
                     <button disabled={t.acting} onClick={() => confirm(i)} className="rounded bg-emerald-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50">
                       {t.acting ? "Running…" : "Do it"}
                     </button>
-                    <button disabled={t.acting} onClick={() => dismiss(i)} className="rounded bg-zinc-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-zinc-600 disabled:opacity-50">
+                    <button disabled={t.acting} onClick={() => dismiss(i)} className="rounded bg-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-100 hover:bg-zinc-600 disabled:opacity-50">
                       Cancel
                     </button>
                   </div>

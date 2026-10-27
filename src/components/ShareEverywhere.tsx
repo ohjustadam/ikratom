@@ -80,7 +80,7 @@ export function ShareEverywhere({ url, title, description, hashtags, compact }: 
       label: "X",
       icon: "𝕏",
       href: `https://twitter.com/intent/tweet?text=${encText}&url=${encUrl}`,
-      color: "bg-zinc-950 hover:bg-zinc-900 text-white",
+      color: "bg-black hover:bg-[#1a1a1a] text-white",
       title: "Share on X",
     },
     {
@@ -136,7 +136,7 @@ export function ShareEverywhere({ url, title, description, hashtags, compact }: 
       label: "Threads",
       icon: "@",
       href: `https://www.threads.net/intent/post?text=${encodeURIComponent(`${title}${tagsLine}\n\n${url}`)}`,
-      color: "bg-zinc-950 hover:bg-zinc-900 text-white",
+      color: "bg-black hover:bg-[#1a1a1a] text-white",
       title: "Share on Threads",
     },
     {
@@ -144,7 +144,7 @@ export function ShareEverywhere({ url, title, description, hashtags, compact }: 
       label: "Email",
       icon: "✉",
       href: `mailto:?subject=${encTitle}&body=${encBody}`,
-      color: "bg-zinc-700 hover:bg-zinc-600 text-white",
+      color: "bg-[#52525b] hover:bg-[#3f3f46] text-white",
       title: "Share via email",
     },
     {
