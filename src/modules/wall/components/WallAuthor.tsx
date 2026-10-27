@@ -1,5 +1,5 @@
 import { publicHandle, handleInitials } from "@/lib/public-handle";
-import { profileHref } from "@/modules/profile/view";
+import { profileHref } from "@/modules/profile/href";
 
 /** Avatar + @handle (or "Member" when the author hides it) + time. */
 export function WallAuthor({ id, username, avatarUrl, at, small = false }: {
