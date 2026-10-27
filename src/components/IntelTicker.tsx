@@ -75,7 +75,7 @@ export function IntelTicker() {
         <span className="shrink-0 font-semibold uppercase tracking-wider text-red-400" aria-hidden>● Live</span>
         <div className="group min-w-0 flex-1 overflow-hidden motion-reduce:overflow-x-auto">
           <div
-            className="flex w-max gap-10 whitespace-nowrap motion-safe:animate-ticker group-hover:[animation-play-state:paused] group-focus-within:[animation-play-state:paused]"
+            className="flex w-max gap-10 whitespace-nowrap motion-safe:animate-ticker group-hover:[animation-play-state:paused] group-has-[:focus-visible]:[animation-play-state:paused]"
             style={{ animationDuration: `${seconds}s` }}
           >
             {items.map((it) => <Entry key={it.href} item={it} />)}

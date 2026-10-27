@@ -44,6 +44,9 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
     source_url: string | null; pdf_url: string | null;
   };
   const latestByEin = new Map<string, FilingRow>();
+  // ProPublica lists the newest year as a PDF before its figures are extracted;
+  // show the newest year WITH figures and link the newer PDF beside it.
+  const newerPdfByEin = new Map<string, FilingRow>();
   // Federal LDA aggregates per faction — joins kratom-relevant lobbying
   // filings to the actor registry via affiliation-name substring match.
   // Surfaces "how much federal lobbying does each faction have running."
@@ -90,7 +93,12 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
         .order("tax_year", { ascending: false }),
     ]);
     for (const r of (financesRes.data ?? []) as FilingRow[]) {
-      if (!latestByEin.has(r.ein)) latestByEin.set(r.ein, r);
+      if (latestByEin.has(r.ein)) continue;
+      if (r.total_revenue == null && r.total_expenses == null) {
+        if (!newerPdfByEin.has(r.ein) && r.pdf_url) newerPdfByEin.set(r.ein, r);
+        continue;
+      }
+      latestByEin.set(r.ein, r);
     }
     type LdaJsonbLobbyist = { first_name?: string | null; last_name?: string | null };
     for (const f of (filingsRes.data ?? []) as Array<{
@@ -175,7 +183,7 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
             Most recent tax year filed per org. Source: ProPublica Nonprofit Explorer (free public API). 501(c)(4)s aren&apos;t required to disclose donors but DO disclose total revenue, expenses, and key-employee compensation.
           </p>
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-[11px] [&_td]:px-2 [&_th]:px-2 [&_th]:whitespace-nowrap">
               <thead className="text-[10px] uppercase tracking-wider text-zinc-500">
                 <tr className="border-b border-zinc-800">
                   <th className="py-1 text-left">Org</th>
@@ -197,6 +205,11 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
                     <td className="py-1 text-right font-mono">{fmt$(r.officer_compensation)}</td>
                     <td className="py-1 text-right font-mono">{fmt$(r.total_assets_eoy)}</td>
                     <td className="py-1 text-right">
+                      {newerPdfByEin.get(r.ein)?.pdf_url && (
+                        <a href={newerPdfByEin.get(r.ein)!.pdf_url!} target="_blank" rel="noopener noreferrer" className="mr-2 text-zinc-400 hover:underline">
+                          {newerPdfByEin.get(r.ein)!.tax_year} PDF ↗
+                        </a>
+                      )}
                       {r.source_url && (
                         <a href={r.source_url} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">
                           ProPublica ↗
@@ -225,7 +238,7 @@ export default async function ActorsPage({ searchParams }: { searchParams?: SP }
             paying federal lobbyists right now, by camp.
           </p>
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-[11px] [&_td]:px-2 [&_th]:px-2 [&_th]:whitespace-nowrap">
               <thead className="text-[10px] uppercase tracking-wider text-zinc-500">
                 <tr className="border-b border-zinc-800">
                   <th className="py-1 text-left">Faction</th>

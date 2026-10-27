@@ -36,6 +36,31 @@ export function LeaderTourGate() {
   );
 }
 
+/**
+ * Admin-only build stamp, bottom-left: the live commit and its build time, so
+ * the owner can tell whether a fix is live before reporting it again. The
+ * commit is public (the repo is), so the client-side admin flag is enough.
+ */
+export function BuildStampGate() {
+  const { me } = useChrome();
+  if (!me?.isAdmin) return null;
+  const sha = process.env.NEXT_PUBLIC_BUILD_SHA ?? "dev";
+  const built = new Date(process.env.NEXT_PUBLIC_BUILD_TIME ?? Date.now()).toLocaleString("en-US", {
+    timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+  return (
+    <a
+      href={sha === "dev" ? "#" : `https://github.com/ohjustadam/ikratom/commit/${sha}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Live build (admins only)"
+      className="fixed bottom-1 left-1 z-40 rounded bg-zinc-900/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 hover:text-zinc-300 max-md:bottom-[4.5rem]"
+    >
+      build {sha} · {built} CT
+    </a>
+  );
+}
+
 /** Mobile drawer — needs admin/leader flags to show its privileged sections. */
 export function MobileNavGate() {
   const { me } = useChrome();
