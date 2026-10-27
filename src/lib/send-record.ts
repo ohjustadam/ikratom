@@ -39,3 +39,22 @@ export function withRecordBcc(bccList: string, nonce: string | null): string {
 export function cleanRecordNonce(value: unknown): string | null {
   return typeof value === "string" && RECORD_NONCE_RE.test(value) ? value : null;
 }
+
+/**
+ * The record nonce a compose click carries, for a surface that logs ONE row per
+ * letter however many delivery buttons are tried (ComposeModal, GroupComposeModal).
+ * The first click mints it and logs it; every later click reuses that nonce,
+ * because a fresh one would BCC an address no logged row holds and the ingest
+ * would drop the copy. Null when the member opted out, or when the row that was
+ * logged carries none (so a copy could never be matched to it).
+ */
+export function nonceForClick(s: { keepCopy: boolean; logged: boolean; loggedNonce: string | null }): string | null {
+  if (!s.keepCopy) return null;
+  return s.logged ? s.loggedNonce : makeRecordNonce();
+}
+
+/** The "Bcc: …" header line of a copied message, or "" without a nonce. */
+export function bccCopyLine(nonce: string | null): string {
+  return nonce ? `Bcc: ${recordAddress(nonce)}
+` : "";
+}

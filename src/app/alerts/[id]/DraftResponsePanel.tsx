@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { draftAlertResponse } from "@/modules/alerts/rebuttal-actions";
 import { logOfficialContact } from "@/modules/compose/actions";
 import { buildGmailComposeUrl, buildMailtoUrl, buildOutlookComposeUrl, mailtoWithinLimit } from "@/modules/compose/send-links";
+import { SendRecordNotice } from "@/modules/campaigns/components/SendRecordNotice";
+import { makeRecordNonce, withRecordBcc } from "@/lib/send-record";
 
 /**
  * Inline "draft my response" UI on /alerts/[id].
@@ -17,6 +19,9 @@ import { buildGmailComposeUrl, buildMailtoUrl, buildOutlookComposeUrl, mailtoWit
  * Each draft is individually written — different prompt outputs → no
  * two letters look the same. That's the whole point: 500 polished
  * individual comments beats 500 form letters during a BoP rule window.
+ *
+ * The email links BCC a send-record copy (B9) unless the member opts out. Copy
+ * does not: it is mostly pasted into an agency portal, which has no BCC.
  */
 export function DraftResponsePanel({
   alertId,
@@ -38,6 +43,7 @@ export function DraftResponsePanel({
   const [editedSubject, setEditedSubject] = useState("");
   const [editedBody, setEditedBody] = useState("");
   const [tone, setTone] = useState<"personal" | "formal" | "urgent">("personal");
+  const [keepCopy, setKeepCopy] = useState(true);
 
   function generate() {
     setError(null);
@@ -59,13 +65,22 @@ export function DraftResponsePanel({
   }
 
   // Fire-and-forget send log — mirrors the compose module convention.
-  function logSend() {
+  function logSend(recordNonce: string | null = null) {
     void logOfficialContact({
       officialId: null,
       source: "alert_response",
       subject: editedSubject,
       body: editedBody,
+      recordNonce: recordNonce ?? undefined,
     }).catch(() => {});
+  }
+
+  // Each click logs its own row here, so each mints its own record address, at
+  // click time: the href is rewritten before the browser follows it.
+  function openWithRecord(e: React.MouseEvent<HTMLAnchorElement>, build: (bcc: string) => string) {
+    const nonce = keepCopy ? makeRecordNonce() : null;
+    e.currentTarget.href = build(withRecordBcc(bcc, nonce));
+    logSend(nonce);
   }
 
   function copyToClipboard() {
@@ -84,7 +99,11 @@ export function DraftResponsePanel({
   const mailtoHref = draft ? buildMailtoUrl(to, editedSubject, editedBody, bcc) : "";
   // An empty-recipient mailto (or one over the client length cap) is the exact
   // "Open in email does nothing" failure — only offer it when it will work.
-  const showMailto = !!draft && !!to && mailtoWithinLimit(mailtoHref);
+  // Judged with a stand-in record address so the real one can't push it past the cap.
+  const mailtoSized = draft
+    ? buildMailtoUrl(to, editedSubject, editedBody, withRecordBcc(bcc, keepCopy ? "a".repeat(16) : null))
+    : "";
+  const showMailto = !!draft && !!to && mailtoWithinLimit(mailtoSized);
   const gmailHref = draft ? buildGmailComposeUrl(to, editedSubject, editedBody, bcc) : "";
   const outlookHref = draft ? buildOutlookComposeUrl(to, editedSubject, editedBody, bcc) : "";
 
@@ -173,6 +192,8 @@ export function DraftResponsePanel({
             </p>
           </div>
 
+          <SendRecordNotice keepCopy={keepCopy} onChange={setKeepCopy} />
+
           {/* Send / copy / re-roll actions */}
           <div className="flex flex-wrap gap-2">
             <button
@@ -185,7 +206,7 @@ export function DraftResponsePanel({
             {showMailto && (
               <a
                 href={mailtoHref}
-                onClick={logSend}
+                onClick={(e) => openWithRecord(e, (b) => buildMailtoUrl(to, editedSubject, editedBody, b))}
                 className="rounded border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
               >
                 ✉ Open in email
@@ -195,7 +216,7 @@ export function DraftResponsePanel({
               href={gmailHref}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={logSend}
+              onClick={(e) => openWithRecord(e, (b) => buildGmailComposeUrl(to, editedSubject, editedBody, b))}
               className="rounded border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
             >
               Open in Gmail
@@ -204,7 +225,7 @@ export function DraftResponsePanel({
               href={outlookHref}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={logSend}
+              onClick={(e) => openWithRecord(e, (b) => buildOutlookComposeUrl(to, editedSubject, editedBody, b))}
               className="rounded border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
             >
               Open in Outlook
