@@ -54,7 +54,7 @@ export function isTargetId(v: unknown): v is string {
 }
 
 /** Where a moderator can see (and act on) the reported thing. */
-export function targetHref(type: ReportTarget, id: string, ownerId: string | null): string | null {
+export function targetHref(type: ReportTarget, id: string): string | null {
   switch (type) {
     case "member_photo": return "/admin/moderation/photos";
     case "profile":
@@ -62,8 +62,10 @@ export function targetHref(type: ReportTarget, id: string, ownerId: string | nul
     case "lounge_message": return "/admin/lounge";
     case "story": return "/admin/stories";
     case "community_video": return `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
-    case "group_post":
-    case "group_thread":
-    case "group_event": return ownerId ? `/profile/${ownerId}` : null;
+    // Opens the item in its group (read-only for a moderator who isn't a member);
+    // the route resolves the group's slug: src/app/coalitions/go/[kind]/[id]/route.ts.
+    case "group_post": return `/coalitions/go/post/${encodeURIComponent(id)}`;
+    case "group_thread": return `/coalitions/go/thread/${encodeURIComponent(id)}`;
+    case "group_event": return `/coalitions/go/event/${encodeURIComponent(id)}`;
   }
 }
