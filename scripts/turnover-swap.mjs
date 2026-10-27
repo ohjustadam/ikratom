@@ -57,15 +57,49 @@ async function telemetry(status, notes, rows = 0) {
   } catch { /* best-effort */ }
 }
 
-const { data: due, error } = await sb.from("seat_elections")
+// Paged: PostgREST returns at most 1,000 rows whatever .limit() asks for, and
+// a general election hands ~1,300 seats to someone new.
+async function readAll(build) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await build().order("id").range(from, from + 999);
+    if (error) { await telemetry("error", `read: ${error.message}`); throw error; }
+    out.push(...data);
+    if (data.length < 1000) return out;
+  }
+}
+
+// Re-elected: the term that ended on the handover day is cleared, so a sitting
+// legislator never shows a term end in the past. The next cycle's seat watch
+// sets the new one from the seat, never from handover + term length.
+const kept = PROBE ? [] : await readAll(() => sb.from("seat_elections").select("id, incumbent_id, handover_date")
+  .eq("status", "incumbent_reelected").in("office", ["state_senate", "state_house"]).lte("handover_date", today));
+let termsCleared = 0;
+const keptByDay = new Map();
+for (const s of kept) if (s.incumbent_id) (keptByDay.get(s.handover_date) ?? keptByDay.set(s.handover_date, []).get(s.handover_date)).push(s.incumbent_id);
+for (const [day, ids] of keptByDay) {
+  for (let i = 0; i < ids.length; i += 200) {
+    let q = sb.from("legislators").update({ term_end_date: null }, { count: "exact" }).in("id", ids.slice(i, i + 200)).eq("term_end_date", day);
+    if (DRY) q = sb.from("legislators").select("id", { count: "exact", head: true }).in("id", ids.slice(i, i + 200)).eq("term_end_date", day);
+    const { count, error: e } = await q;
+    if (!e) termsCleared += count ?? 0;
+  }
+}
+if (termsCleared) console.log(`  re-elected: ${termsCleared} ended term(s) cleared`);
+
+const due = await readAll(() => sb.from("seat_elections")
   .select("id, state, office, district, kind, election_date, handover_date, incumbent_id, incumbent_name, winner_name, winner_id, result_sources, status")
-  .in("status", ["successor_elected", "needs_review"]).not("winner_name", "is", null).limit(5000);
-if (error) { await telemetry("error", `read: ${error.message}`); throw error; }
+  .in("status", ["successor_elected", "needs_review"]).not("winner_name", "is", null)
+  .or(`handover_date.lte.${today},and(handover_date.is.null,kind.eq.special)`));
 const ready = PROBE
   ? [(([state, office, district, winner]) => ({ id: "probe", state, office, district, kind: "regular", election_date: today, handover_date: today, incumbent_id: null, incumbent_name: "(probe)", winner_name: winner, result_sources: ["probe"], status: "successor_elected" }))(PROBE.split(":"))]
-  : (due ?? []).filter((s) => (s.handover_date ? s.handover_date <= today : s.kind === "special")
+  : due.filter((s) => (s.handover_date ? s.handover_date <= today : s.kind === "special")
     && (s.status === "successor_elected" || (s.result_sources ?? []).length >= 2));
-if (ready.length === 0) { console.log("no seat changes hands today"); await telemetry("empty", "nothing due"); process.exit(0); }
+if (ready.length === 0) {
+  console.log(`no seat changes hands today${termsCleared ? ` · ${termsCleared} re-elected term ends cleared` : ""}`);
+  await telemetry(termsCleared ? "success" : "empty", `nothing due · re-elected term ends cleared ${termsCleared}`, termsCleared);
+  process.exit(0);
+}
 
 // ── Second sources, fetched only when something needs them ────────────────
 const needState = ready.some((s) => CHAMBER[s.office]);
@@ -153,7 +187,7 @@ for (const { seat, c } of plan) {
   if (e2) failed++; else if (successor) swapped++; else retiredOnly++;
 }
 
-const summary = `${DRY ? "DRY " : ""}due ${ready.length} · swapped ${swapped} · incumbent retired, successor pending ${retiredOnly} · needs review ${flagged} · failed ${failed}`;
+const summary = `${DRY ? "DRY " : ""}due ${ready.length} · swapped ${swapped} · incumbent retired, successor pending ${retiredOnly} · needs review ${flagged} · re-elected term ends cleared ${termsCleared} · failed ${failed}`;
 console.log(summary);
-await telemetry(failed ? "error" : swapped + retiredOnly + flagged ? "success" : "empty", summary, swapped + retiredOnly);
+await telemetry(failed ? "error" : swapped + retiredOnly + flagged + termsCleared ? "success" : "empty", summary, swapped + retiredOnly + termsCleared);
 if (failed) process.exit(1);

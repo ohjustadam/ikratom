@@ -290,12 +290,19 @@ for (const s of seats) {
     status: s.status, review_reason: s.review_reason, sources_md: s.sources_md,
   };
   if (!cur) inserts.push({ state: s.state, office: s.office, district: s.district, seat: s.seat, election_date: ELECTION, kind: s.kind, ...fields });
-  else if (OPEN.has(cur.status) && (cur.incumbent_id !== s.incumbent.id || cur.handover_date !== s.handover || cur.status !== s.status || cur.review_reason !== s.review_reason)) {
+  else if (cur.status === "cancelled" || (OPEN.has(cur.status) && (cur.incumbent_id !== s.incumbent.id || cur.handover_date !== s.handover || cur.status !== s.status || cur.review_reason !== s.review_reason))) {
+    // A cancelled seat that is back (an appointee now holds it, or the list
+    // recovered) is revived; only this script ever cancels a seat.
     updates.push({ id: cur.id, ...fields, updated_at: new Date().toISOString() });
   }
 }
+// A chamber whose seat list could not be verified THIS run (a timeout, an
+// edit in progress on election eve) says nothing about its seats: keep them.
+// Cancelling them here would be permanent, since this script stops after
+// election day and the results stage reads only open seats.
+const unread = new Set(calendar.filter((c) => c.seat_list_status === "unverified").map((c) => `${c.state}|${c.office}`));
 for (const r of existing) {
-  if (!seen.has(keyOf(r)) && OPEN.has(r.status)) cancels.push(r.id); // incumbent left office, or the seat fell off the list
+  if (!seen.has(keyOf(r)) && OPEN.has(r.status) && !unread.has(`${r.state}|${r.office}`)) cancels.push(r.id); // incumbent left office, or the seat fell off the list
 }
 
 // term_end_date from the seat's handover day — only where we hold none.
@@ -324,7 +331,7 @@ if (!DRY) {
   }
   for (const u of updates) {
     const { id, ...f } = u;
-    const { error } = await sb.from("seat_elections").update(f).eq("id", id).in("status", [...OPEN]);
+    const { error } = await sb.from("seat_elections").update(f).eq("id", id).in("status", [...OPEN, "cancelled"]);
     if (error) note(error, "update"); else applied++;
   }
   if (cancels.length) {
