@@ -31,6 +31,7 @@ import { listMyPushSubscriptions } from "@/modules/auth/actions-push";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 import Link from "@/components/Link";
+import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
 /**
  * /dashboard — the cockpit.
  *
@@ -85,14 +86,14 @@ export default async function DashboardPage({
   // at the dashboard level without a per-card client fetch. Single
   // batch query; map by legislator_id.
   const stanceByRepId = new Map<string, string>();
-  if (myReps.length > 0) {
+  if (myReps.length > 0 && !STANCE_LABELS_RETIRED) {
     const { data: stances } = await supabaseForReps
       .from("legislator_stance")
       .select("legislator_id, stance")
       .eq("topic", "kratom")
       .in("legislator_id", myReps.map((r) => r.id));
     for (const s of (stances ?? []) as Array<{ legislator_id: string; stance: string }>) {
-      stanceByRepId.set(s.legislator_id, s.stance);
+      stanceByRepId.set(s.legislator_id, publishedStance(s.stance));
     }
   }
 

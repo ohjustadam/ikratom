@@ -1,5 +1,5 @@
 /**
- * Social profile vocabulary (B4b, migration 0283). Pure — safe to import from
+ * Social profile vocabulary (B4b, migration 0285). Pure — safe to import from
  * client components, server actions and tests alike.
  *
  * The database is the authority: `can_view_audience(owner, audience)` decides
@@ -49,7 +49,7 @@ export const SECTION_AUDIENCES = [
 
 export type SectionAudienceKey = (typeof SECTION_AUDIENCES)[number]["key"];
 
-/** Safe defaults (mirror the column defaults in 0283). */
+/** Safe defaults (mirror the column defaults in 0285). */
 export const DEFAULT_AUDIENCES: Record<SectionAudienceKey, Audience> = {
   profile_audience: "members",
   bio_audience: "members",

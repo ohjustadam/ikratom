@@ -21,6 +21,7 @@
  *   - /states/[code]/briefing triage refinements (future)
  */
 import type { Stance } from "./legislator-action-plan";
+import { STANCE_LABELS_RETIRED } from "./published-stance";
 
 export type ThreatInputs = {
   stance: Stance;
@@ -119,6 +120,9 @@ function donorConflictMagnitude(inp: ThreatInputs): number {
  */
 export function effectiveStance(inp: ThreatInputs): { stance: Stance; derived: boolean } {
   if (inp.stance !== "unknown") return { stance: inp.stance, derived: false };
+  // Labels are retired (published-stance.ts): every reader passes "unknown",
+  // and no "hostile"/"champion" is derived from sponsorship either.
+  if (STANCE_LABELS_RETIRED) return { stance: "unknown", derived: false };
   // Primary sponsor of an active anti bill = effective hostile
   if (inp.primary_sponsorship_count > 0 && inp.has_anti_sponsorship) {
     return { stance: "hostile", derived: true };

@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
+import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
 
 export const dynamic = "force-dynamic";
 
@@ -383,7 +384,7 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
       .in("legislator_id", sponsorLegIds);
     const stanceByLeg = new Map<string, string>();
     for (const s of (stanceRows ?? []) as Array<{ legislator_id: string; stance: string }>) {
-      stanceByLeg.set(s.legislator_id, s.stance);
+      stanceByLeg.set(s.legislator_id, publishedStance(s.stance));
     }
     for (const legId of sponsorLegIds) {
       const st = stanceByLeg.get(legId) ?? "unknown";
@@ -572,11 +573,11 @@ export default async function ClusterDetailPage({ params }: { params: Params }) 
             Primary sponsors backing this operation
           </h2>
           <p className="mt-1 text-[11px] text-zinc-500">
-            {Object.values(sponsorStanceDist).reduce((a, b) => a + b, 0)} distinct legislators across {statesSorted.length} states. Stance is AI-drafted (where available); signal-derived from sponsorship when not.
+            {Object.values(sponsorStanceDist).reduce((a, b) => a + b, 0)} distinct legislators across {statesSorted.length} states.{STANCE_LABELS_RETIRED ? " Each one’s record is on their briefing page." : " Stance is AI-drafted (where available); signal-derived from sponsorship when not."}
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {(["hostile", "neutral", "unknown", "sympathetic", "champion"] as const)
-              .filter((s) => (sponsorStanceDist[s] ?? 0) > 0)
+              .filter((s) => !STANCE_LABELS_RETIRED && (sponsorStanceDist[s] ?? 0) > 0)
               .map((s) => {
                 const emoji: Record<string, string> = {
                   hostile: "🚫", neutral: "⚖", unknown: "❓",

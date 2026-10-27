@@ -77,6 +77,14 @@ export default async function ModerationPage() {
           );
         })}
       </div>
+
+      <Link href="/admin/moderation/photos" className="mt-4 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 hover:border-emerald-700/50">
+        <span>
+          <span className="block text-lg font-semibold text-zinc-100">Reported photos</span>
+          <span className="text-xs text-zinc-500">Member photos reported by other members. Three reports hide a photo until you restore or remove it.</span>
+        </span>
+        <span className="text-zinc-500">→</span>
+      </Link>
     </div>
   );
 }
