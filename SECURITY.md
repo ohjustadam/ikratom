@@ -42,15 +42,16 @@ threats, ranked:
 Out of scope:
 - Targeted state-actor attacks (no PII worth that level of effort)
 - Physical security of operator's laptop (operator's own concern)
-- Vulnerabilities in Supabase / Vercel (we trust upstream)
+- Vulnerabilities in Supabase / Netlify / Cloudflare (we trust upstream)
 
 ---
 
 ## What's deployed
 
 ### Transport
-- TLS via Vercel (HSTS preload header set; 2-year max-age)
-- HTTP → HTTPS redirect via Vercel default
+- TLS terminates at Cloudflare (in front of Netlify, which hosts the site); the HSTS header below is set by the app (preload; 2-year max-age)
+- HTTP → HTTPS redirect enforced at Cloudflare and Netlify
+- Bot blocking is Cloudflare Bot Fight Mode plus anonymous page caching; the app's request proxy is disabled (`src/proxy.disabled.ts`), so none of the controls below depend on it
 - `upgrade-insecure-requests` directive in CSP
 
 ### HTTP security headers (`next.config.ts`)
@@ -64,7 +65,7 @@ Out of scope:
 | `X-Permitted-Cross-Domain-Policies` | `none` |
 | `Cross-Origin-Opener-Policy` | `same-origin` |
 | `Cross-Origin-Resource-Policy` | `same-origin` |
-| `Content-Security-Policy` | strict; `connect-src` pinned to project Supabase URL only |
+| `Content-Security-Policy` | strict, built in `src/lib/csp.ts`; `connect-src` is limited to the site itself, the project's Supabase URL (HTTPS + WSS) and the named analytics, error-reporting and model-download hosts listed there (Sentry, PostHog, Vercel vitals, Hugging Face, jsDelivr) |
 | `X-Powered-By` | _removed_ |
 
 ### Authentication
@@ -106,7 +107,8 @@ Out of scope:
 - Email-enumeration defense on signup (PR #124): "user already
   registered" errors are caught and the success shape returned
   regardless, so an attacker can't probe which emails have accounts.
-  Best-effort heads-up email to existing-account holder via Resend.
+  Best-effort heads-up email to existing-account holder via platform mail
+  (Resend / Brevo free tiers).
   Login + password-reset already had this protection.
 - SSRF defense on admin-supplied URLs (PR #118): `src/lib/url-safety.ts`
   blocks non-http(s) schemes, private IPv4 (RFC 1918) + loopback +
@@ -187,16 +189,17 @@ defense from CSP. The strict markdown sanitizer + framework defaults
 remain primary XSS defenses. Track upgrade when Next.js ships
 first-class nonce support.
 
-### Low — no session list / "sign out all other devices" UI
-If a user's session token leaks, current recovery is to change the
-password (which invalidates all sessions on Supabase). UI to view +
-revoke individual sessions is not yet built.
+### Resolved — session list / "sign out other devices"
+`/account/security` shows an "Active sessions" panel (`SessionsPanel`,
+`listMySessions()` in `src/modules/auth/actions-sessions.ts`) so a member
+can see and revoke sessions. Changing the password also invalidates all
+sessions on Supabase.
 
-### Resolved tonight (2026-05-11)
+### Resolved in the first review (2026-05-11)
 - ~~No breached-password check on signup~~ — `isPasswordPwned()` is
   called in `signUp`. HIBP k-anonymity API; fails open on network error.
 - ~~No email alert on new device sign-in~~ — `recordSignIn()` triggers
-  in-app notification + Resend email (when configured) on every
+  in-app notification + platform email (Resend / Brevo, when configured) on every
   not-previously-seen-on-this-account device fingerprint.
 - ~~Audit log tamper risk via service-role~~ — fixed in PR #123 via
   before-update/delete triggers that work regardless of caller.
@@ -220,7 +223,9 @@ will need a self-service flow if user count grows past hundreds.
 ## Incident response
 
 1. **Suspected key leak** → rotate the affected key in Supabase dashboard
-   immediately. Update `.env.local` and Vercel env. Force-redeploy.
+   immediately. Update `.env.local`, the Netlify environment variables (the
+   site picks the change up on its next build) and the GitHub Actions
+   secrets (the scheduled jobs pick it up on their next run).
 2. **Compromised user account** → disable user via Supabase Auth dashboard,
    invalidate all sessions for that user, audit `campaign_actions` and
    `forum_posts` for that user_id, audit `admin_audit_log` if privileged.
@@ -258,4 +263,4 @@ Out of bounds:
 
 ---
 
-_Last reviewed: 2026-05-11 — see `git log SECURITY.md` for change history._
+_Last reviewed: 2026-10-25 (hosting, TLS, CSP, sessions and mail provider claims re-checked against the code; the rest dates from 2026-05-11). See `git log SECURITY.md` for change history._

@@ -48,7 +48,7 @@ which needs *your* logins and the store fees. Steps below.
      Capture them from a real phone or Chrome DevTools device mode.
    - **Data Safety form:** fill from `/privacy` — collects email, name/address
      (optional), phone (optional), push endpoint (optional), Gmail token
-     (optional if connected), **first-party product analytics (PostHog/Vercel)**.
+     (optional if connected), a connected-mailbox token or app password (Gmail, Outlook, Yahoo/AOL/iCloud; optional), **first-party product analytics (PostHog) and error reporting (Sentry)**.
      No data sold/shared, no third-party ad trackers. (The privacy page was
      refreshed 2026-07-05 to state this accurately.)
    - **Content rating** questionnaire → likely *Teen* (civic content + chat).

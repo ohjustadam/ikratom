@@ -15,10 +15,15 @@ The advocate's toolbelt. A nonpartisan political action platform for the kratom 
    ```
    Fill in values from the accounts checklist below.
 
-3. Run the database migration in Supabase:
-   - Open your Supabase project → SQL Editor
-   - Paste the contents of `supabase/migrations/0001_init.sql`
-   - Run it. (Or use the Supabase CLI: `supabase db push`)
+3. Apply the database migrations to your Supabase project:
+   ```
+   npm run db:push
+   ```
+   It applies every file in `supabase/migrations/` in order (there are 280+; a
+   fresh project needs all of them, not just `0001_init.sql`) through the
+   Supabase Management API, using `SUPABASE_ACCESS_TOKEN` and
+   `SUPABASE_PROJECT_REF` from `.env.local`. To look at the data afterwards, use
+   the **Explorer** in the Supabase dashboard (it replaced the SQL editor).
 
 4. Start dev server:
    ```
@@ -34,7 +39,7 @@ The advocate's toolbelt. A nonpartisan political action platform for the kratom 
 | Supabase | DB + auth | supabase.com |
 | LegiScan | Bill tracking API | legiscan.com/legiscan |
 | OpenStates | Legislator contacts API | openstates.org |
-| Google Cloud | Civic Information API (address → reps) | console.cloud.google.com |
+| Google Cloud | An OAuth client for one-click "send from my Gmail" (address → districts uses the keyless Census geocoder, no key) | console.cloud.google.com |
 | Free AI providers | Groq, Gemini, Mistral, NVIDIA and others — see `docs/AI_PROVIDERS.md` | (free tiers only) |
 
 ## Where things stand

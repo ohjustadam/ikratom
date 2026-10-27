@@ -16,7 +16,7 @@ Recipes for common tasks. Copy-paste-friendly. New AI sessions: this file is you
    -- ============================================================
    ```
 3. **Idempotent:** prefer `create table if not exists`, `add column if not exists`, `create or replace function`, `drop policy if exists` before recreating. Re-running a migration must not error.
-4. RLS on every new table: `alter table X enable row level security;` then policies.
+4. RLS on every new table: `alter table X enable row level security;` then policies. **Also grant explicitly:** from 2026-10-30 Supabase gives new `public` tables NO default grants, so a table with a policy but no `grant select … to anon, authenticated` (or the role it needs) is unreadable. Column-level grants make `select("*")` error for that role, so grant the whole table or list columns in the query.
 5. Apply: `npm run db:push` (calls `scripts/db-push.mjs`, which uses Supabase Management API).
 6. Commit migration file. The `_ikratom_migrations` table tracks applied migrations server-side; new env starts from blank and applies all.
 
@@ -178,9 +178,9 @@ export async function GET(request: NextRequest) {
 
 Two layers:
 1. **In-app:** insert into `notifications` table. RLS allows the user to read their own. The bell badge in nav reads count via `getUnreadNotificationCount()`.
-2. **Push:** automatic. The hourly cron `fanoutPushNotifications()` picks up unpushed rows in the last 24h, sends to subscribed devices, marks `pushed_at`.
+2. **Push:** automatic. The scheduled job (`cron-hourly.yml`, every 2 hours) runs `fanoutPushNotifications()`, which picks up unpushed rows in the last 24h, sends to subscribed devices, marks `pushed_at`.
 
-You don't need to call the push sender directly — just insert the row with `kind`, `title`, `body`, `link`. Fan-out is the cron's job.
+You don't need to call the push sender directly — just insert the row with `kind`, `title`, `body`, `link`. Fan-out is the cron's job, and every web push MUST go through `fanoutPushNotifications` (`src/modules/notifications/push-fanout.ts`): a direct send double-buzzes and bypasses the member's opt-out.
 
 ---
 
@@ -208,10 +208,13 @@ If you want a 5th printable sheet (e.g. business card):
 
 ---
 
-## Add a new AI provider (when toolkit is implemented)
+## Add a new AI provider
 
+**For the scheduled jobs (almost always what you want):** the pool lives in `scripts/lib/ai-router.mjs`. A provider with no key is skipped, so adding a listed provider is just adding its secret (see `docs/AI_PROVIDERS.md`). To wire a brand-new one, add a `call<Name>()` wrapper there, put it in `callOne()`'s switch and the default order, add its secret name to the workflows' env block (`tests/ai-provider-wiring.test.ts` fails CI if you forget), and check it with `npm run ai:smoke`. It must be free-tier; never add a paid one.
+
+**For the site's own features:** `src/lib/ai/` (currently Groq, Gemini, Ollama).
 1. New file `src/lib/ai/providers/<name>.ts` exporting `complete()` and `completeStructured()` matching the shared shape.
 2. Add it to the `ProviderName` union in `src/lib/ai/types.ts`.
 3. Update the routing rules in `src/lib/ai/router.ts`.
-4. Document in `docs/AI_TOOLKIT.md`.
-5. Add a smoke test: `scripts/test-ai-<name>.mjs`.
+4. Set the key in Netlify (the site reads it on the next build).
+5. Document in `docs/AI_TOOLKIT.md` and `docs/AI_PROVIDERS.md`.

@@ -1,106 +1,98 @@
-# iKratom — Planned Integrations
+# iKratom — Integrations
 
-External APIs and SDKs we will integrate as we expand the platform.
+External APIs and SDKs the platform uses, and the ones it deliberately does not.
+_Reviewed 2026-10-25. This file was a plan until then; it now describes what is built.
+For where everything runs, see [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md)._
 
-## ✅ Already integrated
+## ✅ Integrated
 
 | API | Purpose | Used in |
 | --- | --- | --- |
-| **Supabase** | Auth, DB, RLS | Everything |
-| **OpenStates v3** | State legislator sync | `scripts/sync-legislators.mjs`, `src/lib/sync/openstates.ts` |
+| **Supabase** | Auth, DB, RLS, Realtime, Storage | Everything |
+| **OpenStates v3** | State legislator sync (250 requests/day per key, so the keyless `openstates/people` bulk repo carries the load) | `scripts/sync-legislators.mjs`, `src/lib/sync/openstates.ts` |
+| **LegiScan** | Bill tracking + status changes | `scripts/sync-bills-via-legiscan.mjs`, `scripts/sync-legiscan-datasets.mjs`, `/bills` |
 | **US Census Geocoder** | Address → districts (cd / sldu / sldl). Replaced Google Civic Info (sunset 2025). Free, no API key. | `src/lib/civic.ts`, called from profile save |
+| **Gmail API** (`gmail.send` only) | Members send letters from their own Gmail, one click | `src/lib/email/gmail.ts` |
+| **Microsoft Graph** (`Mail.Send`) | Same, from Outlook | `src/lib/email/outlook.ts` |
+| **SMTP app passwords** | Same, for Yahoo, AOL and iCloud (since 2026-10-22). Stored AES-256-GCM encrypted | `src/lib/email/smtp.ts` |
+| **Resend + Brevo** (free tiers) | Platform mail only: signup, resets, notices, digests | `src/lib/email/transactional.ts`, `src/lib/email/router.ts` |
+| **Web Push (VAPID)** | Push notifications, no third party | `src/lib/push/`, `public/sw.js` |
+| **Discord** | Outbound webhooks to server channels, and account linking via OAuth | `src/modules/discord/`, `src/app/api/oauth/discord/` |
+| **Free AI pool** | Groq, Gemini, Mistral, NVIDIA, Cloudflare, OpenRouter free models, Ollama locally | `scripts/lib/ai-router.mjs`, `src/lib/ai/` — keys in [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md) |
 
-## 🟡 Pending API key
+Federal members come from the keyless `unitedstates/congress-legislators` dataset, not a
+Congress API key.
 
-| API | Purpose | Where it goes |
-| --- | --- | --- |
-| **LegiScan** | Bill tracking + status changes | `src/lib/sync/legiscan.ts` (to build), `/bills` page |
-| **ProPublica Congress** | U.S. Senate / House sync (alt to LegiScan) | `src/lib/sync/congress.ts` (to build) |
-| **Anthropic / Claude** | AI-personalized email drafts, news scraping summaries | Server actions in admin tools |
+## ⚡ Send-on-behalf (the one-click letter)
 
-## ⚡ Gmail OAuth — DONE (Outlook still pending)
+This is what makes one-click batch sending real. A `mailto:` link opens the member's mail
+client with the message pre-filled; they still click Send. With a connected account,
+iKratom sends N personalized emails to N legislators with a single button, and each one
+lands in the member's own Sent folder, addressed by name. `mailto:` stays as the fallback
+for anyone who has not connected a mailbox, and when a send fails (expired token and so on).
 
-### Setup steps (one-time, by an admin)
+### Why this is the differentiator
 
-1. Go to **console.cloud.google.com** → your iKratom project (or create one)
-2. **APIs & Services → Library** → search "Gmail API" → **Enable**
-3. **APIs & Services → OAuth consent screen**:
-   - User type: **External**
-   - App name: `iKratom`
-   - User support email: yours
-   - Developer contact: yours
-   - Scopes: add `https://www.googleapis.com/auth/gmail.send`
-   - Test users: add your own developer account email (and any other accounts you want to test with)
-4. **APIs & Services → Credentials → + Create Credentials → OAuth client ID**:
-   - Application type: **Web application**
-   - Name: `iKratom Gmail OAuth`
-   - Authorized JavaScript origins: `http://localhost:3001` (and your prod URL when deploying)
+Form-letter mass emails get filtered as spam. Personalized emails from a constituent's
+actual address are read. Other tools force a choice between scale (mass blast) and
+authenticity (one by one). Sending from the member's own mailbox gives both.
+
+### One-time setup for Google (by the owner)
+
+1. **console.cloud.google.com** → the iKratom project → **APIs & Services → Library** →
+   enable **Gmail API**.
+2. **OAuth consent screen** (now under **Google Auth Platform**):
+   - User type **External**, app name `iKratom`, support and developer contact addresses.
+   - Scope: `https://www.googleapis.com/auth/gmail.send` and nothing else.
+3. **Credentials → Create credentials → OAuth client ID**, type **Web application**:
    - Authorized redirect URIs:
-     - `http://localhost:3001/api/oauth/google/callback`
-     - (add prod URL too: `https://yourdomain.com/api/oauth/google/callback`)
-   - Save → copy **Client ID** and **Client secret** into `.env.local`:
+     - `https://www.ikratom.org/api/oauth/google/callback`
+     - `http://localhost:3001/api/oauth/google/callback` (local dev)
+   - Put the **Client ID** and **Client secret** in `.env.local`, the Netlify environment
+     variables and, if a job needs them, the GitHub Actions secrets:
      ```
      GOOGLE_OAUTH_CLIENT_ID=...
      GOOGLE_OAUTH_CLIENT_SECRET=...
-     APP_URL=http://localhost:3001
+     APP_URL=http://localhost:3001      # local; production is https://www.ikratom.org
      ```
-5. Restart the dev server.
+4. Restart the dev server.
 
-### Verification checks (gmail.send is "sensitive" but doesn't require Google verification for use by test users)
-
-While the app is in **Testing** mode in OAuth consent screen, only the test users you added can connect. To go public, submit for Google verification (~1 week) — required before launch.
-
-### Architecture
-
-- `email_integrations` table: stores `refresh_token` (long-lived), `account_email`, scopes
-- `/api/oauth/google/start`: generates CSRF state, redirects to Google consent
-- `/api/oauth/google/callback`: validates state, exchanges code, stores refresh token via service role
-- `src/lib/email/gmail.ts`: `sendViaGmail()` mints a fresh access token from refresh, builds RFC 2822, POSTs to `gmail.users.messages.send`
-- `sendCampaignViaGmail()` server action: iterates targets, sends one personalized email each, logs to `campaign_actions` with method=`platform_email`
-- UI: `/account` shows Connect/Disconnect; campaign action shows the green "⚡ One-click send" button when connected
-
-## 🔮 Next: Outlook OAuth (Microsoft Graph)
-
-This is what makes one-click batch sending real. Today we use `mailto:` links — the user's email client opens with the message pre-filled. Works, but the user still has to click Send. With OAuth, iKratom can send N personalized emails to N legislators with a single button — each one appearing in the user's own Sent folder, addressed by name.
+`gmail.send` is a "sensitive" scope. While the OAuth client is in **Testing** mode, only
+the 100 test users you list can ever connect Gmail (a lifetime cap) and each sees an
+"unverified app" warning. Submitting it for Google verification lifts that — the full
+walkthrough is [`GOOGLE_OAUTH_VERIFICATION.md`](GOOGLE_OAUTH_VERIFICATION.md). Outlook and the
+SMTP providers do not need a review.
 
 ### Architecture
-1. User clicks **"Connect Gmail"** in `/account`
-2. OAuth flow: Google consent screen → permission `gmail.send` → callback → store refresh token in `profiles.gmail_refresh_token` (encrypted at rest by Supabase Vault, **never** exposed to client)
-3. Same for Outlook via Microsoft Graph (`Mail.Send` scope)
-4. On campaign action: server action calls Gmail API for each legislator, with per-legislator personalization (real name in greeting), rate-limited to ~1/sec to stay under quotas
-5. Failures (token expired, etc.) fall back to mailto: gracefully
 
-### Why this is the differentiator
-Form-letter mass emails get filtered as spam. Personalized emails from a constituent's actual address are read. Today's tools force users to choose between scale (mass blast) and authenticity (one-by-one). OAuth send gives both.
+- `email_integrations` table: one row per member (PK `user_id`) holding the provider
+  (`gmail`, `outlook`, `yahoo`, `aol`, `icloud`), `account_email`, and an encrypted
+  `refresh_token` (for the SMTP providers, the encrypted app password). Never exposed to
+  the client.
+- `/api/oauth/google/start` and `/callback` (and the `outlook` pair): CSRF state, code
+  exchange, token stored through the service role.
+- `src/lib/email/user-send.ts`: the provider-agnostic dispatcher. `gmail.ts` mints a fresh
+  access token from the refresh token, builds the RFC 2822 message and posts it to
+  `gmail.users.messages.send`; `outlook.ts` does the same through Graph; `smtp.ts` uses
+  nodemailer.
+- `sendCampaignViaGmail()` in `src/modules/campaigns/actions.ts` and the durable send queue
+  (`src/modules/campaigns/drain-batch.ts`) iterate the targets, send one email each, and
+  log to `campaign_actions`.
+- UI: `/account` shows Connect and Disconnect; a campaign shows the one-click send button
+  when a mailbox is connected.
 
-### What we need to build
-- [ ] Google OAuth client (free) — Cloud Console → "Gmail API" → OAuth 2.0
-- [ ] Microsoft Graph app registration (free) — Azure portal → app registration → `Mail.Send` scope
-- [ ] Add cols to `profiles`: `gmail_refresh_token`, `outlook_refresh_token`, `email_provider`
-- [ ] `/api/oauth/google/callback` and `/api/oauth/microsoft/callback` route handlers
-- [ ] `src/lib/email/gmail.ts` and `src/lib/email/outlook.ts` send adapters
-- [ ] Token refresh logic (Gmail tokens expire after 1 hr, refresh tokens last indefinitely if used)
-- [ ] Update `CampaignAction.tsx` — when user has provider connected, use programmatic send instead of mailto
-- [ ] Per-legislator template vars now actually personalize each email
-
-### Estimated build: 1 focused session (~3 hours)
-
-### Why not now
-1. v1 needs a working campaign action first (done in this build) so we can validate the user flow
-2. OAuth setup requires creating Google Cloud OAuth client + verifying domain ownership for production. Best done after we have a domain.
-3. Mailto: gets us 80% of the way — single mailto with all reps in BCC is one click, single Send. Good enough to launch.
-
-## 🔵 Forum + notifications (later)
+## 🔵 Forum + notifications
 
 | Feature | Approach |
 | --- | --- |
 | Per-state forum threads | Supabase tables `forum_threads`, `forum_posts`, RLS by state membership |
-| Notifications | Supabase `pg_notify` + browser push via Web Push API (free, no third-party) |
-| Email digests | Resend free tier (3k/mo) for daily/weekly summaries — opt-in only |
+| Notifications | In-app inbox plus browser push via the Web Push API (free, no third-party) |
+| Email digests | Opt-in only, sent through platform mail (Resend and Brevo free tiers; Resend allows 100 a day, shared with auth mail) |
 
 ## 🔴 Things we will NOT integrate
 
 - **Stripe / payment processors** — iKratom is not a marketplace
 - **Facebook / X SDKs** — explicitly counter-positioned
-- **Discord** — user's own framing: "lacking in something of substance"
-- **Host-only services** (Vercel KV/Postgres/Blob, Netlify Blobs) — Supabase and Cloudflare R2 cover storage, so the app stays host-portable
+- **Any paid AI API**, Anthropic's included — platform policy; the router disables `claude`
+- **Host-only services** (Vercel KV/Postgres/Blob, Netlify Blobs) — Supabase and Cloudflare
+  R2 cover storage, so the app stays host-portable

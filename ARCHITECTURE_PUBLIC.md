@@ -2,7 +2,7 @@
 
 > **Public technical overview.** Safe to share with developers, investors, potential partners.
 > Internal security details, env vars, project IDs, and proprietary thresholds excluded.
-> Last updated: 2026-05-12.
+> Reviewed 2026-10-25. The counts in the table below are a 2026-05-12 snapshot unless a row says otherwise; the live picture is in [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md).
 
 ---
 
@@ -26,14 +26,14 @@ It's the operational backbone for an unfunded, distributed, mostly-volunteer adv
 | Kratom news visible after FP defense | **1,049 canonical** (from 3,801 active — 73% noise filtered) |
 | Approved policy alerts in /pulse feed | **1,090** |
 | Active campaigns live right now | **82** |
-| AI providers in the routing layer | **5** (Gemini, Groq, Cerebras, Mistral, Cloudflare AI) + local Ollama |
-| Free-tier APIs integrated | **8+** (OpenStates, LegiScan, Google Civic, Census, HIBP, Resend, etc.) |
+| AI providers in the routing layer | A free-tier pool with automatic fallback: Groq, Gemini, Mistral, NVIDIA, Cloudflare Workers AI, OpenRouter free models, plus Ollama on the owner's machine. A provider that starts charging is dropped, never paid |
+| Free-tier APIs integrated | **8+** (OpenStates, LegiScan, Census, HIBP, Resend and Brevo for platform mail, etc.) |
 | User actions per legislator email | **1 click** |
 | End-to-end encrypted feature | **Direct messages** (libsodium / Curve25519 + XChaCha20-Poly1305) |
-| Migrations applied to schema | **109** |
+| Migrations applied to schema | **280+** (109 at the 2026-05-12 snapshot) |
 | Commits to main (last 30 days) | **260+** |
 | Scraper runs (last 7 days) | **267** automated cron executions |
-| Tables under Row Level Security | **62 of 62** in `public` schema |
+| Tables under Row Level Security | **Every table** in the `public` schema (62 of 62 at the 2026-05-12 snapshot) |
 
 ---
 
@@ -51,7 +51,7 @@ flowchart TB
   S["📥 Sources · 8+<br/>OpenStates · LegiScan · Google News RSS<br/>51 state BoP websites · Civic · Census<br/>OpenFEC · user submissions"]:::src
 
   P1["⚙️ Ingest + dedupe"]:::proc
-  P2["🧠 AI enrichment + classification<br/>multi-provider router (5 LLMs)"]:::proc
+  P2["🧠 AI enrichment + classification<br/>multi-provider free-tier router"]:::proc
   P3["🔗 Cross-reference<br/>bills ↔ news ↔ BoP, by state + week"]:::proc
   P4["🚨 Auto-alerts + auto-campaigns"]:::proc
 
@@ -132,12 +132,12 @@ The platform uses a **multi-provider router** that picks the right LLM for each 
 ```mermaid
 flowchart TB
   task[AI task] --> router{Router decision}
-  router -->|fast structured| groq[Groq<br/>Llama 3.3 70B]
-  router -->|cheap bulk| cerebras[Cerebras<br/>Llama 3.3 70B]
-  router -->|grounded fact-check| gemini[Gemini Flash 2.5<br/>+ Google Search]
+  router -->|fast structured| groq[Groq<br/>open models]
+  router -->|cheap bulk| pool[NVIDIA NIM +<br/>OpenRouter free models]
+  router -->|plain generation| gemini[Gemini<br/>free tier]
   router -->|narrative + tone| mistral[Mistral Small]
-  router -->|edge-distributed| cf[Cloudflare Workers AI<br/>Llama 3.1 8B]
-  router -->|local + private| ollama[Ollama<br/>Llama 3.1 8B]
+  router -->|edge-distributed| cf[Cloudflare Workers AI]
+  router -->|local + private| ollama[Ollama<br/>owner's machine]
 
   subgraph USES["Where AI runs in the pipeline"]
     U1[Bill summary + relevance]
@@ -156,14 +156,14 @@ flowchart TB
   gemini --> U4
   gemini --> U5
   gemini --> U7
-  cerebras --> U2
-  cerebras --> U3
+  pool --> U2
+  pool --> U3
   mistral --> U8
   cf --> U6
   ollama -.local enrichment.-> U1
 ```
 
-**Quota strategy**: ~80 Gemini grounded calls/day (well under 1500/day free tier), most other work routes to Groq/Cerebras free tiers. All AI jobs logged to `ai_jobs` table for cost + activity tracking on `/admin/ai-control`.
+**Quota strategy**: every call goes to the first free provider that answers and falls through to the next on a rate limit, a payment-required reply or an empty answer; a provider that leaves its free tier (Cerebras did in 2026-10) is parked, then dropped, never paid. Fresh facts come from fetching the source page first and handing the text to a free model with the URL to cite, not from paid search grounding. AI jobs are logged to the `ai_jobs` table and provider health shows on `/admin/ai-control`.
 
 ---
 
@@ -188,7 +188,7 @@ sequenceDiagram
     U->>W: Open a hostile-bill campaign
     W->>AI: Personalize email tone<br/>from user's "stake" field
     AI-->>W: Tailored email body
-    U->>L: Send 1-click via mailto / Gmail OAuth
+    U->>L: Send 1-click from their own mailbox<br/>(Gmail / Outlook / SMTP app password) or mailto
     W->>DB: campaign_actions logged
     DB->>DB: Trigger: bump action streak<br/>+ first_action_at on referrer
     DB-->>U: Push notification when bill status changes
@@ -347,7 +347,7 @@ flowchart TB
 
 ```mermaid
 gantt
-    title iKratom — current state & forward roadmap
+    title iKratom — roadmap as of 2026-05-12 (see STATE_OF_PLAY.md for what is live today)
     dateFormat YYYY-MM
     axisFormat %b '%y
 
@@ -384,7 +384,7 @@ gantt
 
 1. **Administrative regulatory drift**: state Boards of Pharmacy are quietly moving on emerging substances faster than legislatures, with less public visibility. Without continuous monitoring, advocates find out the week a rule takes effect.
 
-2. **AI-enabled tooling makes per-state tracking actually possible**: free-tier LLM access (Gemini grounding, Groq, Cerebras) means we can fact-check 50 states' bill statuses every day for $0. Five years ago this took a team of analysts.
+2. **AI-enabled tooling makes per-state tracking actually possible**: free-tier LLM access (Groq, Gemini, Mistral, NVIDIA, Cloudflare and OpenRouter free models) means we can fact-check 50 states' bill statuses every day for $0. Five years ago this took a team of analysts.
 
 3. **Civic engagement floor is collapsing**: people respond to "one tap" but not to "look up your rep + draft an email + find their address + format it correctly". The friction reduction matters more than ever.
 
@@ -410,4 +410,4 @@ The advocacy community for kratom is large, decentralized, and almost entirely r
 
 ---
 
-_Built and maintained by one operator + Claude (AI co-developer). Codebase at: `github.com/ohjustadam/ikratom` (private until v2 launch). Investor / partner inquiries: contact@ikratom.org._
+_Built and maintained by one operator + Claude (AI co-developer). Codebase at: `github.com/ohjustadam/ikratom` (public). Investor / partner inquiries: contact@ikratom.org._

@@ -43,15 +43,16 @@ usable from any device — and the desktop app wraps it natively for free.
 
 ## 3. The forever-free guarantee
 
-- **AI:** every AI feature routes through the free chain (Groq → Gemini →
-  Ollama, plus the script-side router's larger free pool). If one provider
+- **AI:** every AI feature routes through the free chain (the site: Groq,
+  Gemini, Ollama; the scheduled jobs: a larger pool of Groq, Gemini, Mistral,
+  NVIDIA, Cloudflare and OpenRouter free models). If one provider
   dies or rate-limits, the router falls through to the next automatically.
   Paid AI is disabled by platform policy — nothing on the site can silently
   start costing money.
 - **Hosting:** Netlify (1000 credits/month, behind Cloudflare) + Supabase free
   tier + GitHub Actions (free for public repos). Only `session_prep` and
   `bill_embeddings` still need your box.
-- **Email:** mailto only — the user's own mail client sends, we never pay.
+- **Email:** members send letters from their OWN mailbox — one click through a connected Gmail, Outlook, or Yahoo/AOL/iCloud app password, or a `mailto:` link — so letters never cost us. Platform mail (signup, resets, notices) runs on the free tiers of Resend and Brevo.
 - If a free tier ever shrinks: the site keeps running; the affected feature
   degrades (slower AI, staler data) rather than breaking. `/admin/ai-control`
   and `/admin/intel-health` show you which leg is limping.
