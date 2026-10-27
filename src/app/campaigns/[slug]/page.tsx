@@ -554,6 +554,7 @@ export default async function CampaignPage({
           initialJoined={waveJoined}
           signedIn={!!user}
           gmailConnected={gmailConnected}
+          safeModeState={safeMode?.active ? safeMode.stateName : null}
         />
       )}
 

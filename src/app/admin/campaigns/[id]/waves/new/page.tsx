@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import { findUseAdmissions } from "@/lib/use-admission";
 import { NewWaveForm } from "./NewWaveForm";
 
 export const metadata = { title: "Schedule a wave" };
@@ -18,7 +19,7 @@ export default async function NewWavePage({
 
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, slug, title, state, active")
+    .select("id, slug, title, state, active, subject_template, body_template")
     .eq("id", id)
     .single();
   if (!campaign) notFound();
@@ -78,6 +79,8 @@ export default async function NewWavePage({
           campaignId={campaign.id}
           campaignSlug={campaign.slug}
           campaignTitle={campaign.title}
+          useAdmissions={findUseAdmissions(`${campaign.subject_template}
+${campaign.body_template}`)}
         />
       )}
     </div>
