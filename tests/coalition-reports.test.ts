@@ -32,3 +32,33 @@ describe("group content can be reported", () => {
     expect(sql).toMatch(/create table if not exists public\.coalition_events[\s\S]*?created_by\s+uuid/);
   });
 });
+
+describe("moderators can open a reported group item", () => {
+  const go = read("src/app/coalitions/go/[kind]/[id]/route.ts");
+  const mod = read("src/modules/coalitions/moderation.ts");
+
+  it("the go-link redirects only members or site moderators, and 404s everyone else", () => {
+    expect(go).toMatch(/if \(!user\) return notFound\(\)/);
+    expect(go).toMatch(/if \(!member && !\(await isSiteModerator\(sb, user\.id\)\)\) return notFound\(\)/);
+    expect(go.indexOf("isSiteModerator(")).toBeLessThan(go.indexOf('from("coalitions").select("slug")'));
+    expect(go).toMatch(/"Cache-Control": "private, no-store"/);
+  });
+
+  it("reads a private group's row with the service role only after the moderator check", () => {
+    const fn = mod.slice(mod.indexOf("export async function groupForViewer"));
+    expect(fn.indexOf("isSiteModerator(sb, userId)")).toBeLessThan(fn.indexOf("createServiceRoleClient()"));
+  });
+
+  it("the moderator view is read-only: no reply box, RSVP or report buttons", () => {
+    expect(thread).toMatch(/\{isMember && <div id="reply"/);
+    expect(thread).toMatch(/isMember && thread\.author_id !== user\.id && <ReportButton/);
+    expect(event).toMatch(/\{isMember && !ev\.cancelled_at && !past && <RsvpButtons/);
+  });
+
+  it("a reported reply lands on its post", async () => {
+    const { groupReportHref } = await import("@/modules/coalitions/moderation");
+    expect(groupReportHref("group_post", "abc")).toBe("/coalitions/go/post/abc");
+    expect(go).toMatch(/t\/\$\{data\.thread_id\}#post-\$\{id\}/);
+    expect(thread).toMatch(/id=\{`post-\$\{p\.id\}`\}/);
+  });
+});
