@@ -35,7 +35,10 @@ const args = process.argv.slice(2);
 const modelIdx = args.indexOf("--model");
 const MODEL = modelIdx >= 0 ? args[modelIdx + 1] : "nomic-embed-text";
 const limitIdx = args.indexOf("--limit");
-const LIMIT = limitIdx >= 0 ? parseInt(args[limitIdx + 1]) : 5000;
+// Each stored embedding is ~9.2 KB of jsonb. The old default of 5000 would
+// have added ~46 MB in one run, 9% of the 0.5 GB database cap that never
+// resets (it sat at 77% on 2026-10-27). Raise --limit only with headroom.
+const LIMIT = limitIdx >= 0 ? parseInt(args[limitIdx + 1]) : 250;
 const threshIdx = args.indexOf("--threshold");
 const THRESHOLD = threshIdx >= 0 ? parseFloat(args[threshIdx + 1]) : 0.90;
 const REFRESH = args.includes("--refresh");

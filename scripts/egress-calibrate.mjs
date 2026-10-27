@@ -29,7 +29,10 @@ const margin = CALIBRATION.overReportMargin ?? 1.1;
 const ratio = Number((BILLABLE_RATIO * (dashboardGB / estimateGB) * margin).toFixed(4));
 console.log(`dashboard ${dashboardGB} GB · our estimate ${estimateGB.toFixed(3)} GB at ratio ${BILLABLE_RATIO}`);
 console.log(`new ratio ${ratio} (estimate becomes ~${(dashboardGB * margin).toFixed(3)} GB, ${Math.round(margin * 100 - 100)}% above the dashboard on purpose)`);
-if (ratio < 0.15 || ratio > 0.9) { console.error("That ratio is implausible — check the dashboard number and the cycle dates."); process.exit(1); }
+// The floor was 0.15 until 2026-10-25, when the true ratio measured 0.137:
+// the raw counter is now mostly internal traffic, not visitors (it is not WAL:
+// 20-65 MB/day of WAL against ~430 MB/day transmitted, measured that day).
+if (ratio < 0.05 || ratio > 0.9) { console.error("That ratio is implausible — check the dashboard number and the cycle dates."); process.exit(1); }
 
 if (args.includes("--write")) {
   const file = new URL("./lib/egress-calibration.json", import.meta.url);

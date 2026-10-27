@@ -32,7 +32,10 @@ import { getEgressStatus, BUDGET_GB } from "./lib/egress-budget.mjs";
 const E = process.env;
 const PORT = Number(E.LIMITS_PORT || 4319);
 const MANUAL_FILE = path.resolve("private/limits-manual.json"); // gitignored
-const HISTORY_FILE = path.resolve("private/limits-history.json"); // gitignored; one DB-size reading per day
+// gitignored; one DB-size reading per day. "-v2" since 2026-10-25, when the
+// reading changed basis to the dashboard's (all databases, decimal MB): mixing
+// the two would show a fake 19 MB jump as a week of growth.
+const HISTORY_FILE = path.resolve("private/limits-history-v2.json");
 const CF_ZONE = E.CLOUDFLARE_ZONE_ID || "6f054a2b237f9b7ec10d525ec7e99d05";
 const NETLIFY_SLUG = E.NETLIFY_ACCOUNT_SLUG || "ohjustadam";
 const NETLIFY_DASH = `https://app.netlify.com/teams/${NETLIFY_SLUG}/billing/general`;
@@ -155,7 +158,9 @@ const collectors = {
 
   async supabase() {
     const [[db], [st], [conn], [users], auth, proj, eg] = await Promise.all([
-      sql("select pg_database_size(current_database())/1048576.0 mb"),
+      // The cap is enforced on the sum of every database (template0/1 too), in
+      // decimal units: 0.383 GB on the dashboard when `postgres` was 351 MiB.
+      sql("select sum(pg_database_size(datname))/1e6 mb from pg_database"),
       sql("select coalesce(sum((metadata->>'size')::bigint),0)/1048576.0 mb from storage.objects"),
       sql("select count(*) n, (select setting::int from pg_settings where name='max_connections') max from pg_stat_activity"),
       sql("select count(*) n from auth.users"),

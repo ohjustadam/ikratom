@@ -2,6 +2,8 @@ import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { publicHandle } from "@/lib/public-handle";
+import { groupForViewer } from "@/modules/coalitions/moderation";
+import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { PinButton, ReplyForm, RemoveButton } from "./ThreadClient";
 
 /**
@@ -22,10 +24,12 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
   const { data: { user } } = await sb.auth.getUser();
   if (!user) notFound();
 
-  const { data: c } = await sb.from("coalitions").select("id, slug, name").eq("slug", slug).maybeSingle();
-  if (!c) notFound();
+  // Members, plus a read-only view for site moderators opening a report.
+  const viewer = await groupForViewer(sb, slug, user.id);
+  if (!viewer) notFound();
+  const c = viewer.group;
 
-  const [{ data: thread }, { data: postRows }, { data: me }] = await Promise.all([
+  const [{ data: thread }, { data: postRows }] = await Promise.all([
     sb.from("coalition_threads")
       .select("id, title, body, author_id, created_at, pinned_at")
       .eq("id", threadId).eq("coalition_id", c.id).is("deleted_at", null).maybeSingle(),
@@ -33,9 +37,9 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
       .select("id, body, author_id, created_at")
       .eq("thread_id", threadId).is("deleted_at", null)
       .order("created_at", { ascending: true }).limit(500),
-    sb.from("coalition_members").select("role").eq("coalition_id", c.id).eq("user_id", user.id).maybeSingle(),
   ]);
-  if (!thread || !me) notFound();
+  if (!thread) notFound();
+  const isMember = !viewer.moderator;
 
   const posts = (postRows ?? []) as { id: string; body: string; author_id: string; created_at: string }[];
   const ids = [...new Set([thread.author_id, ...posts.map((p) => p.author_id)])];
@@ -44,7 +48,7 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
   for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null }[]) {
     handles.set(p.id, publicHandle(p));
   }
-  const canModerate = me.role === "owner" || me.role === "admin";
+  const canModerate = viewer.role === "owner" || viewer.role === "admin";
   const who = (id: string) => handles.get(id) ?? "@member";
   const when = (iso: string) => new Date(iso).toLocaleString();
 
@@ -53,6 +57,11 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
       <Link href={`/coalitions/${c.slug}#discussion`} className="text-xs text-zinc-500 hover:text-emerald-400">
         ← {c.name}
       </Link>
+      {viewer.moderator && (
+        <p className="mt-2 rounded border border-amber-700/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+          Moderator view: you aren&apos;t a member of this group. Read-only; act from the reports queue.
+        </p>
+      )}
 
       <article className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
         <h1 className="text-2xl font-bold text-zinc-100">{thread.title}</h1>
@@ -62,21 +71,23 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
           <RemoveButton slug={c.slug} kind="thread" id={thread.id} redirectTo={`/coalitions/${c.slug}#discussion`} />
         )}
         {canModerate && <PinButton slug={c.slug} threadId={thread.id} pinned={!!thread.pinned_at} />}
+        {isMember && thread.author_id !== user.id && <ReportButton targetType="group_thread" targetId={thread.id} className="ml-3 text-[11px] text-zinc-500 hover:text-amber-300" />}
       </article>
 
       <ul className="mt-4 space-y-2">
         {posts.map((p) => (
-          <li key={p.id} className="rounded-lg border border-zinc-800 bg-zinc-950/30 p-3">
+          <li key={p.id} id={`post-${p.id}`} className="scroll-mt-20 rounded-lg border border-zinc-800 bg-zinc-950/30 p-3 target:border-amber-500">
             <p className="text-[11px] text-zinc-500">{who(p.author_id)} · {when(p.created_at)}</p>
             <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">{p.body}</p>
             {(p.author_id === user.id || canModerate) && (
               <RemoveButton slug={c.slug} kind="post" id={p.id} />
             )}
+            {isMember && p.author_id !== user.id && <ReportButton targetType="group_post" targetId={p.id} className="ml-3 text-[11px] text-zinc-500 hover:text-amber-300" />}
           </li>
         ))}
       </ul>
 
-      <div id="reply" className="scroll-mt-20"><ReplyForm slug={c.slug} threadId={thread.id} /></div>
+      {isMember && <div id="reply" className="scroll-mt-20"><ReplyForm slug={c.slug} threadId={thread.id} /></div>}
     </div>
   );
 }
