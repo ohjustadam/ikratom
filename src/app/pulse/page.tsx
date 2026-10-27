@@ -329,7 +329,7 @@ export default async function PulsePage({
       .from("profiles")
       .select("state, congressional_district, state_senate_district, state_house_district, city, county")
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
     viewerProfile = (prof as unknown) as ViewerProfile | null;
     profileState = viewerProfile?.state ?? null;
   }
