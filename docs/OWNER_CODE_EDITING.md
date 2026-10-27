@@ -27,7 +27,7 @@ only for actual code changes (new features, bug fixes, migrations, deps).
 Real code editing needs a coding agent with repo access. Claude Code (what built
 this) is the best, but here are **free** alternatives that run on your
 PC/laptop and point at **free** model providers. You already have free API keys
-in `.env.local` (Groq, Gemini, Cerebras, etc.), so a coding agent can reuse them.
+in `.env.local` (Groq, Mistral, NVIDIA, OpenRouter, etc.), so a coding agent can reuse them. Which ones work today is in `docs/AI_PROVIDERS.md`: the primary Gemini key answers 402 until it is replaced by a key from a Google project with no billing, and Cerebras left the free tier.
 
 ### The tools (all free / open-source, "bring your own key")
 
@@ -50,7 +50,8 @@ in `.env.local` (Groq, Gemini, Cerebras, etc.), so a coding agent can reuse them
    **aider** and point it at your existing Groq/Gemini key from `.env.local`:
    ```bash
    pip install aider-install && aider-install
-   # example using your existing Gemini key:
+   # example using a Gemini key (it must come from a Google project with
+   # NO billing, or it answers 402 — see docs/AI_PROVIDERS.md):
    aider --model gemini/gemini-2.5-flash
    ```
 2. Point it at the repo root `C:\claude\ikratom` and tell it to **read

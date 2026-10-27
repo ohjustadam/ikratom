@@ -39,7 +39,7 @@ Definitions of in-house terms. Saves "what does this mean?" grep loops for new c
 
 | Term | Definition |
 |---|---|
-| **proxy.ts** | Next.js 16's replacement for `middleware.ts`. Same purpose (request preprocessing), different filename. |
+| **proxy.ts** | Next.js 16's replacement for `middleware.ts`. Same purpose (request preprocessing), different filename. Ours is disabled since 2026-07-26 (`src/proxy.disabled.ts`): Netlify's adapter can't bundle it. |
 | **Realtime presence** | Supabase Realtime feature: clients in a channel announce themselves; server tracks the set; "X online now" counter. |
 | **Realtime postgres_changes** | Supabase Realtime feature: clients subscribe to INSERT/UPDATE/DELETE on a table; payloads delivered respecting RLS. |
 | **REPLICA IDENTITY FULL** | Postgres setting on a table: full row logged in WAL on UPDATE/DELETE. Required for Realtime DELETE events when filtering on non-PK columns. |
@@ -48,4 +48,4 @@ Definitions of in-house terms. Saves "what does this mean?" grep loops for new c
 | **Backup codes** | Single-use 6-digit codes for MFA bypass. Each redeems for a 1-hour aal2 grace window. |
 | **AAL** | Authenticator Assurance Level. `aal1` = password only. `aal2` = password + TOTP. Some sensitive admin actions require aal2. |
 | **VAPID** | Voluntary Application Server Identification. Asymmetric keypair used for Web Push. Public key in browser, private key on server. |
-| **CRON_SECRET** | Bearer token gating `/api/cron/*` endpoints. Same value lives in Vercel env + `.github/workflows/cron-hourly.yml` repo secret. |
+| **CRON_SECRET** | Bearer token gating `/api/cron/*` endpoints. Same value lives in the Netlify environment variables + the GitHub Actions repo secret that `.github/workflows/cron-*.yml` read. |
