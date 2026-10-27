@@ -102,7 +102,7 @@ What this looks like in practice:
 - Discord integrations so existing communities don't have to migrate
 - Encrypted DMs so coordination can be private
 - Multi-language so the supply chain isn't excluded
-- Open source / well-documented so a fork is always possible
+- Public, source-available and well-documented (`LICENSE.md`: read it, audit it, fork it to contribute back; redeploying a copy needs written permission), so the work can always be inspected
 - No single point of failure (multiple email providers, multiple AI providers, multi-region DNS)
 - No vendor lock-in (you can self-host, you can export your data)
 

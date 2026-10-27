@@ -2,7 +2,9 @@
 
 iKratom orchestrates multiple AI providers because no single model is best at everything we do, and most of what we do is bulk work that doesn't need the smartest model. This doc is the routing rulebook.
 
-**Current status (2026-10-09):** the live router is `scripts/lib/ai-router.mjs` (crons) with automatic fallback across every free provider whose key is set; `src/lib/ai/` serves the site. The sections after "Layered priority scale" are the original 2026-05 design, kept as history — where they disagree, the scale below wins. Keys and where to get them: `docs/AI_PROVIDERS.md`. Live health: `npm run ai:smoke`.
+**Current status (2026-10-25):** the live router is `scripts/lib/ai-router.mjs` (crons) with automatic fallback across every free provider whose key is set; `src/lib/ai/` serves the site (Groq, Gemini and Ollama providers; it needs its own keys in Netlify). The sections after "Layered priority scale" are the original 2026-05 design, kept as history — where they disagree, the scale below wins. Keys and where to get them: `docs/AI_PROVIDERS.md`. Live health: `npm run ai:smoke`.
+
+**Right now:** the primary Gemini key answers 402 (its Google project has prepaid billing), Cerebras left the free tier, and the SambaNova and Vercel AI Gateway keys are rejected, so Groq carries the pool until a Gemini key from a no-billing project is set. Grounded Google Search is therefore unavailable; scripts fetch the source page and hand its text to a free model instead (layer L3).
 
 ---
 
@@ -14,7 +16,7 @@ iKratom orchestrates multiple AI providers because no single model is best at ev
 |---|---|---|---|
 | **L0 — deterministic** | Structured APIs + code: Legistar webapi, LegiScan, OpenStates bulk, Census, Wikidata SPARQL, FEC, Regulations.gov, keyword/regex classifiers, SQL | Free, exact, no model | Anything that already exists as data. Use a model only when the answer has to be *read out of* text |
 | **L1 — local** | Ollama on the owner's PC | Free, unlimited, slow; protect the box (cap minutes) | Privacy-sensitive work (DMs, PII, raw member content) — **fails closed**, never leaves the machine |
-| **L2 — free cloud pool** | Router fallback order: Groq → Gemini (key pool; each Google Cloud *project* = its own quota; plain generation only, grounding has no free quota on new projects) → NVIDIA → Mistral → Cloudflare Workers AI (Gemma 4 26B, 10k neurons/day) → OpenRouter (`openrouter/free`; 1,000/day after a one-time $10 credit) → SambaNova / Vercel AI Gateway when their keys are valid | Free tiers; see `ai:smoke` | Bulk classify, summarize, translate, extract, draft, diff review |
+| **L2 — free cloud pool** | Router fallback order: Groq → Gemini (key pool; each Google Cloud *project* = its own quota; plain generation only, grounding has no free quota on new projects) → NVIDIA → Mistral → Cloudflare Workers AI (Gemma 4 26B, 10k neurons/day) → OpenRouter (`openrouter/free`; 50/day, 1,000/day after a one-time $10 credit) → SambaNova / Vercel AI Gateway when their keys are valid. Cerebras is out (402, left the free tier) | Free tiers; see `ai:smoke` | Bulk classify, summarize, translate, extract, draft, diff review |
 | **L3 — search + read** | SearXNG (in-job container on GitHub Actions), Tavily (1,000/month), headless Chromium + `page-text.mjs`, Wayback | Free | Fresh facts: fetch the source page FIRST, then hand the text to L2 with the URL to cite. This replaces paid search grounding |
 | **L4 — Claude (this seat)** | Judgment, architecture, security, code that must be right first time, final pass on user-facing copy, uniformity | Scarce (5-hour + weekly limits) | Decisions and verification — **never bulk** |
 
@@ -74,7 +76,7 @@ The router is `src/lib/ai/router.ts`. Tasks declare what they need (grounding? p
 
 | Task | Provider | Why |
 |---|---|---|
-| Bill deep analysis (text → targets natural/synthetic flags) | Ollama (llama3.3:70b) | Bulk; privacy of raw bill text not critical but local is faster than rate-limited Gemini |
+| Bill deep analysis (text → targets natural/synthetic flags) | Ollama (llama3.3:70b) | Bulk; privacy of raw bill text not critical but local is faster than rate-limited Gemini. _History: the 70B model runs out of memory on the owner's PC, and enrichment now runs in the cloud pool._ |
 | Bill summary (plain English) | Ollama | Bulk, no grounding needed (we have the text) |
 | Bill callout writing | Ollama | Same |
 | Translation (bill → 6 langs) | Ollama (llama3.1:8b) | Already shipped; fast on small model |
@@ -131,34 +133,34 @@ ai_translate(text, target_lang)     → string
 
 This lets the Claude session in your IDE dispatch bulk work to Gemini/Ollama/Groq without you copying prompts around. The chat is the command center; tool calls are the orchestration.
 
-**Status:** not yet built. Will ship after `src/lib/ai/` providers are battle-tested by the in-app capital sweep + bill enrichment.
+**Status:** not built. In practice the in-site AI Editor-in-Chief (`/admin/ai-editor`) and `npm run ai:smoke` cover the need.
 
 ---
 
 ## In-app dashboard (`/admin/ai-control`)
 
-When implemented, surfaces:
+Surfaces:
 - Recent AI calls (provider, task, latency, success/fail)
 - Per-provider rate limit state (X/15 requests this minute on Gemini)
 - Queue of pending background jobs
 - One-click retry for failures
 - Cost ledger (Ollama: $0; Gemini: counter against free quota; Groq: same)
 
-**Status:** designed, not yet built. Schema sketch lives in `docs/SCHEMA.md` once ai_job_log table ships.
+**Status:** built (`src/app/admin/ai-control/`). Calls are logged to the `ai_jobs` table (see `docs/SCHEMA.md`); what the page shows beyond provider health and a test prompt may be narrower than this original list.
 
 ---
 
-## Rollout plan
+## Rollout plan (history — steps 1 to 6 shipped)
 
 1. ✅ Design doc (this file)
-2. ✅ Scaffolding (`src/lib/ai/`) — providers + router, no production wiring yet
-3. **Next:** smoke-test scripts (`scripts/test-ai-{ollama,gemini,groq}.mjs`) to confirm each provider works locally
-4. **Then:** port the existing capital-cities sweep to use the router (low-risk; runs on demand)
-5. **Then:** port bill enrichment to use the router (medium-risk; cron-triggered)
-6. **Then:** add `ai_job_log` table + `/admin/ai-control` dashboard
-7. **Then:** build `mcp-ai-router` MCP server for Claude Desktop integration
+2. ✅ Scaffolding (`src/lib/ai/`) — providers + router
+3. ✅ Smoke tests: `npm run ai:smoke` (`scripts/test-ai-providers.mjs`)
+4. ✅ Capital-cities sweep uses the router (`scripts/seed-state-capital-info.mjs`)
+5. ✅ Bulk jobs moved to `scripts/lib/ai-router.mjs` and its larger free pool; a few older scripts still call a provider directly and get no fallback, so route new work through the router
+6. ✅ `ai_jobs` table + `/admin/ai-control`
+7. ⬜ `mcp-ai-router` MCP server — never built
 
-Each step is a separate PR. Step 4 onward gates on the prior step working in production.
+Each step was a separate PR.
 
 ---
 

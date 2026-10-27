@@ -126,7 +126,7 @@ begin
   n := n + 1; if public.report_member_photo(p_friends, 'spam', null) then fails := fails || ' c:report-unseen'; end if;
   n := n + 1; if not public.report_member_photo(p_public, 'spam', 'test') then fails := fails || ' c:report'; end if;
   n := n + 1; if public.report_member_photo(p_c, 'spam', null) then fails := fails || ' c:report-own'; end if;
-  select count(*) into cnt from public.member_photo_reports;
+  select count(*) into cnt from public.content_reports;
   n := n + 1; if cnt <> 0 then fails := fails || ' c:reads-reports'; end if;
   execute 'reset role';
 
