@@ -24,7 +24,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const MAX_PER_RUN = 500;
 const SITE_URL = process.env.APP_URL || "https://www.ikratom.org";
-const DEFAULT_MIN_INTERVAL_MIN = 10;
+// 10 minutes let every 2-hourly alert run and the morning brief + national
+// news (minutes apart, separate runs) each buzz on their own: ~5-6 a day per
+// member on 10-27. Two hours folds a morning or a burst into one digest; held
+// items stay in the inbox and roll into the next push. Members can still set
+// their own interval.
+const DEFAULT_MIN_INTERVAL_MIN = 120;
 
 type Notification = {
   id: string;

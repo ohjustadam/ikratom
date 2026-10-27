@@ -81,6 +81,13 @@ function extractStateCode(locality) {
   return null;
 }
 
+/** Everyone gets it only when it's a DEA/FDA action, filed federal, sourced to a .gov page. */
+function isNationwide(a) {
+  if (!["dea_action", "fda_action"].includes(a.kind)) return false;
+  if (!["US", "FED", "FEDERAL"].includes(String(a.locality ?? "").trim().toUpperCase())) return false;
+  try { return new URL(a.source_url).hostname.endsWith(".gov"); } catch { return false; }
+}
+
 async function findTargetUsers(stateCode) {
   if (stateCode === null) {
     // Federal-scope: fan out to all users
@@ -156,6 +163,15 @@ async function processAlert(a) {
   }
 
   const stateCode = extractStateCode(a.locality);
+  // A null state used to mean "everyone". On 10-27 the classifier left local
+  // stories (Jackson County MO, Scranton PA) at locality "ALL" and a clinic's
+  // press story as a FED fda_action, and all four went to every member. Only a
+  // genuine federal action reaches everyone; the rest wait for a state (the
+  // 24 h freshness gate drops them if none arrives) and stay visible on site.
+  if (stateCode === null && !isNationwide(a)) {
+    console.log(`  · HELD ${a.title.slice(0, 60)}: no state, not a .gov federal action (locality ${JSON.stringify(a.locality)})`);
+    return { alert: a.id, userIds: 0, inserted: 0, held: true };
+  }
   const userIds = await findTargetUsers(stateCode);
 
   if (userIds.length === 0) {
@@ -214,7 +230,7 @@ async function processAlert(a) {
 const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 const { data: alerts, error } = await sb
   .from("policy_alerts")
-  .select("id, kind, title, body, severity, locality, created_at, occurs_at, bill_id")
+  .select("id, kind, title, body, severity, locality, source_url, created_at, occurs_at, bill_id")
   .in("severity", ["critical", "alert"])
   .in("kind", [...USER_FACING_KINDS])    // exclude scraper_stale + other admin-only kinds
   .eq("moderation_status", "approved")
