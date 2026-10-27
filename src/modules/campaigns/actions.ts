@@ -11,6 +11,7 @@ import {
   markEmailIntegrationRevoked,
 } from "@/lib/email/user-send";
 import { renderTemplate, buildVars } from "./templates";
+import { withLetterFooter } from "./letter-extras";
 import type { Legislator } from "@/lib/legislators";
 import {
   legislatorInCampaignScope,
@@ -339,7 +340,7 @@ export async function sendCampaignViaGmail(input: {
     }
     try {
       const vars = buildVars(profile, t, validTargets);
-      const personalizedBody = renderTemplate(bodyTemplate, vars);
+      const personalizedBody = withLetterFooter(renderTemplate(bodyTemplate, vars));
 
       await sendOnUserBehalf({
         integration,

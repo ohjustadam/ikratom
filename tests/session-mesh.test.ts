@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   findMainCheckout, gitBranch, isSharedPath, parseBashEvent, claimConflicts, prune, newForMe,
-  renderUpdates, recallMatches, memoryDirFor, normPath, ACTIVE_MS,
+  renderUpdates, recallMatches, memoryDirFor, normPath, nextMigrationNumber, ACTIVE_MS,
 } from "../scripts/lib/session-mesh-core.mjs";
 
 /**
@@ -99,6 +99,16 @@ describe("core", () => {
   });
 });
 
+describe("nextMigrationNumber", () => {
+  it("takes the max of files, reservations and journal claims, and ignores unrelated numbers", () => {
+    expect(nextMigrationNumber({ fileNames: ["0280_a.sql", "0282_b.sql", "README.md"] })).toBe(283);
+    expect(nextMigrationNumber({ fileNames: ["0282_b.sql"], reserved: [{ n: 290 }] })).toBe(291);
+    expect(nextMigrationNumber({ fileNames: ["0282_b.sql"], journalTexts: ["B4b: reserving migrations 0283-0286"] })).toBe(287);
+    expect(nextMigrationNumber({ fileNames: ["0282_b.sql"], journalTexts: ["PR #0999 merged, 0500 rows"] })).toBe(283);
+    expect(nextMigrationNumber({})).toBe(1);
+  });
+});
+
 describe("the script, driven like Claude Code drives it", () => {
   const SCRIPT = new URL("../scripts/session-mesh.mjs", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
   let r: ReturnType<typeof fakeRepo>;
@@ -112,6 +122,16 @@ describe("the script, driven like Claude Code drives it", () => {
     spawnSync(process.execPath, [SCRIPT, ...args], { cwd, env: env(), encoding: "utf8", timeout: 20000 }).stdout;
 
   beforeEach(() => { r = fakeRepo(); });
+
+  it("reserve-migration hands out consecutive numbers past files, reservations and hand-typed claims", () => {
+    mkdirSync(join(r.main, "supabase", "migrations"), { recursive: true });
+    writeFileSync(join(r.main, "supabase", "migrations", "0282_x.sql"), "");
+    expect(cli(r.main, "reserve-migration", "first").trim()).toBe("0283");
+    expect(cli(r.main, "reserve-migration", "second").trim()).toBe("0284");
+    cli(r.main, "say", "--kind", "decision", "reserving migrations 0285-0286 for profiles");
+    expect(cli(r.main, "reserve-migration", "third").trim()).toBe("0287");
+    expect(cli(r.main, "log").match(/reserved migration 028[347]/g)).toHaveLength(3);
+  });
 
   it("start → broadcast → the other session hears it once", () => {
     const a = hook("session-start", { session_id: "aaaa1111", cwd: r.main });

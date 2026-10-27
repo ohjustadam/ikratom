@@ -4,6 +4,7 @@ import { getGmailStatus } from "@/modules/auth/actions-gmail";
 import { GmailConnect } from "@/modules/auth/components/GmailConnect";
 import { EmailSafetyNote } from "@/components/EmailSafetyNote";
 import { SmtpConnect } from "@/modules/auth/components/SmtpConnect";
+import { TestLetterButton } from "@/modules/auth/components/TestLetterButton";
 import { getEmailIntegration } from "@/lib/email/user-send";
 import { SMTP_PROVIDERS, isSmtpProvider } from "@/lib/email/smtp";
 import { createClient as createServerClient } from "@/lib/supabase/server";
@@ -99,8 +100,15 @@ export default async function AccountPage({
             <ProfileForm profile={profile} email={email} />
 
             <LinkCard
-              href="/account/character"
+              href="/account/profile"
               accent
+              title="🙋 Your profile"
+              body="What other members see: bio, advocacy story, interests and links, each with its own privacy level (Only me, Friends, Members or Public). You always appear as your @username."
+              cta="Edit your profile"
+            />
+
+            <LinkCard
+              href="/account/character"
               title="🎭 Your character"
               body="Optional fields that power AI tailoring on legislator emails — your kratom story, what's at stake, advocate type, video clip URL, profile visibility."
               cta="Edit your character"
@@ -197,6 +205,13 @@ export default async function AccountPage({
               <h3 className="mb-3 text-sm font-semibold">Yahoo, AOL or iCloud (one-click batch sending)</h3>
               <SmtpConnect options={smtpOptions} connected={smtpConnected} />
             </div>
+
+            {anyIntegration && (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
+                <h3 className="mb-3 text-sm font-semibold">Test letter</h3>
+                <TestLetterButton email={anyIntegration.account_email} />
+              </div>
+            )}
 
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5">
               <h3 className="mb-3 text-sm font-semibold">Discord</h3>

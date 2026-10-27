@@ -14,7 +14,18 @@
  * Voters read the record and decide. Pure, so tests pin the grouping.
  */
 
-export type RecordBill = { id: string; state: string; bill_number: string; title: string | null; status: string | null; session_id: string | null };
+/**
+ * Which of the two neutral axes a bill's text addresses (natural leaf, 7-OH),
+ * read from bills.substance_targeting. Optional: /record does not load it.
+ * This describes the BILL, never the person; the person's part is only what
+ * the record shows (sponsored, voted).
+ */
+export type Axis = "natural_leaf" | "seven_oh";
+export type AxisSignal = { stance: string | null; confidence: string | number | null };
+export type RecordBill = {
+  id: string; state: string; bill_number: string; title: string | null; status: string | null; session_id: string | null;
+  leaf?: AxisSignal | null; seven_oh?: AxisSignal | null;
+};
 export type VoteRow = { legislator_id: string; vote_text: string | null; vote_value: string | null; vote_date: string | null; motion: string | null; bill: RecordBill };
 export type SponsorRow = { legislator_id: string; classification: string | null; bill: RecordBill };
 
@@ -26,7 +37,20 @@ export type RecordEntry = {
   billId: string;
   sponsored: "primary" | "cosponsor" | null;
   votes: { vote: string; date: string | null; motion: string | null }[];
+  axes: Axis[];
 };
+
+/** Only a confident "this bill bans / restricts / schedules / protects X" counts as addressing X. */
+const ADDRESSES = new Set(["bans", "restricts", "schedules", "preserves"]);
+const addresses = (s: AxisSignal | null | undefined) =>
+  !!s && ADDRESSES.has(String(s.stance ?? "")) && Number(s.confidence ?? 0) >= 0.8;
+
+export function billAxes(b: RecordBill): Axis[] {
+  const out: Axis[] = [];
+  if (addresses(b.leaf)) out.push("natural_leaf");
+  if (addresses(b.seven_oh)) out.push("seven_oh");
+  return out;
+}
 
 /**
  * One real bill can exist as several rows: SB 891 (OK) appears three times
@@ -61,9 +85,10 @@ export function buildRecords(votes: VoteRow[], sponsors: SponsorRow[]): Map<stri
     const k = billKey(b);
     let e = byBill.get(k);
     if (!e) {
-      e = { billKey: k, billNumber: b.bill_number, title: (b.title ?? "").trim(), status: b.status, billId: b.id, sponsored: null, votes: [] };
+      e = { billKey: k, billNumber: b.bill_number, title: (b.title ?? "").trim(), status: b.status, billId: b.id, sponsored: null, votes: [], axes: [] };
       byBill.set(k, e);
     }
+    for (const a of billAxes(b)) if (!e.axes.includes(a)) e.axes.push(a);
     return e;
   };
   for (const s of sponsors) {
@@ -86,4 +111,26 @@ export function buildRecords(votes: VoteRow[], sponsors: SponsorRow[]): Map<stri
     result.set(legId, list);
   }
   return result;
+}
+
+/** What the person did on one bill, in plain words: "Primary sponsor · Voted Yes (Third Reading, 2025-06-02)". */
+export function recordFact(e: RecordEntry): string {
+  const parts: string[] = [];
+  if (e.sponsored) parts.push(e.sponsored === "primary" ? "Primary sponsor" : "Co-sponsor");
+  const v = e.votes[0];
+  if (v) {
+    const when = [v.motion, v.date].filter(Boolean).join(", ");
+    const more = e.votes.length > 1 ? ` (+${e.votes.length - 1} more vote${e.votes.length > 2 ? "s" : ""})` : "";
+    parts.push(`Voted ${v.vote}${when ? ` (${when})` : ""}${more}`);
+  }
+  return parts.join(" · ") || "On the record";
+}
+
+/** Entries filed under each axis the bill addresses; a bill addressing neither lands in `other`. */
+export function recordByAxis(entries: RecordEntry[]): Record<Axis | "other", RecordEntry[]> {
+  return {
+    natural_leaf: entries.filter((e) => (e.axes ?? []).includes("natural_leaf")),
+    seven_oh: entries.filter((e) => (e.axes ?? []).includes("seven_oh")),
+    other: entries.filter((e) => (e.axes ?? []).length === 0),
+  };
 }

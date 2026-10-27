@@ -26,6 +26,7 @@ import {
   markOutlookIntegrationRevoked,
 } from "./outlook";
 import { sendViaSmtp, SmtpAuthError, isSmtpProvider } from "./smtp";
+import { letterParts } from "./letter-footer";
 
 export type UserSendProvider = "gmail" | "outlook" | "yahoo" | "aol" | "icloud";
 
@@ -85,6 +86,10 @@ export async function sendOnUserBehalf(input: {
   subject: string;
   body: string;
 }): Promise<{ messageId: string }> {
+  // Every letter leaves as text + HTML, each closing with the iKratom footer
+  // (logo + link in HTML). Idempotent, so callers that already added the
+  // plain footer for their records don't get it twice.
+  const { text, html } = letterParts(input.body);
   try {
     const p = input.integration.provider;
     if (p === "yahoo" || p === "aol" || p === "icloud") {
@@ -95,7 +100,8 @@ export async function sendOnUserBehalf(input: {
         fromName: input.fromName,
         to: input.to,
         subject: input.subject,
-        body: input.body,
+        body: text,
+        html,
       });
     }
     if (p === "gmail") {
@@ -105,7 +111,8 @@ export async function sendOnUserBehalf(input: {
         fromEmail: input.integration.account_email,
         to: input.to,
         subject: input.subject,
-        body: input.body,
+        body: text,
+        html,
       });
     }
     return await sendViaOutlook({
@@ -114,7 +121,8 @@ export async function sendOnUserBehalf(input: {
       fromEmail: input.integration.account_email,
       to: input.to,
       subject: input.subject,
-      body: input.body,
+      body: text,
+      html,
     });
   } catch (e) {
     if (e instanceof GmailTokenRevokedError) throw new EmailTokenRevokedError("gmail");

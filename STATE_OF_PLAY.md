@@ -236,6 +236,38 @@ lists Sen. Darline Graham Nordone as "Darline Graham", and a surname match
 
 ---
 
+## Groups (coalitions), built 2026-10-21 → 10-25
+
+Groups are how a local community organizes. Module `src/modules/coalitions`,
+pages under `/coalitions/[slug]`, migrations 0153, 0273, 0274,
+0283_coalition_events and 0284.
+The first real community is "Rein In Chaos Coalition" (MI, private).
+
+- **Join:** one reusable group link + QR per group (single-use links stalled the
+  first group: 6 made, 0 used). Public groups also take "Ask to join".
+- **Home:** a cover theme (preset gradients, no uploads), member faces, a one-tap
+  Invite through the phone's share sheet, and Home / Events / Members / About tabs.
+- **Act together:** "this week's group action" with a members-acted bar, and a
+  "wins" card (`coalition_wins()`). Both show counts only, never who.
+- **Events and call-in days** (`coalition_events`, `coalition_event_rsvps`):
+  organizers post them, and members RSVP and add them to a calendar (private
+  `.ics` or a Google link). Reminders go to RSVPs the day before and again
+  within 2 h. The hourly `fire-waves` route inserts notification rows, and
+  `fanoutPushNotifications` delivers them.
+- **Welcome checklist:** derived from what people actually did. Members: join,
+  introduce yourself, take the action, invite one. Organizers: share the link,
+  pin a welcome post, pick the action, plan an event.
+- **Board:** private threads + replies, with one organizer-pinned post; a trigger
+  stops anyone else from pinning.
+
+Privacy, everywhere: `@handle` only. A private group 404s for outsiders. RSVPs
+are own-row-only, and everyone else sees counts.
+
+Not built yet: reporting group content (waits on B4b's shared report system),
+editing an event's time (cancel and re-post), and a real cover photo.
+
+---
+
 ## Things that will bite you
 
 1. **The changelog no longer lives in the repo.** As of 2026-09-18, patch
@@ -256,6 +288,22 @@ lists Sen. Darline Graham Nordone as "Darline Graham", and a surname match
    for a public surface gets a human read first.
 5. **Parallel sessions share one checkout.** Run `npm run preflight` before
    every commit. See standing rules 8 and 10 in `AGENTS.md`.
+6. **Letters get their iKratom lines at send time, never in templates.**
+   The recorder's clip line ("Listen to my 30-second message: <url>") is added
+   to the member's own text (`src/modules/campaigns/letter-extras.ts`). The
+   footer lives in `src/lib/email/letter-footer.ts`: plain "Sent via iKratom —
+   https://www.ikratom.org" for mailto/compose, and the iK logo plus a link in
+   the HTML part. `sendOnUserBehalf` sends every letter as text + HTML with
+   both, so a new one-click path gets the footer without asking; a new
+   compose path must call `withLetterFooter` (`tests/letter-extras.test.ts`
+   lists the paths). The logo is `public/ikratom-icon-180.png`: renaming it
+   breaks the image in every letter already sent. The clip recorder needs
+   `camera=(self), microphone=(self)` in the Permissions-Policy
+   (`next.config.ts`): with `()` it silently did nothing from 2026-05 to
+   2026-10-24.
+7. **Recipient chips show the official record, never a stance label.** They
+   read sponsorships and votes (`src/lib/kratom-record.ts`), not
+   `legislator_stance`, whose champion/hostile labels no human reviewed.
 
 ---
 

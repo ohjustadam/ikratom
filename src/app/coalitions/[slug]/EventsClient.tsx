@@ -11,7 +11,7 @@ export type RsvpStatus = "going" | "maybe" | "no";
 
 const input = "w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-base text-zinc-100 focus:border-emerald-500 focus:outline-none sm:text-sm";
 const OPTIONS: { status: RsvpStatus; label: string }[] = [
-  { status: "going", label: "✓ Going" },
+  { status: "going", label: "Going" },
   { status: "maybe", label: "Maybe" },
   { status: "no", label: "Can't" },
 ];
@@ -43,7 +43,7 @@ export function RsvpButtons({ slug, eventId, current, compact = false }: {
                   ? o.status === "going" ? "border-emerald-500 bg-emerald-500 text-zinc-950" : "border-zinc-400 bg-zinc-200 text-zinc-950"
                   : "border-zinc-700 text-zinc-300 hover:border-emerald-500"
               }`}>
-              {o.label}
+              {on ? `✓ ${o.label}` : o.label}
             </button>
           );
         })}
@@ -53,9 +53,11 @@ export function RsvpButtons({ slug, eventId, current, compact = false }: {
   );
 }
 
-export function NewEventForm({ slug, featured }: { slug: string; featured: { slug: string; title: string } | null }) {
+export function NewEventForm({ slug, featured, initialOpen = false }: {
+  slug: string; featured: { slug: string; title: string } | null; initialOpen?: boolean;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [kind, setKind] = useState<EventKind>("call_in");
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");

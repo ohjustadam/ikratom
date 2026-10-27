@@ -24,6 +24,8 @@
  *   ... claim <path> | release <path|--all> [--as <id>]
  *   ... trunk [--clear] [--as <id>]        take (or drop) the coordinating role
  *   ... log [N] | recall <words...> | whoami
+ *   ... reserve-migration "<what it's for>" [--as <id>]   prints the next free
+ *                  migration number and journals the reservation, under the lock
  *
  * A hook must never break a session: every path is wrapped, and it always
  * exits 0. Outside iKratom, or with no private/ (a fresh clone, a cloud
@@ -34,8 +36,24 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   ACTIVE_MS, claimConflicts, findMainCheckout, gitBranch, isActive, isSharedPath, labelOf, memoryDirFor,
-  newForMe, normPath, parseBashEvent, prune, recallMatches, renderStart, renderUpdates, shortId, entryLine,
+  newForMe, nextMigrationNumber, normPath, parseBashEvent, prune, recallMatches, renderStart, renderUpdates, shortId, entryLine,
 } from "./lib/session-mesh-core.mjs";
+
+/** Migration file names in the main checkout, every worktree, and origin/main. */
+function migrationFiles(main) {
+  const names = [];
+  const add = (d) => { try { names.push(...readdirSync(join(d, "supabase", "migrations"))); } catch { /* none here */ } };
+  add(main);
+  try {
+    const out = execFileSync("git", ["-C", main, "worktree", "list", "--porcelain"], { encoding: "utf8", timeout: 4000 });
+    for (const line of out.split(/\r?\n/)) if (line.startsWith("worktree ")) add(line.slice(9).trim());
+  } catch { /* not a git checkout */ }
+  try {
+    const out = execFileSync("git", ["-C", main, "ls-tree", "--name-only", "origin/main", "supabase/migrations/"], { encoding: "utf8", timeout: 4000 });
+    names.push(...out.split(/\r?\n/).map((p) => p.split("/").pop()));
+  } catch { /* no remote ref */ }
+  return names;
+}
 
 const HOOKS = new Set(["session-start", "prompt", "pre-edit", "post-bash", "session-end"]);
 const [cmd = "status", ...argv] = process.argv.slice(2);
@@ -268,6 +286,17 @@ function runCli() {
       if (!text) { console.log('Usage: say [--kind decision|finding|handoff|owner|note] "<text>"'); return; }
       const e = append(dir, state, sid, typeof kind === "string" ? kind : "note", text);
       console.log(`journaled #${e.n} as ${shortId(sid)}`);
+    } else if (cmd === "reserve-migration") {
+      if (!text) { console.log('Usage: reserve-migration "<what it is for>" [--as <id>]'); return; }
+      const n = nextMigrationNumber({
+        fileNames: migrationFiles(findMainCheckout(cwd)),
+        reserved: state.migrations ?? [],
+        journalTexts: loadJournal(dir).map((e) => e.text),
+      });
+      const num = String(n).padStart(4, "0");
+      (state.migrations ??= []).push({ n, sid, for: text.slice(0, 120), at: new Date().toISOString() });
+      append(dir, state, sid, "decision", `reserved migration ${num} for ${text.slice(0, 120)}`);
+      console.log(num);
     } else if (cmd === "claim" || cmd === "release") {
       if (!me) { console.log("No active session resolved; pass --as <id>."); return; }
       if (cmd === "release" && all) { me.claims = {}; console.log("released all claims"); }

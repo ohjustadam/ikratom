@@ -9,6 +9,7 @@ import {
   setGroupAction,
   setGroupVisibility,
 } from "@/modules/coalitions/growth-actions";
+import { markGroupLinkShared } from "@/modules/coalitions/home-actions";
 
 /** Group growth, interactive half (migration 0274). */
 
@@ -16,8 +17,11 @@ const btn = "rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc
 const ghost = "rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-emerald-500";
 
 /** The one reusable group link + QR. Members can share it once an organizer turns it on. */
-export function GroupLinkCard({ coalitionId }: { coalitionId: string }) {
-  const [link, setLink] = useState<{ url: string; qrSvg: string } | null>(null);
+export function GroupLinkCard({ coalitionId, groupName, initial = null }: {
+  coalitionId: string; groupName?: string; initial?: { url: string; qrSvg: string } | null;
+}) {
+  const [link, setLink] = useState<{ url: string; qrSvg: string } | null>(initial);
+  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pending, start] = useTransition();
@@ -40,10 +44,29 @@ export function GroupLinkCard({ coalitionId }: { coalitionId: string }) {
         <div className="mt-3 flex flex-wrap items-start gap-4">
           <div className="min-w-0 flex-1">
             <p className="break-all rounded bg-zinc-900 px-2 py-1.5 font-mono text-xs text-emerald-300">{link.url}</p>
-            <button type="button" className={`${ghost} mt-2`}
-              onClick={async () => { try { await navigator.clipboard.writeText(link.url); setCopied(true); setTimeout(() => setCopied(false), 3000); } catch { /* ignore */ } }}>
-              {copied ? "✓ Copied" : "Copy link"}
-            </button>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {canShare && (
+                <button type="button" className={btn}
+                  onClick={async () => {
+                    try {
+                      await navigator.share({ title: groupName ?? "Join my group on iKratom", text: "Join our kratom advocacy group on iKratom:", url: link.url });
+                      void markGroupLinkShared(coalitionId);
+                    } catch { /* closed the share sheet */ }
+                  }}>
+                  Share…
+                </button>
+              )}
+              <button type="button" className={`${ghost} min-h-10`}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(link.url);
+                    setCopied(true); setTimeout(() => setCopied(false), 3000);
+                    void markGroupLinkShared(coalitionId);
+                  } catch { /* ignore */ }
+                }}>
+                {copied ? "✓ Copied" : "Copy link"}
+              </button>
+            </div>
             <p className="mt-2 text-[11px] text-zinc-500">Print the QR for meetings, shops and events. Anyone who scans it can join.</p>
           </div>
           {/* SVG generated server-side by the qrcode library from our own URL. */}
