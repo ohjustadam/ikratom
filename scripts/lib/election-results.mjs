@@ -64,7 +64,7 @@ export function columnRoles(grid) {
     headerRows: Math.max(h, 1),
     district: find(/district|\bdist\.|^no\.?$|location|^state$/i),
     incumbent: find(/incumbent|member|senator|representative/i, /party|first|status|elected|history|candidate/i),
-    elected: find(/elected (senator|representative|member|delegate|assembly)|winner|^elected$/i, /first/i),
+    elected: find(/elected\s*(senator|representative|member|delegate|assembly)|winner|^elected$/i, /first/i),
     status: find(/status|result|outcome/i, /last result/i),
     candidates: find(/candidate/i),
   };
@@ -113,8 +113,8 @@ export function winnersFromRow(row, cols) {
  */
 export function rowKey(text, mode) {
   const t = clean(text);
-  // Named districts ("Hillsborough 40", "Second Essex") are matched as text, lowercased.
-  if (mode === "district") return normalizeDistrict(t) ?? (/^[A-Za-z][A-Za-z ,.'&-]{2,58}\d{0,3}$/.test(t) && !/^(total|district)/i.test(t) ? t.toLowerCase() : null);
+  // Named districts ("Hillsborough 40", "Second Essex", Massachusetts' "10th Bristol") are matched as text, lowercased.
+  if (mode === "district") return normalizeDistrict(t) ?? (/^(?:\d{1,2}(?:st|nd|rd|th) )?[A-Za-z][A-Za-z ,.'&-]{2,58}\d{0,3}$/.test(t) && !/^(total|district)/i.test(t) ? t.toLowerCase() : null);
   const m = /^([A-Za-z .]+?)\s+(at-large|\d{1,2})\b/i.exec(t.replace(/ /g, " "));
   if (mode === "state-district") {
     if (!m) return null;
@@ -134,7 +134,10 @@ export function rowKey(text, mode) {
  */
 export function parseWikiResults(html, mode = "district") {
   const { parseHTML } = require("linkedom");
-  const { document } = parseHTML(`<html><body>${html}</body></html>`);
+  // A <br> joins its neighbours in textContent: "Elected<br>representative"
+  // would read "Electedrepresentative" and the column would go unrecognised
+  // (the Alaska, Hawaii and Florida Senate 2026 pages).
+  const { document } = parseHTML(`<html><body>${String(html).replace(/<br\s*\/?>/gi, " ")}</body></html>`);
   const out = new Map();
   for (const table of document.querySelectorAll("table.wikitable")) {
     const grid = tableGrid(table);
@@ -150,4 +153,36 @@ export function parseWikiResults(html, mode = "district") {
     }
   }
   return out;
+}
+
+/**
+ * The result in a single-race article's infobox ("2026 Oklahoma gubernatorial
+ * election"): "<Office> before election" names the incumbent and "Elected
+ * <Office>" the winner. Before results are in, the box says "Incumbent
+ * <Office>" and has no "Elected" line, so it yields no winner. The national
+ * statewide-office pages carry only a surname and a share ("Stitt 55.4% R"),
+ * which is why statewide seats read this instead.
+ * @param {string} html  the parsed article HTML (action=parse&prop=text)
+ * @returns {{incumbent:string, winners:string[]} | null}
+ */
+export function parseInfoboxResult(html) {
+  const { parseHTML } = require("linkedom");
+  const { document } = parseHTML(`<html><body>${String(html).replace(/<br\s*\/?>/gi, " ")}</body></html>`);
+  const box = document.querySelector("table.infobox");
+  if (!box) return null;
+  // The first link after the bold label, before the next label: the name is
+  // linked, the party after it is a single word and fails NAME_OK.
+  const nameAfter = (label) => {
+    const b = [...box.querySelectorAll("b")].find((x) => label.test(clean(x.textContent)));
+    let a = null;
+    for (let el = b?.nextElementSibling; el && !a; el = el.nextElementSibling) {
+      if (el.tagName === "B") break;
+      a = el.tagName === "A" ? el : el.querySelector("a");
+    }
+    const name = tidy(a?.textContent ?? "");
+    return NAME_OK(name) ? name : "";
+  };
+  const incumbent = nameAfter(/\bbefore election$/i) || nameAfter(/^incumbent\b/i);
+  const winner = nameAfter(/^elected\b/i);
+  return incumbent ? { incumbent, winners: winner ? [winner] : [] } : null;
 }

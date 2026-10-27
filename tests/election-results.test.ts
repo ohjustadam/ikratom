@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseWikiResults, rowKey } from "../scripts/lib/election-results.mjs";
+import { parseWikiResults, parseInfoboxResult, rowKey } from "../scripts/lib/election-results.mjs";
 
 /**
  * Winner extraction from Wikipedia election tables (officials turnover, part c).
@@ -70,9 +70,38 @@ describe("election results: winners", () => {
     expect(parseWikiResults(html).get("belknap 1")?.map((r) => r.winners[0])).toEqual(["Tom Ploszaj", "Matthew Lunney"]);
   });
 
+  it("a header broken with <br> still names the column (Alaska / Hawaii 2026 shape)", () => {
+    const html = wrap(
+      `<tr><th>District</th><th>Incumbent</th><th>Party</th><th>Elected<br>representative</th></tr>`,
+      `<tr><td>2</td><td>Sue Lee Loy</td><td>Dem</td><td>Sue Lee Loy</td></tr>`,
+    );
+    expect(parseWikiResults(html).get("2")?.[0].winners).toEqual(["Sue Lee Loy"]);
+  });
+
   it("keys", () => {
     expect(rowKey("Ohio (Class 3)", "state")).toBe("OH");
     expect(rowKey("New York 12", "state-district")).toBe("NY-12");
     expect(rowKey("Totals", "district")).toBeNull();
+    expect(rowKey("10th Bristol", "district")).toBe("10th bristol"); // Massachusetts, as our rows store it
+  });
+});
+
+describe("election results: single-race infobox (statewide offices)", () => {
+  const box = (rows: string) => `<table class="infobox"><tr><td>${rows}</td></tr></table>`;
+
+  it("reads 'Elected Governor' and the incumbent before the election", () => {
+    const html = box(`<b><a href="/wiki/Governor_of_Arizona">Governor</a> before election</b><p><a href="/wiki/Doug_Ducey">Doug Ducey</a><br><a href="/wiki/R">Republican</a></p>
+      <b>Elected <a href="/wiki/Governor_of_Arizona">Governor</a></b><p><a href="/wiki/Katie_Hobbs">Katie Hobbs</a><br><a href="/wiki/D">Democratic</a></p>`);
+    expect(parseInfoboxResult(html)).toEqual({ incumbent: "Doug Ducey", winners: ["Katie Hobbs"] });
+  });
+
+  it("before results, the box names only the incumbent", () => {
+    const html = box(`<b>Incumbent <a href="/wiki/Governor_of_Oklahoma">Governor</a></b><p><a href="/wiki/Kevin_Stitt">Kevin Stitt</a><br><a href="/wiki/R">Republican</a></p>`);
+    expect(parseInfoboxResult(html)).toEqual({ incumbent: "Kevin Stitt", winners: [] });
+  });
+
+  it("an unlinked winner is not guessed from the party link", () => {
+    const html = box(`<b>Governor before election</b><p><a href="/wiki/A">Ann Example</a></p><b>Elected Governor</b><p>New Person<br><a href="/wiki/R">Republican</a></p>`);
+    expect(parseInfoboxResult(html)?.winners).toEqual([]);
   });
 });

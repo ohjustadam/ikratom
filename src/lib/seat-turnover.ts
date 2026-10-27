@@ -29,11 +29,13 @@ export function longDate(isoDay: string): string {
 }
 
 const REELECTED_SHOWN_DAYS = 60;
+const plusDays = (isoDay: string, n: number) => new Date(Date.parse(`${isoDay}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
 export function seatBanner(seat: SeatElection | null | undefined, officialName: string, today: string): SeatBanner | null {
   if (!seat) return null;
   const election = longDate(seat.election_date);
   const handover = seat.handover_date ? longDate(seat.handover_date) : null;
+  const shownUntil = plusDays(seat.election_date, REELECTED_SHOWN_DAYS);
 
   if (seat.status === "successor_elected") {
     if (seat.handover_date && seat.handover_date < today) return null; // the swap job takes it from here
@@ -44,13 +46,16 @@ export function seatBanner(seat: SeatElection | null | undefined, officialName: 
     };
   }
   if (seat.status === "incumbent_reelected") {
-    const shownUntil = new Date(Date.parse(`${seat.election_date}T00:00:00Z`) + REELECTED_SHOWN_DAYS * 86_400_000).toISOString().slice(0, 10);
     if (today > shownUntil) return null;
     return { tone: "reelected", title: `Re-elected on ${election}`, detail: handover ? `The new term begins ${handover}.` : "The new term begins once the result is certified." };
   }
   if (seat.status !== "on_ballot" && seat.status !== "needs_review") return null;
 
   if (today > seat.election_date) {
+    // No result read yet. Some chamber pages never carry one the reader can
+    // parse, so "pending" ends on the handover day (or after 60 days): from
+    // then the daily roster diffs say who holds the seat.
+    if (today > (seat.handover_date ?? shownUntil)) return null;
     return { tone: "ballot", title: `Results pending for the ${election} election`, detail: `${officialName} remains in office until the winner takes office.` };
   }
   if (seat.kind === "special") {

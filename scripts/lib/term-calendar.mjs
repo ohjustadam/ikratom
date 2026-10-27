@@ -283,7 +283,7 @@ export function wikiTitles(year, stateName, office) {
     return [`${year} ${s} Senate election`, `${year} ${s} State Senate election`, `${year} ${s} Senate elections`, `${year} ${s} State Senate elections`];
   }
   return [`${year} ${s} House of Representatives election`, `${year} ${s} State House of Representatives election`,
-    `${year} ${s} House of Delegates election`, `${year} ${s} State Assembly election`, `${year} ${s} House of Representatives elections`];
+    `${year} ${s} House of Delegates election`, `${year} ${s} State Assembly election`, `${year} ${s} Assembly election`, `${year} ${s} House of Representatives elections`];
 }
 
 /**
@@ -314,11 +314,21 @@ export function sameSurname(a, b) {
  * as "Darline Graham", whose surname alone matches "Lindsey Graham", the
  * senator she replaced. Use this wherever a match retires or announces
  * someone; a nickname mismatch (Bill / William) fails safe into review.
+ *
+ * A leading initial is skipped, and one name's first name may be the other's
+ * middle name: "N. Scott Phillips", "C. Anthony Muse" and "Michael Sarge
+ * Pollock" are how the 2026 Wikipedia tables list our Scott Phillips, Anthony
+ * Muse and Sarge Pollock. A shared middle name alone ("Mary Ann" / "Kim Ann")
+ * still is not the same person.
  */
 export function samePerson(a, b) {
   if (!sameSurname(a, b)) return false;
   const initial = (s) => String(s ?? "").normalize("NFD").replace(/[^A-Za-z\s]/g, " ").trim().toLowerCase()[0];
-  return initial(a) === initial(b);
+  if (initial(a) === initial(b)) return true;
+  const given = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\(.*?\)/g, " ")
+    .replace(/[^a-z\s'-]/g, " ").replace(/\b(jr|sr|ii|iii|iv)\b/g, " ").split(/\s+/).filter((t) => t.length > 1).slice(0, -1);
+  const x = given(a), y = given(b);
+  return !!x.length && !!y.length && (x[0][0] === y[0][0] || y.includes(x[0]) || x.includes(y[0]));
 }
 
 /** Does our official's surname appear anywhere in a listed table row? */

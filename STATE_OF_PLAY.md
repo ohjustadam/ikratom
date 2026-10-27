@@ -224,6 +224,18 @@ Where the facts come from, all free and keyless:
 First run (10-23): 6,616 seats flagged on the Nov 3 ballot. Active officials
 with a term end went from 1,170 to 6,675 of 13,112.
 
+**Who won, and how much of it we can read (measured 2026-10-27).** Legislative
+winners come from each chamber's Wikipedia election article; statewide
+offices come from the single-race article's infobox ("Elected Governor"). On
+the 2022 pages the reader found 20/20 governors, 18/18 attorneys general and
+14/14 secretaries of state. Most 2026 chamber pages carry an "Elected" column
+the reader parses. Some have no table it can read yet: the IL, IN, ME, MO, SD
+and VT houses, the ME/SD/UT/NH/NV senates, and the PA chambers' per-candidate
+layout. Seats there get no reading. Their profiles stop saying "Results pending"
+on the handover day, and the daily roster diffs retire whoever left, once
+openstates/people shows it. Several states' terms begin on or right after
+Election Day: FL, TN and HI on Nov 3; AL, IN, NV and DE on Nov 4; SC on Nov 9.
+
 Known gaps, surfaced on `/admin/local-rep-requests`, never guessed:
 - Seat lists unverified: the CO, HI, IN and NV senates, and DC's council.
 - No proven handover day: CO, the IA senate, ME, the MN house, WI.
