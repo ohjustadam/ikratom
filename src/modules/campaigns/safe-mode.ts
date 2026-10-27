@@ -13,6 +13,9 @@ export type SafeMode = {
   chosen: boolean;
 };
 
+/** The member's own choice: on unless they turned it off (NULL = not chosen yet = on). */
+export const safeModeOn = (pref: boolean | null | undefined): boolean => pref !== false;
+
 /** null when the member's state isn't banned (or unknown). */
 export async function getSafeMode(
   supabase: SupabaseClient,
@@ -26,5 +29,5 @@ export async function getSafeMode(
     .eq("state", state)
     .maybeSingle();
   if (data?.admin_leaf_status !== "banned") return null;
-  return { stateName: STATE_NAMES[state] ?? state, active: pref !== false, chosen: pref === true || pref === false };
+  return { stateName: STATE_NAMES[state] ?? state, active: safeModeOn(pref), chosen: pref === true || pref === false };
 }
