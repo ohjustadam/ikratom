@@ -182,6 +182,25 @@ export function MobileNav({
               {authSlot}
             </div>
 
+            {/* Site search — a plain GET form to /search, so it works even if
+                hydration stalls. Desktop has the 🔎 link in the header. */}
+            <form action="/search" method="get" role="search" className="mb-4 flex gap-2">
+              <input
+                type="search"
+                name="q"
+                maxLength={80}
+                placeholder="Search bills, research, legislators…"
+                aria-label="Search the site"
+                className="min-h-[44px] min-w-0 flex-1 rounded-md border border-zinc-800 bg-zinc-950/40 px-3 text-base text-zinc-100 placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="min-h-[44px] rounded-md border border-zinc-700 bg-zinc-900/60 px-4 text-sm font-semibold text-zinc-200 hover:border-emerald-500 hover:text-emerald-300"
+              >
+                🔎 Search
+              </button>
+            </form>
+
             {/* Category landing pages — the five-pillar map of the platform
                 (shared source: src/config/nav-categories.ts) */}
             <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">

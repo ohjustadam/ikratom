@@ -42,6 +42,7 @@
     "db:push": "node --env-file=.env.local scripts/db-push.mjs",
     "docs:schema": "node --env-file=.env.local scripts/dump-schema.mjs",
     "docs:digest": "node scripts/build-codebase-digest.mjs",
+    "docs:routes": "node scripts/build-route-manifest.mjs",
     "ai:smoke": "node --env-file=.env.local scripts/test-ai-providers.mjs",
     "build:briefing-pdf": "node scripts/build-briefing-pdf.mjs",
     "classify:news": "node --env-file=.env.local scripts/classify-news-policy.mjs",
