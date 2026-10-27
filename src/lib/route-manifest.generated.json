@@ -129,6 +129,7 @@
     {"route":"/coalitions/new","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":true,"redirectOnly":false},
     {"route":"/communities","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/community","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
+    {"route":"/connect","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/cookies","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/dashboard","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":true,"loginGated":false,"redirectOnly":false},
     {"route":"/dashboard/templates","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
