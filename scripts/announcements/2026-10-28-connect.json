@@ -1,0 +1,40 @@
+{
+  "slug": "2026-10-28-connect",
+  "title": "iKratom is now a place to organize together",
+  "subject": "New on iKratom: local groups, friends, and your own profile",
+  "preheader": "Start or join a group for your town, chat live, plan call-in days, add friends, and choose exactly who sees what.",
+  "pageLink": "/connect",
+  "intro": "Advocacy works best with people you know. iKratom now has everything you need to organize locally and keep each other going, free and @username only.",
+  "blocks": [
+    {
+      "heading": "Groups for your town, county or state",
+      "body": "One invite link and QR code that never runs out, live group chat, a discussion board, events and call-in days with reminders, and one shared action each week with a progress bar that counts actions, never names.",
+      "link": "/coalitions",
+      "linkLabel": "Find or start a group"
+    },
+    {
+      "heading": "Pinned resources and testimony templates",
+      "body": "Organizers can pin the links and ready-made letters their group needs. A template opens straight in the email composer, addressed to your officials.",
+      "link": "/coalitions",
+      "linkLabel": "See your groups"
+    },
+    {
+      "heading": "Your profile, your friends",
+      "body": "Add a photo, a cover and an album, post on your wall, and connect with friends. Photos have their location data removed when you upload them.",
+      "link": "/account/profile",
+      "linkLabel": "Set up your profile"
+    },
+    {
+      "heading": "You choose who sees what",
+      "body": "Every part of your profile can be Only me, Friends, Members or Public, with a live preview of what others see. Everyone appears as @username, and anything can be reported.",
+      "link": "/account/privacy",
+      "linkLabel": "Privacy settings"
+    },
+    {
+      "heading": "Bring one person",
+      "body": "Every group starts with two. Forward this email or share ikratom.org/connect with someone who cares about kratom.",
+      "link": "/connect",
+      "linkLabel": "Share the Connect page"
+    }
+  ]
+}

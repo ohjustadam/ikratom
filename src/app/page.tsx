@@ -3,6 +3,7 @@ import { getCachedClaims } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import Link from "@/components/Link";
 import { HomeMemorialBand } from "@/components/HomeMemorialBand";
+import { HomeHubGrid } from "@/components/HomeHubGrid";
 import { HomeLivePulse } from "@/components/HomeLivePulse";
 import { StateLegalMap } from "@/components/StateLegalMap";
 import { HomeOnboarding } from "@/components/HomeOnboarding";
@@ -234,18 +235,34 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Special report — the current federal 7-OH action, one tap from home. */}
-      <Link
-        href="/briefings/7-oh-dea-october-2026"
-        className="mt-6 block rounded-lg border border-red-700/60 bg-red-950/20 p-4 transition hover:border-red-400 sm:p-5"
-      >
-        <p className="text-xs font-bold uppercase tracking-widest text-red-400">🚨 Special report · DEA · 7-OH</p>
-        <p className="mt-1 text-lg font-bold text-zinc-100 sm:text-xl">7-OH can become Schedule I on or after November 13</p>
-        <p className="mt-1 text-sm text-zinc-400">
-          Which products the DEA&apos;s two-part test covers, what is not changing (natural leaf), and how shops and
-          consumers can prepare. Read it →
-        </p>
-      </Link>
+      {/* Featured: the current federal 7-OH action + the new social side, one tap each. */}
+      <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <Link
+          href="/briefings/7-oh-dea-october-2026"
+          className="block rounded-lg border border-red-700/60 bg-red-950/20 p-4 transition hover:border-red-400 sm:p-5"
+        >
+          <p className="text-xs font-bold uppercase tracking-widest text-red-400">🚨 Special report · DEA · 7-OH</p>
+          <p className="mt-1 text-lg font-bold text-zinc-100 sm:text-xl">7-OH can become Schedule I on or after November 13</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Which products the DEA&apos;s two-part test covers, what is not changing (natural leaf), and how shops and
+            consumers can prepare. Read it →
+          </p>
+        </Link>
+        <Link
+          href="/connect"
+          className="block rounded-lg border border-emerald-700/60 bg-emerald-950/20 p-4 transition hover:border-emerald-400 sm:p-5"
+        >
+          <p className="text-xs font-bold uppercase tracking-widest text-emerald-400">🤝 New · Groups and friends</p>
+          <p className="mt-1 text-lg font-bold text-zinc-100 sm:text-xl">Organize with the people near you</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Start or join a local group with live chat, events and a weekly action. Add friends and choose who sees
+            what. See how it works →
+          </p>
+        </Link>
+      </div>
+
+      {/* The map of the site: every main area, one tap away */}
+      <HomeHubGrid />
 
       {/* Live pulse — proof the platform is awake right now */}
       <HomeLivePulse />

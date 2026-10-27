@@ -41,6 +41,7 @@ const PRIMARY_LINKS = [
   { href: "/people", label: "People", icon: "🧠" },
   { href: "/intel", label: "Intel hub", icon: "◉" },
   { href: "/briefings", label: "Special reports", icon: "🚨" },
+  { href: "/connect", label: "Groups and friends", icon: "🤝" },
   { href: "/intel/threat-matrix", label: "Threat matrix", icon: "🎯" },
   { href: "/intel/operations", label: "Coordinated operations", icon: "🕸" },
   { href: "/intel/donations", label: "Donor leaderboard", icon: "🧮" },
