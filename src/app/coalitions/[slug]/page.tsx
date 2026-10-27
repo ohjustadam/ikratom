@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { publicHandle } from "@/lib/public-handle";
 import { getGroupLink } from "@/modules/coalitions/growth-actions";
-import type { WinsRow } from "@/modules/coalitions/home";
+import { groupBadge, type WinsRow } from "@/modules/coalitions/home";
 import { About } from "./About";
 import { Discussion } from "./Discussion";
 import { Events } from "./Events";
 import { GroupAction, JoinRequests } from "./GroupGrowth";
 import { GroupLinkCard, RequestToJoin } from "./GroupGrowthClient";
 import { GroupHeader, type GroupTab } from "./GroupHeader";
+import { Leaderboard } from "./Leaderboard";
 import { Members, type MemberView } from "./Members";
 import { Resources } from "./Resources";
 import { TeamActivity } from "./TeamActivity";
@@ -125,6 +126,7 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
         tab={tab}
         showTabs={!!viewerRole}
         link={{ url: link?.ok ? link.url : null, error: link && !link.ok ? link.error : null }}
+        badge={wins ? groupBadge(wins.letters_total) : null}
       />
 
       {!viewerRole && (
@@ -161,6 +163,7 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
         <>
           {invite}
           <Members members={members} />
+          {user && <Leaderboard coalitionId={c.id} slug={c.slug} userId={user.id} lettersTotal={wins?.letters_total ?? 0} />}
           <TeamActivity coalitionId={c.id} />
         </>
       )}

@@ -1,5 +1,6 @@
 import Link from "@/components/Link";
 import { coverClass, handleInitial } from "@/modules/coalitions/covers";
+import type { GroupBadge } from "@/modules/coalitions/home";
 import { InviteButton } from "./GroupHomeClient";
 
 /**
@@ -17,7 +18,7 @@ const TABS: { key: GroupTab; label: string }[] = [
   { key: "about", label: "About" },
 ];
 
-export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTabs, link }: {
+export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTabs, link, badge = null }: {
   group: { id: string; slug: string; name: string; state: string | null; is_public: boolean; cover_theme: string | null };
   memberCount: number | null;
   faces: { handle: string; avatarUrl: string | null }[];
@@ -25,6 +26,8 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
   tab: GroupTab;
   showTabs: boolean;
   link: { url: string | null; error: string | null };
+  /** The group badge (B4 g), from the letters the group has sent; null below the first tier. */
+  badge?: GroupBadge | null;
 }) {
   const isOrganizer = viewerRole === "owner" || viewerRole === "admin";
   return (
@@ -42,6 +45,12 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
           {group.is_public ? "🌐 Public group" : "🔒 Private group"}
           {memberCount !== null && <> · <strong className="text-zinc-200">{memberCount}</strong> member{memberCount === 1 ? "" : "s"}</>}
           {group.state && <> · {group.state}</>}
+          {badge && (
+            <span title={badge.next ? `Next: ${badge.next.name} at ${badge.next.at} letters` : "The top badge"}
+              className="ml-2 rounded bg-emerald-950/60 px-1.5 py-0.5 text-[11px] text-emerald-200">
+              {badge.icon} {badge.name}
+            </span>
+          )}
           {viewerRole && viewerRole !== "member" && (
             <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] uppercase ${viewerRole === "owner" ? "bg-amber-500 text-zinc-950" : "bg-emerald-700 text-zinc-100"}`}>
               {viewerRole === "owner" ? "Organizer" : "Admin"}
