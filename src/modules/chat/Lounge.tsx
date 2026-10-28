@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { postChatMessage, deleteChatMessage, type ChatMessage } from "./actions";
 import { ReportButton } from "@/modules/reports/components/ReportButton";
+import { useChromeMe } from "@/components/chrome/ChromeProvider";
+import { MentionText } from "./MentionText";
 
 /**
  * Live community chat for the forum index. Three jobs in one component:
@@ -38,6 +40,7 @@ export function Lounge({
   isAdmin: boolean;
   signedIn: boolean;
 }) {
+  const myUsername = useChromeMe().username?.toLowerCase() ?? null;
   const [messages, setMessages] = useState<ChatMessage[]>(initial);
   const [authorMap, setAuthorMap] = useState<Record<string, { name: string; isAdmin: boolean }>>(authors);
   const [draft, setDraft] = useState("");
@@ -234,7 +237,7 @@ export function Lounge({
                 )}
               </a>
               <span className="text-zinc-600">:</span>
-              <span className="min-w-0 flex-1 break-words text-zinc-200">{m.body}</span>
+              <span className="min-w-0 flex-1 break-words text-zinc-200"><MentionText body={m.body} me={myUsername} /></span>
               <span className="shrink-0 text-[10px] text-zinc-700">
                 {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>

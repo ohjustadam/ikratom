@@ -43,6 +43,8 @@ export type ChromeMe = {
   leaderAcknowledged: boolean;
   unreadNotifications: number;
   unreadDms: number;
+  // Lounge messages since the member last opened it (0298), capped at 99.
+  unreadLounge: number;
   inviteCode: string | null;
   ui: {
     theme: string | null;
@@ -69,6 +71,7 @@ const ANON: ChromeMe = {
   leaderAcknowledged: true,
   unreadNotifications: 0,
   unreadDms: 0,
+  unreadLounge: 0,
   inviteCode: null,
   ui: { theme: null, accent: null, accentHex: null, mode: null },
 };
@@ -122,7 +125,7 @@ export async function GET() {
     // because a server action is callable from the browser and must not take
     // a user id as an argument.
     const sb = await (await import("@/lib/supabase/server")).createClient();
-    const [notifications, dms, invite, integ] = await Promise.all([
+    const [notifications, dms, invite, integ, lounge] = await Promise.all([
       Promise.resolve(
         sb.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", userId).is("read_at", null),
       ).then((r) => r.count ?? 0).catch(() => 0),
@@ -133,6 +136,10 @@ export async function GET() {
       Promise.resolve(
         sb.from("email_integrations").select("account_email").eq("user_id", userId).maybeSingle(),
       ).then((r) => r.data).catch(() => null),
+      // Before 0298 is applied the RPC is missing and this reads 0.
+      Promise.resolve(sb.rpc("lounge_unread_count"))
+        .then((r) => (typeof r.data === "number" ? r.data : 0))
+        .catch(() => 0),
     ]);
 
     const me: ChromeMe = {
@@ -152,6 +159,7 @@ export async function GET() {
       leaderAcknowledged: !isLeader || !!profile.leader_acknowledged_at,
       unreadNotifications: typeof notifications === "number" ? notifications : 0,
       unreadDms: typeof dms === "number" ? dms : 0,
+      unreadLounge: lounge,
       inviteCode: invite?.invite_code ?? null,
       ui: {
         theme: profile.ui_theme ?? null,

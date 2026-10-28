@@ -35,6 +35,7 @@ const ANON: ChromeMe = {
   leaderAcknowledged: true,
   unreadNotifications: 0,
   unreadDms: 0,
+  unreadLounge: 0,
   inviteCode: null,
   ui: { theme: null, accent: null, accentHex: null, mode: null },
 };

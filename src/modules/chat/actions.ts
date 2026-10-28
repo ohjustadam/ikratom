@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { moderateChatMessage } from "./moderate";
+import { notifyLoungeMentions } from "./mentions";
 
 /**
  * Lounge chat — global community room shown above the forum state list.
@@ -64,7 +65,7 @@ export async function postChatMessage(input: { body: string; room?: string }) {
   // RLS is on/off, but throttle is a graduated rule.
   const { data: profile } = await supabase
     .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader, chat_muted_until, created_at")
+    .select("is_admin, is_owner, is_advocate_leader, chat_muted_until, created_at, username")
     .eq("id", user.id)
     .single();
   const isPrivileged = !!(profile?.is_admin || profile?.is_owner || profile?.is_advocate_leader);
@@ -148,6 +149,25 @@ export async function postChatMessage(input: { body: string; room?: string }) {
     .select("id, user_id, room, body, created_at")
     .single();
   if (error) return { error: error.message };
+
+  // @mentions notify only once the message is actually posted (never for a
+  // held one). Capped at 4 s so a slow push can't stall the composer; the
+  // inbox row is written first and the regular sweep covers a missed push.
+  if (room === "lounge" && body.includes("@")) {
+    try {
+      await Promise.race([
+        notifyLoungeMentions({
+          senderId: user.id,
+          senderUsername: profile?.username ?? null,
+          messageId: (data as ChatMessage).id,
+          body,
+        }),
+        new Promise((resolve) => setTimeout(resolve, 4000)),
+      ]);
+    } catch (e) {
+      console.error("lounge mention notify failed:", e instanceof Error ? e.message : e);
+    }
+  }
   return { ok: true, message: data as ChatMessage };
 }
 
