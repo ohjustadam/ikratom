@@ -253,7 +253,7 @@ export function AttachmentRecorder({
       if ("error" in r) { setError(r.error ?? "Failed"); setBusy(false); return; }
 
       onAttached({
-        url: r.publicUrl,
+        url: r.shareUrl,
         kind: mode,
         transcript: transcript.trim() || null,
         durationSeconds: durationRef.current,

@@ -5,6 +5,7 @@ import { draftOfficialEmail, getComposePrefill, logOfficialContact } from "./act
 import { buildDefaultLetter } from "./default-letter";
 import {
   buildGmailComposeUrl,
+  preferGmailAppOnAndroid,
   buildMailtoUrl,
   buildOutlookComposeUrl,
   mailtoWithinLimit,
@@ -322,7 +323,7 @@ export function GroupComposeModal({
                 <div className={`mt-4 ${selected.size === 0 ? "pointer-events-none opacity-40" : ""}`}>
                   {signedIn && <SendRecordNotice keepCopy={keepCopy} onChange={setKeepCopy} />}
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <SendLink href={buildGmailComposeUrl(to, subject, letter, bcc)} label="Open in Gmail" sub="Web compose" onClick={(e) => openWithRecord(e, "gmail", (b) => buildGmailComposeUrl(to, subject, letter, b))} done={sentVia === "gmail"} />
+                    <SendLink href={buildGmailComposeUrl(to, subject, letter, bcc)} label="Open in Gmail" sub="Web compose" onClick={(e) => { openWithRecord(e, "gmail", (b) => buildGmailComposeUrl(to, subject, letter, b)); preferGmailAppOnAndroid(e.currentTarget); }} done={sentVia === "gmail"} />
                     <SendLink href={buildOutlookComposeUrl(to, subject, letter, bcc)} label="Open in Outlook" sub="Web compose" onClick={(e) => openWithRecord(e, "outlook", (b) => buildOutlookComposeUrl(to, subject, letter, b))} done={sentVia === "outlook"} />
                   </div>
                   {mailtoOk ? (

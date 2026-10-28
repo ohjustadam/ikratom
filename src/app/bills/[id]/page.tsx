@@ -23,6 +23,7 @@ import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillL
 import { findSimilarBillsCached } from "@/lib/bill-similarity";
 import { IntelTipForm } from "./IntelTipForm";
 import { Markdown } from "@/components/Markdown";
+import { briefingDeniesKratom, isUnverifiedStub } from "@/lib/bill-guards";
 import { mdToPlainText } from "@/lib/markdown";
 import { AudioReader } from "@/components/AudioReader";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
@@ -693,6 +694,10 @@ export default async function BillDetailPage({
     mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE}/bills/${bill.id}` },
   };
 
+  // Never show a "For advocates" call to action that the bill's own
+  // text-based briefing contradicts (MN HF 4223, Paul 10-28).
+  const showCallout = !!bill.advocacy_callout && !briefingDeniesKratom(bill.summary_long);
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
       <script
@@ -1073,13 +1078,13 @@ export default async function BillDetailPage({
                 <p key={i}>{para.trim()}</p>
               ))}
           </div>
-          {bill.advocacy_callout && (
+          {showCallout && (
             <div className="mt-4 rounded-md border border-emerald-900/30 bg-emerald-950/20 p-3">
               <p className="text-xs font-semibold text-emerald-400">For advocates:</p>
               <TranslatedText
                 type="bill_callout"
                 id={bill.id}
-                sourceText={bill.advocacy_callout}
+                sourceText={bill.advocacy_callout ?? ""}
                 className="mt-1 text-sm text-emerald-200"
               />
             </div>
@@ -1108,13 +1113,13 @@ export default async function BillDetailPage({
             id={bill.id}
             sourceText={bill.summary_ai}
           />
-          {bill.advocacy_callout && (
+          {showCallout && (
             <div className="mt-4 rounded-md border border-emerald-900/30 bg-emerald-950/20 p-3">
               <p className="text-xs font-semibold text-emerald-400">For advocates:</p>
               <TranslatedText
                 type="bill_callout"
                 id={bill.id}
-                sourceText={bill.advocacy_callout}
+                sourceText={bill.advocacy_callout ?? ""}
                 className="mt-1 text-sm text-emerald-200"
               />
             </div>
@@ -1321,7 +1326,7 @@ export default async function BillDetailPage({
           matches of this bill in OTHER states — when this is a KCPA
           variant or a 7-OH ban, the top match is usually the bill it
           was templated from. Cosine similarity ≥ 0.7 filter, top 5. */}
-      {similarBills.length > 0 && (
+      {similarBills.length > 0 && !isUnverifiedStub(bill.title) && (
         <section className="mb-6 rounded-lg border border-violet-500/30 bg-violet-950/10 p-5">
           <h2 className="mb-2 flex flex-wrap items-baseline gap-2 text-sm font-semibold uppercase tracking-wider text-violet-300">
             🔗 Similar bills in other states

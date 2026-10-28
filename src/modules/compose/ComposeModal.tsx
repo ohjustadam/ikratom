@@ -6,6 +6,7 @@ import { buildDefaultLetter, officialGreeting } from "./default-letter";
 import { fillGroupTemplate } from "./letter-templates";
 import {
   buildGmailComposeUrl,
+  preferGmailAppOnAndroid,
   buildMailtoUrl,
   buildOutlookComposeUrl,
   httpUrlOrNull,
@@ -359,7 +360,7 @@ export function ComposeModal({
                     newTab
                     label="Open in Gmail"
                     sub="Web compose"
-                    onClick={(e) => openWithRecord(e, "gmail", (bcc) => buildGmailComposeUrl(to, subject, letter, bcc))}
+                    onClick={(e) => { openWithRecord(e, "gmail", (bcc) => buildGmailComposeUrl(to, subject, letter, bcc)); preferGmailAppOnAndroid(e.currentTarget); }}
                     done={sentVia === "gmail"}
                   />
                   <SendLink

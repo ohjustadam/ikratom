@@ -23,6 +23,7 @@ import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { getAdminContext } from "@/modules/admin/actions";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { httpUrlOrNull } from "@/modules/compose/send-links";
+import { ThreatScorePair } from "@/components/ThreatScorePair";
 
 export const dynamic = "force-dynamic";
 
@@ -784,9 +785,7 @@ export default async function BriefingPage({ params }: { params: Params }) {
             title={threatAssessment.rationale}
           >
             {threatAssessment.tier_emoji} {threatAssessment.tier_label}
-            <span className="ml-1 font-mono text-[9px] opacity-75">
-              T{threatAssessment.threat_score}·V{threatAssessment.vulnerability_score}
-            </span>
+            <ThreatScorePair threat={threatAssessment.threat_score} vulnerability={threatAssessment.vulnerability_score} className="ml-1" />
           </Link>
         </div>
         <p className="mt-3 text-sm text-zinc-400">

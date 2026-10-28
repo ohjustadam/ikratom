@@ -57,6 +57,8 @@ export async function recordAttachmentMetadata(input: {
     ok: true,
     id: row.id,
     publicUrl: publicData.publicUrl,
+    // The link a letter carries: short and on our own domain (Paul, 10-28).
+    shareUrl: `${(process.env.NEXT_PUBLIC_APP_URL || "https://www.ikratom.org").replace(/\/$/, "")}/v/${row.id}`,
   };
 }
 

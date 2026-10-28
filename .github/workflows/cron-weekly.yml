@@ -145,6 +145,15 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-state-term-dates.mjs
 
+      # Official emails whose domain cannot receive mail: fix a provable typo or
+      # clear the address before a member's letter bounces (Paul, 10-28).
+      - name: Check legislator email domains
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-legislator-email-domains.mjs --apply
+
       # Whole-state county boards from official directories
       # (scripts/lib/county-directories.mjs): one fetch per state, markup
       # parsing, no AI. Weekly so rosters follow elections; it only ever

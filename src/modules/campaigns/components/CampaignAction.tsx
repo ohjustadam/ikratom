@@ -20,6 +20,7 @@ import { EmailSafetyNote } from "@/components/EmailSafetyNote";
 import { makeRecordNonce, recordAddress, withRecordBcc } from "@/lib/send-record";
 import { SendRecordNotice } from "./SendRecordNotice";
 import Link from "@/components/Link";
+import { preferGmailAppOnAndroid } from "@/modules/compose/send-links";
 import {
   groupByRole,
   defaultCollapsed,
@@ -779,7 +780,7 @@ export function CampaignAction({
               label="Open in Gmail"
               disabled={externalLocked}
               sub="Web compose tab"
-              onClick={(e) => openWithRecord(e, "gmail", buildGmailUrl)}
+              onClick={(e) => { openWithRecord(e, "gmail", buildGmailUrl); preferGmailAppOnAndroid(e.currentTarget); }}
               done={sentVia === "gmail"}
             />
             <SendOption

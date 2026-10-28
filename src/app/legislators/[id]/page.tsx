@@ -11,6 +11,7 @@ import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { httpUrlOrNull } from "@/modules/compose/send-links";
 import { SeatTurnoverBanner } from "./SeatTurnoverBanner";
 import type { SeatElection } from "@/lib/seat-turnover";
+import { ThreatScorePair } from "@/components/ThreatScorePair";
 
 const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
 
@@ -274,7 +275,7 @@ export default async function LegislatorDetailPage({
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${threat.tier_color}`} title={threat.rationale}>
             {threat.tier_emoji} {threat.tier_label}
-            <span className="ml-1 font-mono text-[9px] opacity-75">T{threat.threat_score}·V{threat.vulnerability_score}</span>
+            <ThreatScorePair threat={threat.threat_score} vulnerability={threat.vulnerability_score} className="ml-1" />
           </span>
           <PressureIndexPill legislatorId={leg.id} />
         </div>
