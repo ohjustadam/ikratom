@@ -35,7 +35,7 @@ Ranked by what is worth your five minutes first.
 
 | # | Provider | Secret name | Free tier | Get a key at |
 |---|---|---|---|---|
-| 1 | **Gemini** | `GEMINI_API_KEY` | Flash / Flash-Lite free, plus the only free grounded web search. **The key's Google project must have NO billing linked** — since 2026-04 a project with prepaid billing answers 402 "prepayment credits are depleted" instead of using the free tier. Create the key in a NEW project. **Status 2026-10-23: the primary key answers 402 for exactly that reason**, so Groq is the working provider until a key from a no-billing project replaces it. | https://aistudio.google.com/apikey |
+| 1 | **Gemini** | `GEMINI_API_KEY` | Flash / Flash-Lite free, plus the only free grounded web search. **The key's Google project must have NO billing linked** — since 2026-04 a project with prepaid billing answers 402 "prepayment credits are depleted" instead of using the free tier. Create the key in a NEW project. Status 2026-10-23: the primary key answered 402 for exactly that reason. **2026-10-27: Gemini answered again from .env.local** (personalize test, 8.4 s). Extra no-billing project keys (`GEMINI_API_KEY_2` to `_9`) are still the cheapest way to add free capacity. | https://aistudio.google.com/apikey |
 | 2 | **Groq** | `GROQ_API_KEY` | ~30 req/min, daily token caps; fastest in the pool | https://console.groq.com/keys |
 | 3 | **Mistral** | `MISTRAL_API_KEY` | Free plan: $10/month of API credit, no card | https://console.mistral.ai/api-keys |
 | 4 | **OpenRouter** | `OPENROUTER_API_KEY` | ~20 req/min, 50 req/day on free models (1,000/day after a one-time $10 credit purchase, which is not required) | https://openrouter.ai/keys |
@@ -67,6 +67,48 @@ GEMINI_API_KEYS     or one comma-separated list instead
 The router and the grounded path both rotate across all of them and park only
 the *exhausted key*, not the whole provider. This is the cheapest way to unblock
 grounded work: each extra key is a new project, no billing, no card.
+
+---
+
+## The sturdier engine (2026-10-27)
+
+Five changes, all in `scripts/lib/ai-router.mjs` + `scripts/lib/ai-router-support.mjs`. Callers that pass nothing new behave exactly as before.
+
+| What | How to use it | Why |
+|---|---|---|
+| **Shared provider health** | Automatic. Table `ai_provider_health` (mig 0297), scoped `gha` / `site` / `local`. | A throttled or dead provider used to be rediscovered by every process (`github 0/49`). Now the first failure is shared, and others skip it until the cooldown ends. Scopes never mix, because each environment holds its own keys. |
+| **Hedged calls** | `aiRouter({ ..., hedgeMs: 3000 })` | When a member is waiting: if the first provider hasn't answered in time, the next one races it and the faster wins. Personalize uses it. |
+| **Response cache** | `aiRouter({ ..., cacheTtlHours: 24 })` | For prompts that repeat. Kept in memory per process and in table `ai_response_cache`; expired rows are purged on write. |
+| **Model tiers** | `aiRouter({ ..., tier: "small" })`, or `AI_TIER_DEFAULT=small` on one workflow | Small models for sorting and classifying: Groq `openai/gpt-oss-20b`, or `<PROVIDER>_MODEL_SMALL`. Trial it one job at a time; the default stays `large`. |
+| **Size-aware routing** | Automatic, plus `chunkText(text, maxTokens)` for long documents | A prompt bigger than a provider's per-request budget skips it (Groq's 8k TPM cap answers 413). If nothing fits, the router throws `PROMPT_TOO_LARGE`. Budgets can be overridden with `AI_BUDGET_<PROVIDER>`. |
+
+Under vitest the shared tables are never touched (a unit test must not write to production). `AI_ROUTER_PERSIST=0` turns them off anywhere.
+
+## Extra slots: add any free host without code
+
+Any free **OpenAI-compatible** host joins the pool with env alone, for n = 1..5:
+
+```
+AI_EXTRA_1_NAME=shortslug          # shows in logs and AI_PROVIDER_ORDER
+AI_EXTRA_1_URL=https://host/v1     # /chat/completions is appended if missing
+AI_EXTRA_1_MODEL=model-id
+AI_EXTRA_1_KEY=...                 # blank for keyless hosts
+```
+
+Set them in `.env.local` (the slots are already there), in Netlify for the website, and in GitHub for the crons:
+- `AI_EXTRA_<n>_NAME`, `_URL` and `_MODEL` go in **Variables**;
+- `_KEY` goes in **Secrets**.
+
+Every cron workflow already maps slots 1–3.
+
+**Candidates to try**: unverified, since free tiers churn. Check each with `node scripts/test-ai-providers.mjs` before relying on it:
+- Together AI (its free endpoint models);
+- Hugging Face Inference Providers (small monthly credit);
+- Scaleway Generative APIs;
+- Zhipu GLM Flash;
+- LLM7 (keyless).
+
+Keep a host only if it answers clean JSON and needs no card.
 
 ---
 

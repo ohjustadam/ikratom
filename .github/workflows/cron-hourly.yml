@@ -72,6 +72,8 @@ env:
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
   GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+  GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+  GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
   SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
@@ -84,6 +86,19 @@ env:
   GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
   # Optional: reorder the pool without a deploy, e.g. "groq,mistral,openrouter".
   AI_PROVIDER_ORDER: ${{ vars.AI_PROVIDER_ORDER }}
+  AI_TIER_DEFAULT: ${{ vars.AI_TIER_DEFAULT }}
+  AI_EXTRA_1_NAME: ${{ vars.AI_EXTRA_1_NAME }}
+  AI_EXTRA_1_URL: ${{ vars.AI_EXTRA_1_URL }}
+  AI_EXTRA_1_MODEL: ${{ vars.AI_EXTRA_1_MODEL }}
+  AI_EXTRA_1_KEY: ${{ secrets.AI_EXTRA_1_KEY }}
+  AI_EXTRA_2_NAME: ${{ vars.AI_EXTRA_2_NAME }}
+  AI_EXTRA_2_URL: ${{ vars.AI_EXTRA_2_URL }}
+  AI_EXTRA_2_MODEL: ${{ vars.AI_EXTRA_2_MODEL }}
+  AI_EXTRA_2_KEY: ${{ secrets.AI_EXTRA_2_KEY }}
+  AI_EXTRA_3_NAME: ${{ vars.AI_EXTRA_3_NAME }}
+  AI_EXTRA_3_URL: ${{ vars.AI_EXTRA_3_URL }}
+  AI_EXTRA_3_MODEL: ${{ vars.AI_EXTRA_3_MODEL }}
+  AI_EXTRA_3_KEY: ${{ secrets.AI_EXTRA_3_KEY }}
 
 jobs:
   # ── CLOCK DEDUPE ────────────────────────────────────────────────────────

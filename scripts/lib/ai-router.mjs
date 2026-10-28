@@ -30,6 +30,11 @@
 
 import { OLLAMA_NUM_THREAD } from "./ollama-options.mjs";
 import { pickGeminiKey, markGeminiKeyCooldown, markGeminiKeyDead, liveGeminiKeyCount, geminiKeyCount } from "./gemini-keys.mjs";
+import {
+  estimateTokens, fitsProvider, tierModel, extraProviders, hedge, cacheKey,
+  loadProviderHealth, saveProviderHealth, readCache, writeCache,
+} from "./ai-router-support.mjs";
+export { chunkText } from "./ai-router-support.mjs";
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
 // Gemini is the one provider with a multi-key pool (one free key per GCP
@@ -58,6 +63,16 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const AI_GATEWAY_API_KEY = process.env.AI_GATEWAY_API_KEY;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+// Free OpenAI-compatible hosts added by env alone: AI_EXTRA_<n>_URL/_KEY/_MODEL/_NAME.
+const EXTRAS = extraProviders();
+
+/**
+ * Where this process runs, for shared provider health (mig 0297). GitHub
+ * Actions, the website and the owner's box hold DIFFERENT keys, so a 401 on one
+ * must never park the provider for the others. AI_ROUTER_SCOPE overrides.
+ */
+const SCOPE = process.env.AI_ROUTER_SCOPE
+  || (process.env.GITHUB_ACTIONS ? "gha" : process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY ? "site" : "local");
 
 // Cooldown tracking. When a provider returns 429 we set a deadline
 // and skip it until the deadline passes.
@@ -179,6 +194,7 @@ function availableProviders() {
   if (OPENROUTER_API_KEY) out.push("openrouter");
   if (NVIDIA_API_KEY) out.push("nvidia");
   if (AI_GATEWAY_API_KEY) out.push("vercel");
+  for (const x of EXTRAS) out.push(x.name);
   // Ollama stays last by default: it only answers on the owner's box, so in the
   // cloud it is a guaranteed timeout, not a fallback. AI_PROVIDER_ORDER can
   // still promote it for local runs.
@@ -209,8 +225,37 @@ function inCooldown(p) {
   const t = cooldownUntil.get(p);
   return t && Date.now() < t;
 }
-function startCooldown(p, ms = 60_000) {
-  cooldownUntil.set(p, Date.now() + ms);
+function startCooldown(p, ms = 60_000, reason = "throttled") {
+  const until = Date.now() + ms;
+  cooldownUntil.set(p, until);
+  // Shared (mig 0297): the next cron process, or the next website request in
+  // this same scope, skips p until then instead of failing on it again.
+  void saveProviderHealth(`${p}@${SCOPE}`, until, reason);
+}
+
+/** Load the shared provider health once per process. Never throws, never waits long. */
+let _healthLoaded = null;
+function ensureHealthLoaded() {
+  _healthLoaded ??= loadProviderHealth().then((m) => {
+    for (const [scoped, { until }] of m) {
+      const [p, scope] = String(scoped).split("@");
+      if (scope === SCOPE && until > (cooldownUntil.get(p) ?? 0)) cooldownUntil.set(p, until);
+    }
+  }).catch(() => {});
+  return _healthLoaded;
+}
+
+// Opt-in response cache: this process first, then the shared table (mig 0297).
+const memCache = new Map();
+function remember(key, provider, parsed, ttlHours) {
+  memCache.set(key, { provider, parsed, until: Date.now() + ttlHours * 3600_000 });
+  if (memCache.size > 200) memCache.delete(memCache.keys().next().value);
+  void writeCache(key, provider, parsed, ttlHours);
+}
+async function recall(key) {
+  const m = memCache.get(key);
+  if (m && m.until > Date.now()) return { provider: m.provider, parsed: m.parsed };
+  return readCache(key);
 }
 
 /**
@@ -275,7 +320,7 @@ const deadForProcess = new Map(); // provider -> reason
 
 function noteHardFailure(p, status, body = "") {
   if (!HARD_FAIL_STATUS.has(status)) return false;
-  startCooldown(p, 6 * 3600_000);
+  startCooldown(p, 6 * 3600_000, `gone ${status}: ${body.slice(0, 80)}`);
   if (!deadForProcess.has(p)) {
     deadForProcess.set(p, `${status}`);
     console.log(`    ⓘ ${p} is gone (${status}) — dropped from this run: ${body.slice(0, 70)}`);
@@ -307,7 +352,7 @@ function noteHardFailure(p, status, body = "") {
  * deploy — same contract as every other entry in deadForProcess.
  */
 function noteUnusableBody(p, raw) {
-  startCooldown(p, 6 * 3600_000);
+  startCooldown(p, 6 * 3600_000, "non-JSON body");
   if (!deadForProcess.has(p)) {
     deadForProcess.set(p, "non-JSON body");
     const s = String(raw ?? "").replace(/\s+/g, " ").slice(0, 60);
@@ -407,7 +452,7 @@ function parseLooseJson(text) {
   throw new Error(`JSON parse failed; head: ${t.slice(0, 120)}…`);
 }
 
-async function callGroq(sys, user, maxTokens, modelOverride) {
+async function callGroq(sys, user, maxTokens, modelOverride, tier = "large") {
   const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
@@ -419,7 +464,7 @@ async function callGroq(sys, user, maxTokens, modelOverride) {
       // "does not exist or you do not have access to it". Its catalogue is
       // openai/gpt-oss-{120b,20b} and qwen/qwen3.{6,8}-27b. Overridable so the
       // next retirement is an env change, not a deploy.
-      model: modelOverride || process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+      model: modelOverride || tierModel("groq", tier, process.env.GROQ_MODEL || "openai/gpt-oss-120b"),
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       temperature: 0.1,
       max_tokens: maxTokens,
@@ -540,7 +585,7 @@ async function callCerebras(sys, user, maxTokens) {
   return parseLooseJson(data.choices?.[0]?.message?.content ?? "{}");
 }
 
-async function callMistral(sys, user, maxTokens) {
+async function callMistral(sys, user, maxTokens, tier = "large") {
   // Mistral free tier — generous, fast inference. Default to Small;
   // override via MISTRAL_MODEL env var (e.g. mistral-medium-latest
   // for higher quality, or pixtral-12b-latest for vision).
@@ -548,7 +593,7 @@ async function callMistral(sys, user, maxTokens) {
     method: "POST",
     headers: { Authorization: `Bearer ${MISTRAL_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: process.env.MISTRAL_MODEL || "mistral-small-latest",
+      model: tierModel("mistral", tier, process.env.MISTRAL_MODEL || "mistral-small-latest"),
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       temperature: 0.1,
       max_tokens: maxTokens,
@@ -623,7 +668,8 @@ async function callCloudflare(sys, user, maxTokens) {
 async function callOpenAICompat(name, { url, key, model, extraHeaders = {} }, sys, user, maxTokens, modelOverride) {
   const r = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...extraHeaders },
+    // Keyless hosts (AI_EXTRA_<n>_KEY blank) get no Authorization header at all.
+    headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), "Content-Type": "application/json", ...extraHeaders },
     body: JSON.stringify({
       model: modelOverride || model,
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
@@ -730,12 +776,16 @@ export async function callOneProvider(p, sys, user, maxTokens = 256, modelOverri
   return callOne(p, sys, user, maxTokens, modelOverride);
 }
 
-async function callOne(p, sys, user, maxTokens, modelOverride) {
+async function callOne(p, sys, user, maxTokens, modelOverride, tier = "large") {
+  const extra = EXTRAS.find((x) => x.name === p);
+  if (extra) {
+    return callOpenAICompat(p, { url: extra.url, key: extra.key, model: extra.model }, sys, user, maxTokens, modelOverride);
+  }
   switch (p) {
-    case "groq": return callGroq(sys, user, maxTokens, modelOverride);
+    case "groq": return callGroq(sys, user, maxTokens, modelOverride, tier);
     case "gemini": return callGemini(sys, user, maxTokens);
     case "cerebras": return callCerebras(sys, user, maxTokens);
-    case "mistral": return callMistral(sys, user, maxTokens);
+    case "mistral": return callMistral(sys, user, maxTokens, tier);
     case "cloudflare": return callCloudflare(sys, user, maxTokens);
     case "github": return callGithub(sys, user, maxTokens, modelOverride);
     case "sambanova": return callSambanova(sys, user, maxTokens, modelOverride);
@@ -757,15 +807,29 @@ export async function aiRouter({
   userPrompt,
   maxTokens = 2048,
   providerOverride = null,
-  // Per-call model override. Today only honored by Groq — used so the
-  // self-critique loop can target DeepSeek R1 Distill 70B while normal
-  // generation stays on Llama-3.3-70B. Other providers ignore the value.
+  // Per-call model override, honored by Groq and the OpenAI-compatible hosts.
   modelOverride = null,
   // How long a call may wait for a fully-parked pool to free up. 0 disables the
   // wait. AI_ROUTER_MAX_WAIT_MS tunes it per workflow without a deploy.
   maxWaitMs = Number(process.env.AI_ROUTER_MAX_WAIT_MS ?? 75_000),
   verbose = true,
+  // "small" = a faster sibling model for sorting/classifying (Groq gpt-oss-20b,
+  // or <PROVIDER>_MODEL_SMALL). "large" (default) keeps today's models.
+  // AI_TIER_DEFAULT lets one workflow trial the small tier without a code change.
+  tier = process.env.AI_TIER_DEFAULT || "large",
+  // Member-facing calls: if the first provider hasn't answered after hedgeMs,
+  // ask the next one too and take whichever answers first. 0 = off.
+  hedgeMs = 0,
+  // Opt-in cache for prompts that repeat. 0 = off.
+  cacheTtlHours = 0,
 }) {
+  await ensureHealthLoaded();
+  const key = cacheTtlHours > 0 ? cacheKey({ systemPrompt, userPrompt, maxTokens, tier }) : null;
+  if (key) {
+    const hit = await recall(key);
+    if (hit) return { ...hit, elapsedMs: 0, cached: true };
+  }
+
   const list = availableProviders();
   const start = pickStart(providerOverride);
   // Cooldown-aware order: try start first, then everyone else, but
@@ -780,42 +844,55 @@ export async function aiRouter({
   const order = [...fresh, ...cold];
 
   const t0 = Date.now();
+  const promptTokens = estimateTokens(systemPrompt, userPrompt);
   let lastErr = null;
-  for (const p of order) {
-    // Re-check the cooldown HERE, not just when `order` was built.
-    //
-    // THE STAMPEDE (measured 2026-09-17). generate-news-digest runs
-    // --concurrency 6, so six aiRouter calls are in flight at once. Each one
-    // built its provider order before any of the others had come back, so all
-    // six hit groq simultaneously, all six got 429, then all six moved to
-    // gemini together, and so on down the list. One burst tripped every
-    // provider's per-minute limit at once and parked the entire pool. The job
-    // gave up 5.7 seconds later having digested NOTHING — out of four items.
-    // Six parallel calls were spending six times the quota to do the work of
-    // one. Re-reading the cooldown at attempt time means callers 2..6 skip a
-    // provider that caller 1 has already discovered is throttled.
-    if (inCooldown(p)) continue;
+  let sizeSkipped = 0;
+  const finish = ({ provider, parsed }) => {
+    if (key) remember(key, provider, parsed, cacheTtlHours);
+    return { provider, parsed, elapsedMs: Date.now() - t0 };
+  };
+  const attempt = async (p) => {
     const h = noteAttempt(p);
     try {
-      const parsed = await callOne(p, systemPrompt, userPrompt, maxTokens, modelOverride);
+      const parsed = await callOne(p, systemPrompt, userPrompt, maxTokens, modelOverride, tier);
       h.ok++;
-      return { provider: p, parsed, elapsedMs: Date.now() - t0 };
+      return { provider: p, parsed };
     } catch (e) {
       h.fail++;
-      h.lastError = String(e.message ?? e).slice(0, 160);
-      lastErr = e;
+      h.lastError = String(e?.message ?? e).slice(0, 160);
       // A refused connection is proof for the whole process, not just this call.
-      // Ollama in CI is the standing example: localhost:11434 is never going to
-      // answer on a GitHub runner, and it was being retried 49 times per run.
       const gone = noteUnreachable(p, e);
-      if (verbose) {
-        console.log(`    ⚠ ${p} failed: ${h.lastError.slice(0, 140)}`);
-      }
-      // No point pausing politely for a provider we just struck off — the 800ms
-      // gap exists to let a throttle breathe, and 49 of them is 39 seconds of a
-      // job timeout spent waiting on hosts that cannot reply.
-      if (!gone) await new Promise((r) => setTimeout(r, 800));
+      if (verbose) console.log(`    ⚠ ${p} failed: ${h.lastError.slice(0, 140)}`);
+      throw Object.assign(e instanceof Error ? e : new Error(String(e)), { gone });
     }
+  };
+  // Usable right now for THIS prompt: not cooling, and the prompt fits its budget.
+  const usable = (p) => !inCooldown(p) && fitsProvider(p, promptTokens, maxTokens);
+
+  const tried = new Set();
+  for (const p of order) {
+    // Re-check the cooldown HERE, not just when `order` was built: parallel
+    // callers (generate-news-digest --concurrency 6) would otherwise all hit the
+    // provider the first one just found throttled (the 2026-09-17 stampede).
+    if (tried.has(p) || inCooldown(p)) continue;
+    // A prompt bigger than a provider's per-request budget is a guaranteed 413
+    // (Groq's 8k TPM cap): route around it instead of paying the round-trip.
+    if (!fitsProvider(p, promptTokens, maxTokens)) { sizeSkipped++; continue; }
+    tried.add(p);
+    const q = hedgeMs > 0 ? order.find((x) => !tried.has(x) && x !== "ollama" && usable(x)) : null;
+    try {
+      if (!q) return finish(await attempt(p));
+      tried.add(q);
+      return finish(await hedge(() => attempt(p), () => attempt(q), hedgeMs));
+    } catch (e) {
+      lastErr = e;
+      // The gap lets a throttle breathe; pointless for a provider struck off,
+      // and too slow when a member is waiting (hedged calls).
+      if (!e?.gone && hedgeMs === 0) await new Promise((r) => setTimeout(r, 800));
+    }
+  }
+  if (tried.size === 0 && sizeSkipped > 0) {
+    throw new Error(`PROMPT_TOO_LARGE: ~${promptTokens} tokens + ${maxTokens} reply fits no configured provider; split it with chunkText().`);
   }
   // Distinguish "the pool is empty" from "the pool answered badly". The first is
   // an operator action (add a key); the second is a provider outage to wait out.
@@ -851,7 +928,7 @@ export async function aiRouter({
       if (verbose) console.log(`    ⏸ every provider is cooling — waiting ${Math.ceil(waitMs / 1000)}s rather than giving up`);
       await new Promise((r) => setTimeout(r, waitMs + 250));
       return aiRouter({
-        systemPrompt, userPrompt, maxTokens, providerOverride, modelOverride, verbose,
+        systemPrompt, userPrompt, maxTokens, providerOverride, modelOverride, verbose, tier, hedgeMs, cacheTtlHours,
         // One wait per call, never a chain of them.
         maxWaitMs: 0,
       });

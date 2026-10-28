@@ -127,7 +127,8 @@ export async function personalizeCampaignBody(input: {
     // reply budget that fits a letter (fewer Groq TPM 413s), and a hard deadline
     // inside the function limit.
     const r = await Promise.race([
-      aiRouter({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1200, maxWaitMs: 0, verbose: false }),
+      // hedgeMs: a member is waiting, so a slow provider gets a second one racing it.
+      aiRouter({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1200, maxWaitMs: 0, verbose: false, hedgeMs: 3_000 }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("PERSONALIZE_TIMEOUT")), 9_000)),
     ]);
     const personalized = r.parsed?.personalized_body;
