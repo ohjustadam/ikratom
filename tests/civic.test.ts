@@ -8,13 +8,21 @@ import { describe, it, expect } from "vitest";
 import { getDistrictsForAddress } from "@/lib/civic";
 
 describe("Census Geocoder", () => {
-  it("returns district numbers for a known OK address", { timeout: 15000 }, async () => {
-    const result = await getDistrictsForAddress({
-      street: "2300 N Lincoln Blvd",
-      city: "Oklahoma City",
-      state: "OK",
-      zip: "73105",
-    });
+  it("returns district numbers for a known OK address", { timeout: 20000 }, async () => {
+    // A Census outage can also mean SLOW: the lookup's own timeouts plus its
+    // Nominatim fallback outran this test's limit on 2026-10-28 and redded
+    // every PR. Treat "no answer in 12 s" the same as an outage (skip below).
+    const result = await Promise.race([
+      getDistrictsForAddress({
+        street: "2300 N Lincoln Blvd",
+        city: "Oklahoma City",
+        state: "OK",
+        zip: "73105",
+      }),
+      new Promise<{ congressional_district: null; state_senate_district: null; state_house_district: null; city: null; county: null }>(
+        (resolve) => setTimeout(() => resolve({ congressional_district: null, state_senate_district: null, state_house_district: null, city: null, county: null }), 12000),
+      ),
+    ]);
 
     // This is a LIVE call to the US Census geocoder. When Census is having
     // an outage (it intermittently serves a 200 HTML error page), the
