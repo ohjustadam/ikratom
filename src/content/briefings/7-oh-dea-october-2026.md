@@ -3,7 +3,7 @@ title: "Special Report: Where 7-OH Stands With the DEA"
 subtitle: "The DEA's October 14 notice, the two-part test that decides which products are covered, and how shop owners and consumers can prepare before November 13"
 # Quoted so gray-matter keeps it a string (see 7-oh-scheduling-2026.md).
 published: "2026-10-27"
-source: "Federal Register docs 2026-20943, 2026-20942, 2026-17429, 2026-13580, 2026-13608, 2026-17409, 2016-24659; 21 U.S.C. 811(h)"
+source: "Federal Register docs 2026-20943, 2026-20942, 2026-17429, 2026-13580, 2026-13608, 2026-17409, 2016-24659; DOJ press release Aug 25, 2026; D.D.C. 1:26-cv-02997; 21 U.S.C. 811(h)"
 prepared_by: "iKratom Policy Desk"
 read_time: "6 min"
 audience: "Shop owners · Consumers · Advocates"
@@ -55,6 +55,14 @@ Failing either test is enough. Products that pass both stay outside Schedule I, 
 - **State laws are separate and can be stricter.** Several states already ban kratom or 7-OH outright. Check your state at [ikratom.org/banned](/banned).
 - **The August 26 order stays in force** until DEA replaces it. When the new order publishes, pseudo moves to the same threshold test as 7-OH, and MGM-15 and MGM-16 stay in Schedule I with no threshold.
 
+## One wrinkle for natural leaf: trace "pseudo"
+
+- **The August 26 order lists pseudo (MGPI) with no threshold.** Until DEA replaces it, any detectable amount is Schedule I on paper, and some tests can report trace MGPI in ordinary leaf products because of processing, storage or lab conditions.
+- **The Justice Department says it won't prosecute trace amounts.** Its Aug 25, 2026 announcement says it "will exercise enforcement discretion when only incidental trace amounts of MGPI are confirmed in a product otherwise consistent with botanical kratom." It also says this "does not create a legal exemption." ([justice.gov press release](https://www.justice.gov/opa/pr/justice-department-announces-emergency-scheduling-three-potent-opioid-compounds))
+- **A federal lawsuit asks a court to make that binding.** The American Kratom Association sued DOJ and DEA (U.S. District Court for the District of Columbia, Case No. 1:26-cv-02997, filed September 2026), asking the court to confirm the order doesn't reach traditional leaf products over trace MGPI. AKA is named here because it is the party that filed the suit.
+- **The October proposal would fix this going forward.** It moves pseudo to the same two-part threshold test as 7-OH, so trace amounts would fall below it once the new order publishes.
+- **For shops:** ask suppliers for COAs that report pseudo (MGPI) as well as 7-OH and mitragynine, and keep them on file.
+
 ## If you run a shop: how to prepare
 
 1. **Pull pseudo, MGM-15 and MGM-16 products now.** They have been Schedule I since August 26, 2026.
@@ -80,7 +88,7 @@ Failing either test is enough. Products that pass both stay outside Schedule I, 
 - The order lasts **two years**, with one possible one-year extension, while DEA works on permanent scheduling. Permanent scheduling requires a full rulemaking with a public comment period.
 - iKratom is watching the Federal Register and will update this report, and alert members, as soon as an order is published.
 
-## Sources (official, Federal Register)
+## Sources (official)
 
 - DEA, notice of intent to temporarily schedule 7-OH and mitragynine pseudoindoxyl above a specified threshold, Oct 14, 2026 (FR Doc. 2026-20943, Docket DEA-1570): [federalregister.gov/d/2026-20943](https://www.federalregister.gov/d/2026-20943)
 - DEA, notice of intent for MGM-15 and MGM-16, Oct 14, 2026 (FR Doc. 2026-20942): [federalregister.gov/d/2026-20942](https://www.federalregister.gov/d/2026-20942)
@@ -88,6 +96,8 @@ Failing either test is enough. Products that pass both stay outside Schedule I, 
 - DEA, July 2026 notice of intent for 7-OH above a specified threshold, withdrawn Oct 14, 2026 (FR Doc. 2026-13580): [federalregister.gov/d/2026-13580](https://www.federalregister.gov/d/2026-13580)
 - HHS, request for information on a proposed 7-OH threshold (FR Doc. 2026-13608), and its comment extension to Sept 10, 2026 (FR Doc. 2026-17409): [federalregister.gov/d/2026-13608](https://www.federalregister.gov/d/2026-13608), [federalregister.gov/d/2026-17409](https://www.federalregister.gov/d/2026-17409)
 - DEA, 2016 withdrawal of its notice of intent to schedule mitragynine and 7-OH (FR Doc. 2016-24659): [federalregister.gov/d/2016-24659](https://www.federalregister.gov/d/2016-24659)
+- Justice Department, "Justice Department Announces Emergency Scheduling of Three Potent Opioid Compounds," Aug 25, 2026: [justice.gov](https://www.justice.gov/opa/pr/justice-department-announces-emergency-scheduling-three-potent-opioid-compounds)
+- American Kratom Association v. U.S. Department of Justice et al., U.S. District Court for the District of Columbia, Case No. 1:26-cv-02997.
 - The law that allows temporary scheduling: 21 U.S.C. 811(h).
 
 *This report explains public federal documents. It is not legal advice. For decisions about your business or your health, talk to a lawyer or a doctor.*
