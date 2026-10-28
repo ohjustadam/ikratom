@@ -19,19 +19,31 @@
  *   5. Record the LegiScan bill ID into bills.legiscan_bill_id so
  *      we don't re-search on next run.
  *
- * LegiScan free tier: 30,000 queries/month. Each bill we track
- * needs ~2 calls (search + getBill) on first sync, then 1/hour
- * thereafter. For ~50 tracked bills running hourly = ~36,000/month
- * which exceeds the cap. So we batch: tracked bills get hourly,
- * everything else daily. Use --priority to scope.
+ * BUDGET (rewritten 2026-10-28). The free key allows 10,000 queries a
+ * calendar month, not the 30,000 this header used to claim. Fetching every
+ * tracked bill in full on every run (30 bills every 2h + ~200 bills twice a
+ * day) needed ~25,000 and ran October dry on the 28th. Now:
+ *   - one getMasterListRaw per state (one query) gives every bill's
+ *     change_hash; getBill runs only for bills whose hash moved
+ *     (bills.legiscan_change_hash, migration 0299);
+ *   - a bill missing from its state's current session list that we have
+ *     synced before is final and costs nothing;
+ *   - a bill LegiScan can't find is searched again weekly, not every run;
+ *   - --priority covers only states whose legislature is in session and
+ *     skips itself within --min-gap-hours of its last run;
+ *   - every call is counted (scripts/lib/legiscan-budget.mjs) and the run
+ *     stops at the month's essential ceiling (95% of 10,000).
  *
  * Run:
- *   node --env-file=.env.local scripts/sync-bills-via-legiscan.mjs --priority   # hourly cron mode
- *   node --env-file=.env.local scripts/sync-bills-via-legiscan.mjs --all-anti   # daily wide pass
+ *   node --env-file=.env.local scripts/sync-bills-via-legiscan.mjs --priority --min-gap-hours 6   # in-session states
+ *   node --env-file=.env.local scripts/sync-bills-via-legiscan.mjs --all-anti                      # daily wide pass
  *   node --env-file=.env.local scripts/sync-bills-via-legiscan.mjs --bill <uuid>
  */
 import { createClient } from "@supabase/supabase-js";
 import { terminalStatusFromAction } from "./lib/bill-status.mjs";
+import {
+  createLegiscanClient, legiscanCallsThisMonth, remainingFor, changeHashesFromMasterList, planBill,
+} from "./lib/legiscan-budget.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -71,6 +83,10 @@ const DRY = args.includes("--dry-run");
 // (bills are processed most-stale-first). 0/absent = unlimited (local runs).
 const MAX_MINUTES = parseInt(arg("--max-minutes") ?? "0");
 const MAX_RUN_MS = MAX_MINUTES > 0 ? MAX_MINUTES * 60_000 : Infinity;
+// --priority runs from a 2-hourly cron; this makes it skip itself until N
+// hours after its last finished run (0 = always run).
+const MIN_GAP_HOURS = Number(arg("--min-gap-hours") ?? "0");
+const SOURCE = PRIORITY ? "sync_bills_legiscan_priority" : "sync_bills_legiscan_all";
 
 if (!PRIORITY && !ALL_ANTI && !SPECIFIC) {
   console.error("Usage: --priority | --all-anti | --bill <uuid>");
@@ -102,16 +118,10 @@ const STATUS_MAP = {
   6: "dead",
 };
 
+// Counted client, created in main once the month's budget is known.
+let client = null;
 async function legiscanFetch(op, params) {
-  const u = new URL("https://api.legiscan.com/");
-  u.searchParams.set("key", KEY);
-  u.searchParams.set("op", op);
-  for (const [k, v] of Object.entries(params ?? {})) u.searchParams.set(k, v);
-  const r = await fetch(u.toString(), { signal: AbortSignal.timeout(20_000) });
-  if (!r.ok) throw new Error(`LegiScan ${op} ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const data = await r.json();
-  if (data.status === "ERROR") throw new Error(`LegiScan ${op} error: ${data.alert?.message ?? "unknown"}`);
-  return data;
+  return client.call(op, params ?? {});
 }
 
 /** Pull 4-digit years out of a stored session label ("2019-2020", "2023",
@@ -167,6 +177,9 @@ async function syncOne(bill) {
   if (!legiscanId) {
     try {
       legiscanId = await findLegiScanId(bill);
+      // Remember the attempt either way: a bill LegiScan can't find is
+      // searched again next week, not on every run (planBill).
+      if (!DRY) await sb.from("bills").update({ legiscan_searched_at: new Date().toISOString() }).eq("id", bill.id);
       if (!legiscanId) {
         console.log("  ⏭  LegiScan didn't find a match");
         return "skip";
@@ -205,6 +218,9 @@ async function syncOne(bill) {
       `${detail.session?.year_start}-${detail.session?.year_end} (${detail.session?.session_name ?? "?"}); ` +
       `skipping merge to avoid a Frankenstein record`,
     );
+    // Still remember the hash, or this bill is re-fetched (and re-skipped)
+    // on every run until LegiScan's copy changes.
+    if (!DRY && detail.change_hash) await sb.from("bills").update({ legiscan_change_hash: detail.change_hash }).eq("id", bill.id);
     return "skip";
   }
 
@@ -454,6 +470,11 @@ async function syncOne(bill) {
       patch.last_action_at = lsLastAction.date;
     }
   }
+  // Remember LegiScan's hash for this version: the next run skips getBill
+  // until the master list shows a different one.
+  if (detail.change_hash && detail.change_hash !== bill.legiscan_change_hash) {
+    patch.legiscan_change_hash = detail.change_hash;
+  }
   patch.last_synced_at = new Date().toISOString();
 
   if (Object.keys(patch).length > 1 && !DRY) {  // > 1 = something more than just last_synced_at
@@ -466,29 +487,57 @@ async function syncOne(bill) {
 }
 
 // ---- main ----
+const runStart = Date.now();
+const BILL_COLS = "id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id, current_committee_name, legiscan_change_hash, legiscan_searched_at";
+
+async function record(status, notes, rowsUpdated = 0) {
+  try {
+    await sb.from("scraper_runs").insert({
+      source: SOURCE, started_at: new Date(runStart).toISOString(), finished_at: new Date().toISOString(),
+      status, rows_updated: rowsUpdated, notes,
+    });
+  } catch { /* best-effort */ }
+}
+
+// --priority runs from a 2-hourly cron but only needs to run every few hours.
+if (PRIORITY && MIN_GAP_HOURS > 0) {
+  const { data: last } = await sb.from("scraper_runs").select("finished_at").eq("source", SOURCE)
+    .in("status", ["success", "partial", "empty"]).order("finished_at", { ascending: false }).limit(1);
+  const lastAt = last?.[0]?.finished_at ? Date.parse(last[0].finished_at) : 0;
+  if (Date.now() - lastAt < MIN_GAP_HOURS * 3_600_000) {
+    console.log(`Last ${SOURCE} run was under ${MIN_GAP_HOURS}h ago — skipping (no LegiScan queries).`);
+    process.exit(0);
+  }
+}
+
+// Monthly budget: the bill sync is the essential job and may run to 95%.
+const usedThisMonth = await legiscanCallsThisMonth(sb).catch(() => 0);
+const allowance = SPECIFIC ? 50 : remainingFor(usedThisMonth, "essential");
+if (allowance <= 0) {
+  console.log(`LegiScan month budget reached (${usedThisMonth} calls recorded) — skipping.`);
+  await record("empty", `budget reached · ${usedThisMonth} calls this month · legiscan_calls=0`);
+  process.exit(0);
+}
+client = createLegiscanClient(KEY, { maxCalls: allowance });
+
 let bills;
 if (SPECIFIC) {
-  const { data } = await sb.from("bills")
-    .select("id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id, current_committee_name")
-    .eq("id", SPECIFIC).single();
+  const { data } = await sb.from("bills").select(BILL_COLS).eq("id", SPECIFIC).single();
   bills = data ? [data] : [];
 } else if (PRIORITY) {
-  // Hourly mode: only active anti bills with last_synced_at > 30 min old
-  // (so we don't burn quota on the same bills every tick if cron runs fast)
-  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-  const { data } = await sb.from("bills")
-    .select("id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id, current_committee_name")
-    .eq("active", true)
-    .eq("scope", "state")
-    .eq("kratom_relevance", "anti")
-    .or(`last_synced_at.is.null,last_synced_at.lt.${cutoff}`)
-    .order("last_synced_at", { ascending: true, nullsFirst: true })
-    .limit(30);
+  // Active anti bills in states whose legislature is in session right now:
+  // the only places a bill can move between daily passes.
+  const year = new Date().getUTCFullYear();
+  const { data: open } = await sb.from("legislative_sessions").select("state")
+    .eq("sine_die", false).gte("year_end", year);
+  const openStates = [...new Set((open ?? []).map((s) => s.state))];
+  if (openStates.length === 0) { console.log("No legislature in session — nothing to do."); await record("empty", "no open sessions · legiscan_calls=0"); process.exit(0); }
+  const { data } = await sb.from("bills").select(BILL_COLS)
+    .eq("active", true).eq("scope", "state").eq("kratom_relevance", "anti").in("state", openStates);
   bills = data ?? [];
 } else if (ALL_ANTI) {
   // Daily mode: all active anti + pro bills
-  const { data } = await sb.from("bills")
-    .select("id, state, bill_number, kratom_relevance, status, last_action, legiscan_bill_id, session_id, current_committee_name")
+  const { data } = await sb.from("bills").select(BILL_COLS)
     .eq("active", true)
     .eq("scope", "state")
     .in("kratom_relevance", ["anti", "pro"])
@@ -496,39 +545,58 @@ if (SPECIFIC) {
   bills = data ?? [];
 }
 
-if (bills.length === 0) { console.log("Nothing to sync."); process.exit(0); }
-console.log(`Syncing ${bills.length} bill(s) via LegiScan${DRY ? " (DRY RUN)" : ""}…`);
+if (bills.length === 0) { console.log("Nothing to sync."); await record("empty", "nothing to sync · legiscan_calls=0"); process.exit(0); }
+console.log(`Checking ${bills.length} bill(s) via LegiScan${DRY ? " (DRY RUN)" : ""} · month so far ${usedThisMonth} calls, this run may use ${allowance}…`);
 
-let ok = 0, fail = 0, skip = 0;
-let stoppedEarly = false;
-const runStart = Date.now();
+// One master list per state (current session) → which bills changed.
+const hashesByState = new Map();
+if (!SPECIFIC) {
+  for (const state of [...new Set(bills.filter((b) => b.legiscan_bill_id).map((b) => b.state))]) {
+    try {
+      const data = await legiscanFetch("getMasterListRaw", { state });
+      hashesByState.set(state, changeHashesFromMasterList(data.masterlist));
+    } catch (e) {
+      console.log(`  ⚠ master list ${state} failed: ${e.message?.slice(0, 100)} — its bills are fetched directly`);
+    }
+    if (client.exhausted) break;
+  }
+}
+
+let ok = 0, fail = 0, skip = 0, unchanged = 0, final = 0, waiting = 0;
+let stoppedEarly = false, outOfBudget = false;
+const quiet = [];
 for (const b of bills) {
   if (Date.now() - runStart > MAX_RUN_MS) {
     stoppedEarly = true;
     console.log(`\n⏱ Reached ${MAX_MINUTES}-min wall-clock budget — stopping early so telemetry is recorded before the CI timeout. Bills are ordered most-stale-first; the next run continues here.`);
     break;
   }
+  const plan = SPECIFIC ? "fetch" : planBill(b, hashesByState.get(b.state));
+  if (plan === "unchanged" || plan === "final") { plan === "unchanged" ? unchanged++ : final++; quiet.push(b.id); continue; }
+  if (plan === "wait") { waiting++; continue; }
+  if (client.exhausted) { outOfBudget = true; console.log(`\n💸 Run budget used (${client.calls} calls) — the rest wait for the next run.`); break; }
   const r = await syncOne(b);
   if (r === "ok") ok++;
   else if (r === "fail") fail++;
   else skip++;
 }
+// Unchanged bills were still checked: stamp them so "last synced" stays true.
+if (quiet.length && !DRY) {
+  for (let i = 0; i < quiet.length; i += 200) {
+    await sb.from("bills").update({ last_synced_at: new Date().toISOString() }).in("id", quiet.slice(i, i + 200));
+  }
+}
 
-console.log(`\nDone. ok=${ok}, skip=${skip}, fail=${fail}${stoppedEarly ? " (stopped at time budget)" : ""}`);
+console.log(`\nDone. fetched ok=${ok}, unchanged=${unchanged}, final=${final}, search-wait=${waiting}, skip=${skip}, fail=${fail} · legiscan_calls=${client.calls}${stoppedEarly ? " (stopped at time budget)" : ""}`);
 
-try {
-  await sb.from("scraper_runs").insert({
-    source: PRIORITY ? "sync_bills_legiscan_priority" : "sync_bills_legiscan_all",
-    started_at: new Date(runStart).toISOString(),
-    finished_at: new Date().toISOString(),
-    // "partial" when some bills synced despite a few LegiScan hiccups (429s /
-    // timeouts on individual bills) — only a run that synced NOTHING is a real
-    // error. De-noises the automation dashboard (this job ran ~hourly and a
-    // single transient bill failure was flagging the whole run red).
-    status: stoppedEarly && ok > 0 ? "partial"
-      : fail > 0 ? (ok > 0 ? "partial" : "error")
-      : (ok === 0 && skip === 0 ? "empty" : "success"),
-    rows_updated: ok,
-    notes: `${ok} synced, ${skip} skipped, ${fail} failed${stoppedEarly ? " · stopped at time budget" : ""}`,
-  });
-} catch { /* best-effort */ }
+// "partial" when some bills synced despite a few LegiScan hiccups (429s /
+// timeouts on individual bills); only a run that synced NOTHING is a real
+// error. A run where every bill was unchanged is a success: checking is the job.
+await record(
+  (stoppedEarly || outOfBudget) && ok > 0 ? "partial"
+    : fail > 0 ? (ok > 0 ? "partial" : "error")
+    : (ok + unchanged + final + skip === 0 ? "empty" : "success"),
+  `${ok} synced, ${unchanged} unchanged, ${final} final, ${skip} skipped, ${fail} failed, ${waiting} waiting to re-search` +
+    `${stoppedEarly ? " · stopped at time budget" : ""}${outOfBudget ? " · stopped at LegiScan budget" : ""} · legiscan_calls=${client.calls}`,
+  ok,
+);

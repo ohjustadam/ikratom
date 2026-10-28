@@ -21,7 +21,7 @@ export const EXPECTED_INTERVAL_HOURS: Record<string, number> = {
   sync_research_pubmed: 36, generate_state_briefing: 36, fire_meeting_reminders: 36,
   fire_daily_brief_push: 36, sync_bills_legiscan_all: 36,
   sync_committees_openstates: 36, derive_state_status: 36,
-  review_lapsed_items: 36, sync_legislative_sessions: 36,
+  review_lapsed_items: 36,
   // Fact-integrity watchdog: cross-checks published "X is federally scheduled"
   // claims against the Federal Register. If this goes silent we lose the only
   // automated check that a reader isn't the first to spot a false ban claim.
@@ -30,6 +30,8 @@ export const EXPECTED_INTERVAL_HOURS: Record<string, number> = {
   sync_nonprofit_990s: 216, broadcast_whats_new: 216, sync_elections: 216,
   official_portraits_sync: 216, bill_topics_classify: 216,
   backfill_term_dates: 216, seed_county_directories: 216,
+  // LegiScan session list: self-gated weekly since 2026-10-28 (10k/month cap).
+  sync_legislative_sessions: 216,
   // ── infrastructure watchdogs ───────────────────────────────────────────────
   // These were MISSING, and that is why /admin/ops and /admin/checklist stayed
   // green through the 2026-07-30 credit outage: summarizeCronHealth() skips any
