@@ -3874,6 +3874,7 @@ SELECT DISTINCT ON (source) source,
 | `power_users` | `p_ids uuid[]` | `TABLE(id uuid)` | sql | ✓ |
 | `prune_ai_jobs` | `` | `void` | sql | ✓ |
 | `prune_email_quota_log` | `` | `void` | sql | ✓ |
+| `prune_retention` | `p_apply boolean DEFAULT false, p_limit integer DEFAULT 5000` | `TABLE(briefings integer, scraper_runs integer)` | plpgsql | ✓ |
 | `prune_trusted_devices` | `` | `integer` | sql | ✓ |
 | `record_invite_redemption` | `p_invitee uuid, p_invite_code text` | `uuid` | plpgsql | ✓ |
 | `render_template_for_alert` | `p_template text, p_alert policy_alerts` | `text` | plpgsql |  |

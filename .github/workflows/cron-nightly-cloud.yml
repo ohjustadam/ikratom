@@ -143,6 +143,12 @@ jobs:
       # chassis' crash-through behavior; scripts self-report to
       # scraper_runs so failures surface in staleness checks, not here.
 
+      # First, so a later step hitting the job timeout can't drop it. One RPC,
+      # a few seconds; the retention rules live in migration 0300.
+      - name: Retention (old state briefings + scraper_runs > 90d)
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/prune-retention.mjs
+
       - name: Legistar tenant discovery (keyless)
         continue-on-error: true
         run: node --import=./scripts/lib/egress-meter.mjs scripts/discover-legistar-tenants.mjs --limit 300

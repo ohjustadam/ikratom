@@ -734,11 +734,18 @@ async function generateOne(state) {
     }
   }
 
+  // Carry the admin's hand-written addendum forward. The page renders only the
+  // active row, so a new row without it would silently drop the admin's text
+  // at the next daily regeneration.
+  const { data: prevActive } = await sb.from("state_briefings")
+    .select("manual_addendum_md").eq("state", state).eq("is_active", true).limit(1).maybeSingle();
+
   // Atomic swap: deactivate old + insert new
   await sb.from("state_briefings").update({ is_active: false }).eq("state", state).eq("is_active", true);
   const { error: insertErr, data: row } = await sb.from("state_briefings").insert({
     state,
     body_md: body,
+    manual_addendum_md: prevActive?.manual_addendum_md ?? null,
     generated_by_provider: finalProvider ?? "unknown",
     data_snapshot: {
       legCount: data.legCount,
