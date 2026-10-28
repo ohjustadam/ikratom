@@ -161,11 +161,9 @@ jobs:
         continue-on-error: true
         run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-bill-substance.mjs --limit 100
 
-      - name: Live bill refresh (LegiScan, active anti/pro)
-        continue-on-error: true
-        # --max-minutes so a degraded-LegiScan night can't eat the single-job
-        # budget and starve the elections + news-digest steps after it.
-        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bills-via-legiscan.mjs --all-anti --max-minutes 35
+      # The nightly `sync-bills-via-legiscan.mjs --all-anti` pass was removed
+      # 2026-10-28: cron-daily.yml runs the same pass, and the two together cost
+      # ~400 LegiScan queries a day against a 10,000/month cap.
 
       - name: State executives (keyless YAML, weekly self-gate)
         continue-on-error: true

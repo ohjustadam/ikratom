@@ -453,7 +453,7 @@ jobs:
         run: node --import=./scripts/lib/egress-meter.mjs scripts/auto-post-bills-to-forum.mjs
       - name: LegiScan primary sync for active anti bills (Layer 2)
         continue-on-error: true
-        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bills-via-legiscan.mjs --priority
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-bills-via-legiscan.mjs --priority --min-gap-hours 6
       - name: Post critical bill alerts to Discord channels
         continue-on-error: true
         run: node --import=./scripts/lib/egress-meter.mjs scripts/post-bill-alerts-to-discord.mjs

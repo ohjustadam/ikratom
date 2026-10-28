@@ -6,14 +6,19 @@
  * into legislative_sessions so the review cron can retire non-enacted bills the
  * moment their session closes — instead of guessing from inactivity.
  *
- * Keyless-adjacent: uses the LEGISCAN_API_KEY already configured (~30k/mo). One
- * getSessionList call per state (~51 calls) → cheap; run weekly.
+ * Uses the LEGISCAN_API_KEY, whose real cap is 10,000 queries a month (not
+ * the 30k this header used to say). One getSessionList per state (~51 calls),
+ * so it self-gates to once every 6 days: it was scheduled nightly, ~1,500 a
+ * month, which helped run October's allowance dry. Sessions change a few
+ * times a year. --force skips the gate. Nonessential: it stands down at 70% of
+ * the month's budget (scripts/lib/legiscan-budget.mjs).
  *
  *   node --env-file=.env.local scripts/sync-legislative-sessions.mjs [--state XX]
  */
 import { createClient } from "@supabase/supabase-js";
 import { STATE_NAMES } from "./lib/us-states.mjs";
 import { runWithLogging } from "./lib/scraper-run.mjs";
+import { legiscanCallsThisMonth, budgetAllows } from "./lib/legiscan-budget.mjs";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -21,6 +26,8 @@ const supabase = createClient(
   { auth: { persistSession: false } },
 );
 const KEY = process.env.LEGISCAN_API_KEY;
+const FORCE = process.argv.includes("--force");
+let calls = 0;
 const ONE_STATE = (() => { const i = process.argv.indexOf("--state"); return i >= 0 ? process.argv[i + 1]?.toUpperCase() : null; })();
 
 async function getSessionList(state) {
@@ -28,11 +35,28 @@ async function getSessionList(state) {
   u.searchParams.set("key", KEY);
   u.searchParams.set("op", "getSessionList");
   u.searchParams.set("state", state);
+  calls++;
   const r = await fetch(u, { signal: AbortSignal.timeout(20_000) });
   if (!r.ok) throw new Error(`LegiScan ${r.status}`);
   const d = await r.json();
   if (d.status === "ERROR") throw new Error(d.alert?.message ?? "error");
   return d.sessions ?? [];
+}
+
+if (!ONE_STATE && !FORCE) {
+  const { data: last } = await supabase.from("scraper_runs").select("finished_at")
+    .eq("source", "sync_legislative_sessions").eq("status", "success")
+    .order("finished_at", { ascending: false }).limit(1);
+  const lastAt = last?.[0]?.finished_at ? Date.parse(last[0].finished_at) : 0;
+  if (Date.now() - lastAt < 6 * 86_400_000) {
+    console.log("sync_legislative_sessions ran under 6 days ago — skipping (use --force).");
+    process.exit(0);
+  }
+  const used = await legiscanCallsThisMonth(supabase).catch(() => 0);
+  if (!budgetAllows(used, "nonessential")) {
+    console.log(`LegiScan month budget past the nonessential ceiling (${used} calls) — skipping.`);
+    process.exit(0);
+  }
 }
 
 await runWithLogging({ source: "sync_legislative_sessions", supabase }, async () => {
@@ -66,7 +90,7 @@ await runWithLogging({ source: "sync_legislative_sessions", supabase }, async ()
     }
     console.log(`  ${state}: ${sessions.length} sessions`);
   }
-  const notes = `${states.length} states · ${sineDie} sine_die · ${errors} errors`;
+  const notes = `${states.length} states · ${sineDie} sine_die · ${errors} errors · legiscan_calls=${calls}`;
   console.log(`\n✓ ${notes}`);
   return { rowsAdded: added, rowsUpdated: updated, notes };
 });
