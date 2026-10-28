@@ -8,23 +8,17 @@ import { describe, it, expect } from "vitest";
 import { getDistrictsForAddress } from "@/lib/civic";
 
 describe("Census Geocoder", () => {
-  it("returns district numbers for a known OK address", { timeout: 20000 }, async () => {
-    // A Census outage can also mean SLOW: the lookup's own timeouts plus its
-    // Nominatim fallback outran this test's limit on 2026-10-28 and redded
-    // every PR. Treat "no answer in 12 s" the same as an outage (skip below).
-    const result = await Promise.race([
-      getDistrictsForAddress({
-        street: "2300 N Lincoln Blvd",
-        city: "Oklahoma City",
-        state: "OK",
-        zip: "73105",
-      }),
-      new Promise<{ congressional_district: null; state_senate_district: null; state_house_district: null; city: null; county: null }>(
-        (resolve) => setTimeout(() => resolve({ congressional_district: null, state_senate_district: null, state_house_district: null, city: null, county: null }), 12000),
-      ),
-    ]);
+  it("returns district numbers for a known OK address", { timeout: 45000 }, async () => {
+    const result = await getDistrictsForAddress({
+      street: "2300 N Lincoln Blvd",
+      city: "Oklahoma City",
+      state: "OK",
+      zip: "73105",
+    });
 
-    // This is a LIVE call to the US Census geocoder. When Census is having
+    // This is a LIVE call to the US Census geocoder (up to three 10 s calls in a
+    // row, ~31 s worst case, so the timeout sits above that: a slow Census must
+    // reach the outage path below, not time the test out). When Census is having
     // an outage (it intermittently serves a 200 HTML error page), the
     // hardened lookup degrades to all-empty. Don't red the build on an
     // external outage — skip the schema-drift assertions in that case.

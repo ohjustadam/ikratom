@@ -344,6 +344,11 @@ if (siteStatus >= 200 && siteStatus < 400) {
 
 // ── Page the owner (once per distinct problem-set per 6h) ────────────────────
 const signature = problems.join(" | ") || "ok";
+// "Down" only when the site check itself recorded a failure. It used to be
+// inferred from the status code, and Cloudflare answers this watchdog with a
+// 403 challenge on every run, so a credits notice on 10-28 went out titled
+// "iKratom is DOWN" while the site was fine.
+const siteDown = problems.some((p) => /^SITE (DOWN|UNREACHABLE)/.test(p));
 let pagedNote = "";
 
 if (problems.length > 0) {
@@ -378,7 +383,7 @@ if (problems.length > 0) {
         const webpush = require("web-push");
         webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:support@ikratom.org", pub, priv);
         const payload = JSON.stringify({
-          title: siteStatus && siteStatus < 400 ? "⚠ iKratom hosting warning" : "🚨 iKratom is DOWN",
+          title: siteDown ? "🚨 iKratom is DOWN" : "⚠ iKratom hosting warning",
           body: problems.join(" · ").slice(0, 300),
           link: "/admin/ops",
           tag: "vercel-watchdog",
@@ -400,14 +405,15 @@ if (problems.length > 0) {
     // Phone + inbox, independent of the PWA (2026-10-03). On 2026-10-02 the
     // only page went to a browser subscription, and the owner learned 14h late.
     const { alertOwner } = await import("./lib/owner-alert.mjs");
-    const down = !(siteStatus && siteStatus < 400);
     const sent = await alertOwner({
       sb,
-      title: down ? "iKratom is DOWN" : "iKratom hosting warning",
+      title: siteDown ? "iKratom is DOWN" : "iKratom hosting warning",
       body: problems.join("\n"),
-      priority: down || problems.some((p) => /SPIKE|FLOOD|DISTRIBUTED|ORIGIN LOAD/.test(p)) ? "urgent" : "high",
+      // A credits-only notice is advice ("batch your deploys"), not an emergency.
+      priority: siteDown || problems.some((p) => /SPIKE|FLOOD|DISTRIBUTED|ORIGIN LOAD/.test(p)) ? "urgent"
+        : problems.every((p) => /credits/i.test(p)) ? "normal" : "high",
       link: "https://app.netlify.com/teams/ohjustadam/billing/general",
-      tags: [down ? "rotating_light" : "warning"],
+      tags: [siteDown ? "rotating_light" : "warning"],
     });
     console.log(`owner alert channels: ${JSON.stringify(sent)}`);
   } else {
