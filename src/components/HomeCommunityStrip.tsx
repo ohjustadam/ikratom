@@ -37,18 +37,21 @@ const getCommunityPulse = unstable_cache(
   { revalidate: 300 },
 );
 
-const card = "flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm transition";
+// Phones: three compact tiles in one row (icon over title) so the hero stays in
+// the first screen; wider screens add the second line.
+const card =
+  "flex min-w-0 flex-col items-start gap-0.5 rounded-lg border px-2.5 py-2 text-xs transition sm:flex-row sm:items-center sm:gap-2 sm:px-3 sm:text-sm";
 
 export async function HomeCommunityStrip() {
   const p = await getCommunityPulse().catch(() => null);
   if (!p) return null;
   return (
-    <div className="mb-6 grid gap-2 sm:grid-cols-3" aria-label="Community right now">
+    <div className="mb-6 grid grid-cols-3 gap-2" aria-label="Community right now">
       <OpenLoungeButton className={`${card} border-emerald-700/50 bg-emerald-950/20 text-left hover:border-emerald-400`}>
         <span aria-hidden>💬</span>
         <span className="min-w-0">
-          <span className="block font-semibold text-zinc-100">Lounge · live chat</span>
-          <span className="block truncate text-xs text-zinc-400">
+          <span className="block font-semibold leading-tight text-zinc-100">Lounge<span className="hidden sm:inline"> · live chat</span></span>
+          <span className="hidden truncate text-xs text-zinc-400 sm:block">
             {p.loungeToday > 0
               ? `${p.loungeToday} message${p.loungeToday === 1 ? "" : "s"} today · join in →`
               : p.lastLoungeAt
@@ -60,17 +63,17 @@ export async function HomeCommunityStrip() {
       <Link href="/coalitions" className={`${card} border-zinc-800 bg-zinc-900/60 hover:border-emerald-500`}>
         <span aria-hidden>👥</span>
         <span className="min-w-0">
-          <span className="block font-semibold text-zinc-100">Groups and friends</span>
-          <span className="block truncate text-xs text-zinc-400">Find or start one for your state →</span>
+          <span className="block font-semibold leading-tight text-zinc-100">Groups and friends</span>
+          <span className="hidden truncate text-xs text-zinc-400 sm:block">Find or start one for your state →</span>
         </span>
       </Link>
       <Link href="/campaigns" className={`${card} border-zinc-800 bg-zinc-900/60 hover:border-emerald-500`}>
         <span aria-hidden>✉️</span>
         <span className="min-w-0">
-          <span className="block font-semibold text-zinc-100">
+          <span className="block font-semibold leading-tight text-zinc-100">
             {p.lettersWeek > 0 ? `${p.lettersWeek.toLocaleString()} letters this week` : "Letters to officials"}
           </span>
-          <span className="block truncate text-xs text-zinc-400">
+          <span className="hidden truncate text-xs text-zinc-400 sm:block">
             {p.lettersWeek > 0 ? "Sent by members · add yours →" : "Send this week's first one →"}
           </span>
         </span>
