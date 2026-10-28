@@ -3,6 +3,7 @@
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import { EmailGroupButton } from "@/modules/compose/EmailGroupButton";
 import { useBillViewer } from "./useBillViewer";
+import { ThreatScorePair } from "@/components/ThreatScorePair";
 
 /**
  * The four per-reader sections of a bill page.
@@ -145,7 +146,7 @@ export function CommitteeLeverage({
                   )}
                   <span className="ml-auto flex items-center gap-2">
                     <span className="font-mono text-[10px]">{m.tier_emoji} {m.tier_label}</span>
-                    <span className="font-mono text-[9px] opacity-75">T{m.threat_score}·V{m.vulnerability_score}</span>
+                    <ThreatScorePair threat={m.threat_score} vulnerability={m.vulnerability_score} />
                   </span>
                 </div>
                 {/* Contact row — only when we have a phone/email AND this member

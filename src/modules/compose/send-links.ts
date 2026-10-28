@@ -46,6 +46,38 @@ export function buildGmailComposeUrl(to: string, subject: string, body: string, 
   return `https://mail.google.com/mail/?${params.toString()}`;
 }
 
+/**
+ * Gmail's mobile website ignores compose links and just opens the inbox (Paul,
+ * 2026-10-28, Android). On Android, hand the same letter to the Gmail APP via
+ * an intent; if the app isn't installed, Chrome follows the fallback to the web
+ * compose URL as before. Build it at click time only (it reads the user agent),
+ * so the server render and hydration still agree.
+ */
+export function gmailAndroidIntent(webComposeUrl: string): string | null {
+  let u: URL;
+  try { u = new URL(webComposeUrl); } catch { return null; }
+  if (u.hostname !== "mail.google.com" || u.searchParams.get("view") !== "cm") return null;
+  const parts = [`subject=${encodeURIComponent(u.searchParams.get("su") ?? "")}`];
+  const bcc = u.searchParams.get("bcc");
+  if (bcc) parts.push(`bcc=${encodeURIComponent(bcc)}`);
+  parts.push(`body=${encodeURIComponent(u.searchParams.get("body") ?? "")}`);
+  const to = encodeURIComponent(u.searchParams.get("to") ?? "").replace(/%40/g, "@").replace(/%2C/gi, ",");
+  return `intent:${to}?${parts.join("&")}#Intent;scheme=mailto;package=com.google.android.gm;S.browser_fallback_url=${encodeURIComponent(webComposeUrl)};end`;
+}
+
+/**
+ * Call from an "Open in Gmail" click handler, after the href is final. On
+ * Android it swaps the web compose URL for the Gmail-app intent and drops
+ * target=_blank (an intent opened in a new tab leaves a blank tab behind).
+ */
+export function preferGmailAppOnAndroid(anchor: HTMLAnchorElement): void {
+  if (typeof navigator === "undefined" || !/Android/i.test(navigator.userAgent)) return;
+  const intent = gmailAndroidIntent(anchor.href);
+  if (!intent) return;
+  anchor.href = intent;
+  anchor.removeAttribute("target");
+}
+
 export function buildOutlookComposeUrl(to: string, subject: string, body: string, bcc?: string): string {
   const params = new URLSearchParams();
   params.set("to", to);

@@ -224,6 +224,7 @@
     {"route":"/terms","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/topics","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/topics/[topic]","dynamic":true,"forceDynamic":false,"revalidate":900,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
+    {"route":"/v/[id]","dynamic":true,"forceDynamic":false,"revalidate":86400,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/videos","dynamic":false,"forceDynamic":false,"revalidate":1800,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/whats-new","dynamic":false,"forceDynamic":false,"revalidate":900,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/whats-new/[slug]","dynamic":true,"forceDynamic":false,"revalidate":900,"usesSearchParams":false,"loginGated":false,"redirectOnly":false}

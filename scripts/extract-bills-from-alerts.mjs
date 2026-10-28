@@ -152,7 +152,13 @@ function rowFromExtraction(state, ex, sourceUrl, sourceContext) {
     source_url: sourceUrl,
     scope: ex.scope,
     locality: null,  // filled by caller when available
-    active: true,
+    // A STATE bill number read from a news story is often wrong (MI HB 5509,
+    // MN HF 4223, KY HB 757 were unrelated bills; Paul, 2026-10-28). It stays
+    // hidden until verify-stub-bills.mjs finds kratom in the bill's own text.
+    // Local ordinances have no such text and keep their own review path.
+    active: ex.scope !== "state",
+    verification_status: ex.scope === "state" ? "unverified" : null,
+    verification_note: ex.scope === "state" ? "Found in a news story; hidden until the bill's text confirms it is about kratom." : null,
     session_id: null,
     targets_natural_leaf: null,
     targets_synthetic_only: null,

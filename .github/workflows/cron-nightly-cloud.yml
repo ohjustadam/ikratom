@@ -151,6 +151,12 @@ jobs:
         continue-on-error: true
         run: node --import=./scripts/lib/egress-meter.mjs scripts/fetch-bill-texts.mjs --limit 100
 
+      # A state bill number read from a news story stays hidden until its own
+      # text names kratom; unrelated ones stay hidden (Paul, 10-28).
+      - name: Verify news-created bills against their text
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/verify-stub-bills.mjs --apply
+
       - name: Substance classification (free-tier cloud LLMs)
         continue-on-error: true
         run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-bill-substance.mjs --limit 100

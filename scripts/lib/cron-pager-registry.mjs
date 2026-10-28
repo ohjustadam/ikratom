@@ -197,6 +197,8 @@ export const REGISTRY = [
   // Nightly cloud chassis (cron-nightly-cloud.yml @ 08:30 UTC).
   { source: "state_executives_sync", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "fetch_bill_texts", interval_hours: 72, system: "github-actions", cadence: "daily" },
+  { source: "verify_stub_bills", interval_hours: 72, system: "github-actions", cadence: "daily" },
+  { source: "check_legislator_email_domains", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "sync_elections", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "extract_local_vote_outcomes", interval_hours: 72, system: "github-actions", cadence: "daily" },
 

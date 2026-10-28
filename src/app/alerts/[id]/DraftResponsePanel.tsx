@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { draftAlertResponse } from "@/modules/alerts/rebuttal-actions";
 import { logOfficialContact } from "@/modules/compose/actions";
-import { buildGmailComposeUrl, buildMailtoUrl, buildOutlookComposeUrl, mailtoWithinLimit } from "@/modules/compose/send-links";
+import { preferGmailAppOnAndroid, buildGmailComposeUrl, buildMailtoUrl, buildOutlookComposeUrl, mailtoWithinLimit } from "@/modules/compose/send-links";
 import { SendRecordNotice } from "@/modules/campaigns/components/SendRecordNotice";
 import { makeRecordNonce, withRecordBcc } from "@/lib/send-record";
 
@@ -216,7 +216,7 @@ export function DraftResponsePanel({
               href={gmailHref}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={(e) => openWithRecord(e, (b) => buildGmailComposeUrl(to, editedSubject, editedBody, b))}
+              onClick={(e) => { openWithRecord(e, (b) => buildGmailComposeUrl(to, editedSubject, editedBody, b)); preferGmailAppOnAndroid(e.currentTarget); }}
               className="rounded border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:border-emerald-500"
             >
               Open in Gmail
