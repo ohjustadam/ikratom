@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useChrome } from "./ChromeProvider";
+import Link from "@/components/Link";
 import { LeaderTourBanner } from "@/modules/dashboard/LeaderTourBanner";
 import { LeaderTourController } from "@/modules/dashboard/LeaderTourController";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
@@ -43,12 +44,25 @@ export function LeaderTourGate() {
  */
 export function BuildStampGate() {
   const { me } = useChrome();
-  if (!me?.isAdmin) return null;
   const sha = process.env.NEXT_PUBLIC_BUILD_SHA ?? "dev";
+  // Everyone sees the build under the Feedback tab, so a member's screenshot
+  // names the version (Paul, 10-28); a tap opens What's new.
+  const memberStamp = (
+    <Link
+      href="/whats-new"
+      title="This version of iKratom: see what's new"
+      className="fixed right-0 top-1/2 z-40 translate-y-[3.4rem] rounded-l bg-zinc-900/80 px-0.5 py-1 font-mono text-[9px] text-zinc-500 hover:text-emerald-300 [writing-mode:vertical-rl]"
+    >
+      v{sha}
+    </Link>
+  );
+  if (!me?.isAdmin) return memberStamp;
   const built = new Date(process.env.NEXT_PUBLIC_BUILD_TIME ?? Date.now()).toLocaleString("en-US", {
     timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
   });
   return (
+    <>
+    {memberStamp}
     <a
       href={sha === "dev" ? "#" : `https://github.com/ohjustadam/ikratom/commit/${sha}`}
       target="_blank"
@@ -58,6 +72,7 @@ export function BuildStampGate() {
     >
       build {sha} · {built} CT
     </a>
+    </>
   );
 }
 

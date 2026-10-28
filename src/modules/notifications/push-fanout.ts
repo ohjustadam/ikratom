@@ -59,8 +59,18 @@ type Prefs = {
   timezone: string | null;
 };
 
+/**
+ * `opts` narrows a sweep to some users and kinds. `instant` is the lane for a
+ * person-to-person event (an @mention): it skips only the batching interval.
+ * Opt-outs, quiet hours and daily/weekly digest cadences still hold it, and it
+ * leaves the member's other pending rows and `last_push_at` alone, so the
+ * regular digest is neither swallowed nor delayed by it.
+ */
+export type FanoutOptions = { userIds?: string[]; kinds?: string[]; instant?: boolean };
+
 export async function fanoutPushNotifications(
   supabase: SupabaseClient,
+  opts: FanoutOptions = {},
 ): Promise<{
   skipped?: string;
   sent?: number;
@@ -83,11 +93,14 @@ export async function fanoutPushNotifications(
   // no-sub rows are stamped on first sweep, so the wider window doesn't
   // resurrect those.
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const { data: notifsRaw, error: notifsErr } = await supabase
+  let sweep = supabase
     .from("notifications")
     .select("id, user_id, kind, title, body, link")
     .is("pushed_at", null)
-    .gte("created_at", since)
+    .gte("created_at", since);
+  if (opts.userIds) sweep = sweep.in("user_id", opts.userIds);
+  if (opts.kinds) sweep = sweep.in("kind", opts.kinds);
+  const { data: notifsRaw, error: notifsErr } = await sweep
     .order("created_at", { ascending: false })
     .limit(MAX_PER_RUN);
 
@@ -192,7 +205,7 @@ export async function fanoutPushNotifications(
     const minIntervalMs =
       (prefs?.push_min_interval_minutes ?? DEFAULT_MIN_INTERVAL_MIN) * 60_000;
     const last = prefs?.last_push_at ? new Date(prefs.last_push_at).getTime() : 0;
-    if (last && now - last < minIntervalMs) {
+    if (!opts.instant && last && now - last < minIntervalMs) {
       held += userNotifs.length;
       logRow(uid, "held_rate", userNotifs.length, subs.length);
       continue;
@@ -244,7 +257,7 @@ export async function fanoutPushNotifications(
   // A push "covers" EVERYTHING the user had pending — also stamp their
   // out-of-batch rows (a digest user can hold more than the sweep window
   // carried; without this they'd re-buzz at the next boundary).
-  if (pushedUserIds.length > 0) {
+  if (pushedUserIds.length > 0 && !opts.instant) {
     await supabase
       .from("notifications")
       .update({ pushed_at: new Date().toISOString() })
@@ -254,7 +267,7 @@ export async function fanoutPushNotifications(
 
   // Stamp last_push_at for users we actually pushed (drives the rate-cap
   // AND the digest boundary marker)
-  if (pushedUserIds.length > 0) {
+  if (pushedUserIds.length > 0 && !opts.instant) {
     await supabase
       .from("notification_preferences")
       .update({ last_push_at: new Date().toISOString() })

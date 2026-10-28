@@ -5,6 +5,7 @@ import Link from "@/components/Link";
 import { HomeMemorialBand } from "@/components/HomeMemorialBand";
 import { HomeHubGrid } from "@/components/HomeHubGrid";
 import { HomeLivePulse } from "@/components/HomeLivePulse";
+import { HomeCommunityStrip } from "@/components/HomeCommunityStrip";
 import { StateLegalMap } from "@/components/StateLegalMap";
 import { HomeOnboarding } from "@/components/HomeOnboarding";
 import { HomeDonateBand } from "@/components/HomeDonateBand";
@@ -176,6 +177,9 @@ export default async function HomePage() {
           🌏 {t.intl.farmerCallout}
         </div>
       )}
+
+      {/* Community first: the Lounge, groups and this week's letters (owner 2026-10-28) */}
+      <HomeCommunityStrip />
 
       {/* Band 1 — Hero. Owner directive 2026-05-14: 'we need to get the
           message across clearly and broadly what we are here to do and
