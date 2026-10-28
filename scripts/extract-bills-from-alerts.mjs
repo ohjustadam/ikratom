@@ -136,6 +136,12 @@ function extractBillNumbers(text) {
 }
 
 /**
+ * One key per bill however the story spelled it: "H.B. 332" and "HB 332" are
+ * the same bill (the DE duplicate, 2026-10-28).
+ */
+const billKey = (state, billNumber) => `${state}|${String(billNumber).toUpperCase().replace(/[^A-Z0-9]/g, "")}`;
+
+/**
  * Build a bills row from an extraction.
  */
 function rowFromExtraction(state, ex, sourceUrl, sourceContext) {
@@ -182,7 +188,7 @@ const { data: existingBills } = await sb
 const existingKeys = new Set();
 for (const b of existingBills ?? []) {
   if (b.state && b.bill_number) {
-    existingKeys.add(`${b.state}|${b.bill_number.toUpperCase().replace(/\s+/g, " ").trim()}`);
+    existingKeys.add(billKey(b.state, b.bill_number));
   }
 }
 console.log(`  ${existingKeys.size} existing (state, bill_number) keys`);
@@ -261,7 +267,7 @@ for (const a of alerts ?? []) {
   const specificLocality = corroborated ? localityFromText(a.locality) : null;
   const extractions = extractBillNumbers(text);
   for (const ex of extractions) {
-    const key = `${resolvedState}|${ex.billNumber.toUpperCase().replace(/\s+/g, " ")}`;
+    const key = billKey(resolvedState, ex.billNumber);
     if (existingKeys.has(key)) { alreadyTracked++; continue; }
     if (toCreate.has(key)) continue;
     const row = rowFromExtraction(resolvedState, ex, a.source_url, text.slice(0, 400));
@@ -288,7 +294,7 @@ for (const n of news ?? []) {
   if (!/^[A-Z]{2}$/.test(resolvedState)) continue; // skip FED/ALL — a bill needs a concrete state
   const extractions = extractBillNumbers(text);
   for (const ex of extractions) {
-    const key = `${resolvedState}|${ex.billNumber.toUpperCase().replace(/\s+/g, " ")}`;
+    const key = billKey(resolvedState, ex.billNumber);
     if (existingKeys.has(key)) { alreadyTracked++; continue; }
     if (toCreate.has(key)) continue;
     const row = rowFromExtraction(resolvedState, ex, n.url, text.slice(0, 400));

@@ -88,11 +88,27 @@ async function main() {
     .limit(500);
   if (error) throw new Error(error.message);
 
-  const tally = { confirmed: 0, unrelated: 0, waiting: 0, linked: 0 };
+  // A stub whose bill is already tracked under another spelling ("H.B. 332"
+  // vs "HB 332") is a duplicate, whatever its text says (PA HB 2657, 10-28).
+  const states = [...new Set((stubs ?? []).map((b) => b.state))];
+  const { data: tracked } = states.length
+    ? await sb.from("bills").select("id, state, bill_number").in("state", states).not("title", "ilike", `%${STUB_MARK}%`).limit(5000)
+    : { data: [] };
+  const trackedByKey = new Map((tracked ?? []).map((t) => [`${t.state}|${normBill(t.bill_number)}`, t]));
+
+  const tally = { confirmed: 0, unrelated: 0, waiting: 0, linked: 0, duplicate: 0 };
   for (const b of stubs ?? []) {
     const text = textOf(b.bill_text_versions);
+    const dup = trackedByKey.get(`${b.state}|${normBill(b.bill_number)}`);
     let patch;
-    if (text.length > 200 && KRATOM_TEXT.test(text)) {
+    if (dup) {
+      patch = {
+        active: false, advocacy_callout: null,
+        verification_status: "unverified",
+        verification_note: `Duplicate: this bill is already tracked as ${b.state} ${dup.bill_number} (${String(dup.id).slice(0, 8)}). Created from a news story; hidden ${today}.`,
+      };
+      tally.duplicate++;
+    } else if (text.length > 200 && KRATOM_TEXT.test(text)) {
       const ls = b.legiscan_bill_id ? (await legiscan(`op=getBill&id=${b.legiscan_bill_id}`))?.bill : null;
       const own = openingFromText(text);
       patch = {
@@ -125,7 +141,7 @@ async function main() {
       }
       tally.waiting++;
     }
-    const verdict = patch.active ? "CONFIRMED" : patch.kratom_relevance === "neutral" ? "UNRELATED" : "WAITING";
+    const verdict = patch.verification_note.startsWith("Duplicate") ? "DUPLICATE" : patch.active ? "CONFIRMED" : patch.kratom_relevance === "neutral" ? "UNRELATED" : "WAITING";
     console.log(`${verdict.padEnd(9)} ${b.state} ${b.bill_number}${patch.title ? ` → "${patch.title.slice(0, 80)}"` : ""}${patch.legiscan_bill_id ? ` (LegiScan ${patch.legiscan_bill_id})` : ""}`);
     if (APPLY) {
       const { error: upErr } = await sb.from("bills").update(patch).eq("id", b.id);
@@ -133,7 +149,7 @@ async function main() {
     }
   }
 
-  const notes = `${stubs?.length ?? 0} stubs · ${tally.confirmed} confirmed · ${tally.unrelated} hidden as unrelated · ${tally.waiting} waiting for text (${tally.linked} linked to LegiScan)`;
+  const notes = `${stubs?.length ?? 0} stubs · ${tally.duplicate} duplicates · ${tally.confirmed} confirmed · ${tally.unrelated} hidden as unrelated · ${tally.waiting} waiting for text (${tally.linked} linked to LegiScan)`;
   console.log(`\n${APPLY ? "" : "DRY RUN · "}${notes}`);
   if (APPLY) {
     await sb.from("scraper_runs").insert({
