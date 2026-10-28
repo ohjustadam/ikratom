@@ -207,6 +207,8 @@ export const REGISTRY = [
   { source: "check_legislator_email_domains", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "sync_elections", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "extract_local_vote_outcomes", interval_hours: 72, system: "github-actions", cadence: "daily" },
+  // Retention (B20, 2026-10-28). Silent = the database cap starts filling again.
+  { source: "prune_retention", interval_hours: 72, system: "github-actions", cadence: "daily" },
 
   // ── The monitors themselves (registered 2026-09-16) ────────────────────────
   // Found by the reverse guard in tests/cron-pager-registry.test.ts: the layer
