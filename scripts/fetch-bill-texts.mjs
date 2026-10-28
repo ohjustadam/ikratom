@@ -18,6 +18,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
+import { legiscanCallsThisMonth, remainingFor } from "./lib/legiscan-budget.mjs";
 
 const KEY = process.env.LEGISCAN_API_KEY;
 if (!KEY) { console.log("fetch-bill-texts: LEGISCAN_API_KEY empty — nothing to do."); process.exit(0); }
@@ -30,7 +31,9 @@ const MAX_CHARS = 60_000;
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const t0 = Date.now();
+let calls = 0;
 const api = async (params) => {
+  calls++;
   const r = await fetch(`https://api.legiscan.com/?key=${KEY}&${params}`, { signal: AbortSignal.timeout(45000) });
   if (!r.ok) throw new Error(`LegiScan ${r.status}`);
   return r.json();
@@ -59,6 +62,11 @@ async function decodeDoc(b64, mimeId) {
   return /<\w+[^>]*>/.test(s) ? stripHtml(s) : s.replace(/\s+/g, " ").trim();
 }
 
+// Nonessential: stands down at 70% of the month's 10,000 LegiScan queries
+// (scripts/lib/legiscan-budget.mjs), and stops mid-run at what is left.
+const allowance = remainingFor(await legiscanCallsThisMonth(sb).catch(() => 0), "nonessential");
+if (allowance <= 0) { console.log("fetch-bill-texts: LegiScan month budget past the nonessential ceiling — skipping."); process.exit(0); }
+
 // Candidates: kratom-relevant, LegiScan-linked, no stored text yet.
 const { data: rows, error } = await sb.from("bills")
   .select("id, state, bill_number, legiscan_bill_id, summary, bill_text_versions")
@@ -73,6 +81,7 @@ console.log(`fetch-bill-texts: ${rows?.length ?? 0} candidate(s)${DRY ? " [DRY]"
 
 let done = 0, failed = 0, noDocs = 0;
 for (const b of rows ?? []) {
+  if (calls + 3 > allowance) { console.log("  LegiScan run budget used — stopping"); break; }
   try {
     const bill = (await api(`op=getBill&id=${b.legiscan_bill_id}`))?.bill;
     const texts = (bill?.texts ?? []).slice(-2); // latest 1-2 versions
@@ -104,7 +113,7 @@ if (!DRY) {
     await sb.from("scraper_runs").insert({
       source: "fetch_bill_texts", started_at: new Date(t0).toISOString(), finished_at: new Date().toISOString(),
       status: failed > 0 && done === 0 ? "fail" : "success", rows_updated: done,
-      notes: `texts=${done} no-docs=${noDocs} failed=${failed} limit=${LIMIT}`,
+      notes: `texts=${done} no-docs=${noDocs} failed=${failed} limit=${LIMIT} · legiscan_calls=${calls}`,
     });
   } catch { /* best-effort */ }
 }

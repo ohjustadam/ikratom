@@ -29,6 +29,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { legiscanCallsThisMonth, remainingFor } from "./lib/legiscan-budget.mjs";
 
 const APPLY = process.argv.includes("--apply");
 const SOURCE = "verify_stub_bills";
@@ -55,8 +56,11 @@ export function openingFromText(text) {
   return { title: title.replace(/,\s*$/, ""), summary: body.slice(0, 600) };
 }
 
+let calls = 0;
+let allowance = Infinity;
 async function legiscan(params) {
-  if (!KEY) return null;
+  if (!KEY || calls >= allowance) return null;
+  calls++;
   const r = await fetch(`https://api.legiscan.com/?key=${KEY}&${params}`, { signal: AbortSignal.timeout(30000) });
   if (!r.ok) return null;
   const j = await r.json().catch(() => null);
@@ -80,6 +84,9 @@ async function main() {
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
   const t0 = new Date();
   const today = t0.toISOString().slice(0, 10);
+  // Nonessential: LegiScan lookups stop at 70% of the month's budget; the
+  // text-based verdicts below need no queries and still run.
+  allowance = remainingFor(await legiscanCallsThisMonth(sb).catch(() => 0), "nonessential");
   const { data: stubs, error } = await sb
     .from("bills")
     .select("id, state, bill_number, title, active, legiscan_bill_id, bill_text_versions, verification_status")
@@ -149,7 +156,7 @@ async function main() {
     }
   }
 
-  const notes = `${stubs?.length ?? 0} stubs · ${tally.duplicate} duplicates · ${tally.confirmed} confirmed · ${tally.unrelated} hidden as unrelated · ${tally.waiting} waiting for text (${tally.linked} linked to LegiScan)`;
+  const notes = `${stubs?.length ?? 0} stubs · ${tally.duplicate} duplicates · ${tally.confirmed} confirmed · ${tally.unrelated} hidden as unrelated · ${tally.waiting} waiting for text (${tally.linked} linked to LegiScan) · legiscan_calls=${calls}`;
   console.log(`\n${APPLY ? "" : "DRY RUN · "}${notes}`);
   if (APPLY) {
     await sb.from("scraper_runs").insert({

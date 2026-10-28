@@ -14,7 +14,7 @@ export const REGISTRY = [
   ...["sync_news_rss","classify_news_policy","push_critical_alerts","push_state_news",
       "scrape_protectkratom_org","correlate_news_to_bills","auto_campaign_from_alert",
       "promote_alert_to_bill","extract_local_meta","seed_bill_officials",
-      "auto_post_bills_to_forum","sync_bills_legiscan_priority","post_bill_alerts_to_discord",
+      "auto_post_bills_to_forum","post_bill_alerts_to_discord",
       "push_bill_actions_to_actors","resolve_news_urls",
       // fire_waves = /api/cron/fire-waves — the SOLE push/email delivery path.
       "fire_waves",
@@ -40,6 +40,10 @@ export const REGISTRY = [
       // outage nobody caught.
       "vercel_watchdog",
      ].map((source) => ({ source, interval_hours: 4, system: "gh-hourly", cadence: "every-2h" })),
+
+  // LegiScan in-session pass: on the 2-hourly cron but self-gated to every 6h
+  // (--min-gap-hours 6) to fit the real 10k/month cap (2026-10-28).
+  { source: "sync_bills_legiscan_priority", interval_hours: 8, system: "gh-hourly", cadence: "every-6h" },
 
   // daily
   // verify_bill_status_ai RETIRED 2026-06-11 (de-Gemini/free-tier policy).
@@ -75,7 +79,6 @@ export const REGISTRY = [
       "expire_rotating_campaigns",
       "locality_state_audit",
       "review_lapsed_items",
-      "sync_legislative_sessions",
       // /videos (mig 0260): orgs' + creators' YouTube uploads and upcoming lives.
       "sync_community_videos",
       // Fact-integrity watchdog (added after the 2026-08-28 false-ban incident):
@@ -170,6 +173,9 @@ export const REGISTRY = [
   // getSearch answered 3/3 in ~100-126ms, 50 rows each, alongside the
   // getDatasetList control. Whatever blocked it in July is gone. If it ever
   // comes back the probe is the thing to re-dispatch before re-theorising.
+  // Self-gated to every 6 days since 2026-10-28 (was nightly: ~1,500 LegiScan
+  // queries a month against a 10,000 cap).
+  { source: "sync_legislative_sessions", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   { source: "topic_bill_discovery", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   // Free-AI research agents — MOVED OFF THE BOX 2026-09-07 into
   // cron-nightly-cloud.yml as their own jobs. They drive lib/tool-chat.mjs,

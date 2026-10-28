@@ -17,6 +17,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { runWithLogging } from "./lib/scraper-run.mjs";
+import { legiscanCallsThisMonth, remainingFor } from "./lib/legiscan-budget.mjs";
 import { TOPIC_SEARCH_QUERIES, coarseStance } from "./lib/bill-topic-keywords.mjs";
 
 const args = process.argv.slice(2);
@@ -37,7 +38,9 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: fal
 const log = (...a) => console.log(...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+let calls = 0;
 async function legiscanSearch(query, page) {
+  calls++;
   const url = `https://api.legiscan.com/?key=${LEGISCAN_KEY}&op=getSearch&state=ALL&query=${encodeURIComponent(query)}&page=${page}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`http ${res.status}`);
@@ -56,6 +59,9 @@ async function recentlyRan() {
 
 async function main() {
   if (await recentlyRan()) { log("topic_bill_discovery ran <6d ago — skipping (use --force)."); return; }
+  // Nonessential: stands down at 70% of the month's 10,000 LegiScan queries.
+  const allowance = remainingFor(await legiscanCallsThisMonth(sb).catch(() => 0), "nonessential");
+  if (allowance <= 0 && !FORCE) { log("LegiScan month budget past the nonessential ceiling — skipping."); return; }
   const topics = ONLY_TOPIC ? [ONLY_TOPIC] : Object.keys(TOPIC_SEARCH_QUERIES);
   log(`topic-bill discovery — ${DRY ? "DRY-RUN" : "LIVE"}; topics=${topics.join(",")}; maxPages=${MAX_PAGES}; minRel=${MIN_RELEVANCE}`);
 
@@ -68,6 +74,7 @@ async function main() {
       let topicUp = 0;
       for (const query of queries) {
         for (let page = 1; page <= MAX_PAGES; page++) {
+          if (calls >= allowance && !FORCE) { log("  ! LegiScan run budget used — stopping"); break; }
           let sr;
           try { sr = await legiscanSearch(query, page); }
           catch (e) { log(`  ! ${topic} "${query}" p${page}: ${String(e?.message ?? e).slice(0, 80)}`); failed++; break; }
@@ -110,7 +117,7 @@ async function main() {
       perTopic[topic] = topicUp;
       log(`  ${topic}: ${topicUp} bills (${queries.length} queries: ${queries.join(", ")})`);
     }
-    const notes = `${DRY ? "dry-run " : ""}${upserted} upserted, ${scanned} scanned, ${lowRel} below-relevance, ${failed} failed | ${JSON.stringify(perTopic)}`;
+    const notes = `${DRY ? "dry-run " : ""}${upserted} upserted, ${scanned} scanned, ${lowRel} below-relevance, ${failed} failed | ${JSON.stringify(perTopic)} · legiscan_calls=${calls}`;
     log(`\n${notes}`);
     return { rowsAdded: DRY ? 0 : upserted, rowsUpdated: 0, notes };
   });
