@@ -3,7 +3,7 @@ title: "Special Report: Where 7-OH Stands With the DEA"
 subtitle: "The DEA's October 14 notice, the two-part test that decides which products are covered, and how shop owners and consumers can prepare before November 13"
 # Quoted so gray-matter keeps it a string (see 7-oh-scheduling-2026.md).
 published: "2026-10-27"
-source: "Federal Register docs 2026-20943, 2026-20942, 2026-17429, 2026-13580, 2026-13608, 2026-17409, 2016-24659; DOJ press release Aug 25, 2026; D.D.C. 1:26-cv-02997; 21 U.S.C. 811(h)"
+source: "Federal Register docs 2026-20943, 2026-20942, 2026-17429, 2026-13580, 2026-13608, 2026-17409, 2016-24659; DOJ press release Aug 25, 2026; D.D.C. 1:26-cv-02997; 21 U.S.C. 811(h); The New York Times, Oct 28, 2026"
 prepared_by: "iKratom Policy Desk"
 read_time: "6 min"
 audience: "Shop owners · Consumers · Advocates"
@@ -13,12 +13,14 @@ summary: "The DEA filed its notice on October 14: 7-OH above a set level goes to
 
 *For information only, not legal advice. Every date and number below comes from the Federal Register documents listed under Sources.*
 
+*Updated October 28, 2026: added what the New York Times reported today and the overdose figures in DEA's notice. **The official status has not changed:** nothing new has been published in the Federal Register since October 14.*
+
 ## The short version
 
 - **7-OH is not federally illegal yet, but it is close.** On October 14, 2026 the DEA formally announced it intends to place 7-hydroxymitragynine (7-OH) in Schedule I, the strictest federal category, when a product contains it above a set level.
 - **The earliest it can happen is November 13, 2026.** The ban starts the day the DEA publishes its order, with no grace period. It lasts two years, with one possible one-year extension, while permanent scheduling is worked out.
 - **It targets concentrated and "boosted" products,** using a two-part test explained below.
-- **This is separate from the MGM-15, MGM-16 and "pseudo" ban.** Those lab-made compounds have been in Schedule I since August 26, 2026. That ban is in force now.
+- **Pseudo (MGPI) is already banned at any level, for now.** DEA's August 26, 2026 order put mitragynine pseudoindoxyl ("pseudo," a compound that also occurs in kratom) and the lab-made MGM-15 and MGM-16 in Schedule I. That order is in force now. When the new order publishes, pseudo moves to the same threshold test as 7-OH; MGM-15 and MGM-16 stay banned outright.
 - **Natural kratom leaf and mitragynine have never been federally scheduled.** This action does not change that, but state laws still apply.
 
 ## What happened, in order
@@ -45,7 +47,7 @@ Failing either test is enough. Products that pass both stay outside Schedule I, 
 
 - Find **7-OH** and **mitragynine** on the certificate of analysis, in the same units (mg per gram, or percent).
 - **Test 1:** is 7-OH above 1 mg/g (0.1%)? If yes, it is covered.
-- **Test 2:** divide mitragynine by 7-OH. Is the answer below 100? If yes, it is covered.
+- **Test 2:** divide mitragynine by 7-OH (add pseudo to the 7-OH first, if the COA lists it). Is the answer below 100? If yes, it is covered.
 - **Example, with made-up numbers to show the math:** a COA showing mitragynine at 15 mg/g and 7-OH at 0.1 mg/g passes Test 1 (0.1 is under 1) and passes Test 2 (15 ÷ 0.1 = 150, which is over 100). A tablet showing 7-OH at 20 mg/g fails Test 1 immediately.
 - **A COA that doesn't list 7-OH can't answer the question.** Ask your supplier for a current one that reports both numbers. That goes for leaf products too: the ratio test is why the lab numbers matter even for products sold as natural leaf.
 
@@ -82,6 +84,17 @@ Failing either test is enough. Products that pass both stay outside Schedule I, 
 - **If you use 7-OH daily, talk to a doctor or pharmacist before you change how you use it.** Stopping suddenly can cause withdrawal.
 - **Free, confidential help is available 24/7:** SAMHSA's National Helpline, 1-800-662-4357.
 
+## In the news: the October 28 New York Times report
+
+Headlines today say the administration "backed down" on an opioid ban. Here is what was reported, and what it means for you.
+
+- **What the Times reported:** the administration moved from banning pseudo (MGPI) at any level to banning it only above the new threshold, after a lobbying campaign linked to a large kratom distributor that faces wrongful-death lawsuits and whose owners gave to Republican candidates and committees. The Times also quoted a University of Mississippi chemist whose research HHS cited, who called the new limit too permissive compared with the levels his team measured in liquid products.
+- **What officials said:** HHS and the White House told the Times that neither the litigation nor political contributions influenced the recommendation, and that it went through scientific review.
+- **What DEA's notice says about harm:** its toxicology program identified pseudo in at least 31 overdose cases between February 2025 and February 2026, 25 of them fatal, and has identified 7-OH in 85 cases since 2019. The notice states that neither HHS nor DEA has found either compound safe below the threshold.
+- **What it changes for you: nothing new.** The policy shift the Times describes is the October 14 notice already explained above. Pseudo stays banned at any level until the new order publishes, which can happen on or after November 13. 7-OH and pseudo above the threshold become Schedule I that day. Natural leaf and mitragynine are not federally scheduled.
+
+iKratom reports this as news, not as a position on the people or groups named. We follow the official record, which is listed below.
+
 ## What happens next
 
 - DEA may publish the temporary order on or after **November 13, 2026**. It takes effect the day it is published.
@@ -99,5 +112,9 @@ Failing either test is enough. Products that pass both stay outside Schedule I, 
 - Justice Department, "Justice Department Announces Emergency Scheduling of Three Potent Opioid Compounds," Aug 25, 2026: [justice.gov](https://www.justice.gov/opa/pr/justice-department-announces-emergency-scheduling-three-potent-opioid-compounds)
 - American Kratom Association v. U.S. Department of Justice et al., U.S. District Court for the District of Columbia, Case No. 1:26-cv-02997.
 - The law that allows temporary scheduling: 21 U.S.C. 811(h).
+
+## News coverage
+
+- The New York Times, "Trump Administration Backs Down on an Opioid Ban After Kratom Industry Lobbying," Oct 28, 2026, as republished by GV Wire: [gvwire.com](https://gvwire.com/2026/10/28/trump-administration-backs-down-on-an-opioid-ban-after-kratom-industry-lobbying/)
 
 *This report explains public federal documents. It is not legal advice. For decisions about your business or your health, talk to a lawyer or a doctor.*
