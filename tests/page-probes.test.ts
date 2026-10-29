@@ -50,9 +50,14 @@ describe("wiring", () => {
     expect(src).toMatch(/for \(const t of await pageProbeTargets\(sb\)\)/);
     expect(src).toMatch(/const p = probeProblem\(t, status, err\);\s*if \(p\) problems\.push\(p\);/);
   });
-  it("probes only when the home page is up (one alert for a full outage)", () => {
+  it("probes only when the app is up (one alert for a full outage)", () => {
     const at = src.indexOf("pageProbeTargets(sb)");
-    expect(src.lastIndexOf("if (siteStatus >= 200 && siteStatus < 400)", at)).toBeGreaterThan(-1);
+    expect(src.lastIndexOf("if (originStatus >= 200 && originStatus < 400)", at)).toBeGreaterThan(-1);
     expect(at).toBeLessThan(src.indexOf("── Page the owner"));
+  });
+
+  it("probes the app directly, not through Cloudflare's bot challenge", () => {
+    expect(src).toContain("fetch(`${ORIGIN_URL}${t.path}`");
+    expect(src).toMatch(/ORIGIN_URL = [^\n]*"https:\/\/main--ikratom\.netlify\.app"/);
   });
 });
