@@ -29,6 +29,7 @@ import { createClient } from "@supabase/supabase-js";
 import { extractArticleContent } from "./lib/article-content.mjs";
 import { renderPage, closeHeadless } from "./lib/headless-render.mjs";
 import { fetchMsnArticleHtml } from "./lib/msn-content.mjs";
+import { newsStateFromBody } from "./lib/news-state.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -71,7 +72,7 @@ console.log(`Extract-news-content${DRY ? " [DRY]" : ""}${REFRESH ? " [REFRESH]" 
 const since = new Date(Date.now() - DAYS * 86400_000).toISOString();
 let q = sb
   .from("news_items")
-  .select("id, title, resolved_url, url, source_name, body_extract_attempts")
+  .select("id, title, state, resolved_url, url, source_name, body_extract_attempts")
   .not("policy_classified_at", "is", null)
   .not("resolved_url", "is", null)
   .is("duplicate_of", null)
@@ -132,6 +133,15 @@ for (const item of items) {
   if (media.length > 0) withMedia++;
   console.log(`  ${item.id.slice(0, 8)} "${(item.title ?? "").slice(0, 48)}" → ${paragraphs.length}¶ · ${nVideos} video · ${nImages} img${rendered ? " · ⚙ rendered" : ""}`);
 
+  // A headline that names no state was filed under whichever state's news
+  // query found it; the body can say it belongs elsewhere. This runs before
+  // body_extracted_at is stamped, and push-state-news waits for that stamp, so
+  // members are pushed under the corrected state.
+  const state = paragraphs.length > 0
+    ? newsStateFromBody({ title: item.title ?? "", paragraphs, source: item.source_name, scope: item.state })
+    : item.state;
+  if (state !== item.state) console.log(`     ↪ state ${item.state} → ${state}`);
+
   if (DRY) { processed++; continue; }
 
   // Stamp body_extracted_at when we got a body, OR once bounded retries are
@@ -146,6 +156,7 @@ for (const item of items) {
   // generate-news-digest re-queues it (also un-sticks items that were marked
   // digest-processed while still thin, once extraction finally yields a body).
   if (gotBody) { update.body_paragraphs = paragraphs; update.digest_generated_at = null; }
+  if (state !== item.state) update.state = state;
   if (media.length > 0) update.media_urls = media;
   if (gotBody || attempts >= RETRY_CAP) update.body_extracted_at = new Date().toISOString();
 
