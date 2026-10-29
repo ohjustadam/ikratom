@@ -71,6 +71,15 @@ const RAW_APP_URL = (process.env.APP_URL || "").replace(/\/+$/, "");
 const IS_LOCAL = /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[?::1)/i.test(RAW_APP_URL);
 const SITE_URL = process.env.WATCHDOG_SITE_URL?.replace(/\/+$/, "")
   || (RAW_APP_URL && !IS_LOCAL ? RAW_APP_URL : "https://www.ikratom.org");
+// The live app straight from Netlify, without Cloudflare in front. Cloudflare's
+// free Bot Fight Mode answers every request from a CI runner with a 403
+// challenge (securitySource "botFight" in its analytics, 10-29), and unlike the
+// paid Super Bot Fight Mode no WAF rule can exempt us. So the SITE_URL check
+// only proves Cloudflare is answering; whether the app and its pages work is
+// checked here. The production-branch URL serves the same deploy; the bare
+// ikratom.netlify.app name just redirects back through Cloudflare.
+const ORIGIN_URL = process.env.WATCHDOG_ORIGIN_URL?.replace(/\/+$/, "") || "https://main--ikratom.netlify.app";
+const WATCHDOG_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 ikratom-watchdog/1.0";
 
 if (!KEY || !URL_SB) { console.error("Missing Supabase env"); process.exit(1); }
 const sb = createClient(URL_SB, KEY, { auth: { persistSession: false } });
@@ -314,18 +323,38 @@ try {
 }
 console.log(`site check: ${SITE_URL} → ${siteStatus || `ERROR ${siteErr}`}`);
 
+// ── 3a. The app itself, behind Cloudflare (see ORIGIN_URL) ──────────────────
+let originStatus = 0;
+try {
+  const r = await fetch(ORIGIN_URL, { redirect: "follow", headers: { "User-Agent": WATCHDOG_UA }, signal: AbortSignal.timeout(25_000) });
+  originStatus = r.status;
+  await r.arrayBuffer();
+  if (new URL(r.url).host !== new URL(ORIGIN_URL).host) {
+    // Redirected back through Cloudflare: this run cannot see the app directly.
+    console.log(`app check: ${ORIGIN_URL} redirected to ${r.url}; origin check not possible this run`);
+    originStatus = 0;
+  } else if (!r.ok) {
+    problems.push(`SITE DOWN: the app at ${ORIGIN_URL} returned ${r.status}`);
+  }
+} catch (e) {
+  problems.push(`SITE UNREACHABLE: the app at ${ORIGIN_URL} — ${e.message}`);
+}
+console.log(`app check: ${ORIGIN_URL} → ${originStatus || "not checked"}`);
+
 // ── 3b. One probe per detail-page type (scripts/lib/page-probes.mjs) ─────────
-// Only when the home page answered: if the whole site is down, that is already
-// the one alert, and six more saying the same thing would bury it.
-if (siteStatus >= 200 && siteStatus < 400) {
+// Only when the app answered: if it is down, that is already the one alert,
+// and six more saying the same thing would bury it. Probes go to the app
+// directly, since Cloudflare challenges them otherwise (they never ran from CI
+// between 2026-07-26 and 10-29 for exactly that reason).
+if (originStatus >= 200 && originStatus < 400) {
   try {
     for (const t of await pageProbeTargets(sb)) {
       let status = 0;
       let err = null;
       try {
-        const r = await fetch(`${SITE_URL}${t.path}`, {
+        const r = await fetch(`${ORIGIN_URL}${t.path}`, {
           redirect: "follow",
-          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 ikratom-watchdog/1.0" },
+          headers: { "User-Agent": WATCHDOG_UA },
           signal: AbortSignal.timeout(25_000),
         });
         status = r.status;
@@ -436,7 +465,7 @@ if (!DRY) {
       // would otherwise skip the credit estimator entirely while this row still
       // says "success" — a green watchdog with no eyes, which is the precise
       // shape of the 2026-07-30 failure. Mirrors the vercelChecked marker.
-      notes: `site ${siteStatus || "ERR"}${vercelChecked ? "" : " (vercel api unchecked)"}${creditsChecked ? creditSummary : " (netlify credits UNCHECKED)"}${floodSummary}${problems.length ? ` · ${problems.length} problem(s)` : ""}${pagedNote}`.slice(0, 500),
+      notes: `site ${siteStatus || "ERR"} · app ${originStatus || "unchecked"}${vercelChecked ? "" : " (vercel api unchecked)"}${creditsChecked ? creditSummary : " (netlify credits UNCHECKED)"}${floodSummary}${problems.length ? ` · ${problems.length} problem(s)` : ""}${pagedNote}`.slice(0, 500),
     });
   } catch { /* best-effort */ }
 }
