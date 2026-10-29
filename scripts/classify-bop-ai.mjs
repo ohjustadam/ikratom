@@ -182,6 +182,20 @@ const VALID_SEVERITY = new Set([
   "hostile_proposal", "discussion_only", "supportive", "neutral", "unknown",
 ]);
 
+// The router asks providers for a JSON object, so the <result> wrapper in the
+// prompt comes back as {"result": {...}}. Until 2026-10-29 that object was
+// persisted as is: relevance null, reasoning empty, ai_classified_at stamped,
+// so the finding was never retried and never alerted (12 kratom findings in
+// IA, MA, MO and UT, 2026-10-25). An answer without a valid relevance now
+// throws, leaving the finding for the next run.
+function unwrapVerdict(ai) {
+  const v = ai && typeof ai.result === "object" && ai.result !== null ? ai.result : ai;
+  if (!v || !VALID_RELEVANCE.has(v.relevance)) {
+    throw new Error(`no valid relevance in AI answer: ${JSON.stringify(ai).slice(0, 160)}`);
+  }
+  return v;
+}
+
 async function persist(finding, ai) {
   const relevance = VALID_RELEVANCE.has(ai.relevance) ? ai.relevance : null;
   const severity = VALID_SEVERITY.has(ai.severity) ? ai.severity : "unknown";
@@ -261,7 +275,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 for (const f of findings) {
   console.log(`\n--- ${f.state} | ${(f.title ?? "").slice(0, 80)}`);
   try {
-    const ai = await classifyFinding(f);
+    const ai = unwrapVerdict(await classifyFinding(f));
     console.log(
       `  AI: relevance=${ai.relevance} severity=${ai.severity} conf=${ai.confidence}`
     );

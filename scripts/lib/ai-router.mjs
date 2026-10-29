@@ -653,10 +653,19 @@ async function callCloudflare(sys, user, maxTokens) {
   let text;
   if (typeof result?.response === "string") {
     text = result.response;
+  } else if (result?.response && typeof result.response === "object") {
+    return result.response;
   } else if (result?.choices?.[0]?.message?.content) {
     text = result.choices[0].message.content;
   } else {
-    text = JSON.stringify(result ?? {});
+    // Gemma 4 thinks first (message.reasoning_content). On a long prompt the
+    // thinking can use the whole max_tokens and content comes back empty.
+    // This used to stringify the envelope and return IT as the answer, so
+    // callers got {id, object, choices...} instead of their JSON (12 BoP
+    // findings stamped with empty verdicts, 2026-10-25). Fail, so the router
+    // moves on to the next provider.
+    const finish = result?.choices?.[0]?.finish_reason ?? "none";
+    throw new Error(`Cloudflare returned no content (finish_reason=${finish})`);
   }
   return parseLooseJson(text || "{}");
 }

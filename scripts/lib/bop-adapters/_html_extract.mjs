@@ -8,9 +8,23 @@
  * candidates, dedupe" logic, so it lives here exactly once.
  */
 
+const NAMED_ENTITIES = {
+  rsquo: "’", lsquo: "‘", rdquo: "”", ldquo: "“",
+  ndash: "–", mdash: "—", hellip: "…",
+};
+
+function fromCodePoint(n) {
+  return Number.isInteger(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
+}
+
 function decodeEntities(s) {
   return s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    // WordPress titles arrive as &#8220;cat&#8217;s claw&#8221; (UT DHHS,
+    // 2026-10-25), which reached the review queue undecoded.
+    .replace(/&#(\d+);/g, (_, d) => fromCodePoint(parseInt(d, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => fromCodePoint(parseInt(h, 16)))
+    .replace(/&(rsquo|lsquo|rdquo|ldquo|ndash|mdash|hellip);/g, (_, n) => NAMED_ENTITIES[n])
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -74,6 +88,24 @@ function extractTableRows(html) {
   return out;
 }
 
+const normText = (s) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, " ").trim();
+const MIN_OVERLAP_CHARS = 20;
+
+// A press release usually appears as a link AND as the heading or table row
+// wrapping it. The url-less copy is the same item with no link to read, so it
+// is dropped when a link carries its text: the heading is inside the link
+// text ("Title" vs "Title October 23, 2026"), or the link text is most of the
+// row. A row with much more text than its link (an agenda line that names
+// kratom beside a "Notice of Proposed Rule" link) is kept. Until 2026-10-29
+// both copies were stored and both alerted (MO AG, 2026-10-25).
+function coveredByLink(text, linkTexts) {
+  if (text.length < MIN_OVERLAP_CHARS) return false;
+  return linkTexts.some((l) =>
+    l.length >= MIN_OVERLAP_CHARS &&
+    (l.includes(text) || (text.includes(l) && l.length >= 0.6 * text.length))
+  );
+}
+
 function dedupe(items) {
   const seen = new Set();
   const out = [];
@@ -83,7 +115,8 @@ function dedupe(items) {
     seen.add(key);
     out.push(item);
   }
-  return out;
+  const linkTexts = out.filter((i) => i.url).map((i) => normText(i.title));
+  return out.filter((i) => i.url || !coveredByLink(normText(i.title), linkTexts));
 }
 
 /**
