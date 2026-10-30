@@ -51,6 +51,20 @@ const PROD_URL = "https://www.ikratom.org";
 const envUrl = process.env.EMAIL_APP_URL || process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || PROD_URL;
 const APP_URL = (/localhost|127\.0\.0\.1/.test(envUrl) ? PROD_URL : envUrl).replace(/\/$/, "");
 const SOURCE = { digest: "email_digest", meetings: "email_meeting_alerts", announce: "email_announcement" }[MODE];
+
+// Click counting (scripts/email-clicks.mjs) sends links through /e/<kind>/,
+// which only works while netlify.toml's /e/ redirect is live. Check it first,
+// at the Netlify origin because Cloudflare challenges CI, and send plain links
+// if it fails: a missing redirect must never put a dead link in an inbox.
+const PROBE_ORIGIN = APP_URL === PROD_URL ? (process.env.WATCHDOG_ORIGIN_URL || "https://main--ikratom.netlify.app").replace(/\/+$/, "") : APP_URL;
+async function clickPathsLive() {
+  try {
+    const r = await fetch(`${PROBE_ORIGIN}/e/probe/notifications?k=1`, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
+    const to = new URL(r.headers.get("location") ?? "", PROBE_ORIGIN);
+    return r.status >= 300 && r.status < 400 && to.pathname === "/notifications" && to.searchParams.get("k") === "1";
+  } catch { return false; }
+}
+let VIA = false;
 if (!SOURCE) { console.error(`unknown --mode ${MODE}`); process.exit(2); }
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
@@ -163,7 +177,7 @@ async function runDigest() {
     const mine = (notes.get(u.id) ?? []).filter((n) => n.created_at > from && !(n.kind === "whats_new" && emailedLinks.has(n.link)));
     const sections = [{ title: "Hearings and meetings (every state)", meetings: digestHearings(meetings, from, now) },
       ...SECTIONS.map((s) => ({ title: s.title, items: dedupeStories(mine.filter((n) => s.kinds.includes(n.kind))) }))];
-    const msg = renderDigest({ username: u.username, sections, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), briefLink: "/brief" });
+    const msg = renderDigest({ username: u.username, sections, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), briefLink: "/brief", via: VIA && "digest" });
     if (msg.count === 0) continue; // nothing new: send nothing
     queue.push({ user: u, msg: { ...msg, tag: "digest", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } });
   }
@@ -183,7 +197,7 @@ async function runMeetings() {
   if (error) throw new Error(error.message);
   if (!fresh?.length) return { sent: 0, failed: 0, deferred: 0, errors: [], eligible: 0, meetings: 0, since };
   const users = await members(DRY ? arg("audience", "opted-in") : "opted-in");
-  const queue = users.map((u) => ({ user: u, msg: { ...renderMeetingAlert({ username: u.username, meetings: fresh, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) }), tag: "meeting", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } }));
+  const queue = users.map((u) => ({ user: u, msg: { ...renderMeetingAlert({ username: u.username, meetings: fresh, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), via: VIA && "hearing" }), tag: "meeting", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } }));
   const r = await deliver(queue);
   return { ...r, eligible: users.length, meetings: fresh.length, since };
 }
@@ -201,17 +215,18 @@ async function runAnnounce() {
     if (prior?.length) throw new Error(`announcement "${slug}" was already sent — refusing to send twice`);
   }
   const users = await members(audience);
-  const queue = users.map((u) => ({ user: u, msg: { ...renderAnnouncement({ ...content, username: u.username, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) }), tag: "announcement", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } }));
+  const queue = users.map((u) => ({ user: u, msg: { ...renderAnnouncement({ ...content, username: u.username, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), via: VIA && (content.md ? "report" : "announce") }), tag: "announcement", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } }));
   const r = await deliver(queue);
   return { ...r, eligible: users.length, slug, audience };
 }
 
 try {
   console.log(`email ${MODE}${DRY ? " (DRY RUN — nothing sent)" : ""}${ONLY ? ` (TEST → ${ONLY.slice(0, 8)} only, nothing recorded)` : ""} · providers: ${providerSummary()} · app ${APP_URL}`);
+  VIA = await clickPathsLive();
   const r = MODE === "digest" ? await runDigest() : MODE === "meetings" ? await runMeetings() : await runAnnounce();
   const summary = `${r.slug ? `${r.slug} · ` : ""}sent ${r.sent} · failed ${r.failed} · deferred ${r.deferred} (quota) · eligible ${r.eligible}` +
     (r.withContent != null ? ` · with-content ${r.withContent}` : "") + (r.meetings != null ? ` · meetings ${r.meetings}` : "") +
-    (r.errors.length ? ` · errors: ${r.errors.join(" ; ")}` : "");
+    ` · links ${VIA ? "tagged" : "plain"}` + (r.errors.length ? ` · errors: ${r.errors.join(" ; ")}` : "");
   console.log(summary);
   await record(r.failed > 0 && r.sent === 0 ? "error" : r.deferred > 0 ? "partial" : "success", r.sent, summary);
   // exitCode, not exit(): an abrupt exit with fetch sockets still closing trips
