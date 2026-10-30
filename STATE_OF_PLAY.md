@@ -210,6 +210,21 @@ fixed by a better estimate:
   them. Re-check KY on Jan 1, 2027 (the HB 757 sales ban, Acts Ch. 161 §136)
   and MA on Aug 28, 2027. Agency orders like MA's never appear in bill
   trackers, so a check has to read the agency's own notices.
+- **One status, everywhere.** `state_status.admin_leaf_status` is the confirmed
+  status. The home page counts, the maps, `/banned` and the state hubs read it.
+  Until 2026-10-29, the forum state pages, `/admin/legislators` and the
+  briefing generator read the legacy `states.kratom_status`, which had drifted
+  for 23 states. As a result, the AI briefings told readers kratom "remains
+  legal" in CT, MA and TN, all three of which ban it. Two fixes went in:
+  - Migration 0303 adds a trigger that copies every confirm into the legacy
+    column.
+  - The briefing prompt now opens with the confirmed status, because the
+    critic reads only the first 4000 chars. A text check
+    (`scripts/lib/briefing-status-check.mjs`) blocks saving any draft whose
+    Snapshot contradicts it.
+
+  All 51 active briefings passed that check after a regeneration the same
+  night.
 - **State-status audit rows were never written.** `admin_audit_log.target_id`
   is a uuid column and every confirm passed a state code, so the insert failed
   and nobody read the error. `recordAdminAction` now moves a non-uuid id into
