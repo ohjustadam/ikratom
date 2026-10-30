@@ -15,9 +15,11 @@ import { createClient } from "./supabase/server";
  *   - user_blocked / user_warned (admin actions, not user-side blocks)
  *   - sync_triggered (legislator/congress/capitals)
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function recordAdminAction(input: {
   action: string;
-  targetType?: "user" | "campaign" | "thread" | "post" | "legislator" | "forum_community" | "external_community" | "policy_alert" | "bill";
+  targetType?: "user" | "campaign" | "thread" | "post" | "legislator" | "forum_community" | "external_community" | "policy_alert" | "bill" | "state";
   targetId?: string;
   details?: Record<string, unknown>;
 }) {
@@ -32,14 +34,21 @@ export async function recordAdminAction(input: {
       { auth: { persistSession: false } }
     );
 
-    await admin.from("admin_audit_log").insert({
+    // target_id is a uuid column. A state code or slug there failed the
+    // insert, and the error was never read, so those actions went unlogged
+    // (every state_status.confirm until 2026-10-29). Non-uuid ids now ride
+    // in details.target.
+    const id = input.targetId ?? null;
+    const uuid = id !== null && UUID_RE.test(id);
+    const { error } = await admin.from("admin_audit_log").insert({
       actor_id: user.id,
       actor_email: user.email ?? null,
       action: input.action.slice(0, 80),
       target_type: input.targetType ?? null,
-      target_id: input.targetId ?? null,
-      details: input.details ?? null,
+      target_id: uuid ? id : null,
+      details: id && !uuid ? { ...(input.details ?? {}), target: id } : input.details ?? null,
     });
+    if (error) console.error("[audit] insert failed:", error.message);
   } catch (e) {
     // Audit log failures should never block real actions
     console.error("[audit]", e);
