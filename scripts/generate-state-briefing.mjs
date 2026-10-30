@@ -32,6 +32,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
+import { statusMismatch } from "./lib/briefing-status-check.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -241,7 +242,15 @@ ${activeLines || "  (no currently active kratom-industry lobbyists)"}${formerCou
   Use these names in the field-work tactical section. Mac Haddow specifically is the AKA's senior strategist with a decades-long Utah footprint (former Utah legislator + retained AKA lobbyist since 2017). When advocates testify, they should know which industry lobbyists are likely in the room.`;
   }
 
+  // First in the prompt: the critic reads only the first ~4000 chars, and a
+  // status at the end let a CT draft call a banned state unrestricted.
   return `STATE: ${data.state} (${data.stateName || data.state})
+
+CONFIRMED LEGAL STATUS (checked against the statute or agency order${data.statusConfirmedAt ? ` on ${data.statusConfirmedAt.slice(0, 10)}` : ""}). This is authoritative: the Snapshot must open with it, and nothing in the briefing may contradict it, whatever older bills or news below suggest.
+  natural leaf: ${LEAF_WORDS[data.stateStatus] ?? data.stateStatus ?? "(not yet confirmed)"}
+  7-OH: ${OH_WORDS[data.state7oh] ?? "(not separately classified)"}
+  basis: ${data.statusNote ?? "(none)"}
+  other notes: ${data.stateNotes ?? "(none)"}
 
 LEGISLATOR COVERAGE:
   Total active in our directory: ${data.legCount}
@@ -269,12 +278,6 @@ ${stateLobbyingSection}
 ${buildCourtCasesSection(data)}
 ${buildFederalRulemakingSection(data)}
 ${buildFederalAwardsSection(data)}
-
-CONFIRMED LEGAL STATUS (checked against the statute or agency order${data.statusConfirmedAt ? ` on ${data.statusConfirmedAt.slice(0, 10)}` : ""}). This is authoritative: the Snapshot must state it, and nothing in the briefing may contradict it.
-  natural leaf: ${LEAF_WORDS[data.stateStatus] ?? data.stateStatus ?? "(not yet confirmed)"}
-  7-OH: ${OH_WORDS[data.state7oh] ?? "(not separately classified)"}
-  basis: ${data.statusNote ?? "(none)"}
-  other notes: ${data.stateNotes ?? "(none)"}
 
 MUNICIPAL OFFICIALS ON FILE:
   ${data.municipalCount} (city councils, mayors) — anything below ~5 means we don't have meaningful local coverage yet.
@@ -760,6 +763,34 @@ async function generateOne(state) {
       critiqueHistory.push({ pass: i + 1, needs_revision: true, issues: critique.issues, suggestions: critique.suggestions, revised: true, provider: critique.provider });
       console.log(`    ✓ revised to ${body.length} chars via ${reviseResult.provider}`);
     }
+  }
+
+  // The confirmed status is a hard rule, not something the critic may miss:
+  // one forced revision, then never save a draft that still contradicts it.
+  let mismatch = statusMismatch(body, data.stateStatus);
+  if (mismatch) {
+    console.log(`${tag} ⚠ ${mismatch} → revising`);
+    const must = LEAF_WORDS[data.stateStatus] ?? data.stateStatus;
+    try {
+      const fixed = await reviseDraft(userPrompt, body, {
+        issues: [`Status contradiction: ${mismatch}.`],
+        suggestions: [`Open the Snapshot by stating the confirmed status: natural leaf is ${must}. Basis: ${(data.statusNote ?? "").slice(0, 300)}`],
+      });
+      const fixedBody = (fixed.parsed?.body_md ?? "").trim();
+      if (fixedBody.length >= Math.max(1500, body.length * 0.5)) {
+        body = fixedBody;
+        finalProvider = fixed.provider;
+        revisions++;
+      }
+    } catch (e) {
+      console.log(`    ✗ revision failed: ${e.message?.slice(0, 80)}`);
+    }
+    mismatch = statusMismatch(body, data.stateStatus);
+    if (mismatch) {
+      console.log(`${tag} ✗ not saved: ${mismatch}; the current briefing stays`);
+      return { state, status: "status-mismatch", error: mismatch };
+    }
+    console.log(`${tag} ✓ status fixed`);
   }
 
   // Carry the admin's hand-written addendum forward. The page renders only the
