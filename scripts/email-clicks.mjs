@@ -5,7 +5,7 @@
  * WHY (owner, 2026-10-29): before deciding how much of a story an email should
  * carry (all of it, or a teaser that brings readers to the site), measure two
  * weeks of real clicks. Every iKratom link in a member email goes through
- * /e/<kind>/<page>, which netlify.toml 302s to <page>. Cloudflare keeps about
+ * /e/<kind>/<page>, which src/app/e/[kind]/[[...path]]/route.ts 302s to <page>. Cloudflare keeps about
  * 31 days of per-path request counts on the free plan, so this needs no table,
  * no cron and no record of who clicked: it names the email, never the person.
  *

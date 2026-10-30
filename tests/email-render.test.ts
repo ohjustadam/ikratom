@@ -4,7 +4,7 @@
  * updates" with the preview line "1 updates".
  */
 import { describe, it, expect } from "vitest";
-import fs from "node:fs";
+import { clickTarget } from "../src/lib/email-click";
 import { renderDigest, renderMeetingAlert, renderAnnouncement, emailLink, parseClickPath } from "../scripts/lib/email-render.mjs";
 
 const meeting = { id: "m1", state: "NY", locality: "Clifton Park, NY", body_name: "Town Board", meeting_at: "2026-10-06T23:05:00Z" };
@@ -74,8 +74,16 @@ describe("email click counting", () => {
     expect(parseClickPath("/e/probe/notifications")).toBeNull();
     expect(parseClickPath("/bills/x")).toBeNull();
   });
-  it("netlify.toml still forwards /e/ paths, which the links depend on", () => {
-    const toml = fs.readFileSync("netlify.toml", "utf8");
-    expect(toml).toMatch(/from = "\/e\/:kind\/\*"\s+to = "\/:splat"\s+status = 302/);
+  it("the /e/ route lands on the page, query kept", () => {
+    expect(clickTarget(["bills", "x"], "")).toBe("/bills/x");
+    expect(clickTarget(undefined, "?lounge=abc")).toBe("/?lounge=abc");
+    expect(clickTarget(["notifications"], "?k=1")).toBe("/notifications?k=1");
+  });
+  it("the /e/ route never leaves iKratom (open-redirect attempts)", () => {
+    const base = "https://www.ikratom.org";
+    for (const segs of [["", "evil.com"], ["/evil.com"], ["//evil.com"], ["\\evil.com"], ["..", "..", "evil.com"], ["https:", "", "evil.com"], ["%2F%2Fevil.com"]]) {
+      const to = new URL(clickTarget(segs, ""), base);
+      expect(to.origin, JSON.stringify(segs)).toBe(base);
+    }
   });
 });
