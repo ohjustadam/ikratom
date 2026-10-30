@@ -1,7 +1,10 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Persist a recording's metadata after the client uploaded the binary
@@ -95,18 +98,19 @@ export async function recordShare(input: {
   const valid = ["facebook", "x", "reddit", "sms", "threads", "copy_link"];
   if (!valid.includes(input.platform)) return { error: "Invalid platform." };
   const targets = [input.campaignId, input.billId, input.storyId].filter(Boolean);
-  if (targets.length !== 1) return { error: "Pick exactly one target." };
+  if (targets.length !== 1 || !UUID.test(String(targets[0]))) return { error: "Pick exactly one target." };
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  // Anon shares are allowed (we count them), but the INSERT RLS is open
-  // (check(true)), so rate-limit per-user + per-IP to stop a bot flooding
-  // campaign_shares with millions of rows.
+  // Anon shares are allowed (we count them). The table takes no writes from
+  // the public key (migration 0302): it used to, so a bot could skip this
+  // rate limit and stamp any member's id. Only this action writes, as the
+  // service role, after the per-user / per-IP limit.
   const rlKey = user ? `share:user:${user.id}` : `share:ip:${await getClientIp()}`;
   if (!(await checkRateLimit(rlKey, 30, 60))) {
     return { error: "Too many shares — slow down a moment." };
   }
-  const { error } = await supabase.from("campaign_shares").insert({
+  const { error } = await createServiceRoleClient().from("campaign_shares").insert({
     user_id: user?.id ?? null,
     platform: input.platform,
     campaign_id: input.campaignId ?? null,
