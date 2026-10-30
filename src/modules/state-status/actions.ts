@@ -114,6 +114,7 @@ export async function confirmStateStatus(input: {
 
   await recordAdminAction({
     action: "state_status.confirm",
+    targetType: "state",
     targetId: input.state,
     details: { leaf: input.leaf, sevenoh: input.sevenoh },
   });
