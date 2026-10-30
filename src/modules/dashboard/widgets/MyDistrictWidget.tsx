@@ -59,8 +59,10 @@ export async function MyDistrictWidget({
   const status = statusRes.data as
     | { derived_leaf_status: string | null; derived_7oh_status: string | null; admin_leaf_status: string | null; admin_7oh_status: string | null }
     | null;
-  const leaf = status?.admin_leaf_status ?? status?.derived_leaf_status ?? null;
-  const oh = status?.admin_7oh_status ?? status?.derived_7oh_status ?? null;
+  // Confirmed values only, like the state hub's StatusHeader: the derived
+  // columns are a nightly guess, often from pending bills.
+  const leaf = status?.admin_leaf_status ?? null;
+  const oh = status?.admin_7oh_status ?? null;
 
   return (
     <section className="rounded-lg border border-zinc-800 bg-zinc-950/40">
