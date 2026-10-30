@@ -190,6 +190,13 @@ fixed by a better estimate:
   (`adapter = playwright_browser`): TN Health, TN AG, AK public notices, AL
   pharmacy board. The TX Register fails in both lanes and still needs a
   different URL.
+- **News bodies behind Akamai (2026-10-29, #1092).** TEGNA's TV sites (KING5,
+  WWLTV, WKYC, 11Alive…), HHS.gov and GlobeNewswire serve Akamai's "Access
+  Denied" page to plain fetch and to headless Chromium, even from a home IP.
+  329 stories showed that page as their body. The extractor now rejects it and
+  stamps those stories with no body. Their reader page links out to the source.
+  Never clear `news_items.body_extracted_at` to force a re-extract: every news
+  feed lists only rows that have it. Clearing `body_paragraphs` is enough.
 - **Legal status re-check, 2026-10-29.** 38 more rows were checked against
   primary sources and stamped, so 46 of 51 are now confirmed. Three were wrong:
   - **MA is banned**: 105 CMR 726.000 puts the plant in Schedule I from Aug 28,

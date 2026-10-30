@@ -1,5 +1,58 @@
 import { describe, it, expect } from "vitest";
-import { extractArticleContent } from "../scripts/lib/article-content.mjs";
+import { readFileSync } from "node:fs";
+import {
+  extractArticleContent,
+  isAkamaiBlockPage,
+  isAkamaiBlockExcerpt,
+} from "../scripts/lib/article-content.mjs";
+
+const fixture = (name: string) =>
+  readFileSync(new URL(`./fixtures/news-block-page/${name}`, import.meta.url), "utf8");
+
+describe("Akamai 'Access Denied' block pages are never saved as the story", () => {
+  // Real pages captured 2026-10-29: the 403 body plain fetch gets from
+  // wwltv.com (every character entity-encoded), and what headless Chromium
+  // renders for king5.com. The Chromium one is what was being stored.
+  const fetched = fixture("akamai-403-fetch.html");
+  const rendered = fixture("akamai-403-chromium.html");
+  const article = fixture("infoworld-access-denied-article.html");
+
+  it("recognises the block page in both forms and extracts nothing", () => {
+    for (const html of [fetched, rendered]) {
+      expect(isAkamaiBlockPage(html)).toBe(true);
+      expect(extractArticleContent(html, "https://www.king5.com/article/x")).toEqual({ paragraphs: [], media: [] });
+    }
+  });
+
+  it("keeps a real article that says 'access denied' in its title and text", () => {
+    expect(isAkamaiBlockPage(article)).toBe(false);
+    const { paragraphs } = extractArticleContent(article, "https://www.infoworld.com/article/4237168/x.html");
+    expect(paragraphs.length).toBe(4);
+    expect(paragraphs.some((p: string) => /access denied/i.test(p))).toBe(true);
+  });
+
+  it("needs the Access Denied title AND the Akamai reference, not either alone", () => {
+    const titled = '<html><head><title>Access Denied</title></head><body><p>You do not have access to this member-only story, please sign in to keep reading it.</p></body></html>';
+    expect(isAkamaiBlockPage(titled)).toBe(false);
+    // An article quoting an Akamai reference keeps its own title.
+    const quoted = article.replace("</article>", "<p>The error read: Reference #18.296e2617.1793329570.27d2487</p></article>");
+    expect(isAkamaiBlockPage(quoted)).toBe(false);
+  });
+
+  it("matches the exact shape the block page was stored in, nothing looser", () => {
+    expect(isAkamaiBlockExcerpt([
+      "Reference #18.6f6d3e17.1792585322.be2155c6",
+      "https://errors.edgesuite.net/18.6f6d3e17.1792585322.be2155c6",
+    ])).toBe(true);
+    expect(isAkamaiBlockExcerpt([
+      "Reference #18.6f6d3e17.1792585322.be2155c6",
+      "Lawmakers in Louisiana restricted three kratom-related substances on Tuesday after two student deaths.",
+    ])).toBe(false);
+    expect(isAkamaiBlockExcerpt(["Access denied, the agency said, to records about the kratom seizure."])).toBe(false);
+    expect(isAkamaiBlockExcerpt([])).toBe(false);
+    expect(isAkamaiBlockExcerpt(null)).toBe(false);
+  });
+});
 
 const wrap = (body: string) =>
   `<html><head><meta property="og:image" content="https://cdn.pub.com/lead.jpg"></head><body><article>${body}</article></body></html>`;
