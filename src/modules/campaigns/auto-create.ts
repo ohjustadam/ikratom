@@ -313,7 +313,7 @@ export async function autoCreateCampaignsForNewAntiBills(
     if (shouldAutoPublish && insertedCampaignId) {
       try {
         const { notifyDiscordOnBillDrop, notifyDiscordOnCampaignLaunch } = await import(
-          "@/modules/discord/actions"
+          "@/modules/discord/notify"
         );
         // Fire bill_drop_hostile (the bill itself is news) and
         // campaign_launch (action is now available) in parallel — they
