@@ -54,6 +54,22 @@ const MAX_REVISIONS = Math.max(0, Math.min(3, parseInt(arg("--max-revisions") ??
 // first in line next time and coverage self-converges.
 const MAX_MINUTES = parseFloat(arg("--max-minutes") ?? "0") || 0;
 
+// state_status vocabulary in the words the briefing should use.
+const LEAF_WORDS = {
+  banned: "BANNED statewide: possessing or selling kratom is illegal",
+  restricted: "legal with restrictions (for example an age limit or product rules)",
+  legal: "legal, with no kratom-specific law",
+  kcpa: "legal and regulated under a Kratom Consumer Protection Act",
+  protected: "legal and regulated under a Kratom Consumer Protection Act",
+  incoming: "legal; a Kratom Consumer Protection Act is enacted but not yet in force",
+};
+const OH_WORDS = {
+  banned: "banned (scheduled or prohibited)",
+  restricted: "restricted (limits on concentrated 7-OH)",
+  legal: "legal",
+  protected: "regulated",
+};
+
 if (!STATE && !ALL_STATES) {
   console.error("Usage: --state <2-letter>  OR  --all-states  (optionally --dry-run, --provider, --no-critique, --max-revisions N)");
   process.exit(1);
@@ -254,9 +270,11 @@ ${buildCourtCasesSection(data)}
 ${buildFederalRulemakingSection(data)}
 ${buildFederalAwardsSection(data)}
 
-STATE STATUS (from states table):
-  kratom_status: ${data.stateStatus ?? "(unset)"}
-  notes: ${data.stateNotes ?? "(none)"}
+CONFIRMED LEGAL STATUS (checked against the statute or agency order${data.statusConfirmedAt ? ` on ${data.statusConfirmedAt.slice(0, 10)}` : ""}). This is authoritative: the Snapshot must state it, and nothing in the briefing may contradict it.
+  natural leaf: ${LEAF_WORDS[data.stateStatus] ?? data.stateStatus ?? "(not yet confirmed)"}
+  7-OH: ${OH_WORDS[data.state7oh] ?? "(not separately classified)"}
+  basis: ${data.statusNote ?? "(none)"}
+  other notes: ${data.stateNotes ?? "(none)"}
 
 MUNICIPAL OFFICIALS ON FILE:
   ${data.municipalCount} (city councils, mayors) — anything below ~5 means we don't have meaningful local coverage yet.
@@ -378,6 +396,7 @@ async function loadStateData(state) {
   const [
     stateRow, capitalRow, legsAll, bills, bopSrc, bopFindings, news, camps,
     stanceRows, committeeRows, stateLobbyistRows, courtCaseRows, federalRulemakingRows, federalAwardRows,
+    statusRow,
   ] = await Promise.all([
     sb.from("states").select("abbr, name, kratom_status, notes").eq("abbr", state).maybeSingle(),
     sb.from("state_capital_info")
@@ -454,6 +473,12 @@ async function loadStateData(state) {
       .select("amount, awarding_agency, awarding_sub_agency, recipient_name, recipient_state, description, category, start_date, end_date, usa_url")
       .order("amount", { ascending: false, nullsFirst: false })
       .limit(8),
+    // The confirmed legal status: the row the maps, /banned and the state hub
+    // show. states.kratom_status is a legacy copy that had drifted, and
+    // briefings built from it called banned CT, MA and TN legal (2026-10-29).
+    sb.from("state_status")
+      .select("admin_leaf_status, admin_7oh_status, admin_note, confirmed_at")
+      .eq("state", state).maybeSingle(),
   ]);
 
   // Sponsors: pull all rows for these specific bills + their resolved legislator names.
@@ -490,7 +515,10 @@ async function loadStateData(state) {
   return {
     state,
     stateName: stateRow.data?.name ?? state,
-    stateStatus: stateRow.data?.kratom_status ?? null,
+    stateStatus: statusRow.data?.admin_leaf_status ?? stateRow.data?.kratom_status ?? null,
+    state7oh: statusRow.data?.admin_7oh_status ?? null,
+    statusNote: statusRow.data?.admin_note ?? null,
+    statusConfirmedAt: statusRow.data?.confirmed_at ?? null,
     stateNotes: stateRow.data?.notes ?? null,
     capital: capitalRow.data ?? null,
     legCount: legsAll.data?.length ?? 0,

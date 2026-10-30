@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { legalStatusLabel } from "@/lib/legal-status";
 import { listNewsForState } from "@/modules/news/actions";
 import { ThreadList } from "./ThreadList";
 import { recordForumVisit } from "@/modules/forum/engagement-actions";
@@ -125,7 +126,7 @@ export default async function StateForumPage({
           <p className="mt-2 text-sm text-zinc-400">
             Local war room. Status:{" "}
             <span className="font-semibold text-zinc-200">
-              {stateRow.kratom_status ?? "unknown"}
+              {legalStatusLabel(stateRow.kratom_status)}
             </span>
             {legCount != null && <> · {legCount} legislators on file</>}
           </p>
