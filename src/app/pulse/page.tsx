@@ -13,6 +13,7 @@ import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { frontmatterString } from "@/lib/frontmatter";
 
 import Link from "@/components/Link";
+import { newsAboutState } from "@/lib/news-state-filter";
 export const metadata = { title: "Pulse — live policy feed" };
 // Force dynamic so newly-inserted alerts and breaking events appear on
 // next refresh — the alerts table is the live war room and stale page
@@ -249,7 +250,7 @@ const getStateNews = unstable_cache(
       .from("news_items")
       .select("id, title, url, source_name, state, published_at, ai_relevance_score")
       .eq("active", true)
-      .eq("state", state)
+      .or(newsAboutState(state))
       .gte("ai_relevance_score", 0.7)
       .gte("published_at", since14d)
       .not("body_has_kratom_keyword", "is", false)

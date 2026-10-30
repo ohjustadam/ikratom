@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { searchNews } from "@/modules/news/actions";
 import { useChromeMe } from "@/components/chrome/ChromeProvider";
+import { isNewsAbout } from "@/lib/news-state-filter";
 
 type NewsItem = {
   id: string;
   state: string | null;
+  mentioned_states?: string[] | null;
   title: string;
   summary: string | null;
   url: string;
@@ -114,14 +116,14 @@ export function NewsList({ items }: { items: NewsItem[] }) {
   }, [query]);
 
   const counts = useMemo(() => {
-    const yourState = userState ? items.filter((i) => i.state === userState).length : 0;
+    const yourState = userState ? items.filter((i) => isNewsAbout(i, userState)).length : 0;
     const federal = items.filter((i) => i.state === null).length;
     return { all: items.length, yours: yourState, federal };
   }, [items, userState]);
 
   const statesWithNews = useMemo(() => {
     const set = new Set<string>();
-    for (const i of items) if (i.state) set.add(i.state);
+    for (const i of items) for (const st of [i.state, ...(i.mentioned_states ?? [])]) if (st) set.add(st);
     return Array.from(set).sort();
   }, [items]);
 
@@ -133,10 +135,10 @@ export function NewsList({ items }: { items: NewsItem[] }) {
     const source = serverResults ?? items;
     const q = query.trim().toLowerCase();
     let arr = source.filter((i) => {
-      if (stateFilter === "yours" && i.state !== userState) return false;
+      if (stateFilter === "yours" && !isNewsAbout(i, userState)) return false;
       if (stateFilter === "federal" && i.state !== null) return false;
       if (stateFilter !== "all" && stateFilter !== "yours" && stateFilter !== "federal") {
-        if (i.state !== stateFilter) return false;
+        if (!isNewsAbout(i, stateFilter)) return false;
       }
       if (topic !== "all" && i.kratom_topic !== topic) return false;
       if (!usingServer && q) {
@@ -382,6 +384,11 @@ function ItemMeta({ item }: { item: NewsItem }) {
       ) : (
         <span className="rounded bg-purple-950/40 px-1.5 py-0.5 text-purple-300">Federal</span>
       )}
+      {(item.mentioned_states ?? []).map((st) => (
+        <span key={st} className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-zinc-400" title={`Also about ${st}`}>
+          {st}
+        </span>
+      ))}
       {item.kratom_topic && (
         <span className={`rounded px-1.5 py-0.5 ${TOPIC_COLORS[item.kratom_topic] ?? "bg-zinc-900 text-zinc-400"}`}>
           {item.kratom_topic}

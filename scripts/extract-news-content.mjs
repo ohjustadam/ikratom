@@ -29,7 +29,7 @@ import { createClient } from "@supabase/supabase-js";
 import { extractArticleContent } from "./lib/article-content.mjs";
 import { renderPage, closeHeadless } from "./lib/headless-render.mjs";
 import { fetchMsnArticleHtml } from "./lib/msn-content.mjs";
-import { newsStateFromBody } from "./lib/news-state.mjs";
+import { newsStateFromBody, newsStatesMentioned } from "./lib/news-state.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -159,6 +159,9 @@ for (const item of items) {
   if (state !== item.state) update.state = state;
   if (media.length > 0) update.media_urls = media;
   if (gotBody || attempts >= RETRY_CAP) update.body_extracted_at = new Date().toISOString();
+  // The other states the story is about, set with the same stamp push-state-news
+  // waits for, so their members are notified too (migration 0301).
+  if (update.body_extracted_at) update.mentioned_states = newsStatesMentioned({ title: item.title ?? "", paragraphs, primary: state });
 
   const { error: upErr } = await sb.from("news_items").update(update).eq("id", item.id);
   if (upErr) { console.log(`     ⚠ update failed: ${upErr.message?.slice(0, 80)}`); failed++; continue; }
