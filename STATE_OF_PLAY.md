@@ -179,6 +179,24 @@ fixed by a better estimate:
   Seven rows had gone stale since June: TN (now banned), WY, OH, VA, DE, RI
   and ND. A "takes effect July 1" note does not update itself, so re-check any
   dated note once its date passes.
+- **One finding per press release (2026-10-29, #1083).** A newsroom item used to
+  be stored twice, once as a link and once as the heading or table row around
+  it, and both copies alerted. The extractor now drops the url-less copy.
+  Also fixed: the Cloudflare AI lane returned the API envelope as the answer
+  when Gemma 4's thinking used up `max_tokens`, so 12 kratom findings were
+  stamped "classified" with an empty verdict and never alerted. Watch for
+  `ai_classified_at` set with `ai_relevance` null: that is this bug again.
+- **Sources that block GitHub's IPs** run in the Playwright lane
+  (`adapter = playwright_browser`): TN Health, TN AG, AK public notices, AL
+  pharmacy board. The TX Register fails in both lanes and still needs a
+  different URL.
+- **Live-node audit, 2026-10-29** (`/admin/intel-health/states`): 1 of 51 states
+  passes all four checks (OH). Intel coverage and legislator email reach pass
+  in all 51. Two checks fail: only CA, MI, OH and OK have 3+ advocates, and
+  only 8 statuses carry a confirmation from the last 120 days (OK's is from
+  2026-06-07). No kratom law enacted since those stamps contradicts any status.
+  But a status counts as re-confirmed only once someone checks it and stamps
+  it in `/admin/state-status`.
 
 ## How the platform watches itself
 
