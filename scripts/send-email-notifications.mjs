@@ -53,7 +53,7 @@ const APP_URL = (/localhost|127\.0\.0\.1/.test(envUrl) ? PROD_URL : envUrl).repl
 const SOURCE = { digest: "email_digest", meetings: "email_meeting_alerts", announce: "email_announcement" }[MODE];
 
 // Click counting (scripts/email-clicks.mjs) sends links through /e/<kind>/,
-// which only works while netlify.toml's /e/ redirect is live. Check it first,
+// which only works once the /e/ route (src/app/e/[kind]) is deployed. Check it first,
 // at the Netlify origin because Cloudflare challenges CI, and send plain links
 // if it fails: a missing redirect must never put a dead link in an inbox.
 const PROBE_ORIGIN = APP_URL === PROD_URL ? (process.env.WATCHDOG_ORIGIN_URL || "https://main--ikratom.netlify.app").replace(/\/+$/, "") : APP_URL;

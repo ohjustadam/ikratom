@@ -224,19 +224,6 @@
   status = 308
   force = true
 
-# ── EMAIL CLICK COUNTING (owner, 2026-10-29) ──────────────────────────────────
-# Member emails link to /e/<email kind>/<page>; this lands the reader on <page>.
-# Cloudflare's free analytics count paths but not query strings, so the path is
-# how scripts/email-clicks.mjs counts clicks per kind of email, without knowing
-# who clicked. The sender checks this rule before tagging a link
-# (clickPathsLive in scripts/send-email-notifications.mjs), so removing it only
-# turns the counting off.
-[[redirects]]
-  from = "/e/:kind/*"
-  to = "/:splat"
-  status = 302
-  force = true
-
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 

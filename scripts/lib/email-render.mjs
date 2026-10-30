@@ -11,7 +11,7 @@
  *  - A one-click unsubscribe link and a "manage settings" link in every email.
  *  - Identity is never rendered beyond @username (public-anonymity rule).
  *  - With `via` set, every iKratom link goes through /e/<via>/<page>, which
- *    netlify.toml forwards to <page>. That path is how scripts/email-clicks.mjs
+ *    src/app/e/[kind]/[[...path]]/route.ts forwards to <page>. That path is how scripts/email-clicks.mjs
  *    counts clicks per kind of email (owner, 2026-10-29). It names the email,
  *    never the person, and the unsubscribe and settings links are never tagged.
  */
