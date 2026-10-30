@@ -26,7 +26,7 @@
  *   node --env-file=.env.local scripts/extract-news-content.mjs --refresh
  */
 import { createClient } from "@supabase/supabase-js";
-import { extractArticleContent } from "./lib/article-content.mjs";
+import { extractArticleContent, isAkamaiBlockPage } from "./lib/article-content.mjs";
 import { renderPage, closeHeadless } from "./lib/headless-render.mjs";
 import { fetchMsnArticleHtml } from "./lib/msn-content.mjs";
 import { newsStateFromBody, newsStatesMentioned } from "./lib/news-state.mjs";
@@ -114,15 +114,20 @@ for (const item of items) {
   // fetch — zero paragraphs. Real Chromium renders the article; degrades to
   // null where Chromium isn't available.
   let rendered = false;
+  // An Akamai block page (plain fetch gets a 403, Chromium gets the page) is a
+  // definite empty answer, not a transient fetch failure: count it toward
+  // RETRY_CAP so a blocked source stops retrying instead of looping forever.
+  let blocked = isAkamaiBlockPage(html);
   if (paragraphs.length === 0) {
     const r = await renderPage(target);
     if (r?.html) {
       ({ paragraphs, media } = extractArticleContent(r.html, target));
       rendered = paragraphs.length > 0;
+      blocked ||= isAkamaiBlockPage(r.html);
     }
   }
 
-  if (!html && !rendered) {
+  if (!html && !rendered && !blocked) {
     console.log(`  ✗ ${item.id.slice(0, 8)} fetch failed (${fetchErr?.message?.slice(0, 50)}) — retry next run`);
     failed++;
     continue; // don't stamp — transient; retry
@@ -131,7 +136,7 @@ for (const item of items) {
   const nImages = media.filter((m) => m.type === "image").length;
   if (paragraphs.length > 0) withBody++;
   if (media.length > 0) withMedia++;
-  console.log(`  ${item.id.slice(0, 8)} "${(item.title ?? "").slice(0, 48)}" → ${paragraphs.length}¶ · ${nVideos} video · ${nImages} img${rendered ? " · ⚙ rendered" : ""}`);
+  console.log(`  ${item.id.slice(0, 8)} "${(item.title ?? "").slice(0, 48)}" → ${paragraphs.length}¶ · ${nVideos} video · ${nImages} img${rendered ? " · ⚙ rendered" : ""}${blocked ? " · ⛔ access denied" : ""}`);
 
   // A headline that names no state was filed under whichever state's news
   // query found it; the body can say it belongs elsewhere. This runs before

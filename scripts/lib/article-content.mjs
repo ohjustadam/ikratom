@@ -305,11 +305,44 @@ function readabilityExtract(html, baseUrl) {
   }
 }
 
+// Akamai's edge "Access Denied" page: what TEGNA's local TV sites (KING5,
+// WWLTV, WKYC…), HHS.gov and GlobeNewswire serve our fetch AND headless
+// Chromium. Its "Reference #18.<hex>.<ts>.<hex>" line and errors.edgesuite.net
+// link both clear PARA_MIN_CHARS, so the error page was saved as the story
+// (166 rows by 2026-10-29). Narrow on purpose: the <title> must be exactly
+// "Access Denied" AND the Akamai reference must be on the page, so a real
+// article that merely says "access denied" is never rejected.
+const AKAMAI_REF_RE = /Reference #\d+(?:\.[0-9a-f]+){2,}|errors\.edgesuite\.net\//i;
+// The shape those pages were stored in: every paragraph is one of the two lines.
+const AKAMAI_LINE_RE = /^(?:Reference #\d+(?:\.[0-9a-f]+){2,}|https?:\/\/errors\.edgesuite\.net\/\S*)$/i;
+
+// The raw 403 body entity-encodes everything ("Reference&#32;&#35;18&#46;…").
+function decodeNumericEntities(s) {
+  return s.replace(/&#(x[0-9a-f]+|\d+);/gi, (m, n) => {
+    const cp = /^x/i.test(n) ? parseInt(n.slice(1), 16) : parseInt(n, 10);
+    return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+  });
+}
+
+/** True when the HTML is Akamai's "Access Denied" block page, not an article. */
+export function isAkamaiBlockPage(html) {
+  if (!html) return false;
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  if (!title || decodeNumericEntities(title).trim().toLowerCase() !== "access denied") return false;
+  return AKAMAI_REF_RE.test(decodeNumericEntities(html));
+}
+
+/** True when stored paragraphs are a block page saved before the check existed. */
+export function isAkamaiBlockExcerpt(paragraphs) {
+  return Array.isArray(paragraphs) && paragraphs.length > 0
+    && paragraphs.every((p) => typeof p === "string" && AKAMAI_LINE_RE.test(p.trim()));
+}
+
 /**
  * @returns {{ paragraphs: string[], media: Array<{type,url,embed_url?,video_id?,poster?,lead?}> }}
  */
 export function extractArticleContent(html, baseUrl) {
-  if (!html) return { paragraphs: [], media: [] };
+  if (!html || isAkamaiBlockPage(html)) return { paragraphs: [], media: [] };
   const primary = readabilityExtract(html, baseUrl);
   if (primary && primary.paragraphs.length > 0) return primary;
   // Fallback: original regex region scan.
