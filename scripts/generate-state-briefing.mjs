@@ -32,6 +32,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { aiRouter, listAvailableProviders } from "./lib/ai-router.mjs";
+import { statusMismatch } from "./lib/briefing-status-check.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -53,6 +54,22 @@ const MAX_REVISIONS = Math.max(0, Math.min(3, parseInt(arg("--max-revisions") ??
 // Targets are already ordered stalest-first, so whatever we skip is simply
 // first in line next time and coverage self-converges.
 const MAX_MINUTES = parseFloat(arg("--max-minutes") ?? "0") || 0;
+
+// state_status vocabulary in the words the briefing should use.
+const LEAF_WORDS = {
+  banned: "BANNED statewide: possessing or selling kratom is illegal",
+  restricted: "legal with restrictions (for example an age limit or product rules)",
+  legal: "legal, with no kratom-specific law",
+  kcpa: "legal and regulated under a Kratom Consumer Protection Act",
+  protected: "legal and regulated under a Kratom Consumer Protection Act",
+  incoming: "legal; a Kratom Consumer Protection Act is enacted but not yet in force",
+};
+const OH_WORDS = {
+  banned: "banned (scheduled or prohibited)",
+  restricted: "restricted (limits on concentrated 7-OH)",
+  legal: "legal",
+  protected: "regulated",
+};
 
 if (!STATE && !ALL_STATES) {
   console.error("Usage: --state <2-letter>  OR  --all-states  (optionally --dry-run, --provider, --no-critique, --max-revisions N)");
@@ -225,7 +242,15 @@ ${activeLines || "  (no currently active kratom-industry lobbyists)"}${formerCou
   Use these names in the field-work tactical section. Mac Haddow specifically is the AKA's senior strategist with a decades-long Utah footprint (former Utah legislator + retained AKA lobbyist since 2017). When advocates testify, they should know which industry lobbyists are likely in the room.`;
   }
 
+  // First in the prompt: the critic reads only the first ~4000 chars, and a
+  // status at the end let a CT draft call a banned state unrestricted.
   return `STATE: ${data.state} (${data.stateName || data.state})
+
+CONFIRMED LEGAL STATUS (checked against the statute or agency order${data.statusConfirmedAt ? ` on ${data.statusConfirmedAt.slice(0, 10)}` : ""}). This is authoritative: the Snapshot must open with it, and nothing in the briefing may contradict it, whatever older bills or news below suggest.
+  natural leaf: ${LEAF_WORDS[data.stateStatus] ?? data.stateStatus ?? "(not yet confirmed)"}
+  7-OH: ${OH_WORDS[data.state7oh] ?? "(not separately classified)"}
+  basis: ${data.statusNote ?? "(none)"}
+  other notes: ${data.stateNotes ?? "(none)"}
 
 LEGISLATOR COVERAGE:
   Total active in our directory: ${data.legCount}
@@ -253,10 +278,6 @@ ${stateLobbyingSection}
 ${buildCourtCasesSection(data)}
 ${buildFederalRulemakingSection(data)}
 ${buildFederalAwardsSection(data)}
-
-STATE STATUS (from states table):
-  kratom_status: ${data.stateStatus ?? "(unset)"}
-  notes: ${data.stateNotes ?? "(none)"}
 
 MUNICIPAL OFFICIALS ON FILE:
   ${data.municipalCount} (city councils, mayors) — anything below ~5 means we don't have meaningful local coverage yet.
@@ -378,6 +399,7 @@ async function loadStateData(state) {
   const [
     stateRow, capitalRow, legsAll, bills, bopSrc, bopFindings, news, camps,
     stanceRows, committeeRows, stateLobbyistRows, courtCaseRows, federalRulemakingRows, federalAwardRows,
+    statusRow,
   ] = await Promise.all([
     sb.from("states").select("abbr, name, kratom_status, notes").eq("abbr", state).maybeSingle(),
     sb.from("state_capital_info")
@@ -454,6 +476,12 @@ async function loadStateData(state) {
       .select("amount, awarding_agency, awarding_sub_agency, recipient_name, recipient_state, description, category, start_date, end_date, usa_url")
       .order("amount", { ascending: false, nullsFirst: false })
       .limit(8),
+    // The confirmed legal status: the row the maps, /banned and the state hub
+    // show. states.kratom_status is a legacy copy that had drifted, and
+    // briefings built from it called banned CT, MA and TN legal (2026-10-29).
+    sb.from("state_status")
+      .select("admin_leaf_status, admin_7oh_status, admin_note, confirmed_at")
+      .eq("state", state).maybeSingle(),
   ]);
 
   // Sponsors: pull all rows for these specific bills + their resolved legislator names.
@@ -490,7 +518,10 @@ async function loadStateData(state) {
   return {
     state,
     stateName: stateRow.data?.name ?? state,
-    stateStatus: stateRow.data?.kratom_status ?? null,
+    stateStatus: statusRow.data?.admin_leaf_status ?? stateRow.data?.kratom_status ?? null,
+    state7oh: statusRow.data?.admin_7oh_status ?? null,
+    statusNote: statusRow.data?.admin_note ?? null,
+    statusConfirmedAt: statusRow.data?.confirmed_at ?? null,
     stateNotes: stateRow.data?.notes ?? null,
     capital: capitalRow.data ?? null,
     legCount: legsAll.data?.length ?? 0,
@@ -732,6 +763,34 @@ async function generateOne(state) {
       critiqueHistory.push({ pass: i + 1, needs_revision: true, issues: critique.issues, suggestions: critique.suggestions, revised: true, provider: critique.provider });
       console.log(`    ✓ revised to ${body.length} chars via ${reviseResult.provider}`);
     }
+  }
+
+  // The confirmed status is a hard rule, not something the critic may miss:
+  // one forced revision, then never save a draft that still contradicts it.
+  let mismatch = statusMismatch(body, data.stateStatus);
+  if (mismatch) {
+    console.log(`${tag} ⚠ ${mismatch} → revising`);
+    const must = LEAF_WORDS[data.stateStatus] ?? data.stateStatus;
+    try {
+      const fixed = await reviseDraft(userPrompt, body, {
+        issues: [`Status contradiction: ${mismatch}.`],
+        suggestions: [`Open the Snapshot by stating the confirmed status: natural leaf is ${must}. Basis: ${(data.statusNote ?? "").slice(0, 300)}`],
+      });
+      const fixedBody = (fixed.parsed?.body_md ?? "").trim();
+      if (fixedBody.length >= Math.max(1500, body.length * 0.5)) {
+        body = fixedBody;
+        finalProvider = fixed.provider;
+        revisions++;
+      }
+    } catch (e) {
+      console.log(`    ✗ revision failed: ${e.message?.slice(0, 80)}`);
+    }
+    mismatch = statusMismatch(body, data.stateStatus);
+    if (mismatch) {
+      console.log(`${tag} ✗ not saved: ${mismatch}; the current briefing stays`);
+      return { state, status: "status-mismatch", error: mismatch };
+    }
+    console.log(`${tag} ✓ status fixed`);
   }
 
   // Carry the admin's hand-written addendum forward. The page renders only the

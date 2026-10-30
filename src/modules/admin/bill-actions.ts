@@ -195,7 +195,7 @@ export async function updateBill(input: {
   // Best-effort — never blocks the response.
   if (before && patch.status && before.status !== patch.status) {
     try {
-      const { notifyDiscordOnBillStatusChange } = await import("@/modules/discord/actions");
+      const { notifyDiscordOnBillStatusChange } = await import("@/modules/discord/notify");
       void notifyDiscordOnBillStatusChange({
         billId: input.id,
         state: before.state,
