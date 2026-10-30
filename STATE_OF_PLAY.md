@@ -190,6 +190,13 @@ fixed by a better estimate:
   (`adapter = playwright_browser`): TN Health, TN AG, AK public notices, AL
   pharmacy board. The TX Register fails in both lanes and still needs a
   different URL.
+- **News bodies behind Akamai (2026-10-29, #1092).** TEGNA's TV sites (KING5,
+  WWLTV, WKYC, 11Alive…), HHS.gov and GlobeNewswire serve Akamai's "Access
+  Denied" page to plain fetch and to headless Chromium, even from a home IP.
+  329 stories showed that page as their body. The extractor now rejects it and
+  stamps those stories with no body. Their reader page links out to the source.
+  Never clear `news_items.body_extracted_at` to force a re-extract: every news
+  feed lists only rows that have it. Clearing `body_paragraphs` is enough.
 - **Live-node audit, 2026-10-29** (`/admin/intel-health/states`): 1 of 51 states
   passes all four checks (OH). Intel coverage and legislator email reach pass
   in all 51. Two checks fail: only CA, MI, OH and OK have 3+ advocates, and
