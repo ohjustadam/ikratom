@@ -14,6 +14,7 @@ import { AudioReader } from "@/components/AudioReader";
 import { renderMarkdown, mdToPlainText } from "@/lib/markdown";
 import { STATE_NAMES } from "@/lib/state-names";
 import { publishedStance } from "@/lib/published-stance";
+import { newsAboutState } from "@/lib/news-state-filter";
 
 /**
  * Static + ISR, 15 minutes — matching the snapshot's own revalidate window.
@@ -220,7 +221,8 @@ async function loadStateHubFast(codeUpper: string): Promise<SnapshotLoad<HubFast
     supabase
       .from("news_items")
       .select("id, title, source_name, url, published_at, summary")
-      .eq("state", codeUpper)
+      // Filed here, or filed elsewhere and about this state too (0301).
+      .or(newsAboutState(codeUpper))
       .eq("active", true)
       .not("body_has_kratom_keyword", "is", false)
       .gte("published_at", newsSince)

@@ -264,3 +264,10 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 - **One row, one nonce.** The two modals log a single row per letter, so later clicks reuse its nonce (`nonceForClick`); a fresh one would BCC an address no row holds and the ingest drops it. `DraftResponsePanel` logs every click, so each click mints its own.
 - **No BCC where it can't work:** the contact-form/website flow (a web form has no BCC), a signed-out visitor (no logged click to match), and `DraftResponsePanel`'s Copy (mostly pasted into an agency portal).
 - Every letter still goes through the uniform composer and ends with the "Sent via iKratom" footer.
+
+## News stories belong to every state they are about (2026-10-29)
+
+**Decision:** `news_items.mentioned_states` (migration 0301) lists the other states a story names in its headline or in 3+ body paragraphs (`newsStatesMentioned` in `scripts/lib/news-state.mjs`, the same paragraph counter that re-files a misfiled story). Every per-state list (state hub, /news filter, Pulse, Brief, forum) shows it under each of those states (`src/lib/news-state-filter.ts`), the article links each state's hub, and `push-state-news.mjs` notifies each of those states' members (`newsPushStates`), with the 72h same-story check and the one-push-a-day cap applied per state. A story naming more than 4 states is national: only its home state is pushed, and the daily national digest, which leaves out what a member was already pushed, carries it to everyone first.
+- **Members' settings decide delivery, not this code.** Each push is a `notifications` row: `notify_news` off drops it, the email digest carries `state_news` under "Your state", and quiet hours and digest cadence hold the web push.
+
+**Why:** the owner, 2026-10-29: a story re-filed under its real state should still link and notify the states it discusses (a Mississippi story about Louisiana's ban reaches Louisiana members).

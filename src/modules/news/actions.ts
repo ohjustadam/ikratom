@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { newsAboutState } from "@/lib/news-state-filter";
 
 // All public listings filter to canonicals (duplicate_of IS NULL) so each
 // syndicated story shows exactly once. The canonical row exposes
@@ -11,7 +12,7 @@ import { getCreatorContext } from "@/modules/admin/actions";
 // Joins to bills via the (post-#326) news_items.bill_id linkage so the
 // /news card can show "→ NY S 8925" with a click-through to the bill.
 const NEWS_FIELDS =
-  "id, state, title, summary, url, source_name, published_at, scraped_at, " +
+  "id, state, mentioned_states, title, summary, url, source_name, published_at, scraped_at, " +
   "kratom_topic, ai_relevance_score, duplicate_count, " +
   "bill_id, bills(bill_number, state)";
 
@@ -20,6 +21,8 @@ const NEWS_FIELDS =
 export type NewsListItem = {
   id: string;
   state: string | null;
+  // Other states the story is about (migration 0301).
+  mentioned_states: string[] | null;
   title: string;
   summary: string | null;
   url: string;
@@ -59,7 +62,7 @@ export async function listNewsForState(state: string | null, limit = 20): Promis
   if (state === null) {
     q = q.is("state", null);
   } else {
-    q = q.eq("state", state);
+    q = q.or(newsAboutState(state));
   }
 
   const { data } = await q
