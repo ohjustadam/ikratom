@@ -154,6 +154,18 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/check-legislator-email-domains.mjs --apply
 
+      # Try to break the row rules as a member and as a visitor, in transactions
+      # that always roll back (security sweep 10-30, migration 0302). A table
+      # added without its guard fails here instead of in public.
+      - name: Row-rule pentest (rolled back)
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/rls-pentest.mjs
+
       # Whole-state county boards from official directories
       # (scripts/lib/county-directories.mjs): one fetch per state, markup
       # parsing, no AI. Weekly so rosters follow elections; it only ever
