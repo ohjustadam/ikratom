@@ -342,6 +342,15 @@ editing an event's time (cancel and re-post), and a real cover photo.
    origin before every run and sends plain links if it fails ("links plain" in
    the `scraper_runs` note), so never tag a link outside `emailLink()`. The
    numbers decide how much of a story an email carries (owner, 2026-10-29).
+9. **Row rules check who wrote a row, not what it says.** A policy like
+   `author_id = auth.uid()` still lets a member write any value into the
+   counters and moderation columns of their own row. Migration 0302 closes this
+   with BEFORE INSERT/UPDATE triggers that reset those columns for
+   non-moderators (`guard_member_content_insert`, `guard_story_update`). Any new
+   member-writable table with counts, pins or a review status needs the same
+   guard, plus a case in `scripts/rls-pentest.mjs`. That script runs weekly in
+   `cron-weekly.yml` (source `rls_pentest`). It attacks production as a real
+   member and as a visitor, inside transactions that always roll back.
 
 ---
 
