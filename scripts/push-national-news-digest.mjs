@@ -16,10 +16,11 @@
  * would be notification fatigue, which ends with the user disabling the category
  * and missing the alert that mattered.
  *
- * WHAT EACH USER SEES. Items from their OWN state are excluded: they already
- * received those individually from push-state-news, and repeating them in the
- * digest is the same story twice. National items (state IS NULL) go to everyone.
- * A user with no state on their profile gets the unfiltered set.
+ * WHAT EACH USER SEES. Items push-state-news sends their state individually
+ * (its home state or a state it is about, newsPushStates) are excluded:
+ * repeating them in the digest is the same story twice. National items (state
+ * IS NULL) and stories spanning more than MAX_PUSH_STATES states go to
+ * everyone, and lead the digest. A user with no state gets the unfiltered set.
  *
  * GATING. kind='national_news' maps to the 'news' category in
  * notification_category() (migration 0251), so notify_news=false suppresses this
@@ -45,6 +46,7 @@
  *   node --env-file=.env.local scripts/push-national-news-digest.mjs --dry-run
  */
 import { createClient } from "@supabase/supabase-js";
+import { MAX_PUSH_STATES, newsPushStates } from "./lib/news-state.mjs";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -90,7 +92,7 @@ console.log(`National news digest${DRY_RUN ? " [DRY RUN]" : ""} — window since
 // ── 2. Candidate items. Same quality gates as push-state-news, plus national. ─
 const { data: items, error } = await sb
   .from("news_items")
-  .select("id, state, title, url, source_name, published_at, ai_relevance_score")
+  .select("id, state, mentioned_states, title, url, source_name, published_at, ai_relevance_score")
   .gte("ai_relevance_score", MIN_RELEVANCE)
   .gte("published_at", since)
   .not("body_has_kratom_keyword", "is", false)
@@ -105,6 +107,10 @@ if (error) { console.error("news query failed:", error.message); await tag("erro
 // would silently drop the run's telemetry row, which is the one thing that must
 // never go missing quietly.
 const states = [...new Set((items ?? []).map((i) => i.state).filter(Boolean))];
+// The widest stories lead: federal news and stories about many states matter
+// to every member, wherever they live. Stable, so relevance order holds within.
+const national = (i) => !i.state || 1 + (i.mentioned_states?.length ?? 0) > MAX_PUSH_STATES;
+items?.sort((a, b) => Number(national(b)) - Number(national(a)));
 
 if (!items?.length) {
   console.log("  no qualifying items in window — nothing to digest");
@@ -131,8 +137,8 @@ let skippedRecent = 0;
 let skippedNothingNew = 0;
 for (const u of users ?? []) {
   if (alreadySent.has(u.id)) { skippedRecent++; continue; }
-  // Their own state's stories already arrived individually via push-state-news.
-  const forUser = items.filter((i) => !i.state || i.state !== u.state).slice(0, MAX_ITEMS);
+  // Stories pushed to their state already arrived individually via push-state-news.
+  const forUser = items.filter((i) => !u.state || !newsPushStates(i).includes(u.state)).slice(0, MAX_ITEMS);
   if (forUser.length === 0) { skippedNothingNew++; continue; }
 
   const scopes = [...new Set(forUser.map((i) => i.state ?? "national"))];

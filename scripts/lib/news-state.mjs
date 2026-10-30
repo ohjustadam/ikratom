@@ -144,8 +144,7 @@ const NATIONAL_OUTLET_RE = /^(the )?(new york|washington) (times|post|daily news
 export function newsStateFromBody({ title, paragraphs, source, scope }) {
   if (!scope || !STATE_NAMES[scope] || headlineStates(title).size) return newsStateFromTitle(title, scope);
   const paras = (paragraphs ?? []).map(String);
-  const counts = new Map();
-  for (const p of paras) for (const st of namedStates(p)) counts.set(st, (counts.get(st) ?? 0) + 1);
+  const counts = paragraphCounts(paras);
   const own = counts.get(scope) ?? 0;
   const others = [...counts].filter(([st]) => st !== scope).sort((a, b) => b[1] - a[1]);
   const [top, n] = others[0] ?? [null, 0];
@@ -155,4 +154,53 @@ export function newsStateFromBody({ title, paragraphs, source, scope }) {
   const extracted = paras.some((p) => p.trim());
   if (extracted && outlet.length === 1 && outlet[0] !== scope && (own === 0 || (outlet[0] === top && n > 2 * own))) return outlet[0];
   return scope;
+}
+
+/** How many paragraphs name each state. */
+function paragraphCounts(paragraphs) {
+  const counts = new Map();
+  for (const p of paragraphs ?? []) for (const st of namedStates(String(p))) counts.set(st, (counts.get(st) ?? 0) + 1);
+  return counts;
+}
+
+// A body names a state when 3+ paragraphs do: the bar newsStateFromBody uses
+// to move a story, so one passing LSU or "State Fair of Louisiana" line is not
+// enough to put a story in front of a state's members.
+const MENTION_PARAGRAPHS = 3;
+
+/**
+ * The OTHER states a story is about (news_items.mentioned_states): named in
+ * its headline, or in 3+ paragraphs of its body. Sorted; never `primary`.
+ * @param {{ title: string, paragraphs?: string[] | null, primary: string | null }} story
+ * @returns {string[]}
+ */
+export function newsStatesMentioned({ title, paragraphs, primary }) {
+  const out = new Set(headlineStates(title));
+  for (const [st, n] of paragraphCounts(paragraphs)) if (n >= MENTION_PARAGRAPHS) out.add(st);
+  out.delete(primary);
+  return [...out].filter((st) => STATE_NAMES[st]).sort();
+}
+
+// Past this many states a story is national coverage ("where is kratom still
+// legal?"): its home state gets the push, everyone else the daily digest,
+// rather than a push to half the country.
+export const MAX_PUSH_STATES = 4;
+
+/**
+ * The states whose members get a story as its own push: its home state plus
+ * the states it is about. The home state is dropped when the headline names
+ * states and leaves it out ("Texas and Tennessee move on kratom" found by the
+ * Louisiana query). A federal story (no state) goes to the states it is about
+ * ("Kratom products linked to 4 deaths in Utah"); every member also sees it
+ * in the national digest.
+ * push-state-news.mjs sends to these; push-national-news-digest.mjs leaves
+ * them out of each member's digest so nobody gets the same story twice.
+ * @param {{ title: string, state: string | null, mentioned_states?: string[] | null }} item
+ * @returns {string[]}
+ */
+export function newsPushStates({ title, state, mentioned_states }) {
+  const named = headlineStates(title);
+  const home = !state || (named.size > 0 && !named.has(state)) ? [] : [state];
+  const all = [...new Set([...home, ...(mentioned_states ?? [])])];
+  return all.length > MAX_PUSH_STATES ? home : all;
 }

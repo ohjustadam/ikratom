@@ -19,6 +19,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { publicSnapshot } from "@/lib/public-snapshots";
 import { NewsVideo } from "./NewsVideo";
 import { AudioReader } from "@/components/AudioReader";
+import { STATE_NAMES } from "@/lib/state-names";
 
 type Params = { id: string };
 
@@ -57,6 +58,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 type ArticleRow = {
   id: string;
   state: string | null;
+  // Other states the story is about (migration 0301): linked beside its own.
+  mentioned_states: string[] | null;
   title: string;
   summary: string | null;
   body_extract_excerpt: string | null;
@@ -92,7 +95,7 @@ async function loadNewsArticle(id: string) {
     sb
       .from("news_items")
       .select(
-        "id, state, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
+        "id, state, mentioned_states, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
         "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
         "duplicate_count, policy_alert_id, bill_id, " +
         "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
@@ -254,10 +257,13 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
       <header className="mb-6 border-b border-zinc-800 pb-5">
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
           {article.state ? (
-            <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-zinc-300">{article.state}</span>
+            <Link href={`/states/${article.state}`} title={STATE_NAMES[article.state]} className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-zinc-300 hover:text-emerald-300">{article.state}</Link>
           ) : (
             <span className="rounded bg-purple-950/40 px-2 py-0.5 text-purple-300">Federal</span>
           )}
+          {(article.mentioned_states ?? []).map((st) => (
+            <Link key={st} href={`/states/${st}`} title={`Also about ${STATE_NAMES[st] ?? st}`} className="rounded border border-zinc-800 px-2 py-0.5 font-mono text-zinc-400 hover:border-emerald-500 hover:text-emerald-300">{st}</Link>
+          ))}
           {article.kratom_topic && (
             <span className={`rounded px-2 py-0.5 capitalize ${TOPIC_COLORS[article.kratom_topic] ?? "bg-zinc-900 text-zinc-400"}`}>
               {article.kratom_topic}

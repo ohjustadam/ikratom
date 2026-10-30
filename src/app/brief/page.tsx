@@ -7,6 +7,7 @@ import BriefScopePicker from "./BriefScopePicker";
 import { AudioReader } from "@/components/AudioReader";
 import { STATE_NAMES } from "@/lib/state-names";
 import { siteConfig } from "@/config/site.config";
+import { cleanStateCode, newsAboutState } from "@/lib/news-state-filter";
 
 // Civic day for the brief. The audience is a US-national advocacy community and
 // the daily MP3 is a single national render, so we anchor "today" to Eastern —
@@ -249,7 +250,7 @@ export default async function BriefPage({
       .not("body_extracted_at", "is", null) // content-ready only
       .order("published_at", { ascending: false })
       .limit(15);
-    if (viewerState) nq = nq.or(`state.eq.${viewerState},state.is.null,state.eq.FED`);
+    if (viewerState) nq = nq.or(`${newsAboutState(viewerState)},state.is.null,state.eq.FED`);
     const { data } = await nq;
     // Same dedupe-by-url as nationalNews below.
     const seen = new Set<string>();
@@ -275,7 +276,8 @@ export default async function BriefPage({
       .not("body_extracted_at", "is", null) // content-ready only
       .order("published_at", { ascending: false })
       .limit(15);
-    if (viewerState) nq = nq.neq("state", viewerState);
+    // Stories about their state are already in the section above.
+    if (viewerState) nq = nq.neq("state", viewerState).filter("mentioned_states", "not.cs", `{${cleanStateCode(viewerState)}}`);
     const { data } = await nq;
     // Dedupe by canonical url — Google News RSS surfaces the same
     // article under multiple per-state queries, producing exact-dupe

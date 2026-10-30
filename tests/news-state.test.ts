@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { headlineStates, newsStateFromBody, newsStateFromTitle } from "../scripts/lib/news-state.mjs";
+import { headlineStates, newsPushStates, newsStateFromBody, newsStateFromTitle, newsStatesMentioned } from "../scripts/lib/news-state.mjs";
+import { isNewsAbout, newsAboutState } from "../src/lib/news-state-filter";
 
 // Real headlines filed under LA by the per-state query before 2026-10-23.
 describe("newsStateFromTitle", () => {
@@ -83,5 +84,48 @@ describe("newsStateFromBody", () => {
     expect(newsStateFromBody({ title: "Louisiana adds kratom substances to Schedule I", paragraphs: oxford, source: "Mississippi Today", scope: "LA" })).toBe("LA");
     expect(newsStateFromBody({ title: "Why did TN ban kratom?", paragraphs: oxford, source: "WLBT", scope: "LA" })).toBe("TN");
     expect(newsStateFromBody({ title, paragraphs: oxford, source: "WLBT", scope: null })).toBeNull();
+  });
+});
+
+describe("newsStatesMentioned", () => {
+  const ban = [
+    "Louisiana banned kratom in 2025.",
+    "Louisiana's health department added three compounds this week.",
+    "Officials in Louisiana cited the Mississippi deaths.",
+    "Mississippi lawmakers are weighing their own rules.",
+  ];
+  it("lists other states named in the headline or in 3+ paragraphs", () => {
+    expect(newsStatesMentioned({ title: "Ole Miss deaths spur kratom crackdown", paragraphs: ban, primary: "MS" })).toEqual(["LA"]);
+    expect(newsStatesMentioned({ title: "Texas and Tennessee move on kratom", paragraphs: [], primary: "LA" })).toEqual(["TN", "TX"]);
+  });
+  it("ignores a state named in only one or two paragraphs, and never lists the primary", () => {
+    expect(newsStatesMentioned({ title: "Kratom crackdown widens", paragraphs: ban, primary: "LA" })).toEqual([]);
+    expect(newsStatesMentioned({ title: "Kratom rules", paragraphs: null, primary: null })).toEqual([]);
+  });
+});
+
+describe("newsPushStates", () => {
+  it("pushes the home state and every state the story is about", () => {
+    expect(newsPushStates({ title: "Ole Miss deaths spur kratom crackdown", state: "MS", mentioned_states: ["LA"] })).toEqual(["MS", "LA"]);
+  });
+  it("drops a home state the headline leaves out, keeps the states it names", () => {
+    expect(newsPushStates({ title: "Texas and Tennessee move on kratom", state: "LA", mentioned_states: ["TN", "TX"] })).toEqual(["TN", "TX"]);
+  });
+  it("sends national-scale stories to the home state only, everyone else gets the digest", () => {
+    expect(newsPushStates({ title: "Where kratom is still legal", state: "OH", mentioned_states: ["AL", "IN", "LA", "MS"] })).toEqual(["OH"]);
+  });
+  it("sends a federal story to the states it is about, or to none", () => {
+    expect(newsPushStates({ title: "Kratom products linked to 4 deaths in Utah", state: null, mentioned_states: ["UT"] })).toEqual(["UT"]);
+    expect(newsPushStates({ title: "DEA moves on 7-OH", state: null, mentioned_states: [] })).toEqual([]);
+  });
+});
+
+describe("news-state-filter", () => {
+  it("matches stories filed under a state or about it", () => {
+    expect(newsAboutState("la")).toBe("state.eq.LA,mentioned_states.cs.{LA}");
+    expect(newsAboutState("LA),id.eq.(x")).toBe("state.eq.LA,mentioned_states.cs.{LA}");
+    expect(isNewsAbout({ state: "MS", mentioned_states: ["LA"] }, "LA")).toBe(true);
+    expect(isNewsAbout({ state: "MS", mentioned_states: null }, "LA")).toBe(false);
+    expect(isNewsAbout({ state: "MS" }, null)).toBe(false);
   });
 });
