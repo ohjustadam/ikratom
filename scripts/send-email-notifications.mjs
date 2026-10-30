@@ -60,8 +60,12 @@ const PROBE_ORIGIN = APP_URL === PROD_URL ? (process.env.WATCHDOG_ORIGIN_URL || 
 async function clickPathsLive() {
   try {
     const r = await fetch(`${PROBE_ORIGIN}/e/probe/notifications?k=1`, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
-    const to = new URL(r.headers.get("location") ?? "", PROBE_ORIGIN);
-    return r.status >= 300 && r.status < 400 && to.pathname === "/notifications" && to.searchParams.get("k") === "1";
+    const loc = r.headers.get("location") ?? "";
+    const to = new URL(loc, PROBE_ORIGIN);
+    // Relative only. The first build redirected to the deploy's own
+    // <id>--ikratom.netlify.app address, which signs readers out (2026-10-30).
+    return r.status >= 300 && r.status < 400 && /^\/(?![/\\])/.test(loc) &&
+      to.pathname === "/notifications" && to.searchParams.get("k") === "1";
   } catch { return false; }
 }
 let VIA = false;
