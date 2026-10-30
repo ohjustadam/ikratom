@@ -190,13 +190,27 @@ fixed by a better estimate:
   (`adapter = playwright_browser`): TN Health, TN AG, AK public notices, AL
   pharmacy board. The TX Register fails in both lanes and still needs a
   different URL.
-- **Live-node audit, 2026-10-29** (`/admin/intel-health/states`): 1 of 51 states
-  passes all four checks (OH). Intel coverage and legislator email reach pass
-  in all 51. Two checks fail: only CA, MI, OH and OK have 3+ advocates, and
-  only 8 statuses carry a confirmation from the last 120 days (OK's is from
-  2026-06-07). No kratom law enacted since those stamps contradicts any status.
-  But a status counts as re-confirmed only once someone checks it and stamps
-  it in `/admin/state-status`.
+- **Legal status re-check, 2026-10-29.** 38 more rows were checked against
+  primary sources and stamped, so 46 of 51 are now confirmed. Three were wrong:
+  - **MA is banned**: 105 CMR 726.000 puts the plant in Schedule I from Aug 28,
+    2026, for one year.
+  - **KS leaf is legal**: the enrolled HB 2365 schedules only 7-OH, although
+    the legislature's own summary says mitragynine too.
+  - **FL 7-OH is restricted**: Emergency Rule 2ER25-1/-2 covers only 7-OH
+    concentrated above 1%.
+
+  AR, CA, DC, IN and NC stay unstamped because no primary source loaded for
+  them. Re-check KY on Jan 1, 2027 (the HB 757 sales ban, Acts Ch. 161 §136)
+  and MA on Aug 28, 2027. Agency orders like MA's never appear in bill
+  trackers, so a check has to read the agency's own notices.
+- **State-status audit rows were never written.** `admin_audit_log.target_id`
+  is a uuid column and every confirm passed a state code, so the insert failed
+  and nobody read the error. `recordAdminAction` now moves a non-uuid id into
+  `details.target` and logs insert errors. The 46 B2 confirms were re-recorded.
+- **Live-node audit, 2026-10-29** (`/admin/intel-health/states`): 3 of 51 states
+  pass all four checks (MI, OH, OK). Intel coverage, legislator email reach and
+  status pass almost everywhere. The open gap is people: only CA, MI, OH and OK
+  have 3+ advocates.
 
 ## How the platform watches itself
 
