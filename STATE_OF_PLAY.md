@@ -197,19 +197,32 @@ fixed by a better estimate:
   stamps those stories with no body. Their reader page links out to the source.
   Never clear `news_items.body_extracted_at` to force a re-extract: every news
   feed lists only rows that have it. Clearing `body_paragraphs` is enough.
-- **Legal status re-check, 2026-10-29.** 38 more rows were checked against
-  primary sources and stamped, so 46 of 51 are now confirmed. Three were wrong:
+- **Legal status re-check, 2026-10-29/30.** The 43 rows without a recent
+  confirmation were checked against primary sources and stamped, so all 51
+  are confirmed. Four were wrong:
   - **MA is banned**: 105 CMR 726.000 puts the plant in Schedule I from Aug 28,
     2026, for one year.
   - **KS leaf is legal**: the enrolled HB 2365 schedules only 7-OH, although
     the legislature's own summary says mitragynine too.
   - **FL 7-OH is restricted**: Emergency Rule 2ER25-1/-2 covers only 7-OH
     concentrated above 1%.
+  - **NC is legal, not restricted**: the under-18 bill we cited (HB 747, 2016)
+    never became law, and the General Assembly's own analysis calls kratom
+    unregulated.
 
-  AR, CA, DC, IN and NC stay unstamped because no primary source loaded for
-  them. Re-check KY on Jan 1, 2027 (the HB 757 sales ban, Acts Ch. 161 §136)
-  and MA on Aug 28, 2027. Agency orders like MA's never appear in bill
-  trackers, so a check has to read the agency's own notices.
+  The last five needed sources that bill trackers miss: Arkansas's rule on
+  codeofarrules.arkansas.gov, the 2026 Indiana Code, DC's 22-B DCMR 1201 (a
+  .doc behind a "View Text" button on dcregs.dc.gov), and CDPH's Jan 9, 2026
+  letter (cdph.ca.gov answers 403 to scripts, but a browser loads it).
+  Re-check KY on Jan 1, 2027 (the HB 757 sales ban, Acts Ch. 161 §136) and MA
+  on Aug 28, 2027.
+- **A confirmed status shows only confirmed values.** Until 2026-10-30 the
+  state hub's status header (and the dashboard's district widget) filled a
+  blank 7-OH status with the nightly derivation. In 27 states that put a
+  guessed 7-OH label next to "✓ confirmed", and in MI, NJ and NY the guess was
+  "Banned", taken from bills that never passed. A blank now reads "Not yet
+  classified". A bill is cited as the basis only when it is enacted law that
+  agrees with the confirmed status.
 - **One status, everywhere.** `state_status.admin_leaf_status` is the confirmed
   status. The home page counts, the maps, `/banned` and the state hubs read it.
   Until 2026-10-29, the forum state pages, `/admin/legislators` and the

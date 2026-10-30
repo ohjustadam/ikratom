@@ -68,18 +68,31 @@ export function StatusHeader({
   // is the worst error this surface can make — so unconfirmed auto-derivations
   // never surface publicly (they still feed the /admin/state-status queue).
   if (!confirmed) return null;
-  const leaf = status.admin_leaf_status ?? status.derived_leaf_status;
-  const sevenoh = status.admin_7oh_status ?? status.derived_7oh_status;
+  // A confirmed row shows only what was confirmed. The derived columns are the
+  // nightly guess, often from PENDING bills, so they never fill a confirmed
+  // gap: until 2026-10-30 a null 7-OH fell back to them, and 27 states showed a
+  // guessed 7-OH status beside "✓ confirmed" (MI, NJ, NY "Banned" from bills
+  // that never passed).
+  const leaf = status.admin_leaf_status;
+  const sevenoh = status.admin_7oh_status;
   if (!leaf && !sevenoh) return null;
   // Auto-derived from non-enacted bills = a pending threat, not current law.
   const pendingOnly = !confirmed && status.basis === "all-active";
 
   const leafM = meta(leaf);
   const sevenohM = meta(sevenoh);
-  // Distinct evidence bill numbers, rendered as verification links when we
-  // resolved an href for them.
+  // Cite a tracked bill only when the derivation rests on enacted law and agrees
+  // with the confirmed status; otherwise the "basis" is a pending bill (NC cited
+  // SB 59) or a superseded rule (RI cited its 2017 ban). Rendered as
+  // verification links when we resolved an href for them.
+  const agrees = (derived: string | null, confirmedValue: string | null) =>
+    status.basis === "enacted" && !!derived && !!confirmedValue &&
+    (derived === confirmedValue || (derived === "protected" && confirmedValue === "kcpa"));
   const evidence = Array.from(
-    new Set([status.leaf_evidence_bill, status.sevenoh_evidence_bill].filter(Boolean) as string[]),
+    new Set([
+      agrees(status.derived_leaf_status, leaf) ? status.leaf_evidence_bill : null,
+      agrees(status.derived_7oh_status, sevenoh) ? status.sevenoh_evidence_bill : null,
+    ].filter(Boolean) as string[]),
   );
   const billNode = (num: string) => {
     const href = billHrefs?.[num];
