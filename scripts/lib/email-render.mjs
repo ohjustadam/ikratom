@@ -10,6 +10,10 @@
  *    stored at local midnight has no known time and says "time TBA".
  *  - A one-click unsubscribe link and a "manage settings" link in every email.
  *  - Identity is never rendered beyond @username (public-anonymity rule).
+ *  - With `via` set, every iKratom link goes through /e/<via>/<page>, which
+ *    netlify.toml forwards to <page>. That path is how scripts/email-clicks.mjs
+ *    counts clicks per kind of email (owner, 2026-10-29). It names the email,
+ *    never the person, and the unsubscribe and settings links are never tagged.
  */
 import { marked } from "marked";
 
@@ -21,7 +25,7 @@ const C = { ink: "#14171c", mute: "#5d6673", line: "#e3e6eb", bg: "#f4f6f8", bra
  * two can't disagree. Styles go inline (Gmail strips <style>); site-relative links
  * become absolute.
  */
-export function mdToEmailHtml(md, appUrl) {
+export function mdToEmailHtml(md, appUrl, via = null) {
   const S = {
     h1: `font:700 20px/1.3 Arial,sans-serif;margin:0 0 10px;color:${C.ink};`,
     h2: `font:700 17px/1.3 Arial,sans-serif;margin:24px 0 8px;color:${C.ink};`,
@@ -38,11 +42,28 @@ export function mdToEmailHtml(md, appUrl) {
   const body = String(md).replace(/^---\n[\s\S]*?\n---\n/, "");
   return marked.parse(body, { gfm: true, async: false })
     .replace(/<(h1|h2|h3|p|ul|ol|li|table|th|td|a)(\s[^>]*)?>/g, (_, tag, attrs = "") => `<${tag}${attrs} style="${S[tag]}">`)
-    .replace(/href="\/(?!\/)/g, `href="${String(appUrl).replace(/\/$/, "")}/`);
+    .replace(/href="\/(?!\/)/g, `href="${emailLink(String(appUrl).replace(/\/$/, ""), "/", via)}`);
 }
 
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const abs = (appUrl, link) => (!link ? appUrl : /^https?:\/\//.test(link) ? link : `${appUrl}${link.startsWith("/") ? "" : "/"}${link}`);
+/**
+ * A link as it goes in an email: absolute, and through /e/<via>/ when counting. Outside links are left alone.
+ * @param {string} appUrl @param {string | null | undefined} link @param {string | false | null} [via]
+ */
+export function emailLink(appUrl, link, via = null) {
+  if (link?.startsWith(`${appUrl}/`)) link = link.slice(appUrl.length);
+  if (/^https?:\/\//.test(link ?? "")) return link;
+  const p = !link ? "/" : link.startsWith("/") ? link : `/${link}`;
+  return via ? `${appUrl}/e/${via}${p}` : !link ? appUrl : `${appUrl}${p}`;
+}
+const abs = emailLink;
+
+/** The inverse, for scripts/email-clicks.mjs: "/e/digest/bills/x" -> { kind: "digest", page: "bills" }. */
+export function parseClickPath(p) {
+  const m = /^\/e\/([a-z-]+)\/?(.*)$/.exec(p ?? "");
+  if (!m || m[1] === "probe") return null;
+  return { kind: m[1], page: m[2].split(/[/?#]/)[0] || "home" };
+}
 
 export function fmtMeetingTime(iso) {
   const d = new Date(iso);
@@ -76,9 +97,9 @@ const footerText = ({ appUrl, unsubscribeUrl, reason }) =>
   `\n--\n${reason}\nManage settings: ${appUrl}/account${unsubscribeUrl ? `\nUnsubscribe: ${unsubscribeUrl}` : ""}\n`;
 
 /** A meeting rendered as a card with every action a reader can take. */
-export function meetingCard(m, appUrl) {
+export function meetingCard(m, appUrl, via = null) {
   const where = [m.body_name, m.locality ?? m.state].filter(Boolean).join(" · ");
-  const page = `${appUrl}/meetings/${m.id}`;
+  const page = abs(appUrl, `/meetings/${m.id}`, via);
   const buttons = [button(page, "Details + who decides")];
   if (m.zoom_url) buttons.push(button(m.zoom_url, "Join on Zoom", false));
   if (m.livestream_url) buttons.push(button(m.livestream_url, "Watch live", false));
@@ -97,29 +118,29 @@ export function meetingCard(m, appUrl) {
  * Daily digest. sections: [{ title, items: [{ title, body, link }], meetings?: [row] }]
  * Empty sections are dropped; items beyond `cap` collapse into a "+N more" link.
  */
-export function renderDigest({ username, sections, appUrl, unsubscribeUrl, briefLink, cap = 8 }) {
+export function renderDigest({ username, sections, appUrl, unsubscribeUrl, briefLink, cap = 8, via = null }) {
   const live = sections.filter((s) => (s.items?.length ?? 0) + (s.meetings?.length ?? 0) > 0);
   const count = live.reduce((n, s) => n + (s.items?.length ?? 0) + (s.meetings?.length ?? 0), 0);
   const parts = [`<p style="margin:0 0 12px;">Hi @${esc(username || "advocate")} — here is what moved on kratom policy since your last update.</p>`];
   const txt = [`Hi @${username || "advocate"} — here is what moved on kratom policy since your last update.\n`];
   if (briefLink) {
-    parts.push(`<p style="margin:0 0 14px;">${button(abs(appUrl, briefLink), "Today's 2-minute brief (read or listen)")}</p>`);
-    txt.push(`Today's brief: ${abs(appUrl, briefLink)}\n`);
+    parts.push(`<p style="margin:0 0 14px;">${button(abs(appUrl, briefLink, via), "Today's 2-minute brief (read or listen)")}</p>`);
+    txt.push(`Today's brief: ${abs(appUrl, briefLink, via)}\n`);
   }
   for (const s of live) {
     parts.push(`<h2 style="font:700 15px/1.3 Arial,sans-serif;margin:20px 0 6px;color:${C.ink};">${esc(s.title)}</h2>`);
     txt.push(`\n== ${s.title} ==`);
-    for (const m of s.meetings ?? []) { const c = meetingCard(m, appUrl); parts.push(c.html); txt.push(c.text); }
+    for (const m of s.meetings ?? []) { const c = meetingCard(m, appUrl, via); parts.push(c.html); txt.push(c.text); }
     const items = s.items ?? [];
     for (const it of items.slice(0, cap)) {
-      const href = abs(appUrl, it.link);
+      const href = abs(appUrl, it.link, via);
       parts.push(`<div style="margin:9px 0;"><a href="${esc(href)}" style="color:${C.brand};font-weight:600;text-decoration:none;">${esc(it.title)}</a>` +
         (it.body ? `<div style="color:${C.mute};font-size:13px;">${esc(String(it.body).slice(0, 180))}</div>` : "") + `</div>`);
       txt.push(`- ${it.title}\n  ${href}`);
     }
     if (items.length > cap) {
-      parts.push(`<div style="font-size:13px;"><a href="${esc(`${appUrl}/notifications`)}" style="color:${C.brand};">+${items.length - cap} more on iKratom</a></div>`);
-      txt.push(`  +${items.length - cap} more: ${appUrl}/notifications`);
+      parts.push(`<div style="font-size:13px;"><a href="${esc(abs(appUrl, "/notifications", via))}" style="color:${C.brand};">+${items.length - cap} more on iKratom</a></div>`);
+      txt.push(`  +${items.length - cap} more: ${abs(appUrl, "/notifications", via)}`);
     }
   }
   parts.push(`<p style="margin:18px 0 0;font-size:13px;color:${C.mute};">Every article opens in iKratom's reader: the full story, no publisher ads, and the actions you can take sit right next to it.</p>`);
@@ -145,8 +166,8 @@ export function renderDigest({ username, sections, appUrl, unsubscribeUrl, brief
 }
 
 /** Immediate alert for one or more newly verified meetings. */
-export function renderMeetingAlert({ username, meetings, appUrl, unsubscribeUrl }) {
-  const cards = meetings.map((m) => meetingCard(m, appUrl));
+export function renderMeetingAlert({ username, meetings, appUrl, unsubscribeUrl, via = null }) {
+  const cards = meetings.map((m) => meetingCard(m, appUrl, via));
   const first = meetings[0];
   const subject = meetings.length === 1
     ? `Kratom hearing: ${first.locality ?? first.state} ${first.body_name ?? "meeting"}, ${fmtMeetingTime(first.meeting_at).split(" · ")[0]}`
@@ -165,21 +186,21 @@ export function renderMeetingAlert({ username, meetings, appUrl, unsubscribeUrl 
  * The same content lives on the site at `pageLink`, which the in-app
  * notification also opens, so email and site never disagree.
  */
-export function renderAnnouncement({ username, subject, preheader, intro, blocks = [], md = null, reason: reasonOverride = null, pageLink, appUrl, unsubscribeUrl }) {
+export function renderAnnouncement({ username, subject, preheader, intro, blocks = [], md = null, reason: reasonOverride = null, pageLink, appUrl, unsubscribeUrl, via = null }) {
   const html = [`<p style="margin:0 0 12px;">Hi @${esc(username || "advocate")},</p><p style="margin:0 0 14px;">${esc(intro)}</p>`];
   const text = [`Hi @${username || "advocate"},\n\n${intro}\n`];
   // A full report (md) reads in the inbox exactly as on the site.
   if (md) {
-    html.push(mdToEmailHtml(md, appUrl));
+    html.push(mdToEmailHtml(md, appUrl, via));
     text.push(String(md).replace(/^---\n[\s\S]*?\n---\n/, ""));
   }
   for (const b of blocks) {
     html.push(`<h2 style="font:700 16px/1.3 Arial,sans-serif;margin:20px 0 4px;color:${C.ink};">${esc(b.heading)}</h2><p style="margin:0 0 6px;">${esc(b.body)}</p>` +
-      (b.link ? `<p style="margin:0 0 6px;">${button(abs(appUrl, b.link), b.linkLabel || "Open on iKratom", false)}</p>` : ""));
-    text.push(`\n${b.heading}\n${b.body}${b.link ? `\n${abs(appUrl, b.link)}` : ""}`);
+      (b.link ? `<p style="margin:0 0 6px;">${button(abs(appUrl, b.link, via), b.linkLabel || "Open on iKratom", false)}</p>` : ""));
+    text.push(`\n${b.heading}\n${b.body}${b.link ? `\n${abs(appUrl, b.link, via)}` : ""}`);
   }
-  html.push(`<p style="margin:22px 0 0;">${button(abs(appUrl, pageLink), "See the full update on iKratom")}</p>`);
-  text.push(`\nFull update: ${abs(appUrl, pageLink)}`);
+  html.push(`<p style="margin:22px 0 0;">${button(abs(appUrl, pageLink, via), "See the full update on iKratom")}</p>`);
+  text.push(`\nFull update: ${abs(appUrl, pageLink, via)}`);
   const reason = reasonOverride || "You get this because you have an iKratom account. Product updates are rare; settings below.";
   return {
     subject,

@@ -316,6 +316,13 @@ editing an event's time (cancel and re-post), and a real cover photo.
 7. **Recipient chips show the official record, never a stance label.** They
    read sponsorships and votes (`src/lib/kratom-record.ts`), not
    `legislator_stance`, whose champion/hostile labels no human reviewed.
+8. **Member emails count clicks through `/e/<kind>/<page>`.** That rule in
+   `netlify.toml` 302s to `<page>`, and `scripts/email-clicks.mjs` counts the
+   redirects in Cloudflare's analytics (the free plan sees paths, not query
+   strings; it keeps ~31 days). The sender checks the redirect at the Netlify
+   origin before every run and sends plain links if it fails ("links plain" in
+   the `scraper_runs` note), so never tag a link outside `emailLink()`. The
+   numbers decide how much of a story an email carries (owner, 2026-10-29).
 
 ---
 
