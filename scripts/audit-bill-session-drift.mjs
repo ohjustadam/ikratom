@@ -21,6 +21,7 @@
  * (isSessionMismatch); this script cleans up rows already corrupted.
  */
 import { createClient } from "@supabase/supabase-js";
+import { createLegiscanClient } from "./lib/legiscan-budget.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -106,17 +107,11 @@ async function deconflate(billId, apply) {
 }
 
 // ── LegiScan ground-truth verify + repair ─────────────────────────────────
+// Counted, so the month's LegiScan meter (lib/legiscan-budget.mjs) sees this job.
+const legiscan = createLegiscanClient(LEGISCAN_KEY);
 async function legiscanBill(id) {
   if (!LEGISCAN_KEY) throw new Error("LEGISCAN_API_KEY not set");
-  const u = new URL("https://api.legiscan.com/");
-  u.searchParams.set("key", LEGISCAN_KEY);
-  u.searchParams.set("op", "getBill");
-  u.searchParams.set("id", String(id));
-  const r = await fetch(u, { signal: AbortSignal.timeout(20_000) });
-  if (!r.ok) throw new Error(`LegiScan ${r.status}`);
-  const d = await r.json();
-  if (d.status === "ERROR") throw new Error(d.alert?.message ?? "error");
-  return d.bill;
+  return (await legiscan.call("getBill", { id })).bill;
 }
 function titleWords(s) {
   return String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 3);
@@ -228,6 +223,18 @@ async function report() {
   console.log(`\nRepair a specific record: --deconflate <billId> [--apply]`);
 }
 
+const startedAt = new Date().toISOString();
 if (DECONFLATE_ID) await deconflate(DECONFLATE_ID, APPLY);
 else if (VERIFY) await verifyAndRepair(APPLY);
 else await report();
+// The nightly job runs --verify: one row a run, so the staleness pager sees it
+// and the month's LegiScan meter counts its calls.
+if (VERIFY && !DECONFLATE_ID) {
+  await sb.from("scraper_runs").insert({
+    source: "audit_bill_session_drift",
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    status: "success",
+    notes: `verify${APPLY ? " --apply" : ""} · legiscan_calls=${legiscan.calls}`,
+  }).then(() => undefined, () => undefined);
+}

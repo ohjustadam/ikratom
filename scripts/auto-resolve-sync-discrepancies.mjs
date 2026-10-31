@@ -28,6 +28,7 @@
  *   node --env-file=.env.local scripts/auto-resolve-sync-discrepancies.mjs --limit 5
  */
 import { createClient } from "@supabase/supabase-js";
+import { createLegiscanClient } from "./lib/legiscan-budget.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -94,16 +95,10 @@ const LEGISCAN_STATUS_MAP = {
   10: "dead",
 };
 
+// Counted, so the month's LegiScan meter (lib/legiscan-budget.mjs) sees this job.
+const legiscan = createLegiscanClient(LEGISCAN_KEY);
 async function legiscanFetch(op, params) {
-  const u = new URL("https://api.legiscan.com/");
-  u.searchParams.set("key", LEGISCAN_KEY);
-  u.searchParams.set("op", op);
-  for (const [k, v] of Object.entries(params ?? {})) u.searchParams.set(k, v);
-  const r = await fetch(u.toString(), { signal: AbortSignal.timeout(20_000) });
-  if (!r.ok) throw new Error(`LegiScan ${op} ${r.status}`);
-  const data = await r.json();
-  if (data.status === "ERROR") throw new Error(`LegiScan ${op}: ${data.alert?.message ?? "unknown"}`);
-  return data;
+  return legiscan.call(op, params ?? {});
 }
 
 // Parse AI-claimed status from alert body (format produced by
@@ -379,7 +374,7 @@ try {
     finished_at: new Date().toISOString(),
     status: counts["auto-resolved"] > 0 ? "success" : "empty",
     rows_added: counts["auto-resolved"],
-    notes: `${open.length} open · ${counts["auto-resolved"]} resolved (${counts["db-caught-up"]} db caught up, ${counts["ai-wrong"]} ai wrong, ${counts["ai-right-bill-fixed"]} ai right) · ${counts["three-way-disagree"]} 3-way disagree`,
+    notes: `${open.length} open · ${counts["auto-resolved"]} resolved (${counts["db-caught-up"]} db caught up, ${counts["ai-wrong"]} ai wrong, ${counts["ai-right-bill-fixed"]} ai right) · ${counts["three-way-disagree"]} 3-way disagree · legiscan_calls=${legiscan.calls}`,
   });
 } catch { /* */ }
 process.exit(0);

@@ -488,6 +488,16 @@ async function callGroq(sys, user, maxTokens, modelOverride, tier = "large", rea
   });
   if (r.status === 429) {
     const body = await r.text();
+    // Out of the main model's DAILY tokens (the jobs spend gpt-oss-120b's 200k
+    // by mid-day): Groq meters each model on its own, so a job's call goes to
+    // the overflow model instead of failing. qwen3.8-27b sat unused on
+    // 2026-10-31 and answered job-shaped JSON prompts correctly in ~0.4 s. Its
+    // cap is 1,000 OUTPUT tokens a minute, so a bigger max_tokens is refused.
+    // Never the members' model (tier "member"), which jobs must not touch.
+    const overflow = process.env.GROQ_MODEL_OVERFLOW ?? "qwen/qwen3.8-27b";
+    if (tier === "large" && !modelOverride && overflow && overflow !== model && /per day/i.test(body)) {
+      return callGroq(sys, user, Math.min(maxTokens, 1000), overflow, tier, null);
+    }
     startCooldown(laneOf("groq", tier), 60_000);
     // Include body excerpt so we can distinguish per-minute throttling
     // from per-day quota exhaustion — the message differs.

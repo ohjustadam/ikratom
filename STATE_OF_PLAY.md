@@ -412,6 +412,13 @@ editing an event's time (cancel and re-post), and a real cover photo.
     give members a model of their own with `GROQ_MODEL_MEMBER`. Otherwise the
     job spends the members' allowance too. Mistral, Cloudflare and OpenRouter
     meter per key, not per model, so the jobs drain those for everyone.
+    Two more follow from the same limit. The website's own Groq calls (letter
+    and campaign screening, chat moderation, in `src/lib/ai/providers/groq.ts`)
+    run on the members' model too, and a model that answers 429 falls back to
+    it. A job whose Groq model is out of daily tokens (the 429 says "per day")
+    retries once on `qwen/qwen3.8-27b` (`GROQ_MODEL_OVERFLOW`), with at most
+    1,000 output tokens, because that model allows 1,000 a minute. The
+    overflow never takes the members' model.
 
 ---
 

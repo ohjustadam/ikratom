@@ -183,6 +183,9 @@ export const REGISTRY = [
   // OpenAI-compatible provider, so they no longer need the PC.
   { source: "auto_brief_campaigns", interval_hours: 48, system: "github-actions", cadence: "daily" },
   { source: "dossier_research", interval_hours: 48, system: "github-actions", cadence: "daily" },
+  // Bill session-drift self-heal, the nightly job's LegiScan-verified step.
+  // Writes a row every run (2026-10-31), so it is metered and watched.
+  { source: "audit_bill_session_drift", interval_hours: 48, system: "github-actions", cadence: "daily" },
   // Still genuinely box-only: nomic-embed-text runs in local Ollama, and
   // session_prep writes into the owner's working checkout by design.
   { source: "session_prep", interval_hours: 72, system: "local-box", cadence: "daily" },
