@@ -69,10 +69,25 @@ export function chunkText(text, maxTokens = 3_000) {
  * change, not a deploy.
  */
 const SMALL_DEFAULT = { groq: "openai/gpt-oss-20b", mistral: "mistral-small-latest", gemini: "gemini-flash-lite-latest" };
+// "member": calls a member is waiting on get a Groq model the background jobs
+// never use. Groq meters tokens per day PER MODEL, and the jobs (all "large")
+// spend gpt-oss-120b's 200k a day: on 2026-10-31 it stood at 198,983 used while
+// gpt-oss-20b sat idle, and Personalize failed for a member nearly every time.
+// The "small" tier defaults to the same model and nothing runs on "small"
+// today. Keep it that way, or set GROQ_MODEL_MEMBER to a model of its own.
+const MEMBER_DEFAULT = { groq: "openai/gpt-oss-20b" };
 export function tierModel(provider, tier, largeModel, env = /** @type {Record<string, string | undefined>} */ (process.env)) {
+  if (tier === "member") return env[`${provider.toUpperCase()}_MODEL_MEMBER`] || MEMBER_DEFAULT[provider] || largeModel;
   if (tier !== "small") return largeModel;
   return env[`${provider.toUpperCase()}_MODEL_SMALL`] || SMALL_DEFAULT[provider] || largeModel;
 }
+
+/**
+ * The cooldown key for provider p on this tier. A member model has its own
+ * daily budget, so a throttle on the jobs' model must not park it (and the
+ * reverse): "groq:member" is parked apart from "groq".
+ */
+export const laneOf = (p, tier) => (tier === "member" && p in MEMBER_DEFAULT ? `${p}:member` : p);
 
 // ── 6. Extra provider slots ─────────────────────────────────────────────────
 

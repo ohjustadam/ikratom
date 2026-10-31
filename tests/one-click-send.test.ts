@@ -117,9 +117,15 @@ describe("wiring", () => {
     expect(enqueue).toMatch(/body_template: bodyTpl/);
   });
 
-  it("an open page drives its own batch; the worker shares the same code", () => {
+  it("an open page drives the member's sends oldest first; the worker shares the same code", () => {
     expect(panel).toMatch(/continueMySend\(campaignSlug, batchId\)/);
-    expect(enqueue).toMatch(/drainBatch\(serviceClient\(\), mine, Date\.now\(\) \+ 15_000\)/);
+    // One mailbox, one queue (Paul, 10-30: an NJ send stalled for 45 minutes
+    // while he sent from the ND page). Oldest unfinished batch first, then the
+    // page's own if the head made no progress.
+    const slice = enqueue.slice(enqueue.indexOf("export async function continueMySend"));
+    expect(slice).toMatch(/\.order\("created_at", \{ ascending: true \}\)/);
+    expect(slice).toMatch(/drainBatch\(serviceClient\(\), head, deadline\)/);
+    expect(slice).toMatch(/drainBatch\(serviceClient\(\), mine, deadline\)/);
     expect(route).toMatch(/drainBatch\(supabase, batch, deadline\)/);
   });
 

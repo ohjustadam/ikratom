@@ -400,6 +400,18 @@ editing an event's time (cancel and re-post), and a real cover photo.
    guard, plus a case in `scripts/rls-pentest.mjs`. That script runs weekly in
    `cron-weekly.yml` (source `rls_pentest`). It attacks production as a real
    member and as a visitor, inside transactions that always roll back.
+10. **The background jobs spend Groq's main model every day, so members get
+    their own.** Groq limits tokens per day for each model separately. On
+    2026-10-31 the jobs (all on the `large` tier) had used 198,983 of
+    `openai/gpt-oss-120b`'s 200,000, while `openai/gpt-oss-20b` sat idle, and
+    Personalize was failing for members nearly every time. Calls a member waits
+    on now pass `tier: "member"`: Groq's `openai/gpt-oss-20b`, with a cooldown
+    of its own (`groq:member`), so a throttle on the jobs' model can't park it.
+    The `small` tier defaults to that same model, and nothing runs on `small`
+    today. Before moving a job to `small` (or setting `AI_TIER_DEFAULT=small`),
+    give members a model of their own with `GROQ_MODEL_MEMBER`. Otherwise the
+    job spends the members' allowance too. Mistral, Cloudflare and OpenRouter
+    meter per key, not per model, so the jobs drain those for everyone.
 
 ---
 

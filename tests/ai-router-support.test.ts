@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  estimateTokens, fitsProvider, chunkText, tierModel, extraProviders, hedge, cacheKey,
+  estimateTokens, fitsProvider, chunkText, tierModel, laneOf, extraProviders, hedge, cacheKey,
   loadProviderHealth, saveProviderHealth, readCache,
 } from "../scripts/lib/ai-router-support.mjs";
 
@@ -36,6 +36,14 @@ describe("model tiers", () => {
     expect(tierModel("groq", "small", "openai/gpt-oss-120b", {})).toBe("openai/gpt-oss-20b");
     expect(tierModel("groq", "small", "x", { GROQ_MODEL_SMALL: "qwen/qwen3-8b" })).toBe("qwen/qwen3-8b");
     expect(tierModel("nvidia", "small", "big-model", {})).toBe("big-model");
+  });
+  it("gives members Groq's spare model, and every other provider its usual one", () => {
+    expect(tierModel("groq", "member", "openai/gpt-oss-120b", {})).toBe("openai/gpt-oss-20b");
+    expect(tierModel("groq", "member", "x", { GROQ_MODEL_MEMBER: "qwen/qwen3.8-27b" })).toBe("qwen/qwen3.8-27b");
+    expect(tierModel("mistral", "member", "mistral-small-latest", {})).toBe("mistral-small-latest");
+    expect(laneOf("groq", "member")).toBe("groq:member");
+    expect(laneOf("groq", "large")).toBe("groq");
+    expect(laneOf("mistral", "member")).toBe("mistral");
   });
 });
 

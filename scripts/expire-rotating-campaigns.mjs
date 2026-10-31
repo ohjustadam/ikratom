@@ -22,6 +22,12 @@
  *   3. RECONCILE — deactivate orphans whose source alerts (policy_alerts.
  *      campaign_id) were ALL rejected by moderation (justification gone),
  *      regardless of age. Engagement guard: keep any that ever had an action.
+ *   4. ENDED — deactivate MANUAL (auto_generated=false), non-standing campaigns
+ *      whose ends_at has passed. A person set that date, so it is the end. An
+ *      auto campaign's ends_at is only the shelf stamp from Pass 1, and a
+ *      bill-linked one lives as long as its bill, so neither is touched here.
+ *      (2026-10-31: a member found the Massachusetts emergency-ban campaign
+ *      still listed as critical two months after the ban took effect.)
  *
  *   node --env-file=.env.local scripts/expire-rotating-campaigns.mjs           # dry-run
  *   node --env-file=.env.local scripts/expire-rotating-campaigns.mjs --apply
@@ -137,10 +143,29 @@ if (APPLY && rejectedOrphans.length) {
   console.log(`  → reconciled ${reconciled}`);
 }
 
+// ── Pass 4: manual campaigns past the end date their author set ──
+const { data: ended } = await sb.from("campaigns")
+  .select("id, slug, state, title, ends_at")
+  .eq("active", true).eq("auto_generated", false).eq("is_standing", false)
+  .lt("ends_at", new Date(now).toISOString());
+console.log(`\nPass 4 — manual campaigns past their end date: ${ended?.length ?? 0}`);
+for (const c of (ended ?? []).slice(0, 12)) console.log(`     [${c.state ?? "--"}] ${(c.title || c.slug || "").slice(0, 60)} (ended ${c.ends_at.slice(0, 10)})`);
+
+let endedOff = 0;
+if (APPLY && ended?.length) {
+  const { data, error } = await sb.from("campaigns")
+    .update({ active: false, review_reason: "auto-retired: past the end date its author set (expire-rotating-campaigns Pass 4)", reviewed_at: new Date().toISOString() })
+    .in("id", ended.map((c) => c.id)).eq("active", true).eq("auto_generated", false).eq("is_standing", false)
+    .select("id");
+  if (error) console.error(`  Pass 4 failed: ${error.message}`);
+  endedOff = data?.length ?? 0;
+  console.log(`  → retired ${endedOff}`);
+}
+
 if (APPLY) {
   try {
     await sb.from("scraper_runs").insert({ source: "expire_rotating_campaigns", started_at: new Date(t0).toISOString(), finished_at: new Date().toISOString(),
-      status: "success", rows_updated: retired + reconciled, notes: `stamped=${needStamp?.length ?? 0} retired=${retired} reconciled=${reconciled} kept_active=${recentlyActive.size}` });
+      status: "success", rows_updated: retired + reconciled + endedOff, notes: `stamped=${needStamp?.length ?? 0} retired=${retired} reconciled=${reconciled} ended=${endedOff} kept_active=${recentlyActive.size}` });
   } catch { /* best-effort */ }
 } else {
   console.log(`\n(dry-run — re-run with --apply to commit.)`);

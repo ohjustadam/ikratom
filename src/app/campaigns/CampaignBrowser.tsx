@@ -1,6 +1,7 @@
 "use client";
 
 import { useChromeMe } from "@/components/chrome/ChromeProvider";
+import { useMyCampaignHistory, SentBadge } from "./MySendHistory";
 
 import { useMemo, useState } from "react";
 
@@ -62,6 +63,10 @@ export function CampaignBrowser({
   // State picker — independent of the scope chips. "" = no state filter.
   // Lets a LA user view OK campaigns without flipping their saved profile state.
   const [statePicked, setStatePicked] = useState<string>("");
+  // The member's own record, so they can see what they have already sent
+  // (Paul, 10-31: "i have to remember the ones ive done").
+  const history = useMyCampaignHistory(signedIn);
+  const [mine, setMine] = useState<"all" | "todo" | "done">("all");
 
   // States that actually have at least one campaign — keeps the dropdown
   // honest about what's available rather than showing 50 dead options.
@@ -90,6 +95,10 @@ export function CampaignBrowser({
       if (stance === "anti" && c.stance !== "anti") return false;
       if (stance === "pro" && c.stance !== "pro") return false;
 
+      // Sent-by-me chips
+      if (mine === "done" && !history?.[c.id]) return false;
+      if (mine === "todo" && history?.[c.id]) return false;
+
       // Free-text search
       if (q) {
         const hay = `${c.title} ${c.blurb ?? ""} ${c.state ?? ""} ${c.target_locality ?? ""}`.toLowerCase();
@@ -97,7 +106,8 @@ export function CampaignBrowser({
       }
       return true;
     });
-  }, [campaigns, query, scope, stance, userState, statePicked]);
+  }, [campaigns, query, scope, stance, userState, statePicked, mine, history]);
+  const doneCount = history ? campaigns.filter((c) => history[c.id]).length : 0;
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -246,6 +256,16 @@ export function CampaignBrowser({
           <FilterChip active={stance === "pro"} onClick={() => setStance("pro")} subtle count={counts.pro}>
             ✅ Supportive
           </FilterChip>
+          {doneCount > 0 && (
+            <>
+              <FilterChip active={mine === "todo"} onClick={() => setMine(mine === "todo" ? "all" : "todo")} subtle count={campaigns.length - doneCount}>
+                Not sent yet
+              </FilterChip>
+              <FilterChip active={mine === "done"} onClick={() => setMine(mine === "done" ? "all" : "done")} subtle count={doneCount}>
+                ✓ Sent by me
+              </FilterChip>
+            </>
+          )}
         </div>
       </div>
 
@@ -259,6 +279,7 @@ export function CampaignBrowser({
               c={c}
               actions={actionCounts[c.id] ?? 0}
               isMine={!!userState && c.state === userState}
+              sent={history?.[c.id] ?? null}
             />
           ))}
         </ul>
@@ -267,7 +288,9 @@ export function CampaignBrowser({
   );
 }
 
-function CampaignCard({ c, actions, isMine }: { c: Campaign; actions: number; isMine: boolean }) {
+function CampaignCard({ c, actions, isMine, sent }: {
+  c: Campaign; actions: number; isMine: boolean; sent: { last: string; sends: number } | null;
+}) {
   const sev = c.severity;
   const isCritical = sev === "critical";
   const isAlert = sev === "alert";
@@ -288,6 +311,7 @@ function CampaignCard({ c, actions, isMine }: { c: Campaign; actions: number; is
       >
         <div className="flex flex-wrap items-center gap-2">
           <ScopeBadge campaign={c} isMine={isMine} />
+          {sent && <SentBadge last={sent.last} sends={sent.sends} />}
           {c.is_standing && (
             <span className="rounded bg-indigo-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase text-indigo-300" title="Always-on campaign — no end date">
               📌 Standing
