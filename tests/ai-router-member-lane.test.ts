@@ -26,7 +26,7 @@ const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; vi.unstubAllEnvs(); });
 // tests/setup.ts loads .env.local; blank every real provider key so each test
 // sees exactly the pool it sets up (see ai-router-throttle.test.ts).
-const REAL_PROVIDER_ENV = /^(AI_GATEWAY_API_KEY|AI_PROVIDER_ORDER|CEREBRAS_API_KEY|CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_AI_TOKEN|GEMINI_API_KEY(_\d+)?|GH_MODELS_TOKEN|GITHUB_MODELS_TOKEN|GROQ_API_KEY|MISTRAL_API_KEY|NVIDIA_API_KEY|OPENROUTER_API_KEY|SAMBANOVA_API_KEY|GROQ_MODEL(_SMALL|_MEMBER)?)$/;
+const REAL_PROVIDER_ENV = /^(AI_GATEWAY_API_KEY|AI_PROVIDER_ORDER|CEREBRAS_API_KEY|CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_AI_TOKEN|GEMINI_API_KEY(_\d+)?|GH_MODELS_TOKEN|GITHUB_MODELS_TOKEN|GROQ_API_KEY|MISTRAL_API_KEY|NVIDIA_API_KEY|OPENROUTER_API_KEY|SAMBANOVA_API_KEY|GROQ_MODEL(_SMALL|_MEMBER|_OVERFLOW)?)$/;
 beforeEach(() => {
   vi.unstubAllEnvs();
   for (const k of Object.keys(process.env)) if (REAL_PROVIDER_ENV.test(k)) vi.stubEnv(k, "");
@@ -70,9 +70,9 @@ describe("member lane", () => {
   it("is not parked by a throttle on the jobs' model", async () => {
     const { aiRouter } = await loadRouter();
     const calls = mockFetch((c) =>
-      c.host === "api.groq.com" && c.model === "openai/gpt-oss-120b" ? status(429, "tokens per day (TPD)") :
+      c.host === "api.groq.com" && c.model !== "openai/gpt-oss-20b" ? status(429, "tokens per day (TPD)") :
       c.host === "api.groq.com" ? ok({ a: 1 }) : status(429));
-    // A background-style call throttles Groq's main model (and Mistral)...
+    // A background-style call throttles Groq's main model, its overflow model and Mistral...
     await call(aiRouter).catch(() => undefined);
     const before = calls.length;
     // ...and a member's call still reaches Groq, on its own model.
@@ -121,6 +121,33 @@ describe("a member waiting on a throttled pool", () => {
     const after = sent;
     await call(aiRouter).catch(() => undefined);
     expect(sent).toBe(after);
+  });
+});
+
+describe("a job whose Groq model is out of daily tokens", () => {
+  it("is served by the overflow model, never the members' one", async () => {
+    const { aiRouter } = await loadRouter();
+    const calls = mockFetch((c) =>
+      c.host === "api.groq.com" && c.model === "openai/gpt-oss-120b" ? status(429, "tokens per day (TPD): Limit 200000") :
+      c.host === "api.groq.com" ? ok({ a: 1 }) : status(429));
+    const r = await call(aiRouter, { providerOverride: "groq", maxTokens: 2048 });
+    expect(r.provider).toBe("groq");
+    const groq = calls.filter((c) => c.host === "api.groq.com").map((c) => c.model);
+    expect(groq).toEqual(["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]);
+  });
+
+  it("waits out a per-MINUTE throttle as before (no overflow)", async () => {
+    const { aiRouter } = await loadRouter();
+    const calls = mockFetch((c) => (c.host === "api.groq.com" ? status(429, "tokens per minute (TPM)") : status(429)));
+    await call(aiRouter, { providerOverride: "groq" }).catch(() => undefined);
+    expect(calls.filter((c) => c.host === "api.groq.com").map((c) => c.model)).toEqual(["openai/gpt-oss-120b"]);
+  });
+
+  it("does not overflow a member's call", async () => {
+    const { aiRouter } = await loadRouter();
+    const calls = mockFetch((c) => (c.host === "api.groq.com" ? status(429, "tokens per day (TPD)") : status(429)));
+    await call(aiRouter, { tier: "member", hedgeMs: 3_000 }).catch(() => undefined);
+    expect(calls.filter((c) => c.host === "api.groq.com").map((c) => c.model)).not.toContain("qwen/qwen3.8-27b");
   });
 });
 
