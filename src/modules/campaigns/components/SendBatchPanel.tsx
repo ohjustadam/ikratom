@@ -196,6 +196,13 @@ export function SendBatchPanel({
             />
           </div>
 
+          {active && progress.ahead > 0 && (
+            <p className="mt-2 text-xs text-zinc-400">
+              Your earlier send goes first ({progress.ahead} letter{progress.ahead === 1 ? "" : "s"} left), then this one
+              starts. Both keep going from any campaign page.
+            </p>
+          )}
+
           {progress.pauseReason && (
             <p className="mt-2 rounded border border-amber-800/50 bg-amber-950/20 px-2.5 py-1.5 text-xs text-amber-200">
               {progress.pauseReason}

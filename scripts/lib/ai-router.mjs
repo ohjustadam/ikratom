@@ -31,7 +31,7 @@
 import { OLLAMA_NUM_THREAD } from "./ollama-options.mjs";
 import { pickGeminiKey, markGeminiKeyCooldown, markGeminiKeyDead, liveGeminiKeyCount, geminiKeyCount } from "./gemini-keys.mjs";
 import {
-  estimateTokens, fitsProvider, tierModel, extraProviders, hedge, cacheKey,
+  estimateTokens, fitsProvider, tierModel, laneOf, extraProviders, hedge, cacheKey,
   loadProviderHealth, saveProviderHealth, readCache, writeCache,
 } from "./ai-router-support.mjs";
 export { chunkText } from "./ai-router-support.mjs";
@@ -293,6 +293,13 @@ async function recall(key) {
  * Deliberately NOT removing them from availableProviders(): if Cerebras
  * reinstates a free tier or GitHub reverses course, the next process picks
  * them straight back up. This makes a dead provider cheap, not permanent.
+ *
+ * 404 counts too, but only for a provider's OWN default model (no per-call
+ * modelOverride, large tier). Added 2026-10-31: NVIDIA's default answered
+ * `404 Function '…' not found for account` on every call, and because 404 was
+ * not here the website kept paying for it, then showed that 404 to a member as
+ * the reason Personalize failed. A 404 on a model a caller chose only says
+ * that model is wrong for that host, so it stays an ordinary failure.
  */
 const HARD_FAIL_STATUS = new Set([401, 402, 410]);
 
@@ -317,9 +324,12 @@ const HARD_FAIL_STATUS = new Set([401, 402, 410]);
  * deploy. Dead stays cheap, not permanent.
  */
 const deadForProcess = new Map(); // provider -> reason
+// The longest park that still means "throttled" rather than "gone" (429 parks
+// are 60 s; hard failures park for 6 h).
+const THROTTLE_PARK_MS = 2 * 60_000;
 
-function noteHardFailure(p, status, body = "") {
-  if (!HARD_FAIL_STATUS.has(status)) return false;
+function noteHardFailure(p, status, body = "", { defaultModel = false } = {}) {
+  if (!HARD_FAIL_STATUS.has(status) && !(status === 404 && defaultModel)) return false;
   startCooldown(p, 6 * 3600_000, `gone ${status}: ${body.slice(0, 80)}`);
   if (!deadForProcess.has(p)) {
     deadForProcess.set(p, `${status}`);
@@ -452,36 +462,40 @@ function parseLooseJson(text) {
   throw new Error(`JSON parse failed; head: ${t.slice(0, 120)}…`);
 }
 
-async function callGroq(sys, user, maxTokens, modelOverride, tier = "large") {
+async function callGroq(sys, user, maxTokens, modelOverride, tier = "large", reasoningEffort = null) {
+  // modelOverride lets callers route specific tasks (e.g. self-critique)
+  // to a reasoning-capable model like openai/gpt-oss-120b while keeping
+  // the default for everything else on Llama-3.3-70B. Groq hosts both at $0.
+  // 2026-09-05: Groq RETIRED llama-3.3-70b-versatile — the key now 404s with
+  // "does not exist or you do not have access to it". Its catalogue is
+  // openai/gpt-oss-{120b,20b} and qwen/qwen3.{6,8}-27b. Overridable so the
+  // next retirement is an env change, not a deploy.
+  const model = modelOverride || tierModel("groq", tier, process.env.GROQ_MODEL || "openai/gpt-oss-120b");
   const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      // modelOverride lets callers route specific tasks (e.g. self-critique)
-      // to a reasoning-capable model like openai/gpt-oss-120b while keeping
-      // the default for everything else on Llama-3.3-70B. Groq hosts both at $0.
-      // 2026-09-05: Groq RETIRED llama-3.3-70b-versatile — the key now 404s with
-      // "does not exist or you do not have access to it". Its catalogue is
-      // openai/gpt-oss-{120b,20b} and qwen/qwen3.{6,8}-27b. Overridable so the
-      // next retirement is an env change, not a deploy.
-      model: modelOverride || tierModel("groq", tier, process.env.GROQ_MODEL || "openai/gpt-oss-120b"),
+      model,
       messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       temperature: 0.1,
       max_tokens: maxTokens,
       response_format: { type: "json_object" },
+      // gpt-oss thinks before it answers, and those tokens count against the
+      // same 8k-per-minute budget as the reply. A rewrite needs little of it.
+      ...(reasoningEffort && /gpt-oss/.test(model) ? { reasoning_effort: reasoningEffort } : {}),
     }),
     signal: AbortSignal.timeout(60_000),
   });
   if (r.status === 429) {
     const body = await r.text();
-    startCooldown("groq", 60_000);
+    startCooldown(laneOf("groq", tier), 60_000);
     // Include body excerpt so we can distinguish per-minute throttling
     // from per-day quota exhaustion — the message differs.
     throw new Error(`Groq 429: ${body.slice(0, 200)}`);
   }
   if (!r.ok) {
     const body = (await r.text()).slice(0, 200);
-    noteHardFailure("groq", r.status, body);
+    noteHardFailure("groq", r.status, body, { defaultModel: !modelOverride && tier === "large" });
     throw new Error(`Groq ${r.status}: ${body}`);
   }
   const data = await readJsonOrDie("groq", r);
@@ -694,7 +708,7 @@ async function callOpenAICompat(name, { url, key, model, extraHeaders = {} }, sy
   }
   if (!r.ok) {
     const body = (await r.text()).slice(0, 200);
-    noteHardFailure(name, r.status, body);
+    noteHardFailure(name, r.status, body, { defaultModel: !modelOverride });
     throw new Error(`${name} ${r.status}: ${body}`);
   }
   const data = await readJsonOrDie(name, r);
@@ -785,13 +799,13 @@ export async function callOneProvider(p, sys, user, maxTokens = 256, modelOverri
   return callOne(p, sys, user, maxTokens, modelOverride);
 }
 
-async function callOne(p, sys, user, maxTokens, modelOverride, tier = "large") {
+async function callOne(p, sys, user, maxTokens, modelOverride, tier = "large", reasoningEffort = null) {
   const extra = EXTRAS.find((x) => x.name === p);
   if (extra) {
     return callOpenAICompat(p, { url: extra.url, key: extra.key, model: extra.model }, sys, user, maxTokens, modelOverride);
   }
   switch (p) {
-    case "groq": return callGroq(sys, user, maxTokens, modelOverride, tier);
+    case "groq": return callGroq(sys, user, maxTokens, modelOverride, tier, reasoningEffort);
     case "gemini": return callGemini(sys, user, maxTokens);
     case "cerebras": return callCerebras(sys, user, maxTokens);
     case "mistral": return callMistral(sys, user, maxTokens, tier);
@@ -831,6 +845,9 @@ export async function aiRouter({
   hedgeMs = 0,
   // Opt-in cache for prompts that repeat. 0 = off.
   cacheTtlHours = 0,
+  // "low" | "medium" | "high" for reasoning models that take it (Groq gpt-oss).
+  // null = the host's default. Other providers ignore it.
+  reasoningEffort = /** @type {"low" | "medium" | "high" | null} */ (null),
 }) {
   await ensureHealthLoaded();
   const key = cacheTtlHours > 0 ? cacheKey({ systemPrompt, userPrompt, maxTokens, tier }) : null;
@@ -840,7 +857,16 @@ export async function aiRouter({
   }
 
   const list = availableProviders();
-  const start = pickStart(providerOverride);
+  // Each provider's park on THIS tier's lane (see laneOf). A member lane still
+  // honors a hard-failure park on the provider itself: a dead key is dead for both.
+  const parkedUntil = (p) => Math.max(
+    cooldownUntil.get(laneOf(p, tier)) ?? 0,
+    laneOf(p, tier) !== p && (cooldownUntil.get(p) ?? 0) - Date.now() > THROTTLE_PARK_MS ? cooldownUntil.get(p) : 0,
+  );
+  const cooling = (p) => parkedUntil(p) > Date.now();
+  // A member's call starts on the lane kept for members when it is free.
+  const start = !providerOverride && tier === "member" && list.includes("groq") && !cooling("groq")
+    ? "groq" : pickStart(providerOverride);
   // Cooldown-aware order: try start first, then everyone else, but
   // demote in-cooldown providers to the back.
   // Providers proven gone/unreachable this process are excluded OUTRIGHT, not
@@ -848,8 +874,8 @@ export async function aiRouter({
   const live = list.filter((p) => !deadForProcess.has(p));
   const chain = live.length ? live : list;   // all dead? try anyway rather than fail blind
   const s = chain.includes(start) ? start : chain[0];
-  const fresh = [s, ...chain.filter((p) => p !== s && !inCooldown(p))];
-  const cold = chain.filter((p) => p !== s && inCooldown(p));
+  const fresh = [s, ...chain.filter((p) => p !== s && !cooling(p))];
+  const cold = chain.filter((p) => p !== s && cooling(p));
   const order = [...fresh, ...cold];
 
   const t0 = Date.now();
@@ -863,7 +889,7 @@ export async function aiRouter({
   const attempt = async (p) => {
     const h = noteAttempt(p);
     try {
-      const parsed = await callOne(p, systemPrompt, userPrompt, maxTokens, modelOverride, tier);
+      const parsed = await callOne(p, systemPrompt, userPrompt, maxTokens, modelOverride, tier, reasoningEffort);
       h.ok++;
       return { provider: p, parsed };
     } catch (e) {
@@ -876,14 +902,14 @@ export async function aiRouter({
     }
   };
   // Usable right now for THIS prompt: not cooling, and the prompt fits its budget.
-  const usable = (p) => !inCooldown(p) && fitsProvider(p, promptTokens, maxTokens);
+  const usable = (p) => !cooling(p) && fitsProvider(p, promptTokens, maxTokens);
 
   const tried = new Set();
   for (const p of order) {
     // Re-check the cooldown HERE, not just when `order` was built: parallel
     // callers (generate-news-digest --concurrency 6) would otherwise all hit the
     // provider the first one just found throttled (the 2026-09-17 stampede).
-    if (tried.has(p) || inCooldown(p)) continue;
+    if (tried.has(p) || cooling(p)) continue;
     // A prompt bigger than a provider's per-request budget is a guaranteed 413
     // (Groq's 8k TPM cap): route around it instead of paying the round-trip.
     if (!fitsProvider(p, promptTokens, maxTokens)) { sizeSkipped++; continue; }
@@ -898,6 +924,30 @@ export async function aiRouter({
       // The gap lets a throttle breathe; pointless for a provider struck off,
       // and too slow when a member is waiting (hedged calls).
       if (!e?.gone && hedgeMs === 0) await new Promise((r) => setTimeout(r, 800));
+    }
+  }
+  // A member is waiting (hedged calls only). A 60-second throttle park set by an
+  // EARLIER request, theirs or anyone's in this scope, is not proof the provider
+  // is still throttled: Groq's per-minute budget refills continuously. Before
+  // answering "busy", try the two soonest-to-recover throttled providers once.
+  // Hard-failure parks (6 h) are longer than THROTTLE_PARK_MS and stay skipped.
+  // Found 2026-10-31: a member's rerolls failed in under a second, every time,
+  // because Groq, Mistral, Cloudflare and OpenRouter were all parked.
+  if (hedgeMs > 0) {
+    const parked = order
+      .filter((p) => !tried.has(p) && p !== "ollama" && !deadForProcess.has(p) &&
+        parkedUntil(p) - Date.now() <= THROTTLE_PARK_MS &&
+        fitsProvider(p, promptTokens, maxTokens))
+      .sort((a, b) => parkedUntil(a) - parkedUntil(b))
+      .slice(0, 2);
+    for (const p of parked) tried.add(p);
+    if (parked.length > 0) {
+      try {
+        const [a, b] = parked;
+        return finish(await (b ? hedge(() => attempt(a), () => attempt(b), hedgeMs) : attempt(a)));
+      } catch (e) {
+        lastErr = e;
+      }
     }
   }
   if (tried.size === 0 && sizeSkipped > 0) {
@@ -924,9 +974,9 @@ export async function aiRouter({
   // during this very call (the first caller of a throttled minute). Only the
   // second is common, and gating on `attempted === 0` missed it entirely.
   if (order.length > 0) {
-    const cooling = order.map((p) => cooldownUntil.get(p) ?? 0).filter((t) => t > Date.now());
-    if (cooling.length === 0) throw lastErr ?? new Error("all providers failed");
-    const soonest = Math.min(...cooling);
+    const parks = order.map(parkedUntil).filter((t) => t > Date.now());
+    if (parks.length === 0) throw lastErr ?? new Error("all providers failed");
+    const soonest = Math.min(...parks);
     const waitMs = Math.max(soonest - Date.now(), 0);
     // Only wait when the wait actually ENDS within our budget. A pool parked
     // entirely on 6-hour hard failures (every provider off the free tier) will
@@ -937,7 +987,7 @@ export async function aiRouter({
       if (verbose) console.log(`    ⏸ every provider is cooling — waiting ${Math.ceil(waitMs / 1000)}s rather than giving up`);
       await new Promise((r) => setTimeout(r, waitMs + 250));
       return aiRouter({
-        systemPrompt, userPrompt, maxTokens, providerOverride, modelOverride, verbose, tier, hedgeMs, cacheTtlHours,
+        systemPrompt, userPrompt, maxTokens, providerOverride, modelOverride, verbose, tier, hedgeMs, cacheTtlHours, reasoningEffort,
         // One wait per call, never a chain of them.
         maxWaitMs: 0,
       });

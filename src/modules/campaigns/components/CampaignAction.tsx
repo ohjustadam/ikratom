@@ -107,6 +107,8 @@ export function CampaignAction({
   const [personalizing, setPersonalizing] = useState(false);
   const [personalizeError, setPersonalizeError] = useState<string | null>(null);
   const [personalizeChanges, setPersonalizeChanges] = useState<string | null>(null);
+  // How many times Personalize has succeeded here; a press after the first asks for a fresh take.
+  const [personalizeTakes, setPersonalizeTakes] = useState(0);
   const [, startTransition] = useTransition();
   const [screenRes, setScreenRes] = useState<{ key: string; ok: boolean; message: string } | null>(null);
 
@@ -529,12 +531,14 @@ export function CampaignAction({
                 const r = await personalizeCampaignBody({
                   campaignBody: body,
                   campaignTitle: subject,
+                  take: personalizeTakes,
                 });
                 if ("error" in r && r.error) {
                   setPersonalizeError(r.error);
                 } else if ("ok" in r && r.ok && r.personalized_body) {
                   setBody(r.personalized_body);
                   setPersonalizeChanges(r.what_changed ?? null);
+                  setPersonalizeTakes((n) => n + 1);
                   setEditing(true);
                 }
               } catch {

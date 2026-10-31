@@ -50,10 +50,16 @@ Output STRICT JSON:
 export async function personalizeCampaignBody(input: {
   campaignBody: string;
   campaignTitle: string;
+  /** 0 the first time; 1, 2… for each press after a success (a "reroll"). */
+  take?: number;
 }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in to use personalization." };
+  if (typeof input.campaignBody !== "string" || input.campaignBody.length > 8_000) {
+    return { error: "That letter is too long to personalize. Trim it and try again." };
+  }
+  const take = Math.max(0, Math.min(20, Math.floor(Number(input.take) || 0)));
 
   // Rate-limit: 8 personalizations per hour per user
   const ok = await checkRateLimit(`ai-personalize:user:${user.id}`, 8, 3_600);
@@ -102,9 +108,19 @@ export async function personalizeCampaignBody(input: {
     "",
     `User's kratom story (authentic voice source):`,
     "---",
-    story,
+    storyExcerpt(story, take),
     "---",
     "",
+    // A reroll sends back the letter it already wrote, and at the router's low
+    // temperature that came back word for word, so a reroll looked broken.
+    ...(take > 0
+      ? [
+          "This letter has already been personalized once. Write a FRESH take: build it around a different",
+          "detail from the story than the one already in it, and change the wording. Keep the same requests",
+          "and every {{placeholder}}.",
+          "",
+        ]
+      : []),
     ...(banned
       ? [
           `SAFETY: kratom is banned in ${banned}, where this user lives. Write about their kratom use ONLY in the`,
@@ -127,8 +143,16 @@ export async function personalizeCampaignBody(input: {
     // reply budget that fits a letter (fewer Groq TPM 413s), and a hard deadline
     // inside the function limit.
     const r = await Promise.race([
+      // tier "member": the Groq model kept for members. The background jobs spend
+      // the main model's daily allowance by mid-morning (198,983 of 200,000 used
+      // on 10-31), which is why Personalize failed for Paul nearly every time.
       // hedgeMs: a member is waiting, so a slow provider gets a second one racing it.
-      aiRouter({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1200, maxWaitMs: 0, verbose: false, hedgeMs: 3_000 }),
+      // reasoningEffort "low": a rewrite needs little thinking, and gpt-oss's
+      // thinking tokens share Groq's per-minute budget with the reply.
+      aiRouter({
+        systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1200, maxWaitMs: 0, verbose: false,
+        tier: "member", hedgeMs: 3_000, reasoningEffort: "low",
+      }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("PERSONALIZE_TIMEOUT")), 9_000)),
     ]);
     const personalized = r.parsed?.personalized_body;
@@ -144,10 +168,28 @@ export async function personalizeCampaignBody(input: {
       provider: r.provider,
     };
   } catch (e) {
+    // Whatever went wrong is a provider's problem, not the member's. The raw
+    // error ("nvidia 404: Function … not found for account") told Paul nothing
+    // he could act on, so it goes to the log and he gets the same plain answer.
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg === "PERSONALIZE_TIMEOUT" || /429|rate|cooldown|all providers failed/i.test(msg)) {
-      return { error: "The free AI writers are busy right now. Your letter is unchanged: try again in a minute, or add a line about yourself and send it." };
-    }
-    return { error: `Personalization failed: ${msg.slice(0, 200)}. Try again or send the template as-is.` };
+    console.error("[personalize] AI router failed:", msg.slice(0, 200));
+    return { error: "The free AI writers are busy right now. Your letter is unchanged: try again in a minute, or add a line about yourself and send it." };
   }
+}
+
+/**
+ * About 2,000 characters of the member's story, cut at a word. Stories run to
+ * ~5,000 characters; with the template that was most of Groq's 8k-tokens-per-
+ * minute budget, so a reroll inside the same minute was refused. ONE personal
+ * detail is all the prompt asks for. The first take reads the opening; each
+ * reroll reads a later stretch, so it has new material to draw on.
+ */
+const STORY_CHARS = 2_000;
+function storyExcerpt(story: string, take = 0): string {
+  if (story.length <= STORY_CHARS) return story;
+  let from = take > 0 ? Math.round(((take * 0.45) % 1) * (story.length - STORY_CHARS)) : 0;
+  const sentence = story.indexOf(". ", from);
+  if (from > 0 && sentence !== -1 && sentence < from + 300) from = sentence + 2;
+  const cut = story.slice(from, from + STORY_CHARS).replace(/\s+\S*$/, "");
+  return (from > 0 ? "… " : "") + cut + (from + STORY_CHARS < story.length ? " …" : "");
 }

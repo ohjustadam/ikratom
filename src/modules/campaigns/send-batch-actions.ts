@@ -261,6 +261,8 @@ export type BatchProgress = {
   failed: number;
   pauseReason: string | null;
   providerLabel: string;
+  /** Letters from the member's earlier unfinished sends, which go out first. */
+  ahead: number;
 } | null;
 
 /**
@@ -301,6 +303,9 @@ export async function getSendAllowance(): Promise<SendAllowance> {
   return { used: count ?? 0, limit: limits.effectiveDaily, providerLabel: limits.label };
 }
 
+/** Batch statuses that still have letters to send. */
+const ACTIVE = ["queued", "sending", "paused"];
+
 /** Live progress for the user's most recent batch on a campaign. */
 export async function getBatchProgress(campaignSlug: string): Promise<BatchProgress> {
   const supabase = await createClient();
@@ -315,12 +320,24 @@ export async function getBatchProgress(campaignSlug: string): Promise<BatchProgr
   // rather than a where-clause we wrote correctly.
   const { data } = await supabase
     .from("campaign_send_batches")
-    .select("id, status, total_count, sent_count, failed_count, pause_reason, provider, provider_tier")
+    .select("id, status, total_count, sent_count, failed_count, pause_reason, provider, provider_tier, created_at")
     .eq("campaign_id", campaign.id)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (!data) return null;
+
+  // Letters from the member's EARLIER unfinished sends, which go out first.
+  let ahead = 0;
+  if (ACTIVE.includes(data.status)) {
+    const { data: earlier } = await supabase
+      .from("campaign_send_batches")
+      .select("total_count, sent_count, failed_count")
+      .eq("user_id", user.id)
+      .in("status", ACTIVE)
+      .lt("created_at", data.created_at);
+    for (const b of earlier ?? []) ahead += Math.max(0, (b.total_count ?? 0) - (b.sent_count ?? 0) - (b.failed_count ?? 0));
+  }
 
   const { data: profile } = await supabase
     .from("profiles").select("email_provider_tier").eq("id", user.id).maybeSingle();
@@ -337,6 +354,7 @@ export async function getBatchProgress(campaignSlug: string): Promise<BatchProgr
     failed: data.failed_count ?? 0,
     pauseReason: data.pause_reason ?? null,
     providerLabel: limits?.label ?? data.provider,
+    ahead,
   };
 }
 
@@ -361,9 +379,28 @@ export async function continueMySend(campaignSlug: string, batchId: string): Pro
   if (!mine || mine.user_id !== user.id) return null;
 
   // One slice at a time per user; a second tab just reads progress.
-  if (["queued", "sending", "paused"].includes(mine.status) &&
+  if (ACTIVE.includes(mine.status) &&
       (await checkRateLimit(`campaign:drain:${user.id}`, 1, 4))) {
-    await drainBatch(serviceClient(), mine, Date.now() + 15_000);
+    // One mailbox, one queue: sends go out in the order the member started
+    // them, whichever campaign page is open. Draining only THIS page's batch
+    // stalled an earlier send on another campaign until its page was reopened
+    // (Paul, 10-30: 120 NJ letters sat for 45 minutes behind 138 ND ones).
+    const deadline = Date.now() + 15_000;
+    const { data: first } = await supabase
+      .from("campaign_send_batches")
+      .select("id, user_id, campaign_id, subject_template, body_template, status, total_count, sent_count, failed_count")
+      .eq("user_id", user.id)
+      .in("status", ACTIVE)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const head = first && first.user_id === user.id ? first : mine;
+    const r = await drainBatch(serviceClient(), head, deadline);
+    // Every pause reason today is mailbox-wide, but if the head ever stalls on
+    // its own, it must not hold this page's send hostage.
+    if (head.id !== mine.id && r.sent + r.failed === 0 && Date.now() < deadline - 2_000) {
+      await drainBatch(serviceClient(), mine, deadline);
+    }
   }
   return getBatchProgress(campaignSlug);
 }
