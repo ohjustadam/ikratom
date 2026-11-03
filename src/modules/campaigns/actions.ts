@@ -13,6 +13,7 @@ import {
 import { renderTemplate, buildVars } from "./templates";
 import { withLetterFooter } from "./letter-extras";
 import type { Legislator } from "@/lib/legislators";
+import { isMailbox } from "@/lib/mailbox";
 import {
   legislatorInCampaignScope,
   filterIdsInCampaignScope,
@@ -313,7 +314,7 @@ export async function sendCampaignViaGmail(input: {
 
   const validTargets = scopedTargets.filter(
     (t): t is Legislator & { email: string } =>
-      !!t.email && !t.email.startsWith("http") // skip contact-form-only
+      isMailbox(t.email) // skip contact-form-only
   );
 
   if (validTargets.length === 0) {

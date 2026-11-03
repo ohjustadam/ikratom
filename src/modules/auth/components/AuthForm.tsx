@@ -15,7 +15,8 @@ type Mode = "signin" | "signup";
 export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) {
   const params = useSearchParams();
   const redirectTo = redirectProp ?? params.get("redirect") ?? undefined;
-  const [mode, setMode] = useState<Mode>("signin");
+  // ?mode=signup opens on "Create account" (a group invite sends new people here).
+  const [mode, setMode] = useState<Mode>(params.get("mode") === "signup" ? "signup" : "signin");
   const [error, setError] = useState<string | null>(null);
   const [errorHint, setErrorHint] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);

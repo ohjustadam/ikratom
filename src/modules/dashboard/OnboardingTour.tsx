@@ -64,7 +64,7 @@ export function OnboardingTour({
           popover: {
             title: "Your reps",
             description:
-              "Federal + state legislators for your address. One-click email or call, prefilled from your profile.",
+              "The officials who represent your address, from Congress down to your city council. One-click email or call, prefilled from your profile.",
             side: "top",
           },
         },
@@ -90,7 +90,7 @@ export function OnboardingTour({
           popover: {
             title: "You're set.",
             description:
-              "Bills, campaigns, your reps — everything in one cockpit. Welcome to the war room.",
+              'Bills, campaigns, your reps: everything in one place. Next, connect your email in Account so every letter is one click. The <a href="/how-it-works" style="color:#34d399;text-decoration:underline">getting-started guide</a> walks through the rest.',
           },
         },
       ],
