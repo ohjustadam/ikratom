@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { groupTextIssue } from "./vendor-screen";
 
 /**
  * Coalition server actions.
@@ -70,6 +71,9 @@ export async function createCoalition(input: {
   if (description && description.length > 2000) {
     return { ok: false, error: "Description too long (max 2000 chars)" };
   }
+  const vendorIssue = groupTextIssue(`${name}
+${description ?? ""}`);
+  if (vendorIssue) return { ok: false, error: vendorIssue };
   // State must be a valid 2-letter US abbr if provided
   const state = (input.state ?? "").trim().toUpperCase() || null;
   if (state && !/^[A-Z]{2}$/.test(state)) {
