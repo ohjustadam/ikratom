@@ -84,6 +84,8 @@ export function shouldRetire(bill, { sineDie, now = Date.now(), graceDays = 21 }
  * the day we retired it (`retiredOn`, YYYY-MM-DD) brings a live bill back
  * whatever the session flag says: LegiScan marks Illinois's General Assembly
  * adjourned, yet it can still pass bills in its veto and lame-duck sessions.
+ * @param {{ status?: string, review_by?: string, last_action_at?: string }} bill
+ * @param {{ sineDie: boolean, now?: number, freshDays?: number, retiredOn?: string | null }} opts
  */
 export function shouldRevive(bill, { sineDie, now = Date.now(), freshDays = 30, retiredOn = null }) {
   const lastAction = bill.last_action_at ? new Date(bill.last_action_at).getTime() : null;
