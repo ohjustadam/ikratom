@@ -172,6 +172,11 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
 
   const supabase = await createClient();
 
+  // Staff-looking handles ("ikratom_support", "admin_jane"): the database rule
+  // is the authority (migration 0308), and also stops a later change via the API.
+  const { data: reserved } = await supabase.rpc("is_reserved_username", { p: usernameRaw });
+  if (reserved === true) return { error: "That username is reserved." };
+
   // Check username uniqueness BEFORE creating the auth user, so we don't
   // end up with an authed account that can't claim its desired handle.
   // Race: two parallel signups for the same username — the unique index
