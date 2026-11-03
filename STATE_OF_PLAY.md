@@ -419,6 +419,19 @@ editing an event's time (cancel and re-post), and a real cover photo.
     retries once on `qwen/qwen3.8-27b` (`GROQ_MODEL_OVERFLOW`), with at most
     1,000 output tokens, because that model allows 1,000 a minute. The
     overflow never takes the members' model.
+11. **An official's email comes from their own page, never from the model.**
+    "550 5.4.1 Recipient address rejected" from a .gov server means the mailbox
+    does not exist, not that the server blocks us. On 2026-11-03 that was an
+    AI-guessed address: sites that mask addresses with Cloudflare show
+    "[email protected]", and the model filled the gap. `page-text.mjs` decodes
+    the mask, `emailOnPage()` keeps only addresses on the page, and
+    `scripts/verify-official-emails.mjs` re-checks saved ones. `legislators.email`
+    also holds contact-form URLs by design, so every send path asks
+    `isMailbox()` (`src/lib/mailbox.ts`), never `startsWith("http")`.
+12. **The `SUPABASE_ACCESS_TOKEN` repo secret starts with a byte-order mark.**
+    `fetch()` refuses it in a header, which is how the weekly RLS pentest
+    crashed every run from #1088 to #1106. Any script that reads a repo secret
+    into a header strips `﻿` and trims first, as `db-snapshot-api.mjs` does.
 
 ---
 
