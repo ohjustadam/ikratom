@@ -24,6 +24,7 @@
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "@/modules/admin/actions";
+import { maskIp, redactPii } from "@/lib/redact";
 import { recordAdminAction } from "@/lib/audit";
 import { suggestedFixForErrorCode } from "@/lib/auth-events";
 
@@ -99,7 +100,7 @@ export async function escalateAuthFailureToDevs(input: {
   const body = [
     `**Cluster**: \`${input.kind}\` · provider \`${input.provider ?? "—"}\` · code \`${input.errorCode ?? "—"}\``,
     `**Volume (last 24h)**: ${total}`,
-    `**Escalated by**: ${ctx.email ?? ctx.userId} via /admin/oauth-config`,
+    "**Escalated by**: an admin via /admin/oauth-config",
     "",
     fix ? `**Suggested fix**:\n> ${fix}` : "**No pre-canned fix mapped for this error_code yet.**",
     "",
@@ -108,8 +109,9 @@ export async function escalateAuthFailureToDevs(input: {
     "| When | error_message | ip | UA snippet |",
     "|---|---|---|---|",
     ...(rows ?? []).slice(0, 10).map((r) => {
-      const msg = (r.error_message ?? "").slice(0, 100).replace(/\|/g, "\\|").replace(/\n/g, " ");
-      const ip = (r.ip ?? "").slice(0, 30);
+      // Public repo: emails and IPs redacted (0310).
+      const msg = redactPii(r.error_message).slice(0, 100).replace(/\|/g, "\\|").replace(/\n/g, " ");
+      const ip = maskIp(r.ip) ?? "";
       const ua = (r.user_agent ?? "").slice(0, 50).replace(/\|/g, "\\|");
       return `| ${new Date(r.created_at).toISOString().slice(0, 19)}Z | \`${msg}\` | \`${ip}\` | \`${ua}\` |`;
     }),

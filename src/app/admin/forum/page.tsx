@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { ModerationActions } from "./ModerationActions";
 import { BulkBar } from "./BulkBar";
 
@@ -99,12 +100,13 @@ export default async function ForumModerationPage() {
   for (const t of threads) if (t.author_id) authorIds.add(t.author_id);
   for (const p of posts) if (p.author_id) authorIds.add(p.author_id);
   const { data: authorRows } = authorIds.size > 0
-    ? await supabase.from("profiles").select("id, full_name, forum_post_count").in("id", Array.from(authorIds))
+    ? await createServiceRoleClient().from("profiles").select("id, username, forum_post_count").in("id", Array.from(authorIds))
     : { data: [] };
+  // Admins moderate by @username; real names are the owner's alone (0310).
   const authors = new Map(
-    (authorRows ?? []).map((a: { id: string; full_name: string | null; forum_post_count: number | null }) => [
+    (authorRows ?? []).map((a: { id: string; username: string | null; forum_post_count: number | null }) => [
       a.id,
-      { name: a.full_name ?? "(no name)", postCount: a.forum_post_count ?? 0 },
+      { name: a.username ? `@${a.username}` : "(no handle)", postCount: a.forum_post_count ?? 0 },
     ]),
   );
 

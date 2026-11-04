@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "@/components/Link";
 import { getAdminContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import NetworkNodes from "./NetworkNodes";
 
 export const metadata = { title: "Per-state Intel Health" };
@@ -77,7 +78,7 @@ export default async function PerStateIntelHealthPage() {
   // critique audit trail from D5 + the body length for the D7
   // health check.
   const [users, bills, meetings, alerts, briefings, newsMentions, stateLobbyists, billVotes, courtCases, federalRulemaking, federalAwards] = await Promise.all([
-    supabase.from("profiles").select("state").not("state", "is", null),
+    createServiceRoleClient().from("profiles").select("state").not("state", "is", null),
     supabase.from("bills").select("state").eq("active", true),
     supabase.from("municipal_meetings")
       .select("state, meeting_at")

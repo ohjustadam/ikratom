@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "@/components/Link";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "@/modules/admin/actions";
+import { maskEmail, maskIp } from "@/lib/redact";
 
 export const metadata = { title: "Abuse signals" };
 export const dynamic = "force-dynamic";
@@ -58,7 +59,11 @@ export default async function AbuseSignalsPage() {
     .gte("created_at", cutoff7)
     .order("created_at", { ascending: false })
     .limit(5000);
-  const events = (rows7d ?? []) as EventRow[];
+  // Members' emails and IPs are the owner's alone (0310): admins see them
+  // masked (an IP keeps its network, enough to spot a flood).
+  const events = ((rows7d ?? []) as EventRow[]).map((e) =>
+    ctx.isOwner ? e : { ...e, email: maskEmail(e.email), ip: maskIp(e.ip) },
+  );
 
   // ── Signal 1+2: honeypot + timing-trap triggers
   const honeypotEvents = events.filter((e) => e.error_code === "honeypot_triggered");

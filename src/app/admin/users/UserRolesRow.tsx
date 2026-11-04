@@ -11,8 +11,11 @@ import {
 import { useSignIn } from "@/components/auth/SignInContext";
 import { wasMfaRequired } from "@/lib/mfa-error";
 
-type UserRow = {
+/** Admins get username/state/roles only; email, name, city and county are
+ *  filled for the owner alone (0310). */
+export type UserRow = {
   id: string;
+  username: string | null;
   email: string | null;
   full_name: string | null;
   state: string | null;
@@ -42,6 +45,7 @@ export function UserRolesRow({
   const [tempModal, setTempModal] = useState<{ password: string; email: string } | null>(null);
 
   const isSelf = user.id === callerUserId;
+  const label = user.email ?? (user.username ? `@${user.username}` : "this member");
 
   async function doSave(): Promise<{ ok: boolean; error?: string }> {
     const result = await setUserRoles({
@@ -91,7 +95,7 @@ export function UserRolesRow({
     isOwner !== user.is_owner;
 
   function triggerReset() {
-    if (!confirm(`Send a password-reset email to ${user.email}?\n\nThey'll get a link valid for 1 hour to set a new password.`)) return;
+    if (!confirm(`Send a password-reset email to ${label}?\n\nThey'll get a link valid for 1 hour to set a new password.`)) return;
     setMsg(null);
     startTransition(async () => {
       const r = await sendPasswordResetForUser({ userId: user.id });
@@ -103,7 +107,7 @@ export function UserRolesRow({
   function triggerTempPassword() {
     if (
       !confirm(
-        `Issue a temporary password for ${user.email}?\n\n` +
+        `Issue a temporary password for ${label}?\n\n` +
           `You'll see the temp password ONCE on the next screen — copy it and read it to the user.\n\n` +
           `The user will be forced to set their own password the moment they sign in with it. ` +
           `The user is also emailed a heads-up. Audit-logged.`
@@ -123,7 +127,7 @@ export function UserRolesRow({
   }
 
   function triggerMagicLink() {
-    if (!confirm(`Send a magic sign-in link to ${user.email}?\n\nFor users who can't remember their password but have inbox access. Less destructive than a full password reset.`)) return;
+    if (!confirm(`Send a magic sign-in link to ${label}?\n\nFor users who can't remember their password but have inbox access. Less destructive than a full password reset.`)) return;
     setMsg(null);
     startTransition(async () => {
       const r = await sendMagicLinkForUser({ userId: user.id });
@@ -135,14 +139,14 @@ export function UserRolesRow({
   function toggleLock() {
     const isCurrentlyLocked = !!user.account_locked_at;
     if (isCurrentlyLocked) {
-      if (!confirm(`Unlock ${user.email}'s account?\n\nThey'll regain full access.`)) return;
+      if (!confirm(`Unlock ${label}'s account?\n\nThey'll regain full access.`)) return;
       startTransition(async () => {
         const r = await setAccountLocked({ userId: user.id, locked: false });
         setMsg(r.error ? `✗ ${r.error.slice(0, 80)}` : "✓ Unlocked");
         setTimeout(() => setMsg(null), 4000);
       });
     } else {
-      const reason = prompt(`Lock ${user.email}'s account?\n\nThey'll be bounced to /locked on next request. Reason (audit trail):`);
+      const reason = prompt(`Lock ${label}'s account?\n\nThey'll be bounced to /locked on next request. Reason (audit trail):`);
       if (!reason) return;
       startTransition(async () => {
         const r = await setAccountLocked({ userId: user.id, locked: true, reason });
@@ -156,10 +160,12 @@ export function UserRolesRow({
     <tr>
       <td className="p-3">
         <div className="flex items-center gap-2">
-          <span className="font-medium">{user.full_name || <span className="text-zinc-500">—</span>}</span>
+          <span className="font-medium">
+            {user.full_name || (user.username ? `@${user.username}` : <span className="text-zinc-500">—</span>)}
+          </span>
           <RoleBadge isOwner={isOwner} isAdmin={isAdmin} isLeader={isLeader} />
         </div>
-        <div className="text-xs text-zinc-500">{user.email}</div>
+        {user.email && <div className="text-xs text-zinc-500">{user.email}</div>}
       </td>
       <td className="p-3 text-xs text-zinc-400">
         {[user.city, user.state].filter(Boolean).join(", ") || <span className="text-zinc-600">—</span>}
@@ -221,7 +227,7 @@ export function UserRolesRow({
               >
                 🔑 Send password reset
               </button>
-              {!isSelf && (
+              {callerIsOwner && !isSelf && (
                 <button
                   onClick={triggerTempPassword}
                   disabled={pending}

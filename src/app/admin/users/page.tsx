@@ -1,10 +1,14 @@
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
-import { createClient } from "@/lib/supabase/server";
-import { UserRolesRow } from "./UserRolesRow";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { UserRolesRow, type UserRow } from "./UserRolesRow";
 import { AccountTypesTable } from "./AccountTypesTable";
 
-type SB = Awaited<ReturnType<typeof createClient>>;
+type SB = ReturnType<typeof createServiceRoleClient>;
+
+// Members' identities are the owner's alone (0310). Admins moderate by @username.
+const OWNER_COLUMNS = "id, username, email, full_name, state, city, county, is_admin, is_owner, is_advocate_leader, account_locked_at, created_at";
+const ADMIN_COLUMNS = "id, username, state, is_admin, is_owner, is_advocate_leader, account_locked_at, created_at";
 
 /**
  * Mutually-exclusive role tiers (highest wins) so the numbers sum to total —
@@ -51,17 +55,24 @@ export default async function AdminUsersPage({
   const { q, role: roleParam } = await searchParams;
   const validRoles: string[] = ["owner", "admin", "leader", "member"];
   const role: RoleFilter = validRoles.includes(roleParam ?? "") ? (roleParam as RoleFilter) : "all";
-  const supabase = await createClient();
+  // Server-side read after the permission check: profiles RLS lets only the
+  // owner read other members' rows (0310), so the columns are chosen here.
+  const supabase = createServiceRoleClient();
 
   let query = supabase
     .from("profiles")
-    .select("id, email, full_name, state, city, county, is_admin, is_owner, is_advocate_leader, account_locked_at, created_at")
+    .select(ctx.isOwner ? OWNER_COLUMNS : ADMIN_COLUMNS)
     .order("created_at", { ascending: false })
     .limit(200);
 
   if (q?.trim()) {
-    const term = q.trim();
-    query = query.or(`email.ilike.%${term}%,full_name.ilike.%${term}%,city.ilike.%${term}%`);
+    // Letters, digits and @._- only: the term is spliced into a PostgREST filter.
+    const term = q.trim().replace(/[^\p{L}\p{N}@._ -]/gu, "").replace(/^@/, "").slice(0, 80);
+    if (term) {
+      query = ctx.isOwner
+        ? query.or(`email.ilike.%${term}%,full_name.ilike.%${term}%,city.ilike.%${term}%,username.ilike.%${term}%`)
+        : query.ilike("username", `%${term}%`);
+    }
   }
 
   // Filter by mutually-exclusive role tier (matches the headcount tiles).
@@ -70,7 +81,13 @@ export default async function AdminUsersPage({
   else if (role === "leader") query = query.eq("is_advocate_leader", true).eq("is_admin", false).eq("is_owner", false);
   else if (role === "member") query = query.eq("is_admin", false).eq("is_owner", false).eq("is_advocate_leader", false);
 
-  const [{ data: users }, stats] = await Promise.all([query, getUserStats(supabase)]);
+  const [{ data: rawUsers }, stats] = await Promise.all([query, getUserStats(supabase)]);
+  const users: UserRow[] = ((rawUsers ?? []) as unknown as Partial<UserRow>[]).map((u) => ({
+    email: null, full_name: null, city: null, county: null, username: null, state: null,
+    is_admin: false, is_owner: false, is_advocate_leader: false, account_locked_at: null,
+    ...u,
+    id: u.id as string,
+  }));
   const roleTabs: { key: RoleFilter; label: string; count: number }[] = [
     { key: "all", label: "All", count: stats.total },
     { key: "owner", label: "Owner", count: stats.owners },
@@ -94,7 +111,7 @@ export default async function AdminUsersPage({
       <header className="mt-2 mb-6">
         <h1 className="text-3xl font-bold">Users</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Manage roles. Owners can grant ownership; admins can promote leaders + admins.
+          Only the owner changes roles or sees members' names, emails and cities. Admins see @usernames.
         </p>
       </header>
 
@@ -136,7 +153,7 @@ export default async function AdminUsersPage({
         <input
           name="q"
           defaultValue={q ?? ""}
-          placeholder="Search by email, name, or city…"
+          placeholder={ctx.isOwner ? "Search by email, name, city or @username…" : "Search by @username…"}
           className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
         />
         {/* Preserve the active role filter across a search submit */}
@@ -147,8 +164,8 @@ export default async function AdminUsersPage({
       </form>
 
       <p className="mb-2 text-xs text-zinc-500">
-        {(users ?? []).length} shown{role !== "all" ? ` · ${roleTabs.find((t) => t.key === role)?.label}` : ""}
-        {(users ?? []).length === 200 ? " (capped at 200 — narrow with search)" : ""}
+        {users.length} shown{role !== "all" ? ` · ${roleTabs.find((t) => t.key === role)?.label}` : ""}
+        {users.length === 200 ? " (capped at 200 — narrow with search)" : ""}
       </p>
 
       <div className="overflow-hidden rounded-lg border border-zinc-800">
@@ -162,7 +179,7 @@ export default async function AdminUsersPage({
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-900 bg-zinc-950/40">
-            {(users ?? []).map((u) => (
+            {users.map((u) => (
               <UserRolesRow
                 key={u.id}
                 user={u}

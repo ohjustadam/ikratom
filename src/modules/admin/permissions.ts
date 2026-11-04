@@ -161,9 +161,11 @@ export const PERMISSION_CATALOG = [
   {
     key: "edit_partners",
     label: "Manage partner shops",
-    description: "Add partner shops + print QR counter kits.",
+    description:
+      "Add partner shops + print QR counter kits. Owner-reserved (0310): shops are vendor-adjacent, so no admin may create or advertise one.",
     category: "content",
-    defaultFor: ["admin"],
+    defaultFor: [],
+    ownerOnly: true,
   },
   {
     key: "add_local_officials",
@@ -227,9 +229,11 @@ export const PERMISSION_CATALOG = [
   {
     key: "view_user_emails",
     label: "View user email addresses",
-    description: "See email column in /admin/users. Required for password-reset trigger.",
+    description:
+      "See members' email addresses. Owner-reserved (0310): an admin who can read every email can unmask every member. Password resets and magic links don't need it.",
     category: "user_management",
-    defaultFor: ["admin"],
+    defaultFor: [],
+    ownerOnly: true,
     dangerous: true,
   },
   {
@@ -250,9 +254,10 @@ export const PERMISSION_CATALOG = [
     key: "issue_temp_password",
     label: "Issue temporary password",
     description:
-      "Generate a temp password and read it to a locked-out user. Returns the plaintext to YOU, so it is a takeover path — never usable against an admin or the owner.",
+      "Generate a temp password and read it to a locked-out user. Returns the plaintext to YOU, so it is a takeover path. Owner-reserved (0310), and never usable against an admin or the owner.",
     category: "user_management",
-    defaultFor: ["admin"],
+    defaultFor: [],
+    ownerOnly: true,
     dangerous: true,
   },
   {
@@ -360,9 +365,11 @@ export const PERMISSION_CATALOG = [
   {
     key: "manage_discord",
     label: "Manage Discord integrations",
-    description: "Add / edit outbound Discord webhooks that post platform activity to servers.",
+    description:
+      "Add / edit outbound Discord webhooks that post platform activity to servers. Owner-reserved (0310): a webhook sends platform data to an outside server.",
     category: "communications",
-    defaultFor: ["admin"],
+    defaultFor: [],
+    ownerOnly: true,
   },
 
   // ── Platform ─────────────────────────────────────────────────────────────

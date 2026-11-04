@@ -54,12 +54,13 @@ export async function listRecentChatMessages(opts: {
   if (error) return { error: error.message };
 
   const ids = Array.from(new Set((msgs ?? []).map((m) => m.user_id)));
+  // Service-role: profiles RLS is owner-only since 0310. Admins see @username.
   const { data: profiles } = ids.length
-    ? await supabase
+    ? await createServiceRoleClient()
         .from("profiles")
-        .select("id, full_name, chat_muted_until")
+        .select("id, username, chat_muted_until")
         .in("id", ids)
-    : { data: [] as { id: string; full_name: string | null; chat_muted_until: string | null }[] };
+    : { data: [] as { id: string; username: string | null; chat_muted_until: string | null }[] };
   const byId = new Map((profiles ?? []).map((p) => [p.id, p]));
 
   const now = Date.now();
@@ -72,7 +73,7 @@ export async function listRecentChatMessages(opts: {
       room: m.room,
       body: m.body,
       created_at: m.created_at,
-      author_name: prof?.full_name ?? null,
+      author_name: prof?.username ? `@${prof.username}` : null,
       author_is_muted: muted,
     };
   });
@@ -133,7 +134,9 @@ export async function muteUserFromChat(input: {
     durationHours = h;
   }
 
-  const supabase = await createClient();
+  // Service-role: since 0310 only the owner may write another member's row
+  // through the API. moderate_lounge was checked above.
+  const supabase = createServiceRoleClient();
   const { error } = await supabase
     .from("profiles")
     .update({ chat_muted_until: until })
@@ -198,6 +201,13 @@ export async function clearOldLoungeMessages(hoursOld = 24, room = "lounge") {
   return { ok: true, deleted };
 }
 
+/** @username for each member, read server-side (profiles RLS is owner-only, 0310). */
+async function handlesFor(ids: string[]): Promise<Map<string, string>> {
+  if (!ids.length) return new Map();
+  const { data } = await createServiceRoleClient().from("profiles").select("id, username").in("id", ids);
+  return new Map((data ?? []).filter((p) => p.username).map((p) => [p.id as string, `@${p.username}`]));
+}
+
 export async function listMutedChatUsers() {
   const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
@@ -207,10 +217,11 @@ export async function listMutedChatUsers() {
   const supabase = createServiceRoleClient();
   const { data, error } = await supabase
     .from("chat_muted_users")
-    .select("id, full_name, chat_muted_until")
+    .select("id, chat_muted_until")
     .order("chat_muted_until", { ascending: false });
   if (error) return { error: error.message };
-  return { ok: true, rows: data ?? [] };
+  const handles = await handlesFor((data ?? []).map((r) => r.id));
+  return { ok: true, rows: (data ?? []).map((r) => ({ ...r, handle: handles.get(r.id) ?? null })) };
 }
 
 /**
@@ -228,15 +239,19 @@ export async function listBanReviewQueue() {
   const supabase = createServiceRoleClient();
   const { data, error } = await supabase.rpc("chat_ban_review_queue");
   if (error) return { error: error.message };
+  const rows = (data ?? []) as {
+    user_id: string;
+    mute_count: number;
+    total_capped_hours: number;
+    current_mute_until: string | null;
+  }[];
+  // The RPC also returns full_name; admins get the @username instead (0310).
+  const handles = await handlesFor(rows.map((r) => r.user_id));
   return {
     ok: true,
-    rows: (data ?? []) as {
-      user_id: string;
-      full_name: string | null;
-      mute_count: number;
-      total_capped_hours: number;
-      current_mute_until: string | null;
-    }[],
+    rows: rows.map(({ user_id, mute_count, total_capped_hours, current_mute_until }) => ({
+      user_id, mute_count, total_capped_hours, current_mute_until, handle: handles.get(user_id) ?? null,
+    })),
   };
 }
 
