@@ -193,6 +193,12 @@ jobs:
         continue-on-error: true
         run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-legislative-sessions.mjs
 
+      # Congress: the only kratom bill feed that is not state-scoped. Three
+      # LegiScan searches a run; retires bills of a Congress that ended.
+      - name: Federal kratom bills (LegiScan, current Congress)
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-federal-bills.mjs
+
       # Review-by failsafe: retire bills whose session adjourned without passage
       # (+ cascade to their alerts/campaigns), stamp review_by up front, and
       # revive any wrongly-buried bill with a fresh action. Reversible; logs to
