@@ -28,6 +28,7 @@ import { createClient } from "@supabase/supabase-js";
 import { kratomRelevance } from "./lib/kratom-keywords.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 import { bestSourceUrl } from "./lib/source-url.mjs";
+import { STALE_NEWS_DAYS, freshNewsFloor, isStaleNews } from "./lib/news-freshness.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -158,7 +159,12 @@ let q = sb.from("news_items")
   .not("body_has_kratom_keyword", "is", false)
   .limit(LIMIT);
 if (!REFRESH) q = q.is("policy_classified_at", null);
+// Default window: the last STALE_NEWS_DAYS, plus undated items. Without it the
+// hourly run walked back into the archive once fresh news ran out (see
+// scripts/lib/news-freshness.mjs). --since opts into a backfill, which still
+// mints no alert for a stale story (the gate in the loop).
 if (SINCE) q = q.gte("published_at", SINCE);
+else q = q.or(`published_at.gte.${freshNewsFloor()},published_at.is.null`);
 q = q.order("published_at", { ascending: false });
 
 const { data: items, error } = await q;
@@ -207,6 +213,13 @@ for (const item of items) {
       console.log(`\n  ⚠ subject-guard: AI said is_policy_event=true but kratom is not the subject (${rel.reason}) — forcing false`);
       isEvent = false;
       conf = 0;
+    }
+
+    // Old news is history, not intel: classify it, but never mint an alert
+    // (an alert dated today would reach the ticker, the push and a campaign).
+    if (isEvent && conf >= 0.6 && isStaleNews(item.published_at)) {
+      console.log(`\n  · stale: published ${String(item.published_at).slice(0, 10)}, older than ${STALE_NEWS_DAYS} days → no alert`);
+      isEvent = false;
     }
 
     if (isEvent && conf >= 0.6) {
