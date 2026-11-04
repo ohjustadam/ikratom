@@ -483,17 +483,10 @@ export default async function StatusPage() {
         <p className="mt-2 text-sm text-zinc-400">
           Every count above is a live database query. Every pipeline above is a
           GitHub Actions cron job that hits a public free API (Google News RSS,
-          LegiScan, OpenStates, PubMed, etc.) and writes to Postgres. Anthropic
-          Claude is used only for stakes-critical work; the workhorse models are
-          free-tier Groq + Gemini + Cerebras + Mistral.
+          LegiScan, OpenStates, PubMed, etc.) and writes to Postgres. Every AI
+          model is a free-tier one (Groq, Gemini, Mistral and others); no paid AI.
         </p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <Link href="/pitch/efficiency" className="rounded bg-emerald-500 px-3 py-1.5 font-semibold text-zinc-950 hover:bg-emerald-400">
-            See the full stack →
-          </Link>
-          <Link href="/pitch" className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 hover:border-emerald-500">
-            Architecture overview
-          </Link>
           <Link href="/states" className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 hover:border-emerald-500">
             Browse by state
           </Link>
