@@ -62,6 +62,15 @@ describe("deriveStatusFromAction (full ladder)", () => {
   });
 });
 
+describe("Tennessee public chapters", () => {
+  it("reads \"Pub. Ch. 950\" as enacted", () => {
+    expect(terminalStatusFromAction("Pub. Ch. 950")).toBe("enacted");
+  });
+  it("gives a companion of an enacted bill no terminal signal", () => {
+    expect(terminalStatusFromAction("Comp. became Pub. Ch. 950")).toBeNull();
+  });
+});
+
 describe("display labels + filter grouping", () => {
   it("labels every writable status (incl. vetoed/in_committee)", () => {
     expect(billStatusLabel("vetoed")).toBe("Vetoed");
