@@ -3,8 +3,6 @@
 ## What This Is
 A nonpartisan political action platform for the kratom advocacy community. Independent of any org (AKA, GKC, BAE, MAC). The mission: turn hours of advocacy work — sending legislator emails, tracking bills, finding contacts — into a few minutes a day, with one-click actions backed by real data.
 
-This is **separate** from Iron Gate (the marketplace at `C:\claude\marketplace\`). Different audience, different brand, different purpose.
-
 ## Product Rules (MUST follow)
 - **Nonpartisan.** Never lean toward an org or political side. The platform is a tool, not a faction.
 - **Empower the advocate, not the org.** Features should remove friction for the individual taking action.

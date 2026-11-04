@@ -4,15 +4,18 @@ import { getMyVendorState } from "@/modules/auth/actions-vendor";
 import { VendorApplyForm } from "./VendorApplyForm";
 
 /**
- * /account/vendor — apply to become a verified vendor + see status.
+ * /account/vendor — mark an account as a vendor account, and see its status.
  *
- * Three states the page handles:
- *   - none / rejected (>30 days): show application form
- *   - pending: show "under review" message + submitted info
- *   - approved: show "verified" badge + business info + business action benefits
- *   - rejected (within 30 days): show rejection reason + cooldown countdown
+ * A vendor account is an ID and nothing more (owner, 2026-11-03): it tells the
+ * iKratom team this member works in the kratom trade. It grants no listing,
+ * badge, link, sending "as the business" or promotion, and the Terms bar
+ * selling everywhere (src/lib/selling.ts screens every member post). The
+ * business details stay private to the member and the iKratom team.
+ *
+ * States: none / rejected (>30 days) → form; pending → under review;
+ * approved → marked; rejected (within 30 days) → reason + cooldown.
  */
-export const metadata = { title: "Verified vendor" };
+export const metadata = { title: "Vendor account" };
 
 export default async function VendorPage() {
   const supabase = await createClient();
@@ -36,11 +39,11 @@ export default async function VendorPage() {
         ← Account
       </a>
       <header className="mt-2 mb-8">
-        <h1 className="text-3xl font-bold">Verified vendor</h1>
+        <h1 className="text-3xl font-bold">Vendor account</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Verified vendors can take advocacy action <em>as their business</em> in addition
-          to as themselves. Useful for shops, distributors, and brands speaking publicly
-          about kratom policy.
+          Work in the kratom trade? Mark your account as a vendor account. It only tells
+          the iKratom team who you are. You take action as yourself, like every member,
+          and selling or promoting a business isn&apos;t allowed anywhere on iKratom.
         </p>
       </header>
 
@@ -48,7 +51,7 @@ export default async function VendorPage() {
         <section className="mb-8 rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded bg-emerald-500 px-2 py-0.5 text-xs font-bold text-zinc-950">
-              ✓ VERIFIED
+              ✓ VENDOR ACCOUNT
             </span>
             <h2 className="text-lg font-semibold">{v.vendor_business_name}</h2>
           </div>
@@ -61,9 +64,8 @@ export default async function VendorPage() {
             <div className="sm:col-span-2"><dt className="text-zinc-500">Approved</dt><dd className="text-zinc-200">{v.vendor_approved_at ? new Date(v.vendor_approved_at).toLocaleString() : "—"}</dd></div>
           </dl>
           <p className="mt-4 text-xs text-zinc-400">
-            When you take a campaign action, you&apos;ll see a choice between sending as
-            yourself or as your business. Your profile shows a verified badge to other
-            advocates.
+            Your account is marked as a vendor account. Only you and the iKratom team see
+            these details: nothing about your business is shown to other members.
           </p>
           <p className="mt-3 text-xs text-zinc-500">
             Need to update your business info or step down as vendor?{" "}
@@ -80,8 +82,8 @@ export default async function VendorPage() {
           <p className="text-sm font-semibold text-amber-300">Under review</p>
           <p className="mt-1 text-xs text-zinc-300">
             Submitted {v.vendor_application_at ? new Date(v.vendor_application_at).toLocaleString() : ""}.
-            We typically respond within 2 business days. We&apos;ll verify the business is
-            real and your role is plausible — most applications get approved.
+            We typically respond within 2 business days, after checking that the business
+            is real and you plausibly work there.
           </p>
           <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
             <div><dt className="text-zinc-500">Business</dt><dd className="text-zinc-200">{v.vendor_business_name}</dd></div>
@@ -116,25 +118,23 @@ export default async function VendorPage() {
           <p className="mb-4 text-xs text-zinc-500">
             We do a light verification: confirming the business exists, that you&apos;re
             plausibly its representative. No documents required for most applicants.
-            Lying = permanent rejection + reporting to the org.
+            A false application is rejected for good.
           </p>
           <VendorApplyForm initial={v} />
         </section>
       )}
 
       <section className="mt-12 rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 text-sm text-zinc-400">
-        <h3 className="mb-2 font-semibold text-zinc-200">Why verify?</h3>
+        <h3 className="mb-2 font-semibold text-zinc-200">What a vendor account is</h3>
         <ul className="list-inside list-disc space-y-1 text-xs">
-          <li>Send advocacy emails as the business, signed with the company name</li>
-          <li>Verified badge on your profile + adjacent to forum posts</li>
-          <li>Counted in &ldquo;X businesses opposing this bill&rdquo; tallies on bill pages</li>
-          <li>Eligibility to host community giveaways (when that ships)</li>
+          <li>An ID: the iKratom team knows you work in the kratom trade.</li>
+          <li>Private: your business details are never shown to other members.</li>
         </ul>
-        <h3 className="mb-2 mt-4 font-semibold text-zinc-200">What we DON&apos;T do</h3>
+        <h3 className="mb-2 mt-4 font-semibold text-zinc-200">What it isn&apos;t</h3>
         <ul className="list-inside list-disc space-y-1 text-xs">
-          <li>Take a cut. iKratom is free for vendors and customers.</li>
-          <li>Sell vendor data. Verified status is shown on your profile only.</li>
-          <li>Advertise vendors. We&apos;re not a marketplace.</li>
+          <li>A listing, badge, link or any kind of promotion. iKratom is not a marketplace.</li>
+          <li>Permission to sell. Prices, codes, &ldquo;DM me to order&rdquo; and shop plugs are refused in every post, chat and profile, for everyone.</li>
+          <li>A cost. iKratom is free and takes nothing from vendors.</li>
         </ul>
       </section>
     </div>

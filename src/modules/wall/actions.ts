@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { detectModerationSignals } from "@/lib/moderation";
+import { sellingIssue } from "@/lib/selling";
 import { isAudience } from "@/modules/profile/audience";
 import { deletePhotoRow } from "@/modules/profile/photo-upload";
 import { COMMENT_MAX, POST_MAX, type WallComment } from "./types";
@@ -26,7 +27,8 @@ async function me() {
 
 function contactInfo(text: string): string | null {
   const s = detectModerationSignals(text);
-  return s.phones.length || s.emails.length ? "Remove phone numbers and email addresses before posting." : null;
+  if (s.phones.length || s.emails.length) return "Remove phone numbers and email addresses before posting.";
+  return sellingIssue(text);
 }
 
 export async function createWallPost(input: { ownerId: string; body: string; photoId?: string | null; audience?: string | null }): Promise<Result> {

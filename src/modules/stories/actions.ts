@@ -6,6 +6,7 @@ import { getCreatorContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
+import { sellingIssue } from "@/lib/selling";
 
 const VALID_TAGS = [
   "pain", "recovery", "mental_health", "energy", "medical_pro",
@@ -43,6 +44,10 @@ export async function submitStory(input: {
   const body = input.body.trim().slice(0, 10_000);
   if (!title || title.length < 8) return { error: "Title must be at least 8 characters." };
   if (!body || body.length < 80) return { error: "Story body must be at least 80 characters." };
+  const selling = sellingIssue(`${title}
+
+${body}`);
+  if (selling) return { error: selling };
 
   const tags = Array.isArray(input.tags)
     ? input.tags.filter((t) => (VALID_TAGS as readonly string[]).includes(t)).slice(0, 5)

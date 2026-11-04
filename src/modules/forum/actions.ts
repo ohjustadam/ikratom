@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { moderateNewContent } from "@/lib/moderation";
+import { sellingIssue } from "@/lib/selling";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
@@ -53,6 +54,11 @@ export async function createThread(formData: FormData) {
 
   if (!title) return { error: "Title is required." };
   if (title.length < 4) return { error: "Title must be at least 4 characters." };
+
+  const selling = sellingIssue(`${title}
+
+${body ?? ""}`);
+  if (selling) return { error: selling };
 
   // Pull author's state + privileges + post count for moderation decision
   const { data: profile } = await supabase
@@ -215,6 +221,9 @@ export async function createPost(formData: FormData) {
       };
     }
   }
+
+  const selling = sellingIssue(body);
+  if (selling) return { error: selling };
 
   const isPrivileged =
     !!profile?.is_admin || !!profile?.is_owner || !!profile?.is_advocate_leader;

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { moderateChatMessage } from "./moderate";
+import { sellingIssue } from "@/lib/selling";
 import { notifyLoungeMentions } from "./mentions";
 
 /**
@@ -59,6 +60,8 @@ export async function postChatMessage(input: { body: string; room?: string }) {
   if (FLOOD_RE.test(body)) {
     return { error: "Looks like a stuck key — message rejected as flood." };
   }
+  const selling = sellingIssue(body);
+  if (selling) return { error: selling };
 
   // Account-age gate: read profile created_at + admin/leader bypass + mute.
   // We deliberately do NOT trust the chat_messages RLS to enforce throttle;

@@ -76,7 +76,7 @@ Metaphors that should resonate when designing UI:
 What this is **not**:
 - A social media app (we don't optimize for engagement, we optimize for action taken)
 - A news aggregator (we summarize, but we exist to drive action on what's summarized)
-- A marketplace (Iron Gate is the marketplace; iKratom is the action engine)
+- A marketplace (iKratom sells nothing and promotes no seller; it is the action engine)
 
 ---
 
