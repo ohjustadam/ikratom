@@ -18,7 +18,8 @@ const PITCHES: RegExp[] = [
   // Codes and discounts
   /\b(?:coupons?|promo ?codes?|discount ?codes?|coupon ?codes?)\b/i,
   /\buse (?:my |our |the )?code\b/i,
-  /\b\d{1,2} ?% off\b/i,
+  // Lookahead, not \b: "-" is a word boundary, so \b would refuse "0% off-topic" (#1107).
+  /\b\d{1,2} ?% off(?![\w-])/i,
   /\bfree shipping\b|\bsame[- ]day shipping\b|\bwe ship (?:to|nationwide|anywhere|fast|free|same)\b/i,
   // Calls to buy
   /\b(?:buy|order|shop) now\b/i,

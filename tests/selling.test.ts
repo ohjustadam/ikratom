@@ -41,6 +41,7 @@ describe("selling screen (owner, 2026-11-03: advocacy, never an advertisers' par
     "DM me if you want to carpool to the hearing.",
     "Message me for the hearing details.",
     "Kratom costs me about $40 a month and it replaced my opioids.",
+    "This group is 100% volunteer, 0% off-topic.",
     "",
   ];
   for (const a of advocacy) {
