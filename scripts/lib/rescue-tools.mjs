@@ -102,8 +102,9 @@ export async function probeDeployments(limit = 5) {
  * gateway is restricted. This is the single most valuable probe in an outage.
  */
 export async function sqlViaManagementApi(query) {
-  const token = process.env.SUPABASE_ACCESS_TOKEN;
-  const ref = process.env.SUPABASE_PROJECT_REF
+  // Repo secrets carry a byte-order mark that fetch() refuses in a header.
+  const token = (process.env.SUPABASE_ACCESS_TOKEN ?? "").replace(/^﻿/, "").trim();
+  const ref = (process.env.SUPABASE_PROJECT_REF ?? "").replace(/^﻿/, "").trim()
     || (process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).host.split(".")[0] : null);
   if (!token || !ref) return { ok: false, error: "SUPABASE_ACCESS_TOKEN or project ref missing", rows: null };
   const r = await safeFetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {

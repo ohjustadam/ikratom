@@ -41,6 +41,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { alertStaleReason, isCampaignWorthyAlert } from "./lib/campaign-eligibility.mjs";
 import { cleanSourceUrl } from "./lib/source-url.mjs";
+import { STATE_NAMES } from "./lib/geo-resolver.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -70,6 +71,17 @@ function stripLinkLines(body) {
   return String(body ?? "")
     .replace(/\n*[ \t]*(Source|More detail|Background and platform|Background|Briefing):[^\n]*/g, "")
     .replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * "in Ohio", or "at the federal level". Subjects stay short and plain: a member
+ * said the old ones were long and over-specific, and a fake "Re:" on a first
+ * email is a spam signal to government mail filters (2026-11-03).
+ */
+function placeWord(localityName) {
+  const raw = String(localityName ?? "").trim();
+  const place = STATE_NAMES[raw.toUpperCase()] ?? raw;
+  return /^the\b/i.test(place) ? `at ${place}` : `in ${place}`;
 }
 
 function templateForAlert(alert) {
@@ -102,7 +114,7 @@ function templateForAlertRaw(alert) {
   // is neutral.
   if (alert.kind === "bill_event" && alert.title?.toLowerCase().includes("city")) {
     return {
-      subject: `Re: kratom ordinance in ${localityName} — please clarify scope`,
+      subject: `Kratom ordinance ${placeWord(localityName)}`,
       body: `Dear {{recipient_title}} {{recipient_last_name}},
 
 I'm writing as a constituent regarding the recent kratom-related ordinance activity in ${localityName}.
@@ -130,7 +142,7 @@ Sincerely,
 
   if (alert.kind === "bop_hearing") {
     return {
-      subject: `Public comment on kratom-related agenda item — ${localityName} Board of Pharmacy`,
+      subject: `Public comment: kratom, ${localityName} Board of Pharmacy`,
       body: `Dear Board members,
 
 I submit this public comment regarding kratom-related items on the upcoming agenda.
@@ -153,7 +165,7 @@ Sincerely,
 
   if (alert.kind === "ag_enforcement" || alert.kind === "fda_action") {
     return {
-      subject: `Kratom enforcement in ${localityName} — request for scope clarification`,
+      subject: `Kratom enforcement ${placeWord(localityName)}`,
       body: `Dear {{recipient_title}} {{recipient_last_name}},
 
 I'm writing regarding the recent kratom-related enforcement action in ${localityName}.
@@ -172,7 +184,7 @@ Sincerely,
 
   // Default: state-bill or generic news event
   return {
-    subject: `Kratom policy in ${localityName} — request for evidence-based scope`,
+    subject: `Kratom policy ${placeWord(localityName)}`,
     body: `Dear {{recipient_title}} {{recipient_last_name}},
 
 I'm writing as a constituent regarding recent kratom-related policy activity in ${localityName}.

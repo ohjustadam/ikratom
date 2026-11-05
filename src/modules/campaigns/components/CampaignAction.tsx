@@ -20,6 +20,7 @@ import { EmailSafetyNote } from "@/components/EmailSafetyNote";
 import { makeRecordNonce, recordAddress, withRecordBcc } from "@/lib/send-record";
 import { SendRecordNotice } from "./SendRecordNotice";
 import Link from "@/components/Link";
+import { isMailbox } from "@/lib/mailbox";
 import { preferGmailAppOnAndroid } from "@/modules/compose/send-links";
 import {
   groupByRole,
@@ -164,7 +165,7 @@ export function CampaignAction({
   // Exclude contact-form-only "emails" (stored as http(s) URLs) — they're not
   // mailable and would land as garbage in the compose "To". Mirrors the
   // server-side filter in actions.ts so client + server agree on who's emailable.
-  const allWithEmail = targets.filter((t) => !!t.email && !t.email.startsWith("http"));
+  const allWithEmail = targets.filter((t) => isMailbox(t.email));
   // Targets reachable ONLY via a web form (email is an http URL) or via their
   // official site (no email but a website) — surfaced separately so a mixed
   // campaign doesn't silently drop them (finding: LA Gov/AG + a real-inbox
