@@ -30,11 +30,22 @@
  * Run:
  *   node --env-file=.env.local scripts/push-critical-alerts.mjs
  *   node --env-file=.env.local scripts/push-critical-alerts.mjs --dry-run
+ *   node --env-file=.env.local scripts/push-critical-alerts.mjs --alert <id> --dry-run
+ *
+ * --alert <id> sends one alert the owner approved after it was held: its
+ * auto_pushed_at was pre-stamped to stop the hourly run, and it may be past the
+ * 24 h window. Every other gate still applies, and an alert that already went
+ * out (auto_pushed_count set) is refused.
  */
 import { createClient } from "@supabase/supabase-js";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
+const ALERT_ID = args.includes("--alert") ? args[args.indexOf("--alert") + 1] : null;
+if (args.includes("--alert") && !/^[0-9a-f-]{36}$/i.test(ALERT_ID ?? "")) {
+  console.error("--alert needs a full alert id");
+  process.exit(1);
+}
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -187,7 +198,7 @@ async function processAlert(a) {
 
   const stateLabel = stateCode ?? "federal";
   const severityEmoji = a.severity === "critical" ? "🚨" : "⚠️";
-  const title = `${severityEmoji} ${stateLabel}: ${a.title.slice(0, 100)}`;
+  const title = `${severityEmoji} ${stateLabel}: ${a.title.slice(0, 120)}`;
   const body = a.body ? a.body.split("\n")[0].slice(0, 180) : "Tap for the full briefing.";
   // Dedicated detail page — /pulse anchor jumps were silently no-op
   // because /pulse never rendered alert-id anchors. /alerts/[id] is
@@ -228,14 +239,16 @@ async function processAlert(a) {
 
 // ---------- main ----------
 const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-const { data: alerts, error } = await sb
+let alertQuery = sb
   .from("policy_alerts")
   .select("id, kind, title, body, severity, locality, source_url, created_at, occurs_at, bill_id")
   .in("severity", ["critical", "alert"])
   .in("kind", [...USER_FACING_KINDS])    // exclude scraper_stale + other admin-only kinds
-  .eq("moderation_status", "approved")
-  .is("auto_pushed_at", null)
-  .gte("created_at", since)
+  .eq("moderation_status", "approved");
+alertQuery = ALERT_ID
+  ? alertQuery.eq("id", ALERT_ID).is("auto_pushed_count", null)
+  : alertQuery.is("auto_pushed_at", null).gte("created_at", since);
+const { data: alerts, error } = await alertQuery
   .order("created_at", { ascending: true })
   .limit(40);   // larger pool — many will fail freshness gate, so widen the slate
 
