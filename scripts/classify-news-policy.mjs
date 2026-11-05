@@ -28,6 +28,7 @@ import { createClient } from "@supabase/supabase-js";
 import { kratomRelevance } from "./lib/kratom-keywords.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 import { bestSourceUrl } from "./lib/source-url.mjs";
+import { STALE_NEWS_DAYS, freshNewsFloor, isStaleNews } from "./lib/news-freshness.mjs";
 
 const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
@@ -35,6 +36,12 @@ const LIMIT = parseInt(arg("--limit") ?? "50");
 const SINCE = arg("--since"); // YYYY-MM-DD
 const REFRESH = args.includes("--refresh");
 const PROVIDER_OVERRIDE = arg("--provider");
+// Stop taking new items after this many minutes, so the run ends and logs
+// before the job's timeout kills it. A dry AI pool once stretched 20 items past
+// 14 minutes and the hourly news-intake job was cancelled (2026-11-03), which
+// skipped the enrich and action jobs behind it. 0 = no cap.
+const MAX_MINUTES = Number(arg("--max-minutes") ?? 0);
+const DEADLINE = MAX_MINUTES > 0 ? Date.now() + MAX_MINUTES * 60_000 : 0;
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -158,7 +165,12 @@ let q = sb.from("news_items")
   .not("body_has_kratom_keyword", "is", false)
   .limit(LIMIT);
 if (!REFRESH) q = q.is("policy_classified_at", null);
+// Default window: the last STALE_NEWS_DAYS, plus undated items. Without it the
+// hourly run walked back into the archive once fresh news ran out (see
+// scripts/lib/news-freshness.mjs). --since opts into a backfill, which still
+// mints no alert for a stale story (the gate in the loop).
 if (SINCE) q = q.gte("published_at", SINCE);
+else q = q.or(`published_at.gte.${freshNewsFloor()},published_at.is.null`);
 q = q.order("published_at", { ascending: false });
 
 const { data: items, error } = await q;
@@ -170,6 +182,10 @@ console.log(`Classifying ${items.length} news item(s)...\n`);
 let alertsCreated = 0, classified = 0, skipped = 0, failed = 0;
 
 for (const item of items) {
+  if (DEADLINE && Date.now() > DEADLINE) {
+    console.log(`⏱ Reached the ${MAX_MINUTES}-min budget; the rest wait for the next run.`);
+    break;
+  }
   const tag = `[${item.state ?? "?"}] ${(item.title ?? "").slice(0, 80)}`;
   process.stdout.write(`  ${tag} `);
   try {
@@ -207,6 +223,13 @@ for (const item of items) {
       console.log(`\n  ⚠ subject-guard: AI said is_policy_event=true but kratom is not the subject (${rel.reason}) — forcing false`);
       isEvent = false;
       conf = 0;
+    }
+
+    // Old news is history, not intel: classify it, but never mint an alert
+    // (an alert dated today would reach the ticker, the push and a campaign).
+    if (isEvent && conf >= 0.6 && isStaleNews(item.published_at)) {
+      console.log(`\n  · stale: published ${String(item.published_at).slice(0, 10)}, older than ${STALE_NEWS_DAYS} days → no alert`);
+      isEvent = false;
     }
 
     if (isEvent && conf >= 0.6) {

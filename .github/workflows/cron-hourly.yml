@@ -303,7 +303,10 @@ jobs:
         # --limit 80: 200/hr front-loaded the free-tier daily quota; 80/hr
         # still drains any realistic backlog across ticks. Circuit breaker
         # (scripts/lib/batch-guard.mjs) stops early if providers die.
-        run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-news-policy.mjs --limit 20
+        # --max-minutes 9: RSS can take 14, and one item in flight at the cap can
+        # still take ~3 more, so this keeps the job under its 28-minute timeout
+        # (a dry pool ran classify 14+ min and the job was cancelled, 2026-11-03).
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/classify-news-policy.mjs --limit 20 --max-minutes 9
 
   news-enrich:
     # Same-tick in-app enrichment (#632 fast path): resolve → extract body+media
