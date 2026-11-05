@@ -36,6 +36,12 @@ const LIMIT = parseInt(arg("--limit") ?? "50");
 const SINCE = arg("--since"); // YYYY-MM-DD
 const REFRESH = args.includes("--refresh");
 const PROVIDER_OVERRIDE = arg("--provider");
+// Stop taking new items after this many minutes, so the run ends and logs
+// before the job's timeout kills it. A dry AI pool once stretched 20 items past
+// 14 minutes and the hourly news-intake job was cancelled (2026-11-03), which
+// skipped the enrich and action jobs behind it. 0 = no cap.
+const MAX_MINUTES = Number(arg("--max-minutes") ?? 0);
+const DEADLINE = MAX_MINUTES > 0 ? Date.now() + MAX_MINUTES * 60_000 : 0;
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -176,6 +182,10 @@ console.log(`Classifying ${items.length} news item(s)...\n`);
 let alertsCreated = 0, classified = 0, skipped = 0, failed = 0;
 
 for (const item of items) {
+  if (DEADLINE && Date.now() > DEADLINE) {
+    console.log(`⏱ Reached the ${MAX_MINUTES}-min budget; the rest wait for the next run.`);
+    break;
+  }
   const tag = `[${item.state ?? "?"}] ${(item.title ?? "").slice(0, 80)}`;
   process.stdout.write(`  ${tag} `);
   try {
