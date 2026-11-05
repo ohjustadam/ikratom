@@ -1,11 +1,12 @@
 import Link from "@/components/Link";
+import { requireOwner } from "../require-owner";
 import { MermaidLoader } from "../MermaidLoader";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
+// Generic on purpose: metadata is sent even when the page 404s.
 export const metadata = {
-  title: "iKratom · AI router efficiency & free-tier stack",
-  description: "Live breakdown of the AI router: which providers do what work, how many ops they served, and the honest token-priced cost of doing the same on Claude alone. Refreshed each request.",
+  title: "iKratom",
   robots: { index: false, follow: false },
 };
 
@@ -108,6 +109,7 @@ const PUBLIC_PIPELINES = [
 ];
 
 export default async function EfficiencyPage() {
+  await requireOwner();
   const supabase = await createClient();
   const now = Date.now();
 

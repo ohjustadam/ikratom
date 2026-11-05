@@ -192,6 +192,7 @@ Repo-level merge settings (post-PR #254):
 6. **pdf-parse v2:** ESM-incompatible. Use `createRequire(import.meta.url)('pdf-parse')` then `new PDFParse(new Uint8Array(buf))` — its engine REJECTS Node Buffers (since ~2026-07; the error is swallowed by catch-blocks, so it looks like "docs undecodable"). Always wrap in `Uint8Array`.
 7. **Service worker push:** payloads with a `tag` field deduplicate at the OS level. Use `tag` for replaceable notifications, omit for stacking.
 8. **Slug fields are immutable in production.** Once a partner / campaign slug is printed in the wild (QR codes, share links), changing it breaks every existing link.
+9. **A layout can't protect a page.** Next renders `layout.tsx` and `page.tsx` separately, so a `notFound()` or `redirect()` in a layout shows the visitor the error page while the page's text still goes out in the same response (the `/pitch` leak, 2026-11-05). Every private page checks access itself, first. Static `metadata` also goes out on a 404, so keep it generic on private pages.
 
 ---
 
