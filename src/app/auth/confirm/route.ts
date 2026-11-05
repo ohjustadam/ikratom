@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { PENDING_JOIN_COOKIE, pendingJoinPath } from "@/lib/pending-join";
 
 /**
  * Token-hash confirmation route for SERVER-GENERATED auth links
@@ -47,6 +48,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(`/login?error=${encodeURIComponent(error.message)}`, request.url),
     );
+  }
+
+  // A group invite remembered at signup (src/lib/pending-join.ts): land in the
+  // group, not the default page. Never on a password reset.
+  if (safeNext !== "/reset-password") {
+    const pending = pendingJoinPath(request.cookies.get(PENDING_JOIN_COOKIE)?.value);
+    if (pending) {
+      const res = NextResponse.redirect(new URL(pending, request.url));
+      res.cookies.set(PENDING_JOIN_COOKIE, "", { maxAge: 0, path: "/" });
+      return res;
+    }
   }
 
   // First-time confirmation with no explicit destination → onboarding.

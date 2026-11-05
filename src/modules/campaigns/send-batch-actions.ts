@@ -25,6 +25,7 @@ import { adaptForHiddenHome, adaptForNonResident, buildVars, renderTemplate, unf
 import { getSafeMode } from "./safe-mode";
 import { drainBatch } from "./drain-batch";
 import { screenMemberLetter } from "./screen-content";
+import { isMailbox } from "@/lib/mailbox";
 
 /** Hard ceiling on one batch. Not a security boundary — scope is. */
 const MAX_BATCH_RECIPIENTS = 1000;
@@ -162,7 +163,7 @@ export async function enqueueCampaignSend(input: {
 
   // Contact-form-only officials store a URL in `email`; sending there is a
   // guaranteed bounce.
-  const sendable = inScope.filter((l) => !!l.email && !l.email.startsWith("http"));
+  const sendable = inScope.filter((l) => isMailbox(l.email));
   const skippedNoEmail = inScope.length - sendable.length;
 
   // Never write to the same office twice for one campaign — across ANY prior

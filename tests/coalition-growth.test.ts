@@ -58,8 +58,11 @@ describe("server actions", () => {
 });
 
 describe("pages", () => {
-  it("a signed-out visitor keeps the sharer's referral code through sign-in", () => {
-    expect(join).toMatch(/redirect\(`\/login\?redirect=\$\{encodeURIComponent\(`\/coalitions\/join\/\$\{code\}`\)\}\$\{ref\}`\)/);
+  it("a signed-out visitor keeps the sharer's referral code through signup and sign-in", () => {
+    // Both buttons on the invite page carry the invite back AND the referral.
+    expect(join).toMatch(/\/login\?mode=signup&redirect=\$\{encodeURIComponent\(back\)\}\$\{ref\}/);
+    expect(join).toMatch(/\/login\?redirect=\$\{encodeURIComponent\(back\)\}\$\{ref\}/);
+    expect(join).toMatch(/const back = `\/coalitions\/join\/\$\{code\}`/);
   });
 
   it("requesters render as @username; progress never lists people", () => {
