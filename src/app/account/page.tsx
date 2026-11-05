@@ -123,8 +123,8 @@ export default async function AccountPage({
 
             <LinkCard
               href="/account/vendor"
-              title="Verified vendor"
-              body="Get verified to send advocacy emails as your shop or brand in addition to as yourself."
+              title="Vendor account"
+              body="Work in the kratom trade? Mark your account. It's an ID only: no listing, no promotion, no selling."
               cta="Manage vendor status"
             />
           </Section>

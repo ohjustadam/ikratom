@@ -127,7 +127,7 @@ export default async function AdminPage() {
     if (can("review_vendor_applications") && queues.vendorApplications > 0) inbox.push({
       href: "/admin/vendor-applications",
       title: `Vendor applications (${queues.vendorApplications})`,
-      body: "Review users applying to be verified vendors.",
+      body: "Review members asking to mark their account as a vendor account (an ID only).",
       count: queues.vendorApplications,
     });
     if (can("moderate_stories") && queues.stories > 0) inbox.push({

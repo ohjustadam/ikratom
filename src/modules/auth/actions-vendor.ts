@@ -10,10 +10,11 @@ import { checkRateLimit } from "@/lib/rate-limit";
 /**
  * Vendor account flow — Option A from docs/VENDOR_ACCOUNTS.md.
  *
- * One profile, one human. A profile can have a "verified vendor" status
- * that lets them send campaign emails *as* a business in addition to
- * *as* themselves. Verification is admin-approved; nothing changes for
- * regular users until they apply + are approved.
+ * One profile, one human. Approval marks the account as a vendor account:
+ * an ID for the iKratom team and nothing more (owner, 2026-11-03). No
+ * listing, badge, link, sending as the business or promotion, and the
+ * business details are never shown to other members. Selling is refused
+ * on every member surface (src/lib/selling.ts).
  *
  * Re-application policy:
  *   - status='pending'  → cannot apply again
@@ -66,7 +67,7 @@ export async function applyForVendorStatus(input: VendorApplication) {
 
   const status = profile?.vendor_status ?? "none";
   if (status === "pending") return { error: "Your application is already under review." };
-  if (status === "approved") return { error: "You're already a verified vendor." };
+  if (status === "approved") return { error: "Your account is already marked as a vendor account." };
   if (status === "rejected" && profile?.vendor_application_at) {
     const last = new Date(profile.vendor_application_at).getTime();
     const cooldownEnds = last + APPLY_COOLDOWN_DAYS * 86400_000;

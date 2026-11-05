@@ -23,7 +23,7 @@ export function VendorApplicationsPanel({ applications }: { applications: Applic
   const [pending, startTransition] = useTransition();
 
   function approve(userId: string, name: string) {
-    if (!confirm(`Approve ${name} as a verified vendor?`)) return;
+    if (!confirm(`Mark ${name} as a vendor account? It's an ID only: no listing or promotion.`)) return;
     setError(null);
     startTransition(async () => {
       const r = await approveVendor(userId);

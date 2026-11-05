@@ -91,8 +91,8 @@ export default async function SubmitHubPage() {
         <SubmitCard
           href="/account/vendor"
           emoji="🏪"
-          title="Apply to be a verified vendor"
-          body="Shop owners — get verified to send advocacy emails as your shop in addition to as yourself."
+          title="Mark your account as a vendor account"
+          body="Work in the kratom trade? It's an ID for the iKratom team only: no listing, no promotion, no selling."
         />
       </Section>
 

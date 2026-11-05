@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { isMediaStoreConfigured } from "@/lib/media-store";
 import { detectModerationSignals } from "@/lib/moderation";
+import { sellingIssue } from "@/lib/selling";
 import { MAX_UPLOAD_BYTES, storeMemberPhoto, type PhotoKind } from "@/modules/profile/photo-upload";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,8 @@ export async function POST(req: NextRequest) {
   if (caption) {
     const s = detectModerationSignals(caption);
     if (s.phones.length || s.emails.length) return json({ error: "Remove phone numbers and email addresses from the caption." }, 400);
+    const selling = sellingIssue(caption);
+    if (selling) return json({ error: selling }, 400);
   }
 
   if (!(await checkRateLimit(`photo-upload:${user.id}`, 20, 3600))) {
