@@ -24,6 +24,13 @@ const ENACTED_RE =
 
 const VETO_RE = /\bveto(?:ed|es)?\b/i;
 
+// Tennessee records an enacted bill as "Pub. Ch. 950", and its companion as
+// "Comp. became Pub. Ch. 950". The companion did not become law itself, so it
+// gets no terminal signal; the session-over cron retires it instead of the
+// same law counting twice (TN SB 1656 sat at passed_chamber until 2026-11-03).
+const PUB_CH_RE = /\bpub\.?\s*ch\.?\s*\d+/i;
+const COMPANION_RE = /\bcomp(?:anion)?\.?\s+(?:bill\s+)?became\b/i;
+
 const DEAD_RE =
   /\b(?:died|indefinitely\s+postponed|postponed\s+indefinitely|withdrawn|failed|stricken|tabled|defeated|killed|adjourned\s+sine\s+die|did\s+not\s+pass|enacting\s+clause\s+stricken|sine\s+die)\b/i;
 
@@ -31,8 +38,9 @@ const DEAD_RE =
 export function terminalStatusFromAction(lastAction) {
   const s = String(lastAction ?? "");
   if (!s.trim()) return null;
+  if (COMPANION_RE.test(s)) return null;
   if (VETO_OVERRIDE_RE.test(s)) return "enacted";
-  if (ENACTED_RE.test(s)) return "enacted";
+  if (ENACTED_RE.test(s) || PUB_CH_RE.test(s)) return "enacted";
   if (VETO_RE.test(s)) return "vetoed";
   if (DEAD_RE.test(s)) return "dead";
   return null;

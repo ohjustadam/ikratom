@@ -11,6 +11,7 @@ import { isPasswordPwned } from "@/lib/pwned-passwords";
 import { recordSignIn } from "./actions-devices";
 import { recordAuthEvent } from "@/lib/auth-events";
 import type { AuthResult } from "./types";
+import { PENDING_JOIN_COOKIE, joinCodeFromPath, pendingJoinCookieOptions, pendingJoinPath } from "@/lib/pending-join";
 
 /**
  * Look up the most recent active campaign for a state and return its slug.
@@ -172,6 +173,11 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
 
   const supabase = await createClient();
 
+  // Staff-looking handles ("ikratom_support", "admin_jane"): the database rule
+  // is the authority (migration 0308), and also stops a later change via the API.
+  const { data: reserved } = await supabase.rpc("is_reserved_username", { p: usernameRaw });
+  if (reserved === true) return { error: "That username is reserved." };
+
   // Check username uniqueness BEFORE creating the auth user, so we don't
   // end up with an authed account that can't claim its desired handle.
   // Race: two parallel signups for the same username — the unique index
@@ -278,6 +284,11 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
       // first profile save. Surface the error so they know.
       return { error: `Couldn't set username: ${updateErr.message}` };
     }
+
+    // Came from a group invite? Remember it, so confirming the email lands
+    // them in the group instead of on the default page (lib/pending-join.ts).
+    const joinCode = joinCodeFromPath(formData.get("redirect") as string | null);
+    if (joinCode) (await cookies()).set(PENDING_JOIN_COOKIE, joinCode, pendingJoinCookieOptions);
 
     // Invite-redemption link. If the prospect landed via a friend's
     // /i/CODE link, proxy.ts wrote the code into the invite_ref
@@ -398,6 +409,15 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   // First-time signin: if onboarding not done yet, route through /onboarding.
   // Honors explicit redirect param (e.g. ?redirect=/messages) — only swaps dashboard.
   let dest = safeRelative(redirectTo) || "/dashboard";
+  // A group invite remembered at signup beats the default landing page.
+  if (!safeRelative(redirectTo)) {
+    const jar = await cookies();
+    const pending = pendingJoinPath(jar.get(PENDING_JOIN_COOKIE)?.value);
+    if (pending) {
+      dest = pending;
+      jar.set(PENDING_JOIN_COOKIE, "", { maxAge: 0, path: "/" });
+    }
+  }
   if (dest === "/dashboard" && data.user) {
     const { data: prof } = await supabase
       .from("profiles")

@@ -6,6 +6,7 @@ import { logOfficialContact } from "@/modules/compose/actions";
 import { preferGmailAppOnAndroid, buildGmailComposeUrl, buildMailtoUrl, buildOutlookComposeUrl, mailtoWithinLimit } from "@/modules/compose/send-links";
 import { SendRecordNotice } from "@/modules/campaigns/components/SendRecordNotice";
 import { makeRecordNonce, withRecordBcc } from "@/lib/send-record";
+import { isMailbox } from "@/lib/mailbox";
 
 /**
  * Inline "draft my response" UI on /alerts/[id].
@@ -93,7 +94,7 @@ export function DraftResponsePanel({
   // Recipient wiring. When preset recipients are supplied, the first goes in
   // `to` and the rest are BCC'd; otherwise this is a public-comment draft with
   // no addressee (Copy is the primary path — see button order below).
-  const emails = (recipients ?? []).map((r) => r.email).filter((e) => e && !e.startsWith("http"));
+  const emails = (recipients ?? []).map((r) => r.email).filter(isMailbox);
   const to = emails[0] ?? "";
   const bcc = emails.slice(1).join(",");
   const mailtoHref = draft ? buildMailtoUrl(to, editedSubject, editedBody, bcc) : "";

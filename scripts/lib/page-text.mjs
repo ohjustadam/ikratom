@@ -49,8 +49,31 @@ const MAX_PDF_BYTES = 12_000_000;
 // the page" look true when it isn't.
 const MIN_PDF_TEXT_CHARS = 200;
 
+/** Cloudflare's email masking: the hex's first byte is the XOR key for the rest. */
+function cfDecode(hex) {
+  const key = parseInt(hex.slice(0, 2), 16);
+  let out = "";
+  for (let i = 2; i + 1 < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16) ^ key);
+  return /^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i.test(out) ? out : "";
+}
+
+/**
+ * Put back the addresses Cloudflare masks as "[email protected]". Many .gov
+ * sites use it, and before this the extractor saw only the mask, so the model
+ * guessed an address (jddefranco@ for john.defrancesco@rensselaerny.gov, found
+ * 2026-11-03 when a member's letter bounced). Exported for tests.
+ */
+export function decodeCfEmails(html) {
+  return String(html ?? "")
+    .replace(/<(a|span)\b[^>]*\bdata-cfemail="([0-9a-fA-F]+)"[^>]*>[\s\S]*?<\/\1>/gi, (_, _tag, hex) => ` ${cfDecode(hex)} `)
+    .replace(/\/cdn-cgi\/l\/email-protection#([0-9a-fA-F]+)/g, (_, hex) => `mailto:${cfDecode(hex)}`)
+    // A link that reads "Email" keeps its address only in href, which the
+    // tag strip would drop: write the address into the text.
+    .replace(/<a\b[^>]*\bhref=["']mailto:([^"'?\s]+)[^>]*>/gi, (_, addr) => ` ${addr} `);
+}
+
 function stripHtml(html, maxChars) {
-  return html
+  return decodeCfEmails(html)
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
@@ -82,7 +105,7 @@ export async function fetchPdfText(url, { timeoutMs = 30_000, maxChars = 24_000 
     if (!_PDFParse) ({ PDFParse: _PDFParse } = require_("pdf-parse"));
     const res = await fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
-      headers: { "User-Agent": "iKratom Civic Data (contact@ikratom.org)" },
+      headers: { "User-Agent": "iKratom Civic Data (support@ikratom.org)" },
     });
     if (!res.ok) return null;
     // Cheap check first: bail on the declared size before spending the download.
@@ -115,7 +138,7 @@ async function plainFetchText(url, { timeoutMs, maxChars, diag }) {
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
-      headers: { "User-Agent": "iKratom Civic Data (contact@ikratom.org)" },
+      headers: { "User-Agent": "iKratom Civic Data (support@ikratom.org)" },
     });
     if (!res.ok) {
       if (diag) {

@@ -456,6 +456,13 @@ export function OnboardingWizard({
             Want to write a longer kratom story, upload a video clip, or change your
             class later? Visit <span className="font-mono text-zinc-300">/account/character</span>.
           </p>
+          <p className="mx-auto mt-3 max-w-md text-sm text-zinc-400">
+            New here? The{" "}
+            <a href="/how-it-works" target="_blank" rel="noreferrer" className="font-semibold text-emerald-400 hover:underline">
+              getting-started guide
+            </a>{" "}
+            walks through connecting your email, your first letter and starting a group.
+          </p>
           <button
             onClick={finish}
             disabled={pending}
