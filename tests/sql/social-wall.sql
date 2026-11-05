@@ -32,6 +32,8 @@ begin
     from unnest(array[a, b, c, d, e]) x;
   update public.profiles set username = 'zz' || substr(replace(id::text, '-', ''), 1, 14), profile_visibility = 'public'
    where id in (a, b, c, d, e);
+  -- only reporters a week old count toward the auto-hide (0307)
+  update public.profiles set created_at = now() - interval '30 days' where id in (a, b, c, d, e);
   insert into public.member_connections (requester_id, addressee_id, status) values (a, b, 'accepted');
   insert into public.user_blocks (blocker_id, blocked_id) values (a, d);
   insert into public.member_photos (id, owner_id, kind, r2_key, content_type, bytes, width, height, audience)

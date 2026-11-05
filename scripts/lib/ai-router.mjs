@@ -372,6 +372,24 @@ function noteUnusableBody(p, raw) {
 }
 
 /**
+ * Cloudflare's Gemma 4 thinks before it answers, and on a long prompt the
+ * thinking can fill max_tokens so the answer comes back empty. Twice in a row
+ * means the rest of this process's calls (same prompts, same budgets) will do
+ * the same, and each still costs ~20 s and spends the 10,000 free neurons a
+ * day that bill embeddings share. On 2026-11-03 classify-news-policy hit it on
+ * every item and timed out; bill embeddings then found the day's neurons gone
+ * and failed. Dead for this process only: the next process re-probes it.
+ */
+let _cloudflareEmptyRun = 0;
+function noteCloudflareEmpty() {
+  _cloudflareEmptyRun += 1;
+  if (_cloudflareEmptyRun >= 2 && !deadForProcess.has("cloudflare")) {
+    deadForProcess.set("cloudflare", "empty answers");
+    console.log("    ⓘ cloudflare answered empty twice (its thinking used max_tokens) — dropped from this run");
+  }
+}
+
+/**
  * Parse a 2xx response body as JSON, or classify the provider as unusable.
  *
  * Every provider caller used to do a bare `await r.json()`, which means SEVEN
@@ -689,8 +707,10 @@ async function callCloudflare(sys, user, maxTokens) {
     // findings stamped with empty verdicts, 2026-10-25). Fail, so the router
     // moves on to the next provider.
     const finish = result?.choices?.[0]?.finish_reason ?? "none";
+    noteCloudflareEmpty();
     throw new Error(`Cloudflare returned no content (finish_reason=${finish})`);
   }
+  _cloudflareEmptyRun = 0;
   return parseLooseJson(text || "{}");
 }
 
