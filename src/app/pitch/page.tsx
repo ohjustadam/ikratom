@@ -1,11 +1,13 @@
 import { MermaidLoader } from "./MermaidLoader";
+import { requireOwner } from "./require-owner";
 
+// Generic on purpose: metadata is sent even when the page 404s.
 export const metadata = {
-  title: "iKratom · architecture & vision",
-  description:
-    "Public technical overview — sources, AI pipeline, user journey, vision. Built for partners + investors + developers.",
+  title: "iKratom",
   robots: { index: false, follow: false },
 };
+
+export const dynamic = "force-dynamic";
 
 /**
  * /pitch — investor + developer-facing one-pager.
@@ -20,7 +22,8 @@ export const metadata = {
  * Print-friendly: every section is page-break-aware so Chrome's
  * "Save as PDF" produces a clean deck.
  */
-export default function PitchPage() {
+export default async function PitchPage() {
+  await requireOwner();
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 text-zinc-100 sm:px-6 lg:px-8 print:max-w-none print:py-0">
       <MermaidLoader />
