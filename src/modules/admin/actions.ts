@@ -110,7 +110,9 @@ export async function getAdminQueueCounts(): Promise<AdminQueueCounts> {
         .eq("review_state", "pending_review"),
       supabase.from("local_rep_requests").select("id", { count: "exact", head: true })
         .eq("status", "pending"),
-      supabase.from("profiles").select("id", { count: "exact", head: true })
+      // Service-role: profiles RLS is owner-only since 0310, so an admin's
+      // client would count 0 here.
+      createServiceRoleClient().from("profiles").select("id", { count: "exact", head: true })
         .eq("vendor_status", "pending"),
       supabase.from("kratom_stories").select("id", { count: "exact", head: true })
         .eq("moderation_status", "pending"),

@@ -1,13 +1,13 @@
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * Owner-only "who's online" — users whose presence heartbeat (last_seen_at,
  * migration 0240) landed in the last 5 minutes. Render only for the owner;
- * profiles RLS (self-or-admin) also scopes the read defensively. Shows
+ * the read is server-side because profiles RLS lets only the owner read other members (0310). Shows
  * @username only, never real name.
  */
 export async function WhosOnline() {
-  const sb = await createClient();
+  const sb = createServiceRoleClient();
   const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const { data } = await sb
     .from("profiles")

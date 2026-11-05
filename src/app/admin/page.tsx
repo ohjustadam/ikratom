@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCreatorContext, getAdminQueueCounts } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { siteConfig } from "@/config/site.config";
 import { WhosOnline } from "./WhosOnline";
 
@@ -59,7 +60,7 @@ export default async function AdminPage() {
     { count: pendingCallCount },
     queues,
   ] = await Promise.all([
-    supabase.from("profiles").select("id", { count: "exact", head: true }),
+    createServiceRoleClient().from("profiles").select("id", { count: "exact", head: true }),
     supabase.from("campaigns").select("id", { count: "exact", head: true })
       .eq("active", true),
     supabase.from("campaigns").select("id", { count: "exact", head: true })
@@ -126,7 +127,7 @@ export default async function AdminPage() {
     if (can("review_vendor_applications") && queues.vendorApplications > 0) inbox.push({
       href: "/admin/vendor-applications",
       title: `Vendor applications (${queues.vendorApplications})`,
-      body: "Review users applying to be verified vendors.",
+      body: "Review members asking to mark their account as a vendor account (an ID only).",
       count: queues.vendorApplications,
     });
     if (can("moderate_stories") && queues.stories > 0) inbox.push({

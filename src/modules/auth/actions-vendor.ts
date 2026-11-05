@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -9,10 +10,11 @@ import { checkRateLimit } from "@/lib/rate-limit";
 /**
  * Vendor account flow — Option A from docs/VENDOR_ACCOUNTS.md.
  *
- * One profile, one human. A profile can have a "verified vendor" status
- * that lets them send campaign emails *as* a business in addition to
- * *as* themselves. Verification is admin-approved; nothing changes for
- * regular users until they apply + are approved.
+ * One profile, one human. Approval marks the account as a vendor account:
+ * an ID for the iKratom team and nothing more (owner, 2026-11-03). No
+ * listing, badge, link, sending as the business or promotion, and the
+ * business details are never shown to other members. Selling is refused
+ * on every member surface (src/lib/selling.ts).
  *
  * Re-application policy:
  *   - status='pending'  → cannot apply again
@@ -65,7 +67,7 @@ export async function applyForVendorStatus(input: VendorApplication) {
 
   const status = profile?.vendor_status ?? "none";
   if (status === "pending") return { error: "Your application is already under review." };
-  if (status === "approved") return { error: "You're already a verified vendor." };
+  if (status === "approved") return { error: "Your account is already marked as a vendor account." };
   if (status === "rejected" && profile?.vendor_application_at) {
     const last = new Date(profile.vendor_application_at).getTime();
     const cooldownEnds = last + APPLY_COOLDOWN_DAYS * 86400_000;
@@ -114,13 +116,15 @@ export async function getMyVendorState() {
 // ─── Admin-side approval queue ────────────────────────────────────
 
 export async function listPendingVendorApplications() {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "review_vendor_applications" });
   if (!ctx.ok) return { error: "Admins only." };
-  const supabase = await createClient();
+  // Service-role: only the owner may read or write another member's row
+  // through the API since 0310. review_vendor_applications was checked above.
+  const supabase = createServiceRoleClient();
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, full_name, vendor_status, vendor_business_name, vendor_business_role, vendor_business_city, vendor_business_state, vendor_business_website, vendor_application_at, vendor_rejection_reason",
+      "id, username, vendor_status, vendor_business_name, vendor_business_role, vendor_business_city, vendor_business_state, vendor_business_website, vendor_application_at, vendor_rejection_reason",
     )
     .eq("vendor_status", "pending")
     .order("vendor_application_at", { ascending: true });
@@ -129,11 +133,13 @@ export async function listPendingVendorApplications() {
 }
 
 export async function approveVendor(userId: string) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "review_vendor_applications" });
   if (!ctx.ok) return { error: "Admins only." };
   if (!/^[0-9a-f-]{36}$/i.test(userId)) return { error: "Invalid user id." };
 
-  const supabase = await createClient();
+  // Service-role: only the owner may read or write another member's row
+  // through the API since 0310. review_vendor_applications was checked above.
+  const supabase = createServiceRoleClient();
   const { error } = await supabase
     .from("profiles")
     .update({
@@ -156,7 +162,7 @@ export async function approveVendor(userId: string) {
 }
 
 export async function rejectVendor(input: { userId: string; reason: string }) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "review_vendor_applications" });
   if (!ctx.ok) return { error: "Admins only." };
   if (!/^[0-9a-f-]{36}$/i.test(input.userId)) return { error: "Invalid user id." };
   const reason = input.reason?.trim();
@@ -164,7 +170,9 @@ export async function rejectVendor(input: { userId: string; reason: string }) {
     return { error: "Rejection reason is required (≤ 500 chars)." };
   }
 
-  const supabase = await createClient();
+  // Service-role: only the owner may read or write another member's row
+  // through the API since 0310. review_vendor_applications was checked above.
+  const supabase = createServiceRoleClient();
   const { error } = await supabase
     .from("profiles")
     .update({
@@ -193,11 +201,13 @@ export async function rejectVendor(input: { userId: string; reason: string }) {
  * removal. Different from rejection (which is a one-time "no").
  */
 export async function revokeVendor(userId: string) {
-  const ctx = await getAdminContext();
+  const ctx = await getAdminContext({ require: "review_vendor_applications" });
   if (!ctx.ok) return { error: "Admins only." };
   if (!/^[0-9a-f-]{36}$/i.test(userId)) return { error: "Invalid user id." };
 
-  const supabase = await createClient();
+  // Service-role: only the owner may read or write another member's row
+  // through the API since 0310. review_vendor_applications was checked above.
+  const supabase = createServiceRoleClient();
   const { error } = await supabase
     .from("profiles")
     .update({

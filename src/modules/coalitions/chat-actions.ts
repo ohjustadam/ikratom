@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { sellingIssue } from "@/lib/selling";
 
 /**
  * Live group chat (migration 0291, B4 e). Writes go through the USER's
@@ -30,6 +31,8 @@ export async function postGroupChat(coalitionId: string, text: string): Promise<
   if (!body) return { ok: false, error: "Message is empty." };
   if (body.length > MAX_BODY) return { ok: false, error: `Message is too long (${MAX_BODY} characters max).` };
   if (FLOOD_RE.test(body)) return { ok: false, error: "Looks like a stuck key. Message not sent." };
+  const selling = sellingIssue(body);
+  if (selling) return { ok: false, error: selling };
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

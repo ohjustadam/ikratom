@@ -6,7 +6,7 @@ import { approveVendor, rejectVendor } from "@/modules/auth/actions-vendor";
 
 type Application = {
   id: string;
-  full_name: string | null;
+  username: string | null;
   vendor_status: string;
   vendor_business_name: string | null;
   vendor_business_role: string | null;
@@ -23,7 +23,7 @@ export function VendorApplicationsPanel({ applications }: { applications: Applic
   const [pending, startTransition] = useTransition();
 
   function approve(userId: string, name: string) {
-    if (!confirm(`Approve ${name} as a verified vendor?`)) return;
+    if (!confirm(`Mark ${name} as a vendor account? It's an ID only: no listing or promotion.`)) return;
     setError(null);
     startTransition(async () => {
       const r = await approveVendor(userId);
@@ -74,7 +74,7 @@ export function VendorApplicationsPanel({ applications }: { applications: Applic
                   rel="noreferrer"
                   className="text-base font-semibold text-zinc-100 hover:text-emerald-400"
                 >
-                  {a.full_name ?? "(no name)"}
+                  {a.username ? `@${a.username}` : "(no handle)"}
                 </a>
                 <span className="text-xs text-zinc-500">
                   applying for: <span className="font-semibold text-zinc-300">{a.vendor_business_name}</span>
@@ -109,14 +109,14 @@ export function VendorApplicationsPanel({ applications }: { applications: Applic
                   Google verify ↗
                 </a>
                 <button
-                  onClick={() => approve(a.id, a.full_name ?? a.id)}
+                  onClick={() => approve(a.id, (a.username ? `@${a.username}` : a.id))}
                   disabled={pending}
                   className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"
                 >
                   Approve
                 </button>
                 <button
-                  onClick={() => reject(a.id, a.full_name ?? a.id)}
+                  onClick={() => reject(a.id, (a.username ? `@${a.username}` : a.id))}
                   disabled={pending}
                   className="rounded-md border border-red-900/50 px-3 py-1.5 text-xs text-red-300 hover:border-red-700 disabled:opacity-40"
                 >

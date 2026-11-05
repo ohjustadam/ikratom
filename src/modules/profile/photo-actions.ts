@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { detectModerationSignals } from "@/lib/moderation";
+import { sellingIssue } from "@/lib/selling";
 import { isAudience } from "./audience";
 import { deletePhotoRow } from "./photo-upload";
 
@@ -34,6 +35,8 @@ export async function updatePhoto(id: string, patch: { audience?: string; captio
     if (caption.length > 300) return { error: "Captions are 300 characters at most." };
     const s = detectModerationSignals(caption);
     if (s.phones.length || s.emails.length) return { error: "Remove phone numbers and email addresses from the caption." };
+    const selling = sellingIssue(caption);
+    if (selling) return { error: selling };
     update.caption = caption || null;
   }
   if (!Object.keys(update).length) return { ok: true };

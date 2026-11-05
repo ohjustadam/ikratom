@@ -5,6 +5,7 @@
  */
 import { isSafePublicUrl } from "@/lib/url-safety";
 import { detectModerationSignals } from "@/lib/moderation";
+import { sellingIssue } from "@/lib/selling";
 import {
   BIO_MAX, DEFAULT_AUDIENCES, INTERESTS, LINK_LABEL_MAX, LINK_URL_MAX, MAX_INTERESTS, MAX_LINKS,
   SECTION_AUDIENCES, STORY_MAX, isAudience,
@@ -45,6 +46,8 @@ export function validateProfileInput(raw: ProfileInput): { ok: true; value: Prof
   for (const [name, text] of [["bio", bio], ["story", story]] as const) {
     const leak = contactLeak(text);
     if (leak) return { error: `Your ${name} contains ${leak}. Remove it: other members can see your profile, and contact details can identify you.` };
+    const selling = sellingIssue(text);
+    if (selling) return { error: selling };
   }
 
   const interests = [...new Set((raw.interests ?? []).map((i) => String(i)))];
