@@ -22,7 +22,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { runWithLogging } from "./lib/scraper-run.mjs";
-import { computeBillReviewBy, sessionYears, shouldRetire, shouldRevive } from "./lib/review-dates.mjs";
+import { matchSession, sessionReviewBy, shouldRetire, shouldRevive } from "./lib/review-dates.mjs";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -37,7 +37,7 @@ const today = new Date().toISOString().slice(0, 10);
 async function loadSessions() {
   const { data } = await supabase
     .from("legislative_sessions")
-    .select("state, year_start, year_end, sine_die");
+    .select("state, legiscan_session_id, year_start, year_end, special, sine_die");
   const byState = new Map();
   for (const s of data ?? []) {
     if (!byState.has(s.state)) byState.set(s.state, []);
@@ -46,15 +46,10 @@ async function loadSessions() {
   return byState;
 }
 
-/** Is the bill's session adjourned sine die? Match its session years to a
- *  legislative_sessions row for the same state whose span contains the end year. */
+/** Is the bill's session adjourned sine die? See matchSession for how a bill
+ *  finds its legislative_sessions row. */
 function sessionSineDie(bill, byState) {
-  const ys = sessionYears(bill.session_id);
-  if (!ys.length) return false;
-  const end = Math.max(...ys);
-  const rows = byState.get(bill.state) ?? [];
-  const match = rows.find((r) => (r.year_start ?? 0) <= end && end <= (r.year_end ?? 0));
-  return !!match?.sine_die;
+  return !!matchSession(bill, byState.get(bill.state))?.sine_die;
 }
 
 async function cascade(billId, dry) {
@@ -114,7 +109,7 @@ await runWithLogging({ source: "review_lapsed_items", supabase }, async () => {
   for (const b of active ?? []) {
     // 1. Stamp review_by up front if missing.
     if (!b.review_by) {
-      const rb = computeBillReviewBy(b.session_id);
+      const rb = sessionReviewBy(b, matchSession(b, byState.get(b.state)));
       if (rb) {
         b.review_by = rb;
         stamped++;
@@ -147,14 +142,15 @@ await runWithLogging({ source: "review_lapsed_items", supabase }, async () => {
   // ── 4: revive cron-retired bills whose session is actually current ──
   const { data: retiredBills } = await supabase
     .from("bills")
-    .select("id, state, bill_number, session_id, status, last_action_at, review_by")
+    .select("id, state, bill_number, session_id, status, last_action_at, review_by, verification_note")
     .eq("active", false)
     .like("verification_note", `${NOTE_PREFIX}%`)
     .limit(10_000);
   let revived = 0;
   for (const b of retiredBills ?? []) {
     const sineDie = sessionSineDie(b, byState);
-    if (shouldRevive(b, { sineDie, now })) {
+    const retiredOn = b.verification_note?.match(/^Auto-retired by review cron (\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+    if (shouldRevive(b, { sineDie, now, retiredOn })) {
       revived++;
       if (APPLY) await supabase.from("bills").update({
         active: true,

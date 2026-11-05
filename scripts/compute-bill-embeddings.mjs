@@ -152,7 +152,19 @@ let probeDims;
 try {
   probeDims = (await embed("kratom regulation preflight")).length;
 } catch (e) {
-  console.error(`✗ ${provider.id}/${provider.model} could not embed: ${String(e.message ?? e).slice(0, 200)}`);
+  const msg = String(e.message ?? e);
+  console.error(`✗ ${provider.id}/${provider.model} could not embed: ${msg.slice(0, 200)}`);
+  // Cloudflare's free 10,000 neurons a day are shared with the AI router, which
+  // can spend them before this job runs (2026-11-03). That is a wait, not a
+  // fault: record a skipped run and let tomorrow's run catch up. Switching
+  // provider would mix embedding models in one corpus, which this script refuses.
+  if (/daily free allocation|per day|daily limit/i.test(msg)) {
+    await sb.from("scraper_runs").insert({
+      source: "bill_embeddings", started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+      status: "skipped", rows_updated: 0, notes: `deferred: ${provider.id} daily allowance spent; the next run catches up`,
+    }).then(() => undefined, () => undefined);
+    process.exit(0);
+  }
   console.error("  Run scripts/diagnose-cloud-gaps.mjs to see which providers are answering today.");
   process.exit(1);
 }

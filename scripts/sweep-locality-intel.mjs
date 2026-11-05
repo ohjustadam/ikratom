@@ -31,7 +31,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { verifyLocalBan } from "./lib/ban-verify.mjs";
-import { upsertLocalityIntel, canonicalLocality } from "./lib/locality-intel.mjs";
+import { upsertLocalityIntel, canonicalLocality, recheckDue, RECHECK } from "./lib/locality-intel.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 import { searxngConfigured } from "./lib/searxng.mjs";
 
@@ -57,6 +57,27 @@ const NOW = () => new Date().toISOString();
 if (!searxngConfigured()) {
   console.log("sweep-locality-intel: SEARXNG_URL not configured — nothing to do here (the box drains the queue).");
   process.exit(0);
+}
+
+// Scheduled re-check: put localities where we found nothing back in the queue
+// once they are due (scripts/lib/locality-intel.mjs::recheckDue). A failed row
+// gets RECHECK.retries more attempts before it fails again.
+let rechecked = 0;
+if (!LOCALITY && !DRY) {
+  const { data: quiet } = await sb.from("locality_intel")
+    .select("state, locality, sweep_status, sweep_note, legal_status, swept_at, last_attempt_at")
+    .in("sweep_status", ["failed", "swept"])
+    .order("last_attempt_at", { ascending: true, nullsFirst: true })
+    .limit(500);
+  for (const row of (quiet ?? []).filter((r) => recheckDue(r)).slice(0, LIMIT)) {
+    const { error } = await sb.from("locality_intel").update({
+      sweep_status: "queued",
+      attempts: row.sweep_status === "failed" ? MAX_ATTEMPTS - RECHECK.retries : 0,
+      sweep_note: `scheduled re-check ${NOW().slice(0, 10)} (was ${row.sweep_status}${row.legal_status ? `/${row.legal_status}` : ""})`,
+    }).eq("state", row.state).eq("locality", row.locality);
+    if (!error) rechecked++;
+  }
+  if (rechecked) console.log(`sweep-locality-intel: ${rechecked} due for a scheduled re-check, re-queued`);
 }
 
 let targets = [];
@@ -142,7 +163,7 @@ for (const t of targets) {
 
 const total = targets.length;
 const allQueued = total > 0 && queuedAgain === total;
-console.log(`\nDone. swept=${swept} failed=${failed} bills_gated=${gated} requeued=${queuedAgain}${budgetHit ? " (budget hit)" : ""}`);
+console.log(`\nDone. swept=${swept} failed=${failed} bills_gated=${gated} requeued=${queuedAgain} rechecked=${rechecked}${budgetHit ? " (budget hit)" : ""}`);
 try {
   await sb.from("scraper_runs").insert({
     source: "sweep_locality_intel",
@@ -151,7 +172,7 @@ try {
     // all-queued = zero intelligence captured (infra down) — show red.
     status: allQueued || (failed > 0 && swept === 0) ? "fail" : "success",
     rows_updated: swept,
-    notes: `swept=${swept} failed=${failed} bills_gated=${gated} requeued=${queuedAgain}${budgetHit ? " budget-hit" : ""}${DRY ? " [dry-run]" : ""}`,
+    notes: `swept=${swept} failed=${failed} bills_gated=${gated} requeued=${queuedAgain} rechecked=${rechecked}${budgetHit ? " budget-hit" : ""}${DRY ? " [dry-run]" : ""}`,
   });
 } catch { /* best-effort */ }
 process.exit(0);

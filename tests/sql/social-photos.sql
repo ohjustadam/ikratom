@@ -18,6 +18,10 @@ declare
   p_public uuid := gen_random_uuid();
   p_onlyme uuid := gen_random_uuid();
   p_hidden uuid := gen_random_uuid();
+  p_fresh uuid := gen_random_uuid();
+  g uuid := gen_random_uuid();
+  h uuid := gen_random_uuid();
+  i uuid := gen_random_uuid();
   p_c uuid := gen_random_uuid();
   r record;
   cnt int;
@@ -28,9 +32,11 @@ declare
 begin
   insert into auth.users (id, email, aud, role, created_at, updated_at)
   select x, 'social-photos-' || x || '@example.invalid', 'authenticated', 'authenticated', now(), now()
-    from unnest(array[a, b, c, d, f]) x;
+    from unnest(array[a, b, c, d, f, g, h, i]) x;
   update public.profiles set username = 'zz' || substr(replace(id::text, '-', ''), 1, 14), profile_visibility = 'public'
-   where id in (a, b, c, d, f);
+   where id in (a, b, c, d, f, g, h, i);
+  -- only reporters a week old count toward the auto-hide (0307); g, h, i are new today
+  update public.profiles set created_at = now() - interval '30 days' where id in (a, b, c, d, f);
   insert into public.member_connections (requester_id, addressee_id, status, responded_at) values (a, b, 'accepted', now());
   insert into public.user_blocks (blocker_id, blocked_id) values (a, d);
 
@@ -41,6 +47,7 @@ begin
     (p_public,  a, 'album',  'photos/' || a || '/' || p_public  || '.jpg', 'image/jpeg', 100, 10, 10, 'public',  'active'),
     (p_onlyme,  a, 'album',  'photos/' || a || '/' || p_onlyme  || '.jpg', 'image/jpeg', 100, 10, 10, 'only_me', 'active'),
     (p_hidden,  a, 'album',  'photos/' || a || '/' || p_hidden  || '.jpg', 'image/jpeg', 100, 10, 10, 'public',  'hidden'),
+    (p_fresh,   f, 'album',  'photos/' || f || '/' || p_fresh   || '.jpg', 'image/jpeg', 100, 10, 10, 'public',  'active'),
     (p_c,       c, 'album',  'photos/' || c || '/' || p_c       || '.jpg', 'image/jpeg', 100, 10, 10, 'public',  'active');
   insert into public.profile_social (user_id, profile_audience, avatar_photo_id) values (a, 'public', p_avatar);
 
@@ -165,6 +172,17 @@ begin
   execute 'reset role';
   select status, report_count into r from public.member_photos where id = p_public;
   n := n + 1; if r.status is distinct from 'hidden' or r.report_count <> 3 then fails := fails || ' auto-hide-state'; end if;
+
+  -- ---- g, h, i: three accounts made today report; the photo stays up ----
+  foreach txt in array array[g::text, h::text, i::text] loop
+    perform set_config('request.jwt.claims', json_build_object('sub', txt, 'role', 'authenticated')::text, true);
+    perform set_config('request.jwt.claim.sub', txt, true);
+    execute 'set local role authenticated';
+    n := n + 1; if not public.report_member_photo(p_fresh, 'spam', null) then fails := fails || ' new:report'; end if;
+    execute 'reset role';
+  end loop;
+  select status, report_count into r from public.member_photos where id = p_fresh;
+  n := n + 1; if r.status is distinct from 'active' or r.report_count <> 3 then fails := fails || ' new-accounts-hid:' || r.status || '/' || r.report_count; end if;
 
   -- ---- a: owner ----
   perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
