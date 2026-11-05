@@ -96,6 +96,17 @@ export function stateFromJurisdiction(pageJurisdiction) {
  * town mayor who sits on it) from elpasocountyhealth.org/.../board-of-health/.
  */
 const NON_ROSTER_PATH_RE = /(board[-_]?of[-_]?elections|election[-_]?(officials|commission|office|board)|\/elections?(\/|$)|\/voter|\/auditor|\/treasurer|\/sheriff|\/assessor|\/recorder|board[-_]?of[-_]?health)/i;
+/**
+ * The email, only when it appears verbatim in the page text, else null.
+ * A guessed address bounces with "550 5.4.1 Recipient address rejected" and
+ * the member thinks .gov blocked them (Rensselaer NY, 2026-11-03).
+ */
+export function emailOnPage(email, pageText) {
+  const e = String(email ?? "").trim().toLowerCase().replace(/^mailto:/, "");
+  if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/.test(e)) return null;
+  return String(pageText ?? "").toLowerCase().includes(e) ? e : null;
+}
+
 export function isNonRosterPage(url) {
   try { return NON_ROSTER_PATH_RE.test(new URL(url).pathname); } catch { return false; }
 }
@@ -264,7 +275,9 @@ async function extractFromText({ text, city, state, level, sourceUrl }) {
       role: VALID_ROLES.has(o.role) ? o.role : (level === "county" ? "county_commissioner" : "city_council"),
       title: o.title ?? null,
       district: o.district ?? null,
-      email: o.email && /@/.test(String(o.email)) ? o.email : null,
+      // Only an address the page itself shows. The model filled in plausible
+      // guesses where a site masked its addresses (see emailOnPage).
+      email: emailOnPage(o.email, text),
       phone: o.phone ?? null,
       website: o.website ?? null,
       party: o.party ?? null,

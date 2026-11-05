@@ -175,7 +175,7 @@ function baseQuery(includeSource) {
   let q = supabase
     .from("bills")
     .select(cols)
-    .eq("scope", "state")
+    .in("scope", ["state", "federal"])
     .eq("active", true);
   if (SPECIFIC_BILL) return q.eq("id", SPECIFIC_BILL);
   q = q.in("kratom_relevance", RELEVANCE);

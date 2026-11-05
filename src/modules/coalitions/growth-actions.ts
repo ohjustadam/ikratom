@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { renderQrSvg } from "@/modules/partners/qr";
+import { groupTextIssue } from "./vendor-screen";
 
 /**
  * Group growth (migration 0274, owner pick 2026-10-21): a reusable group link
@@ -78,6 +79,14 @@ export async function setGroupVisibility(coalitionId: string, isPublic: boolean)
   const { role } = await groupRole(coalitionId);
   if (!isGroupAdmin(role)) return { ok: false, error: "Only the group's organizers can change this." };
   const admin = createServiceRoleClient();
+  // A public group is listed to visitors, so its name and About pass the
+  // no-selling rule first. Rows from before 0309 were never screened.
+  if (isPublic) {
+    const { data: g } = await admin.from("coalitions").select("name, description").eq("id", coalitionId).single();
+    const vendorIssue = groupTextIssue(`${g?.name ?? ""}
+${g?.description ?? ""}`);
+    if (vendorIssue) return { ok: false, error: vendorIssue };
+  }
   const { data, error } = await admin.from("coalitions").update({ is_public: !!isPublic }).eq("id", coalitionId).select("slug").single();
   if (error || !data) return { ok: false, error: "Couldn't save that." };
   revalidatePath(`/coalitions/${data.slug}`);
@@ -139,6 +148,8 @@ export async function setGroupAction(coalitionId: string, campaignSlug: string |
   if (ro) return { ok: false, error: ro };
   const { user, role } = await groupRole(coalitionId);
   if (!user || !isGroupAdmin(role)) return { ok: false, error: "Only the group's organizers can pick the group action." };
+  const noteIssue = groupTextIssue(String(note ?? ""));
+  if (noteIssue) return { ok: false, error: noteIssue };
   const admin = createServiceRoleClient();
   let campaignId: string | null = null;
   if (campaignSlug) {

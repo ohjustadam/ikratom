@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { COVER_THEMES } from "./covers";
+import { groupTextIssue } from "./vendor-screen";
 
 /**
  * Group home (migration 0284): the welcome checklist's own state and the
@@ -63,6 +64,8 @@ export async function updateGroupAbout(coalitionId: string, description: string,
   if (!(COVER_THEMES as readonly string[]).includes(coverTheme)) return { ok: false, error: "Pick a cover." };
   const text = String(description ?? "").trim();
   if (text.length > 2000) return { ok: false, error: "Keep the About under 2,000 characters." };
+  const vendorIssue = groupTextIssue(text);
+  if (vendorIssue) return { ok: false, error: vendorIssue };
   if (!(await checkRateLimit(`coalition:about:${me.user.id}`, 20, 3600))) return { ok: false, error: "Slow down a little." };
   const admin = createServiceRoleClient();
   const { data, error } = await admin.from("coalitions")

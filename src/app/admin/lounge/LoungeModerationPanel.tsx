@@ -34,13 +34,13 @@ type Message = {
 
 type MutedUser = {
   id: string;
-  full_name: string | null;
+  handle: string | null;
   chat_muted_until: string | null;
 };
 
 type BanReviewRow = {
   user_id: string;
-  full_name: string | null;
+  handle: string | null;
   mute_count: number;
   total_capped_hours: number;
   current_mute_until: string | null;
@@ -255,7 +255,7 @@ export function LoungeModerationPanel({
                     rel="noreferrer"
                     className="font-semibold text-zinc-100 hover:text-emerald-400"
                   >
-                    {u.full_name ?? "(no name)"}
+                    {u.handle ?? "(no name)"}
                   </a>
                   <span className="rounded bg-red-950/60 px-1.5 py-0.5 font-mono text-[10px] text-red-300">
                     {Math.round(u.total_capped_hours)}h total
@@ -269,14 +269,14 @@ export function LoungeModerationPanel({
                     </span>
                   )}
                   <button
-                    onClick={() => muteAuthor(u.user_id, u.full_name, "forever")}
+                    onClick={() => muteAuthor(u.user_id, u.handle, "forever")}
                     disabled={pending}
                     className="ml-auto rounded-md border border-red-900/50 px-2 py-0.5 text-[11px] text-red-300 hover:border-red-700 disabled:opacity-40"
                   >
                     Mute forever
                   </button>
                   <button
-                    onClick={() => clearHistory(u.user_id, u.full_name)}
+                    onClick={() => clearHistory(u.user_id, u.handle)}
                     disabled={pending}
                     className="rounded-md border border-zinc-700 px-2 py-0.5 text-[11px] hover:border-emerald-500 disabled:opacity-40"
                   >
@@ -302,14 +302,14 @@ export function LoungeModerationPanel({
               return (
                 <li key={u.id} className="flex flex-wrap items-center gap-2">
                   <a href={`/profile/${u.id}`} target="_blank" rel="noreferrer" className="text-zinc-200 hover:text-emerald-400">
-                    {u.full_name ?? "(no name)"}
+                    {u.handle ?? "(no name)"}
                   </a>
                   <span className="text-zinc-600">until</span>
                   <span className="font-mono text-zinc-400">
                     {isForever ? "forever" : until?.toLocaleString()}
                   </span>
                   <button
-                    onClick={() => unmute(u.id, u.full_name)}
+                    onClick={() => unmute(u.id, u.handle)}
                     disabled={pending}
                     className="ml-auto rounded-md border border-zinc-700 px-2 py-0.5 text-[11px] hover:border-emerald-500 disabled:opacity-40"
                   >

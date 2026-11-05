@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCreatorContext, getAdminQueueCounts } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { siteConfig } from "@/config/site.config";
 import { WhosOnline } from "./WhosOnline";
 
@@ -59,7 +60,7 @@ export default async function AdminPage() {
     { count: pendingCallCount },
     queues,
   ] = await Promise.all([
-    supabase.from("profiles").select("id", { count: "exact", head: true }),
+    createServiceRoleClient().from("profiles").select("id", { count: "exact", head: true }),
     supabase.from("campaigns").select("id", { count: "exact", head: true })
       .eq("active", true),
     supabase.from("campaigns").select("id", { count: "exact", head: true })
