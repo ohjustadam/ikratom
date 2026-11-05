@@ -12,6 +12,7 @@ import {
 } from "@/lib/email/user-send";
 import { renderTemplate, buildVars } from "./templates";
 import { withLetterFooter } from "./letter-extras";
+import { screenMemberLetter } from "./screen-content";
 import type { Legislator } from "@/lib/legislators";
 import {
   legislatorInCampaignScope,
@@ -260,6 +261,11 @@ export async function sendCampaignViaGmail(input: {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+
+  // The letter comes from the browser, so it gets the queue's screen
+  // (screen-content.ts). Nothing calls this today; that is not a guard.
+  const screen = await screenMemberLetter({ subject: String(subject ?? "").slice(0, 300), body: String(bodyTemplate ?? "").slice(0, 12_000) });
+  if (screen.block) return { error: screen.message };
 
   // Membership guard (defense-in-depth): re-derive this campaign's allowed
   // recipients server-side so a crafted targetIds array can't email officials
