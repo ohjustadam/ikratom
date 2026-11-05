@@ -35,6 +35,7 @@ import { withLetterFooter } from "@/modules/campaigns/letter-extras";
 import { safeModeOn } from "@/modules/campaigns/safe-mode";
 import { hidesHomeFrom, waveLetter } from "./safe-mode";
 import type { Legislator } from "@/lib/legislators";
+import { isMailbox } from "@/lib/mailbox";
 
 const MAX_USERS_PER_TICK = 30; // ≈ 60s budget at 2s/send
 const MAX_WAVES_PER_TICK = 10;
@@ -206,7 +207,7 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
           }
         }
 
-        const sendable = userTargets.filter((t) => !!t.email && !t.email.startsWith("http"));
+        const sendable = userTargets.filter((t) => isMailbox(t.email));
         if (sendable.length === 0) {
           await markSignup(supabase, signup.id, "skipped", "no_sendable_targets");
           continue;

@@ -126,6 +126,28 @@ export async function upsertLocalityIntel({ sb, state, locality: rawLocality, sc
   }
 }
 
+/**
+ * Scheduled re-check (owner ask 2026-11-03: "if nothing is found then set a
+ * scheduled run for an appropriate time to check again later"). Local action
+ * appears with no warning, so finding nothing is never final:
+ *   - a failed sweep is tried again 60 days after its last attempt;
+ *   - a "no local law" or "uncertain" result is re-swept after 90 days.
+ * A row whose note starts "not a place" is never re-checked: it came from a
+ * wrong-state match (Spokane, DE; Eupora, HI) and no search will help it.
+ */
+export const RECHECK = { failedDays: 60, quietDays: 90, retries: 2 };
+const DAY = 86_400_000;
+
+export function recheckDue(row, now = Date.now()) {
+  if (/^not a place/i.test(row.sweep_note ?? "")) return false;
+  const age = (iso) => (iso ? now - Date.parse(iso) : Infinity);
+  if (row.sweep_status === "failed") return age(row.last_attempt_at) > RECHECK.failedDays * DAY;
+  if (row.sweep_status === "swept" && ["no_local_law", "uncertain"].includes(row.legal_status)) {
+    return age(row.swept_at ?? row.last_attempt_at) > RECHECK.quietDays * DAY;
+  }
+  return false;
+}
+
 /** Queue a locality for the nightly sweep (no-op if a row already exists). */
 export async function queueLocalityIntel({ sb, state, locality, scope }) {
   try {
