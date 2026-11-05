@@ -10,7 +10,12 @@
  * Vendors may belong to groups like anyone else; "unite consumers, advocates
  * and vendors" is fine. Selling is not: sales wording, links to anything but
  * government or school sites, and contact details.
+ *
+ * A group can't exist to ban kratom either (owner, 2026-11-05): groupBanAim
+ * reads the wording in context, and migration 0312 holds the plainest forms in
+ * the database for the same reason as 0309.
  */
+import { groupBanAim } from "@/lib/letter-stance";
 import { detectModerationSignals } from "@/lib/moderation";
 
 /** Keep in step with public.coalition_vendor_guard() in migration 0309. */
@@ -25,6 +30,9 @@ export function groupTextIssue(text: string): string | null {
   const t = String(text ?? "");
   if (SELLING_RE.test(t)) {
     return "Groups are for advocacy, not selling. Take out the sales wording and try again.";
+  }
+  if (groupBanAim(t)) {
+    return "iKratom can't host a group that asks to ban kratom. Reword this and try again.";
   }
   for (const m of t.matchAll(URL_RE)) {
     if (!ALLOWED_HOST_RE.test(m[1])) {
