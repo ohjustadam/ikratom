@@ -10,6 +10,7 @@
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "@/modules/admin/actions";
+import { redactPii } from "@/lib/redact";
 import { recordAdminAction } from "@/lib/audit";
 import { suggestedFixForErrorCode } from "@/lib/auth-events";
 
@@ -75,19 +76,19 @@ export async function escalateUserErrorToDevs(input: {
   const body = [
     `**Cluster**: \`${input.kind}\` · code \`${input.errorCode ?? "—"}\``,
     `**Volume (last 24h)**: ${total}`,
-    `**Escalated by**: ${ctx.email ?? ctx.userId} via /admin/user-errors`,
+    "**Escalated by**: an admin via /admin/user-errors",
     "",
     fix ? `**Suggested fix**:\n> ${fix}` : "**No pre-canned fix mapped for this error_code yet.**",
     "",
     "## Recent sample (up to 10)",
     "",
-    "| When | error_message | user said | page URL |",
-    "|---|---|---|---|",
+    "| When | error_message | page path |",
+    "|---|---|---|",
     ...(rows ?? []).slice(0, 10).map((r) => {
-      const msg = (r.error_message ?? "").slice(0, 80).replace(/\|/g, "\\|").replace(/\n/g, " ");
-      const desc = (r.user_description ?? "").slice(0, 100).replace(/\|/g, "\\|").replace(/\n/g, " ");
-      const pageUrl = ((r.context as { page_url?: string } | null)?.page_url ?? "").slice(0, 80).replace(/\|/g, "\\|");
-      return `| ${new Date(r.created_at).toISOString().slice(0, 19)}Z | \`${msg}\` | \`${desc}\` | \`${pageUrl}\` |`;
+      // Public repo (0310): no member free text, no query strings, emails/IPs redacted.
+      const msg = redactPii(r.error_message).slice(0, 80).replace(/\|/g, "\\|").replace(/\n/g, " ");
+      const pagePath = ((r.context as { page_url?: string } | null)?.page_url ?? "").split(/[?#]/)[0].slice(0, 80).replace(/\|/g, "\\|");
+      return `| ${new Date(r.created_at).toISOString().slice(0, 19)}Z | \`${msg}\` | \`${redactPii(pagePath)}\` |`;
     }),
     "",
     "## Classifier notes (most recent)",

@@ -106,17 +106,21 @@ describe("catalog integrity", () => {
     }
   });
 
-  it("keeps the six owner-reserved capabilities locked", () => {
+  it("keeps the ten owner-reserved capabilities locked", () => {
     // Change this list only with a deliberate decision — each one is a way to
-    // become the owner in practice.
+    // become the owner in practice, or to unmask members (0310).
     expect([...OWNER_ONLY_KEYS].sort()).toEqual(
       [
         "dispatch_workflows",
+        "edit_partners",
         "export_advocate_pii",
+        "issue_temp_password",
         "lock_accounts",
+        "manage_discord",
         "manage_permissions",
         "manage_roles",
         "run_sql",
+        "view_user_emails",
       ].sort(),
     );
   });

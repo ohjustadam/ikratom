@@ -12,7 +12,7 @@ export default async function VendorApplicationsPage() {
   const r = await listPendingVendorApplications();
   const apps = ("ok" in r ? r.rows : []) as {
     id: string;
-    full_name: string | null;
+    username: string | null;
     vendor_status: string;
     vendor_business_name: string | null;
     vendor_business_role: string | null;

@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { WaveAdminPanel } from "./WaveAdminPanel";
 
 export const metadata = { title: "Wave detail" };
@@ -65,12 +66,12 @@ export default async function WaveDetailPage({
   // Look up display names for each signed-up user
   const userIds = Array.from(new Set(signups.map((s) => s.user_id)));
   const { data: profileRows } = userIds.length > 0
-    ? await supabase.from("profiles").select("id, full_name, state").in("id", userIds)
+    ? await createServiceRoleClient().from("profiles").select("id, username, state").in("id", userIds)
     : { data: [] };
   const profiles = new Map<string, { name: string; state: string | null }>(
-    ((profileRows ?? []) as Array<{ id: string; full_name: string | null; state: string | null }>).map((p) => [
+    ((profileRows ?? []) as Array<{ id: string; username: string | null; state: string | null }>).map((p) => [
       p.id,
-      { name: p.full_name ?? "(no name)", state: p.state },
+      { name: p.username ? `@${p.username}` : "(no handle)", state: p.state },
     ]),
   );
 

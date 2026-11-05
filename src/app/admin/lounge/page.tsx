@@ -35,12 +35,12 @@ export default async function AdminLoungePage() {
   const messages = "ok" in msgs ? msgs.rows : [];
   const mutedUsers = ("ok" in muted ? muted.rows : []) as {
     id: string;
-    full_name: string | null;
+    handle: string | null;
     chat_muted_until: string | null;
   }[];
   const banReviewRows = ("ok" in banReview ? banReview.rows : []) as {
     user_id: string;
-    full_name: string | null;
+    handle: string | null;
     mute_count: number;
     total_capped_hours: number;
     current_mute_until: string | null;
