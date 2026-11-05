@@ -43,6 +43,7 @@ export default function TermsPage() {
             <li>Use automated means to bypass our spam-prevention systems</li>
             <li>Violate any applicable law in your message contents or actions</li>
             <li>Sell, transfer, or share your account credentials</li>
+            <li>Sell or advertise anything, or promote or link to vendors, brands or products, in letters, posts, groups, chat or messages. Vendors are welcome as advocates, never as sellers.</li>
           </ul>
           <p className="mt-3">
             We may suspend or terminate accounts that violate these rules. Repeat offenders are

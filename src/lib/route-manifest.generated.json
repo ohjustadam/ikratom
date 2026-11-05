@@ -125,7 +125,7 @@
     {"route":"/coalitions/[slug]/events/[eventId]","dynamic":true,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/coalitions/[slug]/r/[resourceId]","dynamic":true,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/coalitions/[slug]/t/[threadId]","dynamic":true,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
-    {"route":"/coalitions/join/[code]","dynamic":true,"forceDynamic":true,"revalidate":null,"usesSearchParams":true,"loginGated":true,"redirectOnly":false},
+    {"route":"/coalitions/join/[code]","dynamic":true,"forceDynamic":true,"revalidate":null,"usesSearchParams":true,"loginGated":false,"redirectOnly":false},
     {"route":"/coalitions/new","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":true,"redirectOnly":false},
     {"route":"/communities","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/community","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},

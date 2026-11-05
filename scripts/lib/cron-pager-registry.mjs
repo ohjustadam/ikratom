@@ -176,6 +176,8 @@ export const REGISTRY = [
   // Self-gated to every 6 days since 2026-10-28 (was nightly: ~1,500 LegiScan
   // queries a month against a 10,000 cap).
   { source: "sync_legislative_sessions", interval_hours: 216, system: "github-actions", cadence: "weekly" },
+  // Federal kratom bills: nightly, 3 LegiScan calls (sync-federal-bills.mjs).
+  { source: "sync_federal_bills", interval_hours: 36, system: "github-actions", cadence: "daily" },
   { source: "topic_bill_discovery", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   // Free-AI research agents — MOVED OFF THE BOX 2026-09-07 into
   // cron-nightly-cloud.yml as their own jobs. They drive lib/tool-chat.mjs,
