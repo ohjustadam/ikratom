@@ -1,10 +1,13 @@
 import Link from "@/components/Link";
+import { requireOwner } from "../require-owner";
 
+// Generic on purpose: metadata is sent even when the page 404s.
 export const metadata = {
-  title: "iKratom · full roadmap & build-velocity comparison",
-  description: "Everything left in scope, phase-by-phase, with time estimates against standard vs premium build seat. Plus an honest assessment of in-site AI to replace external dependence.",
+  title: "iKratom",
   robots: { index: false, follow: false },
 };
+
+export const dynamic = "force-dynamic";
 
 /**
  * /pitch/roadmap — printable, exhaustive roadmap brief.
@@ -140,7 +143,8 @@ const PHASE_SUMMARY: Array<{ num: number; title: string; premium: string; standa
   { num: 6, title: "V3 vision", premium: "8–15 months", standard: "32–60 months" },
 ];
 
-export default function RoadmapPage() {
+export default async function RoadmapPage() {
+  await requireOwner();
   return (
     <div className="mx-auto max-w-4xl px-4 py-12 text-zinc-100 sm:px-6 lg:px-8 print:max-w-none print:py-0">
       <Link href="/pitch" className="text-xs text-zinc-500 hover:text-emerald-400 print:hidden">

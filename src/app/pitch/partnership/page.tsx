@@ -1,9 +1,10 @@
 import Link from "@/components/Link";
+import { requireOwner } from "../require-owner";
 import { createClient } from "@/lib/supabase/server";
 
+// Generic on purpose: metadata is sent even when the page 404s.
 export const metadata = {
-  title: "iKratom · partnership brief",
-  description: "Two-page brief: what we've built, why the premium build seat earns its keep, and where the revenue comes from.",
+  title: "iKratom",
   robots: { index: false, follow: false },
 };
 
@@ -23,6 +24,7 @@ export const dynamic = "force-dynamic";
  */
 
 export default async function PartnershipPage() {
+  await requireOwner();
   const supabase = await createClient();
   const now = Date.now();
   const since30d = new Date(now - 30 * 86_400_000).toISOString();
