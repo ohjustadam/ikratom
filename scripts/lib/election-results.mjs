@@ -63,6 +63,8 @@ export function columnRoles(grid) {
   return {
     headerRows: Math.max(h, 1),
     district: find(/district|\bdist\.|^no\.?$|location|^state$/i),
+    // Minnesota splits "1" and "A" across a two-column District header.
+    districtSub: labels.findIndex((l, i) => i > 0 && l && l === labels[i - 1] && /district/i.test(l)),
     incumbent: find(/incumbent|member|senator|representative/i, /party|first|status|elected|history|candidate/i),
     elected: find(/elected\s*(senator|representative|member|delegate|assembly)|winner|^elected$/i, /first/i),
     status: find(/status|result|outcome/i, /last result/i),
@@ -71,7 +73,7 @@ export function columnRoles(grid) {
 }
 
 const NAME_OK = (s) => /[a-z]{2,}.*\s+.*[a-z]{2,}/i.test(s) && !/^(none|vacant|tbd|tba|new (seat|district))\b/i.test(s);
-const tidy = (s) => clean(s).replace(/[†‡*]/g, "")
+const tidy = (s) => clean(s).replace(/[†‡*]/g, "").replace(/^(?:Sen|Rep|Del|Hon)\.\s+/, "")
   .replace(/\s*\((?:incumbent|retiring|[A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\)\s*$/gi, "")
   .replace(/(?:\s+|(?<=[a-z]))(Redistricted|Retiring|Elected|Eliminated)\b.*$/, "").trim();
 const surname = (s) => tidy(s).normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[\s-]+/).filter((t) => t.length > 1).pop() ?? "";
@@ -113,6 +115,7 @@ export function winnersFromRow(row, cols) {
  */
 export function rowKey(text, mode) {
   const t = clean(text);
+  if (mode === "district" && /^\d{1,3}[A-Z]$/.test(t)) return t.toLowerCase(); // Minnesota's "1A"
   // Named districts ("Hillsborough 40", "Second Essex", Massachusetts' "10th Bristol") are matched as text, lowercased.
   if (mode === "district") return normalizeDistrict(t) ?? (/^(?:\d{1,2}(?:st|nd|rd|th) )?[A-Za-z][A-Za-z ,.'&-]{2,58}\d{0,3}$/.test(t) && !/^(total|district)/i.test(t) ? t.toLowerCase() : null);
   const m = /^([A-Za-z .]+?)\s+(at-large|\d{1,2})\b/i.exec(t.replace(/ /g, " "));
@@ -144,13 +147,97 @@ export function parseWikiResults(html, mode = "district") {
     const cols = columnRoles(grid);
     if (cols.district < 0 || (cols.elected < 0 && cols.candidates < 0 && cols.status < 0)) continue;
     for (const row of grid.slice(cols.headerRows)) {
-      const key = rowKey(row[cols.district]?.text, mode);
+      const sub = cols.districtSub >= 0 ? row[cols.districtSub]?.text ?? "" : "";
+      const key = rowKey(`${row[cols.district]?.text ?? ""}${/^[A-Z]$/.test(sub) ? sub : ""}`, mode);
       if (!key) continue;
       const entry = { incumbent: tidy(row[cols.incumbent]?.text ?? ""), winners: winnersFromRow(row, cols) };
       const list = out.get(key) ?? [];
       if (!list.some((e) => e.incumbent === entry.incumbent && e.winners.join() === entry.winners.join())) list.push(entry);
       out.set(key, list);
     }
+  }
+  if (mode === "district") {
+    for (const [key, rows] of electionBoxes(document)) {
+      if (!(out.get(key) ?? []).some((r) => r.winners.length)) out.set(key, rows);
+    }
+  }
+  return out;
+}
+
+/**
+ * Pages with no district table (Indiana, Illinois, South Dakota) give each
+ * district its own heading and a vote box. The winner is the bold row, and a
+ * "hold" or "gain" line says the race is closed: a box without one is still
+ * being filled in. Primary boxes are skipped, so a primary winner never reads
+ * as elected.
+ * @returns {Map<string, {incumbent:string, incumbents:string[], winners:string[], box:true}[]>}
+ */
+function electionBoxes(document) {
+  const out = new Map();
+  let district = null, section = "";
+  for (const el of document.querySelectorAll("h2, h3, h4, h5, table")) {
+    if (el.tagName !== "TABLE") {
+      const text = clean(el.textContent);
+      const m = /^(?:District\s+(\d{1,3}[A-Z]?)|(\d{1,3})(?:st|nd|rd|th)\s+district)\b/i.exec(text);
+      if (m) { district = (m[1] ?? m[2]).replace(/^0+/, "").toLowerCase(); section = ""; }
+      else if (el.tagName === "H2") { district = null; section = ""; }
+      else section = text;
+      continue;
+    }
+    if (!district) continue;
+    const all = clean(el.textContent);
+    const head = [...el.querySelectorAll("tr")].map((tr) => [...tr.children]).find((c) => c.some((x) => /^candidate$/i.test(clean(x.textContent))));
+    if (!head || !/\b(hold|gain)\b/i.test(all)) continue;
+    const fromEnd = head.length - head.findIndex((x) => /^candidate$/i.test(clean(x.textContent))); // columns after it vary (Votes, %, ±%)
+    if (/primary|runoff/i.test(`${clean(el.querySelector("caption")?.textContent)} ${section}`)) continue;
+    const winners = [], incumbents = [];
+    for (const tr of el.querySelectorAll("tr")) {
+      const cells = [...tr.children];
+      if (cells.length < 4) continue;
+      const cell = cells[cells.length - fromEnd];
+      const name = tidy(cell.textContent);
+      if (!NAME_OK(name) || /^(total|candidate)/i.test(name)) continue;
+      if (/\(incumbent\)/i.test(cell.textContent)) incumbents.push(name);
+      if (cell.querySelector("b")) winners.push(name);
+    }
+    if (winners.length) out.set(district, [{ incumbent: incumbents[0] ?? "", incumbents, winners, box: true }]);
+  }
+  return out;
+}
+
+const FL_RACE = { STR: "state_house", STS: "state_senate", USR: "us_house", USS: "us_senate" };
+
+/**
+ * Florida's own election-night file, one row per candidate per county. It is
+ * read only when every county has finished, and a margin under half a point
+ * is left alone because state law sends that to a recount. Candidates with no
+ * opponent are not on the ballot, so those seats stay with Wikipedia.
+ * @param {string} text  the tab-separated results file
+ * @returns {Map<string, {incumbent:string, winners:string[], box:true}[]>}  keyed "state_house-62", "us_senate-"
+ */
+export function parseFloridaResults(text) {
+  const lines = String(text).trim().split(/\r?\n/);
+  const head = lines[0].split("\t");
+  const col = (name) => head.indexOf(name);
+  const races = new Map();
+  for (const line of lines.slice(1)) {
+    const c = line.split("\t");
+    const office = FL_RACE[c[col("RaceCode")]];
+    if (!office) continue;
+    const district = /District\s+(\d+)/.exec(c[col("RaceName")])?.[1] ?? "";
+    const key = `${office}-${district}`;
+    const race = races.get(key) ?? { done: true, votes: new Map() };
+    if (Number(c[col("PrecinctsReporting")]) < Number(c[col("Precincts")])) race.done = false;
+    const name = clean(`${c[col("CanNameFirst")]} ${c[col("CanNameLast")]}`);
+    race.votes.set(name, (race.votes.get(name) ?? 0) + Number(c[col("CanVotes")]));
+    races.set(key, race);
+  }
+  const out = new Map();
+  for (const [key, race] of races) {
+    const ranked = [...race.votes].sort((a, b) => b[1] - a[1]);
+    const total = ranked.reduce((n, [, v]) => n + v, 0);
+    const clear = ranked.length > 1 && total > 0 && (ranked[0][1] - ranked[1][1]) / total >= 0.005;
+    out.set(key, [{ incumbent: "", winners: race.done && clear ? [ranked[0][0]] : [], box: true }]);
   }
   return out;
 }
