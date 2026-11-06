@@ -261,11 +261,11 @@ real writer, and every writer must be registered.
 Four budget and uptime guards sit alongside it: egress, Netlify credits, a
 live-URL watchdog, and the staleness pager itself.
 
-**It also reflects, weekly.** Every Sunday `scripts/weekly-self-review.mjs`
-posts what moved, what decayed and what it would do next as a comment on
-GitHub issue #929 (running since 2026-09-20). It catches what the pager
-cannot: a job that runs on time and writes nothing. Nothing acts on its
-proposals automatically — read them before starting a session.
+**It can also reflect, on request.** `scripts/weekly-self-review.mjs --dry-run`
+prints what moved, what decayed and what it would do next. It catches what the
+pager cannot: a job that runs on time and writes nothing. Its Sunday job is
+paused (2026-11-06) because CI output on this repo is public, so run it on the
+owner's machine. Nothing acts on its proposals automatically.
 
 ---
 
@@ -346,6 +346,32 @@ are own-row-only, and everyone else sees counts.
 
 Not built yet: reporting group content (waits on B4b's shared report system),
 editing an event's time (cancel and re-post), and a real cover photo.
+
+---
+
+## Forum bot, letter subjects, Media Persuasion (2026-11-06)
+
+A member's report in November led to four changes.
+
+- **One bot thread per state.** `forum_threads.is_state_digest` marks it, and
+  federal bills go in state `US`. `scripts/auto-post-bills-to-forum.mjs` adds a
+  comment when `bills.forum_update_key` (status plus last-action date) changes,
+  25 per run. Old per-bill bot threads stay in the table, and the state page
+  lists one only if someone replied to it.
+- **Bill statuses.** A LegiScan code counts only through `legiscanSessionFits`,
+  because reused ids can point at another session's bill. `dead` never overrides
+  a terminal status. `backfill-bill-status.mjs --actions-only` runs nightly; the
+  `--legiscan` pass spends API quota, so it runs by hand.
+- **Subjects.** `memberSubject()` (`src/lib/letter-subject.ts`) picks a short
+  subject from a hash of member and campaign, so one office doesn't get a hundred
+  identical lines. A stored subject of 40 characters or fewer joins the rotation.
+- **Media Persuasion.** `/media`, plus reply buttons on `/news/[id]` and
+  `/research/[id]`, let a member answer a writer or researcher from their own
+  mailbox through the shared composer. `scripts/find-press-contacts.mjs` fills
+  `press_contacts` nightly with printed addresses only, never guessed ones.
+  That table has no member policy: `getPressContact` is the only way to an
+  address, at 10 a day, so the list can't be read out in bulk. Don't aim a
+  campaign or wave at it.
 
 ---
 
