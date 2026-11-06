@@ -210,7 +210,7 @@ jobs:
       # Media Persuasion: the addresses writers and researchers printed themselves.
       - name: Find press contacts
         continue-on-error: true
-        run: node --import=./scripts/lib/egress-meter.mjs scripts/find-press-contacts.mjs --limit 150 --max-minutes 8
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/find-press-contacts.mjs --limit 300 --max-minutes 8
 
       # Self-heal the Frankenstein/session-drift residue (LegiScan-verified).
       - name: Bill session-drift self-heal (LegiScan-verified)
