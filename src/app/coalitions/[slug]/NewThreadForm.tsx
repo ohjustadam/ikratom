@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createCoalitionThread } from "@/modules/coalitions/discussion-actions";
+import { GroupImagePicker } from "./GroupImage";
 
 /**
  * "Start a discussion" for a coalition's private board. The welcome checklist
@@ -16,6 +17,7 @@ export function NewThreadForm({ slug, prefill }: {
   const [open, setOpen] = useState(!!prefill);
   const [title, setTitle] = useState(prefill?.title ?? "");
   const [body, setBody] = useState(prefill?.body ?? "");
+  const [photoId, setPhotoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -35,7 +37,7 @@ export function NewThreadForm({ slug, prefill }: {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await createCoalitionThread(slug, title, body, { pin: !!prefill?.pin });
+      const res = await createCoalitionThread(slug, title, body, { pin: !!prefill?.pin, photoId });
       if (!res.ok) { setError(res.error); return; }
       router.push(`/coalitions/${slug}/t/${res.id}`);
     });
@@ -60,6 +62,7 @@ export function NewThreadForm({ slug, prefill }: {
         aria-label="Discussion message"
         className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
       />
+      <GroupImagePicker photoId={photoId} onChange={setPhotoId} />
       {error && <p className="text-xs text-red-300">{error}</p>}
       <div className="flex gap-2">
         <button

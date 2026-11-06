@@ -53,7 +53,7 @@ export default async function ReportsQueuePage() {
       <h1 className="mt-2 text-3xl font-bold">Member reports</h1>
       <p className="mt-2 text-sm text-zinc-400">
         <strong className="text-zinc-200">{cards.length}</strong> reported item{cards.length === 1 ? "" : "s"}.
-        Act on the item in its own tool (open it), then mark it handled; or dismiss if nothing is wrong.
+        Open the item to see it in context. Handled takes down a wall post, comment, or group post, thread or event. For anything else, act in its own tool first. Dismiss if nothing is wrong.
         {forumOpen ? <> Forum: <Link href="/admin/forum" className="text-emerald-400 hover:underline">{forumOpen} open forum report{forumOpen === 1 ? "" : "s"} →</Link></> : null}
       </p>
       {cards.length === 0 && <p className="mt-6 rounded-lg border border-emerald-800/40 bg-emerald-950/10 p-4 text-sm text-emerald-300">✓ No open member reports.</p>}
