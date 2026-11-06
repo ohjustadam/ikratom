@@ -19,8 +19,8 @@
  *   node scripts/generate-patch-note.mjs --db               # + upsert a DRAFT row
  *
  * --db upserts the same draft into the `patch_notes` table (migration 0250)
- * with status='draft'. That is how the daily cron publishes now: a row costs
- * nothing, a merged .md costs a 15-credit Netlify build. The row is NOT
+ * with status='draft'. That is how the daily and weekly crons draft now: a row
+ * costs nothing, a merged .md costs a 15-credit Netlify build. The row is NOT
  * public until an admin presses Publish at /admin/whats-new — the curation
  * step below is the reason, and --db does not skip it.
  */
