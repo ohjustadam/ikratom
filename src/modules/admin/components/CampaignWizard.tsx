@@ -36,7 +36,7 @@ const ROLE_LABEL: Record<string, string> = {
   other_local: "Other",
 };
 
-const DEFAULT_SUBJECT = "Constituent input on kratom policy in {{state}}";
+const DEFAULT_SUBJECT = "Kratom policy in {{state}}";
 const DEFAULT_BODY = `Dear {{legislator_name}},
 
 My name is {{full_name}} and I am a constituent in {{city}}, {{state}} {{zip}}. I am writing about kratom policy in our community.
@@ -346,7 +346,7 @@ export function CampaignWizard({
       {step === 3 && (
         <Section title="Message — what gets sent">
           <Field
-            label="Subject *"
+            label="Subject * (members get a short, varied one; this joins the rotation at 40 characters or less)"
             value={subject}
             onChange={setSubject}
           />
