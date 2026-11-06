@@ -38,6 +38,10 @@ export type ThreadRow = {
   locked: boolean;
   /** True for threads created by automation (auto-bill-poster). UI attributes to "iKratom Bot". */
   system_generated?: boolean;
+  /** Only set when the query selects it. */
+  moderation_status?: string;
+  edited_at?: string | null;
+  edited_by_moderator?: boolean;
   post_count: number;
   upvote_count: number;
   helpful_count: number;
@@ -57,5 +61,7 @@ export type PostRow = {
   deleted_at: string | null;
   /** Optional — only set when client query selects it. */
   moderation_status?: "approved" | "pending" | "auto_flagged" | "user_flagged" | "removed";
+  edited_at?: string | null;
+  edited_by_moderator?: boolean;
   created_at: string;
 };

@@ -8,6 +8,7 @@ import { postChatMessage, deleteChatMessage, type ChatMessage } from "./actions"
 import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { useChromeMe } from "@/components/chrome/ChromeProvider";
 import { MentionText } from "./MentionText";
+import { useLoungeSeen } from "./use-lounge-seen";
 
 /**
  * Live community chat for the forum index. Three jobs in one component:
@@ -49,6 +50,9 @@ export function Lounge({
   const [pending, startTransition] = useTransition();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+
+  // This is the Lounge too: being here clears the badge, same as the popup.
+  useLoungeSeen(signedIn && room === "lounge", messages.length);
 
   // Realtime: subscribe to inserts + deletes in this room and presence
   useEffect(() => {
