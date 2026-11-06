@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 /**
- * iKratom — News enrichment via local Ollama.
+ * iKratom — News enrichment via the free AI router.
  *
  * After `npm run sync:news:rss` populates raw articles, this script:
- *   - Finds news_items where summary is null
- *   - For each, asks the local Ollama instance to:
- *      (a) write a 2-sentence factual summary
- *      (b) score kratom relevance 0.00–1.00
- *      (c) classify topic (legislation/science/business/enforcement/culture)
+ *   - Finds news_items still on the 0.5 placeholder score
+ *   - For each, asks the router to:
+ *      (a) score kratom relevance 0.00–1.00
+ *      (b) classify topic (legislation/science/business/enforcement/culture)
  *   - Writes the enrichment back to the row
+ *
+ * It sees only the headline, so it never writes a summary. Summaries belong to
+ * summarize-news.mjs (lib/news-summary.mjs says why). This prompt used to ask
+ * for one, and its sample sentence ended up on a live Idaho story.
  *
  * Run with:
  *   node --env-file=.env.local scripts/enrich-news.mjs              # all unenriched
@@ -40,9 +43,7 @@ const SYSTEM = `You analyze news headlines about kratom for an advocacy platform
 
 Given a headline + source, return a JSON object with these EXACT fields:
 
-1. summary — 2 short sentences based ONLY on the headline (don't fabricate details beyond what's there)
-
-2. relevance — number 0.00 to 1.00. SCORING RULES:
+1. relevance — number 0.00 to 1.00. SCORING RULES:
    - 1.00: headline names kratom, mitragynine, mitragyna, kratomite, or 7-OH/7-hydroxymitragynine
    - 0.85: headline mentions "kratom retailers", "kratom shop", "kratom ban", "kratom regulation"
    - 0.70: headline references kratom industry, vendors, or specific kratom products
@@ -50,7 +51,7 @@ Given a headline + source, return a JSON object with these EXACT fields:
    - 0.00: completely unrelated
    IMPORTANT: if "kratom" appears anywhere in the headline, relevance MUST be 0.70 or higher.
 
-3. topic — exactly one of these strings (no others, no quotes-of-quotes):
+2. topic — exactly one of these strings (no others, no quotes-of-quotes):
    "legislation" — bills, laws, regulation, bans
    "science" — research, studies, medical findings
    "business" — vendors, retailers, sales, market, lawsuits over commerce
@@ -59,7 +60,7 @@ Given a headline + source, return a JSON object with these EXACT fields:
    "other" — anything else kratom-related
 
 Return ONLY the JSON object, nothing else. Example:
-{"summary":"Oklahoma lawmakers introduced a bill regulating kratom sales. The bill targets the 7-OH alkaloid specifically.","relevance":0.95,"topic":"legislation"}`;
+{"relevance":0.95,"topic":"legislation"}`;
 
 async function enrichOne(item) {
   const userPrompt = `Headline: ${item.title}\nSource: ${item.source_name ?? "Unknown"}\nURL: ${item.url}`;
@@ -85,13 +86,12 @@ async function enrichOne(item) {
   if (!parsed || typeof parsed !== "object") throw new Error("router returned no JSON object");
 
   const validTopics = new Set(["legislation", "science", "business", "enforcement", "culture", "other"]);
-  const summary = typeof parsed.summary === "string" ? parsed.summary.slice(0, 1000) : null;
   const relevance = typeof parsed.relevance === "number"
     ? Math.max(0, Math.min(1, parsed.relevance))
     : 0.5;
   const topic = validTopics.has(parsed.topic) ? parsed.topic : "other";
 
-  return { summary, ai_relevance_score: relevance, kratom_topic: topic === "other" ? null : topic };
+  return { ai_relevance_score: relevance, kratom_topic: topic === "other" ? null : topic };
 }
 
 // ---------- main ----------
@@ -113,9 +113,9 @@ console.log(`\nEnriching news via the free AI router (${listAvailableProviders()
 // landing on 0.5 is rare and re-scoring it costs one call.
 const { data: items } = await supabase
   .from("news_items")
-  .select("id, title, source_name, url, summary")
+  .select("id, title, source_name, url")
   .eq("active", true)
-  .or("ai_relevance_score.eq.0.5,ai_relevance_score.is.null,summary.is.null")
+  .or("ai_relevance_score.eq.0.5,ai_relevance_score.is.null")
   // NEWEST FIRST, and this is load-bearing, not tidiness. Measured 2026-09-21:
   // 14,142 items still carry the 0.5 placeholder. The hourly cron scores 40, so
   // an unordered queue reaches today's news in about two weeks — and fresh
@@ -127,7 +127,7 @@ const { data: items } = await supabase
   .limit(LIMIT);
 
 if (!items || items.length === 0) {
-  console.log("Nothing to enrich — all news items have summaries already.");
+  console.log("Nothing to enrich — no news item is on the placeholder score.");
   await tag("empty", 0, 0);
   process.exit(0);
 }
@@ -151,15 +151,9 @@ for (const item of items) {
   process.stdout.write(`  [${done + 1}/${items.length}] ${item.title.slice(0, 60)}… `);
   try {
     const enrichment = await enrichOne(item);
-    // Never clobber an existing summary: summarize-news.mjs writes a body-aware
-    // one, while this prompt only ever sees the headline. Score and topic are
-    // always ours to set — the score is the whole reason this runs.
-    const patch = item.summary
-      ? { ai_relevance_score: enrichment.ai_relevance_score, kratom_topic: enrichment.kratom_topic }
-      : enrichment;
     const { error } = await supabase
       .from("news_items")
-      .update(patch)
+      .update(enrichment)
       .eq("id", item.id);
     if (error) {
       console.log(`DB ✗ ${error.message}`);
