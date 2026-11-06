@@ -86,6 +86,25 @@ for (const c of commits) {
 
 if (feats.length + fixes.length === 0) {
   console.log(`Nothing member-facing since "${since}" (${held.length} held). Nothing to draft.`);
+  // A quiet day is not a stopped job. Without this row the self-pager would
+  // read an internal-only stretch as the draft job going silent.
+  if (args.includes("--db") && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false },
+      });
+      const now = new Date().toISOString();
+      await sb.from("scraper_runs").insert({
+        source: "patch_note_draft",
+        started_at: now,
+        finished_at: now,
+        status: "empty",
+        rows_updated: 0,
+        notes: `${commits.length} commits · ${held.length} held · nothing member-facing`,
+      });
+    } catch { /* best-effort */ }
+  }
   process.exit(0);
 }
 
