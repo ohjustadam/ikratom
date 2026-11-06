@@ -52,11 +52,12 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
 
   const { data: row } = await sb
     .from("coalitions")
-    .select("id, slug, name, description, state, is_public, owner_id, created_at, featured_campaign_id, featured_set_at, cover_theme")
+    .select("id, slug, name, description, state, is_public, listing_requested_at, listing_approved_at, owner_id, created_at, featured_campaign_id, featured_set_at, cover_theme")
     .eq("slug", slug).maybeSingle();
   if (!row) notFound();
   const c = row as {
     id: string; slug: string; name: string; description: string | null; state: string | null; is_public: boolean;
+    listing_requested_at: string | null; listing_approved_at: string | null;
     owner_id: string; created_at: string; featured_campaign_id: string | null; featured_set_at: string | null; cover_theme: string | null;
   };
 

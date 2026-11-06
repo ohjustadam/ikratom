@@ -36,12 +36,14 @@ const QUEUES: { kind: QueueKind; title: string; blurb: string; href: string }[] 
 export default async function ModerationPage() {
   const ctx = await getAdminContext({ require: "moderate_forum" });
   if (!ctx.ok) redirect("/dashboard");
-  const [counts, { count: openReports }] = await Promise.all([
+  const svc = createServiceRoleClient();
+  const [counts, { count: openReports }, { count: waitingGroups }] = await Promise.all([
     queueCounts(),
-    createServiceRoleClient().from("content_reports").select("id", { count: "exact", head: true }).eq("status", "open"),
+    svc.from("content_reports").select("id", { count: "exact", head: true }).eq("status", "open"),
+    svc.from("coalitions").select("id", { count: "exact", head: true }).not("listing_requested_at", "is", null).is("listing_approved_at", null),
   ]);
   const countOf = (k: QueueKind) => (k === "campaigns" ? counts.campaigns : counts.intel);
-  const total = counts.campaigns + counts.intel;
+  const total = counts.campaigns + counts.intel + (waitingGroups ?? 0);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -81,6 +83,14 @@ export default async function ModerationPage() {
           );
         })}
       </div>
+
+      <Link href="/admin/moderation/groups" className="mt-4 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 hover:border-emerald-700/50">
+        <span>
+          <span className="block text-lg font-semibold text-zinc-100">Groups waiting to be listed</span>
+          <span className="text-xs text-zinc-500">New public groups stay private until you approve them here. Their invite links work in the meantime.</span>
+        </span>
+        <span className={`text-2xl font-bold ${waitingGroups ? "text-amber-400" : "text-zinc-600"}`}>{waitingGroups ?? 0}</span>
+      </Link>
 
       <Link href="/admin/moderation/reports" className="mt-4 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 hover:border-emerald-700/50">
         <span>

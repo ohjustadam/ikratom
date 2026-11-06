@@ -31,6 +31,9 @@ export function GroupsGuide() {
         ]}
       />
       <Note>
+        <strong>Want your group in the public directory?</strong> Choose to list it publicly. A moderator checks each new group first, and your invite link works in the meantime.
+      </Note>
+      <Note>
         <strong>Own a shop?</strong> The free storefront kit gives you a printable QR poster for your counter, so customers can sign up and write their legislators while they wait.{" "}
         <a href="/spread" className="text-emerald-400 hover:underline">Get the storefront kit →</a>
       </Note>

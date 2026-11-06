@@ -86,7 +86,8 @@ export function CreateCoalitionForm({ defaultState }: { defaultState: string }) 
           <span className="font-semibold">List publicly</span> on /coalitions.
           <span className="block text-[10px] text-zinc-500">
             Anyone can see the coalition exists + its description. Member names stay private to
-            members. Default off. Groups are for advocacy: no selling, and no links to shops or brands.
+            members. Default off. A moderator checks each new group before it&apos;s listed; your group
+            and invite link work right away. Groups are for advocacy: no selling, and no links to shops or brands.
           </span>
         </span>
       </label>
