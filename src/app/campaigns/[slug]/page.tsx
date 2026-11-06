@@ -20,6 +20,7 @@ import { defaultCampaignShareText } from "@/modules/social/share";
 
 const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
 import { WavePanel } from "@/modules/waves/components/WavePanel";
+import { memberSubject } from "@/lib/letter-subject";
 
 export async function generateMetadata({
   params,
@@ -372,7 +373,12 @@ export default async function CampaignPage({
   const hideHome = !!safeMode?.active && senderIsNonResident;
   const adapt = (t: string) =>
     hideHome ? adaptForHiddenHome(t) : senderIsNonResident ? adaptForNonResident(t) : t;
-  const subject = renderSenderOnly(adapt(campaign.subject_template), vars);
+  const shortSubject = memberSubject({
+    template: campaign.subject_template,
+    billNumber: linkedBill?.bill_number,
+    seed: `${user?.id ?? ""}:${campaign.id}`,
+  });
+  const subject = renderSenderOnly(adapt(shortSubject), vars);
   let body = renderSenderOnly(adapt(campaign.body_template), vars);
 
   // Story → Letter: if ?story=<id> is present and points to an approved
