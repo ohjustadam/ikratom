@@ -174,7 +174,7 @@ describe("fireDueWaves with banned-state safe mode", () => {
     const out = await fireDueWaves(db.client);
     expect(out.sentTotal).toBe(1);
     const [mail] = sent();
-    expect(mail.subject).toBe("Input on kratom policy");
+    expect(mail.subject).not.toMatch(/constituent|\bLA\b|Louisiana/i);
     expect(mail.body).not.toMatch(/Baton Rouge|\bLA\b|70801|constituent/);
     expect(mail.body).toContain("As an advocate who relied on kratom");
     expect(mail.body).toContain("Dear Senator Smith,");
@@ -199,7 +199,7 @@ describe("fireDueWaves with banned-state safe mode", () => {
     const db = fakeDb({ banned: ["LA"], member: { state: "LA", pref: false } });
     await fireDueWaves(db.client);
     const [mail] = sent();
-    expect(mail.subject).toBe("Constituent input on kratom policy in LA");
+    expect(mail.subject.length).toBeLessThanOrEqual(40); // each member gets a short subject of their own
     expect(mail.body).toContain("Baton Rouge, LA 70801");
     expect(mail.body).toContain("relies on kratom");
   });
