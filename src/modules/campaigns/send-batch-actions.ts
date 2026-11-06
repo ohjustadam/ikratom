@@ -24,7 +24,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { adaptForHiddenHome, adaptForNonResident, buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
 import { getSafeMode } from "./safe-mode";
 import { drainBatch } from "./drain-batch";
-import { screenMemberLetter } from "./screen-content";
+import { screenLetterFrom } from "./letter-blocks";
 import { isMailbox } from "@/lib/mailbox";
 
 /** Hard ceiling on one batch. Not a security boundary — scope is. */
@@ -127,7 +127,7 @@ export async function enqueueCampaignSend(input: {
     }
     // The member's own words leave through iKratom, so they are screened here,
     // where it can't be skipped (owner rules, 2026-10-22; see screen-content.ts).
-    const screen = await screenMemberLetter({ subject: subjectTpl, body: bodyTpl });
+    const screen = await screenLetterFrom(user.id, { subject: subjectTpl, body: bodyTpl });
     if (screen.block) {
       return { ok: false, error: `${screen.message} If you think this is a mistake, contact us at /support.` };
     }
@@ -276,7 +276,7 @@ export async function checkLetter(subject: string, body: string): Promise<{ ok: 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: true, message: "" };
   if (!(await checkRateLimit(`letter:screen:${user.id}`, 30, 600))) return { ok: true, message: "" };
-  const s = await screenMemberLetter({ subject: String(subject ?? "").slice(0, 300), body: String(body ?? "").slice(0, 12_000) });
+  const s = await screenLetterFrom(user.id, { subject: String(subject ?? "").slice(0, 300), body: String(body ?? "").slice(0, 12_000) });
   return { ok: !s.block, message: s.message };
 }
 
