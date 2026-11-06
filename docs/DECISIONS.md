@@ -307,6 +307,6 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 
 ## Old bot threads are hidden, not deleted (2026-11-06)
 
-**Decision:** bill threads are never deleted automatically. No action in 180 days puts a banner on the thread and lists it at `/admin/forum` for a moderator. 374 old bot threads with no replies stay in the table, off the forum lists, because bill pages still link to them.
+**Decision:** bill threads are never deleted automatically. No action in 180 days puts a banner on the thread. A bill thread with member replies that's been quiet for 90 days is listed at `/admin/forum` for a moderator. 374 old bot threads with no replies stay in the table, off the forum lists, because bill pages still link to them.
 
 **Why:** PJ asked for a cutoff, with threads that drew real conversation going to manual review. Deleting needs the owner's yes, and nothing is lost by hiding them.

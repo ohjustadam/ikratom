@@ -424,8 +424,9 @@ reported posts that are still visible, plus recent edits and old bill threads.
 home shows "New from members" and "New in your groups", the second one limited to
 groups the viewer belongs to, because admins can read them all. The state page
 puts the bot's thread in a card above member threads. A bill thread with no action
-in 180 days (`isStaleBill`) gets a banner, and `/admin/forum` lists it for review.
-Nothing deletes one automatically.
+in 180 days (`isStaleBill`) gets a banner. Separately, `/admin/forum` lists bill
+threads with member replies that have been quiet for 90 days. Nothing deletes
+one automatically.
 
 **The Lounge counter** clears through `useLoungeSeen`. It marks the chat as seen
 while it's on screen, at most every 2 seconds, skips hidden tabs, and tells the
