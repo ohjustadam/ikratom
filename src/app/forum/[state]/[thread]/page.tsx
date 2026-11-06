@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getCreatorContext } from "@/modules/admin/actions";
 import { forumRoleOf, type ForumRole, type ForumViewer } from "@/lib/forum-permissions";
 import { TAG_COLORS, TAG_LABELS, type ForumTag } from "@/modules/forum/types";
+import { isStaleBill } from "@/modules/forum/member-feed";
 import { ThreadView } from "./ThreadView";
 
 export async function generateMetadata({
@@ -35,7 +36,7 @@ export default async function ThreadPage({
   // Fetch thread
   const { data: thread } = await supabase
     .from("forum_threads")
-    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, system_generated, post_count, upvote_count, helpful_count, last_activity_at, created_at, moderation_status, edited_at, edited_by_moderator")
+    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, system_generated, is_state_digest, post_count, upvote_count, helpful_count, last_activity_at, created_at, moderation_status, edited_at, edited_by_moderator")
     .eq("id", threadId)
     .single();
   if (!thread) notFound();
@@ -132,6 +133,16 @@ export default async function ThreadPage({
     for (const r of roleRows ?? []) authorRoles[r.id as string] = forumRoleOf(r);
   }
 
+  // A bot thread's date is the bill's, not the day the bot happened to post it.
+  const { data: bill } =
+    thread.system_generated && !thread.is_state_digest
+      ? await supabase
+          .from("bills")
+          .select("id, bill_number, last_action, last_action_at")
+          .eq("forum_thread_id", thread.id)
+          .maybeSingle()
+      : { data: null };
+
   // Check residents-only eligibility for replying
   let canReply = !!user && !thread.locked;
   let replyBlockReason: string | null = null;
@@ -203,11 +214,23 @@ export default async function ThreadPage({
             <span>{thread.system_generated ? "🤖 iKratom bot" : "Member"}</span>
           )}
           {" · "}
-          {new Date(thread.created_at).toLocaleString()}
+          {bill?.last_action_at
+            ? `Last bill action ${new Date(bill.last_action_at).toLocaleDateString()}`
+            : new Date(thread.created_at).toLocaleString()}
           {thread.edited_at && (
             <span>{thread.edited_by_moderator ? " · edited by a moderator" : " · edited"}</span>
           )}
         </p>
+        {bill && isStaleBill(bill.last_action_at) && (
+          <p className="mt-2 rounded-md border border-amber-900/40 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+            {bill.bill_number} hasn&apos;t moved since {new Date(bill.last_action_at!).toLocaleDateString()}, so it
+            may be dead or stalled.{" "}
+            <a href={`/bills/${bill.id}`} className="underline hover:text-amber-100">
+              Check the bill
+            </a>{" "}
+            before acting on this thread.
+          </p>
+        )}
         {thread.moderation_status === "removed" && (
           <p className="mt-2 rounded-md border border-red-900/40 bg-red-950/30 px-3 py-2 text-xs text-red-300">
             Taken down. Only moderators can see this.
