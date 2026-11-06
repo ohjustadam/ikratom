@@ -258,7 +258,9 @@ function AllowanceBar({ a }: { a: NonNullable<SendAllowance> }) {
         <div className={`h-full ${pct >= 80 ? "bg-amber-400" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
       </div>
       <p className="mt-1 text-[10px] text-zinc-500">
-        {a.providerLabel}: we stop well before your provider&apos;s daily limit. Anything over pauses and finishes tomorrow.
+        {a.newAccount
+          ? `New accounts send up to ${a.limit} a day for their first 3 days. Anything over pauses and finishes tomorrow.`
+          : <>{a.providerLabel}: we stop well before your provider&apos;s daily limit. Anything over pauses and finishes tomorrow.</>}
       </p>
     </div>
   );

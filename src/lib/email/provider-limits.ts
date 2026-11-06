@@ -58,6 +58,8 @@ export type ProviderLimits = {
    * iCloud): we stop at whichever is lower, this or 85% of the reported limit.
    */
   capDaily?: number;
+  /** True when capForNewAccount lowered effectiveDaily, so the UI can say why. */
+  newAccount?: boolean;
 };
 
 /**
@@ -185,6 +187,28 @@ export function resolveLimits(
   const detected = detectTier(provider, accountEmail);
   const tier = override && TIERS[override]?.provider === provider ? override : detected;
   return withEffective(TIERS[tier]);
+}
+
+/** How long an account counts as new, and what it can send in a day until then. */
+export const NEW_ACCOUNT_HOURS = 72;
+export const NEW_ACCOUNT_DAILY = 50;
+
+/**
+ * A brand-new account sends less, whatever its mailbox allows. Without this a
+ * day-one account could queue a full Gmail day (425 letters), and a handful of
+ * throwaway accounts doing that is what gets our letters filtered as spam. A
+ * real new member still reaches a whole delegation: the rest of a long list
+ * goes out the next day, the same way any list over the limit does.
+ */
+export function capForNewAccount(
+  limits: ProviderLimits,
+  accountCreatedAt: string | null | undefined,
+  now = Date.now(),
+): ProviderLimits {
+  const joined = accountCreatedAt ? Date.parse(accountCreatedAt) : Number.NaN;
+  if (Number.isNaN(joined) || now - joined >= NEW_ACCOUNT_HOURS * 3_600_000) return limits;
+  if (limits.effectiveDaily <= NEW_ACCOUNT_DAILY) return limits;
+  return { ...limits, effectiveDaily: NEW_ACCOUNT_DAILY, newAccount: true };
 }
 
 /** Every tier a given provider can be set to — for the settings dropdown. */

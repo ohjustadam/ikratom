@@ -4,7 +4,11 @@ import {
   resolveLimits,
   tiersForProvider,
   planParts,
+  capForNewAccount,
+  NEW_ACCOUNT_DAILY,
+  NEW_ACCOUNT_HOURS,
 } from "@/lib/email/provider-limits";
+import { readFileSync } from "node:fs";
 
 describe("detectTier", () => {
   it("treats consumer gmail domains as free", () => {
@@ -117,5 +121,42 @@ describe("planParts", () => {
 
   it("returns nothing for an empty selection", () => {
     expect(planParts(0, gmailFree, 425)).toEqual([]);
+  });
+});
+
+describe("capForNewAccount", () => {
+  const gmail = resolveLimits("gmail", "someone@gmail.com");
+  const now = Date.parse("2026-11-05T12:00:00Z");
+  const hoursAgo = (h: number) => new Date(now - h * 3_600_000).toISOString();
+
+  it("holds a day-one account to the new-account limit, whatever the mailbox allows", () => {
+    const capped = capForNewAccount(gmail, hoursAgo(1), now);
+    expect(capped.effectiveDaily).toBe(NEW_ACCOUNT_DAILY);
+    expect(capped.newAccount).toBe(true);
+    expect(capped.label).toBe(gmail.label);
+  });
+  it("lifts at the line, not after it", () => {
+    expect(capForNewAccount(gmail, hoursAgo(NEW_ACCOUNT_HOURS - 1), now).effectiveDaily).toBe(NEW_ACCOUNT_DAILY);
+    expect(capForNewAccount(gmail, hoursAgo(NEW_ACCOUNT_HOURS), now)).toBe(gmail);
+  });
+  it("never raises a limit that's already lower", () => {
+    const small = { ...gmail, effectiveDaily: 20 };
+    expect(capForNewAccount(small, hoursAgo(1), now)).toBe(small);
+  });
+  it("leaves the limit alone when the join date is missing or unreadable", () => {
+    expect(capForNewAccount(gmail, null, now)).toBe(gmail);
+    expect(capForNewAccount(gmail, "not a date", now)).toBe(gmail);
+  });
+  it("splits a long list across days at the new-account size", () => {
+    const parts = planParts(101, capForNewAccount(gmail, hoursAgo(1), now), NEW_ACCOUNT_DAILY);
+    expect(parts.map((x) => x.count)).toEqual([50, 50, 1]);
+    expect(parts.map((x) => x.sameDay)).toEqual([true, false, false]);
+  });
+  it("both the queue and the worker apply it", () => {
+    const queue = readFileSync("src/modules/campaigns/send-batch-actions.ts", "utf8");
+    expect(queue.match(/capForNewAccount\(/g)?.length).toBeGreaterThanOrEqual(2);
+    const worker = readFileSync("src/modules/campaigns/drain-batch.ts", "utf8");
+    expect(worker).toMatch(/capForNewAccount\(/);
+    expect(worker).toMatch(/email_provider_tier, created_at/);
   });
 });
