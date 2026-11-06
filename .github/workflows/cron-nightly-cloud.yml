@@ -211,6 +211,11 @@ jobs:
       - name: Find press contacts
         continue-on-error: true
         run: node --import=./scripts/lib/egress-meter.mjs scripts/find-press-contacts.mjs --limit 300 --max-minutes 8
+      # A bill whose last action says it became law reads Enacted, and two rows
+      # for one bill agree. Never marks anything dead for being old.
+      - name: Correct bill statuses from their last action
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-bill-status.mjs --apply --actions-only
 
       # Self-heal the Frankenstein/session-drift residue (LegiScan-verified).
       - name: Bill session-drift self-heal (LegiScan-verified)
