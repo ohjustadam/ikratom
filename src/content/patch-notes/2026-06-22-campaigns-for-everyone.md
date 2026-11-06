@@ -45,4 +45,4 @@ A peek at what's coming, in rough order:
 - **Bill watchlists** — track the bills you care about and get pinged when they move.
 - **More local coverage** — filling in city and county officials so local campaigns reach the right desks.
 
-We build in the open — every change here links back to the code. Thanks for being part of it. 💚
+Thanks for being part of it. 💚
