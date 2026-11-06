@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { BillsView } from "./BillsView";
+import { collapseBillTwins } from "@/lib/bill-status";
 import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 
 export const metadata = { title: "Bill tracker" };
@@ -61,7 +62,7 @@ const getBillsSnapshot = unstable_cache(
 );
 
 export default async function BillsPage() {
-  const allBills = await getBillsSnapshot();
+  const allBills = collapseBillTwins(await getBillsSnapshot());
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">

@@ -71,3 +71,31 @@ export function billStatusMatches(
   const have = billStatus ? BILL_STATUS_LABELS[billStatus] ?? billStatus : null;
   return have === want;
 }
+
+// Both sync sources can write a row for one bill, and a reader shouldn't see it
+// twice with two statuses. Same rule as billTwinKey in scripts/lib/bill-status.mjs.
+const TWIN_RANK: Record<string, number> = { enacted: 3, vetoed: 2, dead: 1 };
+
+type TwinFields = {
+  state: string | null;
+  bill_number: string | null;
+  status: string | null;
+  last_action_at: string | null;
+};
+
+export function collapseBillTwins<T extends TwinFields>(bills: T[]): T[] {
+  const best = new Map<string, T>();
+  const rank = (b: T) => TWIN_RANK[b.status ?? ""] ?? 0;
+  const undated: T[] = [];
+  for (const b of bills) {
+    if (!b.last_action_at) {
+      undated.push(b);
+      continue;
+    }
+    const number = (b.bill_number ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().replace(/^([A-Z]+)0+/, "$1");
+    const key = `${b.state}|${number}|${b.last_action_at.slice(0, 10)}`;
+    const seen = best.get(key);
+    if (!seen || rank(b) > rank(seen)) best.set(key, b);
+  }
+  return [...best.values(), ...undated];
+}
