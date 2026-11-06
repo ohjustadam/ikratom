@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { tellModeratorsGroupWaiting } from "./listing";
 import { groupTextIssue } from "./vendor-screen";
 
 /**
@@ -130,6 +131,9 @@ ${description ?? ""}`);
     await supabase.from("coalitions").delete().eq("id", created.id);
     return { ok: false, error: `Failed to seed owner membership: ${memberErr.message}` };
   }
+
+  // Migration 0313 kept it private; it waits for a moderator.
+  if (input.is_public) await tellModeratorsGroupWaiting(createServiceRoleClient(), name);
 
   // Coalition creation is user-tier, not admin-tier — skip audit log.
   revalidatePath("/coalitions");

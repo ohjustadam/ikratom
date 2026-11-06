@@ -1,14 +1,16 @@
+import { listingPending, type ListingFields } from "@/modules/coalitions/listing";
 import { StateIntel } from "./StateIntel";
 import { VisibilityToggle } from "./GroupGrowthClient";
 import { AboutEditor, LeaveGroup } from "./GroupHomeClient";
 
 /** The group's About tab: what it's for, the facts, and the organizers' settings. */
 export function About({ group, memberCount, viewerRole }: {
-  group: { id: string; description: string | null; state: string | null; is_public: boolean; created_at: string; cover_theme: string | null };
+  group: ListingFields & { id: string; description: string | null; state: string | null; created_at: string; cover_theme: string | null };
   memberCount: number | null;
   viewerRole: "owner" | "admin" | "member" | null;
 }) {
   const isOrganizer = viewerRole === "owner" || viewerRole === "admin";
+  const waiting = listingPending(group);
   return (
     <>
       <section className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
@@ -19,7 +21,9 @@ export function About({ group, memberCount, viewerRole }: {
         <ul className="mt-4 space-y-2 text-sm text-zinc-300">
           <li>{group.is_public
             ? "🌐 Public: anyone signed in can find the group and ask to join. Only members see the board, events and member list."
-            : "🔒 Private: only members can see this group. People join with the group link."}</li>
+            : waiting
+              ? "⏳ Waiting to be listed: a moderator checks each new public group. Until then only members can see it, and people join with the group link."
+              : "🔒 Private: only members can see this group. People join with the group link."}</li>
           {group.state && <li>📍 {group.state}</li>}
           {memberCount !== null && <li>👥 {memberCount} member{memberCount === 1 ? "" : "s"}</li>}
           <li>🗓 Started {new Date(group.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</li>
@@ -30,7 +34,7 @@ export function About({ group, memberCount, viewerRole }: {
 
       {group.state && viewerRole && <StateIntel state={group.state} />}
 
-      {isOrganizer && <VisibilityToggle coalitionId={group.id} isPublic={group.is_public} />}
+      {isOrganizer && <VisibilityToggle coalitionId={group.id} isPublic={group.is_public} waiting={waiting} />}
 
       {viewerRole && viewerRole !== "owner" && <div className="mb-6"><LeaveGroup coalitionId={group.id} /></div>}
     </>

@@ -79,6 +79,7 @@
     {"route":"/admin/master-edit","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/admin/meetings","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/admin/moderation","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
+    {"route":"/admin/moderation/groups","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/admin/moderation/photos","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/admin/moderation/reports","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/admin/notifications-health","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},

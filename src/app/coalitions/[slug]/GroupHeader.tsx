@@ -1,6 +1,7 @@
 import Link from "@/components/Link";
 import { coverClass, handleInitial } from "@/modules/coalitions/covers";
 import type { GroupBadge } from "@/modules/coalitions/home";
+import { listingPending, type ListingFields } from "@/modules/coalitions/listing";
 import { InviteButton } from "./GroupHomeClient";
 
 /**
@@ -19,7 +20,7 @@ const TABS: { key: GroupTab; label: string }[] = [
 ];
 
 export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTabs, link, badge = null }: {
-  group: { id: string; slug: string; name: string; state: string | null; is_public: boolean; cover_theme: string | null };
+  group: ListingFields & { id: string; slug: string; name: string; state: string | null; cover_theme: string | null };
   memberCount: number | null;
   faces: { handle: string; avatarUrl: string | null }[];
   viewerRole: "owner" | "admin" | "member" | null;
@@ -42,7 +43,7 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
       <div className="px-1 pt-3">
         <h1 className="text-2xl font-bold leading-tight text-zinc-50 sm:text-3xl">{group.name}</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          {group.is_public ? "🌐 Public group" : "🔒 Private group"}
+          {group.is_public ? "🌐 Public group" : listingPending(group) ? "⏳ Waiting to be listed" : "🔒 Private group"}
           {memberCount !== null && <> · <strong className="text-zinc-200">{memberCount}</strong> member{memberCount === 1 ? "" : "s"}</>}
           {group.state && <> · {group.state}</>}
           {badge && (

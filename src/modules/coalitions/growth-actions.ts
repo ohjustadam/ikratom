@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { renderQrSvg } from "@/modules/partners/qr";
+import { tellModeratorsGroupWaiting } from "./listing";
 import { groupTextIssue } from "./vendor-screen";
 
 /**
@@ -72,12 +73,16 @@ export async function getGroupLink(coalitionId: string): Promise<{ ok: true; url
   return { ok: true, url, qrSvg: await renderQrSvg(url, { size: 240 }) };
 }
 
-/** Make the group public (landing page + "Request to join") or private again. */
+/**
+ * Make the group public (landing page + "Request to join") or private again.
+ * A group no moderator has approved comes back still private, waiting in the
+ * queue (migration 0313). Going private also withdraws a waiting request.
+ */
 export async function setGroupVisibility(coalitionId: string, isPublic: boolean): Promise<{ ok: boolean; error?: string }> {
   const ro = await assertNotReadOnly();
   if (ro) return { ok: false, error: ro };
-  const { role } = await groupRole(coalitionId);
-  if (!isGroupAdmin(role)) return { ok: false, error: "Only the group's organizers can change this." };
+  const { user, role } = await groupRole(coalitionId);
+  if (!user || !isGroupAdmin(role)) return { ok: false, error: "Only the group's organizers can change this." };
   const admin = createServiceRoleClient();
   // A public group is listed to visitors, so its name and About pass the
   // no-selling rule first. Rows from before 0309 were never screened.
@@ -86,9 +91,13 @@ export async function setGroupVisibility(coalitionId: string, isPublic: boolean)
     const vendorIssue = groupTextIssue(`${g?.name ?? ""}
 ${g?.description ?? ""}`);
     if (vendorIssue) return { ok: false, error: vendorIssue };
+    if (!(await checkRateLimit(`coalition:listing:${user.id}`, 5, 3600))) return { ok: false, error: "Slow down a little." };
   }
-  const { data, error } = await admin.from("coalitions").update({ is_public: !!isPublic }).eq("id", coalitionId).select("slug").single();
+  const { data, error } = await admin.from("coalitions")
+    .update(isPublic ? { is_public: true } : { is_public: false, listing_requested_at: null })
+    .eq("id", coalitionId).select("slug, name, is_public").single();
   if (error || !data) return { ok: false, error: "Couldn't save that." };
+  if (isPublic && !data.is_public) await tellModeratorsGroupWaiting(admin, data.name);
   revalidatePath(`/coalitions/${data.slug}`);
   return { ok: true };
 }

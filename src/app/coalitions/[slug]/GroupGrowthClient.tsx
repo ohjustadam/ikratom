@@ -78,24 +78,30 @@ export function GroupLinkCard({ coalitionId, groupName, initial = null }: {
   );
 }
 
-export function VisibilityToggle({ coalitionId, isPublic }: { coalitionId: string; isPublic: boolean }) {
+export function VisibilityToggle({ coalitionId, isPublic, waiting = false }: { coalitionId: string; isPublic: boolean; waiting?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   return (
     <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 text-sm">
-      <p className="text-zinc-200">
-        This group is <strong>{isPublic ? "public" : "private"}</strong>.{" "}
-        {isPublic
-          ? "Anyone can see its page and ask to join; you approve each request."
-          : "Only people with your link can find it."}
-      </p>
+      {waiting ? (
+        <p className="text-zinc-200">
+          <strong>Waiting for a moderator.</strong> The group stays private until it&apos;s approved. Your group link works in the meantime.
+        </p>
+      ) : (
+        <p className="text-zinc-200">
+          This group is <strong>{isPublic ? "public" : "private"}</strong>.{" "}
+          {isPublic
+            ? "Anyone can see its page and ask to join; you approve each request."
+            : "Only people with your link can find it."}
+        </p>
+      )}
       <button type="button" disabled={pending} className={`${ghost} mt-2`}
         onClick={() => start(async () => {
-          const r = await setGroupVisibility(coalitionId, !isPublic);
+          const r = await setGroupVisibility(coalitionId, !isPublic && !waiting);
           if (!r.ok) setError(r.error ?? "Couldn't change it."); else router.refresh();
         })}>
-        {isPublic ? "Make it private" : "Make it public (recruit from the group directory)"}
+        {waiting ? "Cancel the request" : isPublic ? "Make it private" : "Make it public (recruit from the group directory)"}
       </button>
       {error && <p className="mt-1 text-xs text-amber-300">{error}</p>}
     </div>
