@@ -34,7 +34,7 @@ export function ToolMap() {
         heading="Organize"
         tools={[
           { icon: "👥", name: "Groups", href: "/coalitions", body: "Your team's home: chat, events, a shared resource shelf, and an invite link and QR code to bring people in." },
-          { icon: "💬", name: "Forum and Lounge", href: "/forum", body: "A live Lounge chat at the top, a forum for every state below. Moderated, and no vendor promotion." },
+          { icon: "💬", name: "Forum and Lounge", href: "/forum", body: "A live Lounge chat at the top, then new posts from members, then a forum for every state. You can edit or delete your own posts. Moderated, and no vendor promotion." },
           { icon: "🔒", name: "Messages", href: "/messages", body: "Private messages, end-to-end encrypted. The keys stay on your device, so not even iKratom can read them." },
           { icon: "🗣️", name: "Story bank", href: "/stories", body: "Tell what kratom means to you. Shared stories are what persuade legislators, and you choose how yours is used." },
         ]}

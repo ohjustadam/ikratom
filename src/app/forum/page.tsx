@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { publicHandle } from "@/lib/public-handle";
 import { USMap } from "@/components/USMap";
 import { Lounge } from "@/modules/chat/Lounge";
-import { RecentActivity } from "@/modules/chat/RecentActivity";
+import { MemberFeed } from "@/modules/forum/MemberFeed";
 import { loadInitialChat } from "@/modules/chat/actions";
 import { listActiveCommunities } from "@/modules/forum/community-actions";
 import { fetchForumStatsForIndex } from "@/modules/forum/engagement-actions";
@@ -107,10 +107,16 @@ export default async function ForumIndexPage() {
       <header className="mb-6">
         <h1 className="text-3xl font-bold">Community</h1>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-          Live chat in the Lounge below, topical communities for shop owners /
-          veterans / caregivers, and a state forum for every state. Subscribe
-          to any forum to get alerts on new threads — mute the noisy ones.
+          Live chat in the Lounge, what members are posting, and a forum for
+          every state. Subscribe to any forum to get alerts on new threads, and
+          mute the noisy ones.
         </p>
+        <nav aria-label="Jump to" className="mt-3 flex flex-wrap gap-2 text-xs">
+          {userState && <JumpLink href={`/forum/${userState}`}>Your state ({userState})</JumpLink>}
+          <JumpLink href="/forum/US">National forum</JumpLink>
+          <JumpLink href="#states">All states</JumpLink>
+          <JumpLink href="/coalitions">Groups</JumpLink>
+        </nav>
       </header>
 
       {/* Live lounge — sticks at the top so people land in something interactive */}
@@ -125,16 +131,15 @@ export default async function ForumIndexPage() {
         />
       </div>
 
+      {/* What people wrote, ahead of everything automated. */}
+      <div className="mb-6">
+        <MemberFeed userId={user?.id ?? null} />
+      </div>
+
       {/* Map — legality + live forum-activity dots. The visual "where's it
           happening" entry point; click any state to enter its forum. */}
       <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 sm:p-6">
         <USMap statusByAbbr={statusByAbbr} highlightAbbr={userState} activityByAbbr={activityByAbbr} />
-      </div>
-
-      {/* Recent activity feed — latest threads, replies, and campaigns so the
-          page reads as alive, not a ghost town */}
-      <div className="mb-8">
-        <RecentActivity limit={10} />
       </div>
 
       {/* Topical communities — admin-curated, rendered only when present.
@@ -247,11 +252,21 @@ export default async function ForumIndexPage() {
       {/* Searchable + activity-sorted state forums (replaces the old static
           alphabetical grid — your state pins first; "Most active" floats the
           live forums to the top). */}
-      <ForumStateNav
-        states={(states ?? []).map((s) => ({ abbr: s.abbr, name: s.name, status: statusByAbbr[s.abbr] ?? null }))}
-        activity={stateActivity}
-        userState={userState}
-      />
+      <div id="states" className="scroll-mt-20">
+        <ForumStateNav
+          states={(states ?? []).map((s) => ({ abbr: s.abbr, name: s.name, status: statusByAbbr[s.abbr] ?? null }))}
+          activity={stateActivity}
+          userState={userState}
+        />
+      </div>
     </div>
+  );
+}
+
+function JumpLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a href={href} className="rounded-full border border-zinc-800 px-3 py-1 text-zinc-300 hover:border-emerald-500">
+      {children}
+    </a>
   );
 }

@@ -2,7 +2,11 @@ import { notFound, redirect } from "next/navigation";
 import { publicHandle } from "@/lib/public-handle";
 import { PowerUserBadge } from "@/components/PowerUserBadge";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { getCreatorContext } from "@/modules/admin/actions";
+import { forumRoleOf, type ForumRole, type ForumViewer } from "@/lib/forum-permissions";
 import { TAG_COLORS, TAG_LABELS, type ForumTag } from "@/modules/forum/types";
+import { isStaleBill } from "@/modules/forum/member-feed";
 import { ThreadView } from "./ThreadView";
 
 export async function generateMetadata({
@@ -32,7 +36,7 @@ export default async function ThreadPage({
   // Fetch thread
   const { data: thread } = await supabase
     .from("forum_threads")
-    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, system_generated, post_count, upvote_count, helpful_count, last_activity_at, created_at")
+    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, system_generated, is_state_digest, post_count, upvote_count, helpful_count, last_activity_at, created_at, moderation_status, edited_at, edited_by_moderator")
     .eq("id", threadId)
     .single();
   if (!thread) notFound();
@@ -42,7 +46,7 @@ export default async function ThreadPage({
   // PostCard shows a "your post is in review" banner for those).
   const { data: postsRaw } = await supabase
     .from("forum_posts")
-    .select("id, thread_id, parent_post_id, author_id, author_state, body, upvote_count, helpful_count, deleted_at, moderation_status, created_at")
+    .select("id, thread_id, parent_post_id, author_id, author_state, body, upvote_count, helpful_count, deleted_at, moderation_status, created_at, edited_at, edited_by_moderator")
     .eq("thread_id", threadId)
     .is("deleted_at", null)
     .neq("moderation_status", "removed")
@@ -59,6 +63,8 @@ export default async function ThreadPage({
     deleted_at: string | null;
     moderation_status: "approved" | "pending" | "auto_flagged" | "user_flagged" | "removed";
     created_at: string;
+    edited_at: string | null;
+    edited_by_moderator: boolean;
   }> | null;
 
   // Fetch author display names (from profiles for everyone involved)
@@ -89,6 +95,7 @@ export default async function ThreadPage({
   const { data: { user } } = await supabase.auth.getUser();
   let userState: string | null = null;
   let userIsCreator = false;
+  let viewer: ForumViewer = { id: null, role: "member", canModerate: false };
   let userReactions: { target_type: string; target_id: string; reaction: string }[] = [];
 
   if (user) {
@@ -99,6 +106,8 @@ export default async function ThreadPage({
       .single();
     userState = prof?.state ?? null;
     userIsCreator = !!(prof?.is_admin || prof?.is_owner || prof?.is_advocate_leader);
+    const moderator = await getCreatorContext({ require: "moderate_forum" });
+    viewer = { id: user.id, role: forumRoleOf(prof), canModerate: moderator.ok };
 
     // Pull this user's reactions for everything in the thread
     const targetIds = [thread.id, ...(posts ?? []).map((p) => p.id)];
@@ -109,6 +118,30 @@ export default async function ThreadPage({
       .in("target_id", targetIds);
     userReactions = reacts ?? [];
   }
+
+  // A thread its author deleted, or a moderator took down, is gone for everyone
+  // but the moderators.
+  if (thread.moderation_status === "removed" && !viewer.canModerate) notFound();
+
+  // Moderators need to know who they outrank. Nobody else gets this.
+  const authorRoles: Record<string, ForumRole> = {};
+  if (viewer.canModerate && idArr.length > 0) {
+    const { data: roleRows } = await createServiceRoleClient()
+      .from("profiles")
+      .select("id, is_owner, is_admin, is_advocate_leader")
+      .in("id", idArr);
+    for (const r of roleRows ?? []) authorRoles[r.id as string] = forumRoleOf(r);
+  }
+
+  // A bot thread's date is the bill's, not the day the bot happened to post it.
+  const { data: bill } =
+    thread.system_generated && !thread.is_state_digest
+      ? await supabase
+          .from("bills")
+          .select("id, bill_number, last_action, last_action_at")
+          .eq("forum_thread_id", thread.id)
+          .maybeSingle()
+      : { data: null };
 
   // Check residents-only eligibility for replying
   let canReply = !!user && !thread.locked;
@@ -181,8 +214,28 @@ export default async function ThreadPage({
             <span>{thread.system_generated ? "🤖 iKratom bot" : "Member"}</span>
           )}
           {" · "}
-          {new Date(thread.created_at).toLocaleString()}
+          {bill?.last_action_at
+            ? `Last bill action ${new Date(bill.last_action_at).toLocaleDateString()}`
+            : new Date(thread.created_at).toLocaleString()}
+          {thread.edited_at && (
+            <span>{thread.edited_by_moderator ? " · edited by a moderator" : " · edited"}</span>
+          )}
         </p>
+        {bill && isStaleBill(bill.last_action_at) && (
+          <p className="mt-2 rounded-md border border-amber-900/40 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+            {bill.bill_number} hasn&apos;t moved since {new Date(bill.last_action_at!).toLocaleDateString()}, so it
+            may be dead or stalled.{" "}
+            <a href={`/bills/${bill.id}`} className="underline hover:text-amber-100">
+              Check the bill
+            </a>{" "}
+            before acting on this thread.
+          </p>
+        )}
+        {thread.moderation_status === "removed" && (
+          <p className="mt-2 rounded-md border border-red-900/40 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+            Taken down. Only moderators can see this.
+          </p>
+        )}
       </header>
 
       <ThreadView
@@ -194,6 +247,8 @@ export default async function ThreadPage({
         canReply={canReply}
         replyBlockReason={replyBlockReason}
         userIsCreator={userIsCreator}
+        viewer={viewer}
+        authorRoles={authorRoles}
         userReactions={userReactions}
       />
     </div>
