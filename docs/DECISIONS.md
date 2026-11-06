@@ -280,3 +280,15 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 - **New members get no back-issue.** Someone who joins after a note went out sees it at `/whats-new`, not as a push.
 
 **Why:** the Sunday job read only files, so after notes moved to the database it kept sending the 2026-10-08 note to each new member, while the weekly workflow said pushes were never automated. A merged weekly file also cost a 15-credit build.
+## What's New is user-facing only (2026-11-06)
+
+**Decision:** `/whats-new` carries only changes a member can see. Internal, infrastructure and security work never goes on it, not even as a generic "security improvements" line.
+
+- **The back-catalogue was cleaned.** 23 notes with nothing a member could see were removed, and their URLs now return 404. 19 notes of raw commit subjects were rewritten in plain words, and 11 were trimmed. Commit links, PR numbers, commit counts and "Under the hood" sections are gone, and so is the page's promise to link every change to its commit.
+- **Publish checks the words.** `/admin/whats-new` refuses a note with a blocked term, and refuses an edit that would put one into a live note. A draft can hold anything while it is being curated. CI holds the file notes to the same list in `scripts/lib/changelog-safety.mjs`.
+- **Drafts start closer.** The generator lists only `feat:` and `fix:` commits that pass the list, with no links and no catch-all line. A day with nothing member-facing gets no draft.
+- **Corrections stay.** The 2026-08-28 correction is still up: it tells readers what we got wrong, so it is user-facing.
+
+**Why:** the owner's call, 2026-11-06. The generated notes put raw commit subjects in front of the public.
+
+**Limits:** this cleans the site, not GitHub. The repository is public, so commit subjects stay visible there. A direct database write skips the check, so run the list over anything written that way.
