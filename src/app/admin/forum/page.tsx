@@ -3,6 +3,7 @@ import { getCreatorContext } from "@/modules/admin/actions";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { ModerationActions } from "./ModerationActions";
 import { RecentEdits } from "./RecentEdits";
+import { StaleBillThreads } from "./StaleBillThreads";
 import { BulkBar } from "./BulkBar";
 
 export const metadata = { title: "Forum moderation" };
@@ -258,6 +259,7 @@ export default async function ForumModerationPage() {
         </section>
       )}
 
+      <StaleBillThreads />
       <RecentEdits />
     </div>
   );
