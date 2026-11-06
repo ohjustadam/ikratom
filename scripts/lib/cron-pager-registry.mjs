@@ -323,3 +323,18 @@ export const REGISTRY = [
   // schedule has quietly taken over again.
   { source: "dispatch_clock", interval_hours: 4, system: "supabase-pg-cron", cadence: "2h" },
 ];
+
+// Sources that write scraper_runs but must NEVER be registered above, each with
+// the reason. The weekly self-review (scripts/lib/self-review.mjs) skips these
+// in its "not in the pager registry" list, which otherwise flagged them every
+// week (2026-11-01) for something that is correct by design.
+//
+// The three run only when someone starts them, so they have no cadence to be
+// late against: registering one would page the owner the first quiet week.
+// egress_gate writes only when it defers work (see the note in REGISTRY).
+export const UNPAGED_SOURCES = {
+  egress_gate: "writes only on the defer path; wiring is asserted by tests/egress-gate-wiring.test.ts",
+  email_announcement: "manual: send-email-notifications.mjs --mode announce, run by hand per announcement",
+  send_service_notice: "manual: send-service-notice.mjs, run by hand for a service notice",
+  local_reps_from_roster: "manual: fulfill-local-reps-from-roster.mjs, in no workflow",
+};

@@ -60,7 +60,10 @@ import { pageProbeTargets, probeProblem } from "./lib/page-probes.mjs";
 const DRY = process.argv.includes("--dry-run");
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const URL_SB = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
+// Trimmed, BOM included: the stored secret starts with U+FEFF (seen 2026-11-06),
+// so every Vercel call threw "Cannot convert argument to a ByteString" and the
+// spare's soft-block check never ran. The site checks were unaffected.
+const VERCEL_TOKEN = (process.env.VERCEL_TOKEN ?? "").replace(/^\uFEFF/, "").trim();
 // Team that owns the ikratom project. Overridable so a future account move
 // doesn't need a code change; the default is the current owner's team.
 const TEAM_ID = process.env.VERCEL_TEAM_ID || "team_ZGMOvQ3FPi6lHFerlrOk6cvt";

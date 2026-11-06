@@ -71,9 +71,11 @@ export function summarise(rows, { windowStartMs }) {
  * writes nothing every single time reads as perfectly healthy while its data
  * goes stale. Only a week-over-week comparison of OUTPUT can see it.
  */
-export function findDecay(cur, prev, { registry, windowDays }) {
+export function findDecay(cur, prev, { registry, windowDays, unpaged = {} }) {
   const out = { silent: [], failing: [], quiet: [], shrinking: [], unregistered: [] };
   const registered = new Set(registry.map((e) => e.source));
+  // Deliberately unpaged sources (UNPAGED_SOURCES) are not a blind spot.
+  for (const source of Object.keys(unpaged)) registered.add(source);
 
   for (const e of registry) {
     // A weekly source legitimately has 0-1 runs in a 7-day window, so only

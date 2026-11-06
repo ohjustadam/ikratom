@@ -116,6 +116,22 @@ describe("weekly self-review — decay classifier", () => {
     expect(decay.unregistered).toEqual([{ source: "some_new_job", runs: 3 }]);
   });
 
+  it("does not name a source that is deliberately unpaged", () => {
+    const { cur, prev } = summarise(runs("send_service_notice", 2, { rows: 40, ageDays: 2 }), { windowStartMs: WINDOW_START });
+    const decay = findDecay(cur, prev, {
+      registry: REGISTRY,
+      windowDays: 7,
+      unpaged: { send_service_notice: "manual" },
+    }) as Decay;
+    expect(decay.unregistered).toEqual([]);
+  });
+
+  it("keeps every unpaged source out of the real registry", async () => {
+    const real = await import("../scripts/lib/cron-pager-registry.mjs");
+    const registered = new Set(real.REGISTRY.map((e: { source: string }) => e.source));
+    for (const source of Object.keys(real.UNPAGED_SOURCES)) expect(registered.has(source), source).toBe(false);
+  });
+
   it("reports a clean week as clean", () => {
     const { decay } = classify([
       ...runs("sync_news_rss", 12, { rows: 40, ageDays: 2 }),
