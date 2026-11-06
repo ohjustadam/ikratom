@@ -120,7 +120,9 @@ export const REGISTRY = [
   // The weekly committee-sync + stance jobs write the SAME sources as their
   // daily counterparts (monitored above). The old weekly-only phantom names
   // were removed 2026-07-16 — no script ever wrote them.
-  ...["sync_nonprofit_990s","broadcast_whats_new","official_portraits_sync",
+  // broadcast_whats_new left on 2026-11-05 and must not come back: the push now
+  // runs only when the owner approves one, so silence there is normal.
+  ...["sync_nonprofit_990s","official_portraits_sync",
       "state_portraits_bulk","bill_topics_classify",
       // Federal term start/end from unitedstates/congress-legislators (keyless).
       // Added 2026-09-06 — coverage was 0% before it.
@@ -259,11 +261,12 @@ export const REGISTRY = [
   // header — this narrows the window, it does not close it.
   { source: "check_cron_staleness", interval_hours: 4, system: "github-actions", cadence: "every-2h" },
 
-  // patch_note_draft — the daily changelog draft, written into `patch_notes`
-  // by generate-patch-note.mjs --db (auto-patch-notes.yml). Weekday-only, so
-  // the real worst-case gap is Friday 11:00 → Monday 11:00 = 72h; a 36h
-  // interval pages at 108h, which clears a weekend and still catches a job
-  // that has genuinely stopped. Registered from birth: the silent failure of
+  // patch_note_draft — the changelog drafts, written into `patch_notes` by
+  // generate-patch-note.mjs --db: auto-patch-notes.yml on weekdays and
+  // auto-weekly-update.yml on Sundays. A 36h interval pages at 108h, which
+  // clears a weekend if the Sunday run is missed (Friday 11:00 → Monday 11:00
+  // = 72h) and still catches either job's row going quiet for good: a dead
+  // daily job pages by Thursday. Registered from birth: the silent failure of
   // its PR-based predecessor (nobody merges, nothing complains) is exactly
   // what this entry exists to prevent recurring in the new shape.
   { source: "patch_note_draft", interval_hours: 36, system: "github-actions", cadence: "daily" },

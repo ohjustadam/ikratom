@@ -61,9 +61,9 @@ const MUST_GATE = [
  */
 const UNGATED_SCHEDULED: Record<string, string> = {
   "auto-patch-notes.yml":
-    "reads git history and opens a PR; never touches Supabase, so there is no egress to shed",
+    "reads git history and writes one draft row; writes send nothing back, and its one read is a single slug and status, so there is no egress to shed",
   "auto-weekly-update.yml":
-    "same — git log + changelog into a draft PR, no database reads",
+    "same — one draft row from the 7-day git log, by the same script",
 };
 
 type Job = {

@@ -26,7 +26,7 @@
  *   node --env-file=.env.local scripts/extract-news-content.mjs --refresh
  */
 import { createClient } from "@supabase/supabase-js";
-import { extractArticleContent, isAkamaiBlockPage } from "./lib/article-content.mjs";
+import { extractArticleContent, isAkamaiBlockPage, isLastingFetchFailure } from "./lib/article-content.mjs";
 import { renderPage, closeHeadless } from "./lib/headless-render.mjs";
 import { fetchMsnArticleHtml } from "./lib/msn-content.mjs";
 import { newsStateFromBody, newsStatesMentioned } from "./lib/news-state.mjs";
@@ -72,7 +72,7 @@ console.log(`Extract-news-content${DRY ? " [DRY]" : ""}${REFRESH ? " [REFRESH]" 
 const since = new Date(Date.now() - DAYS * 86400_000).toISOString();
 let q = sb
   .from("news_items")
-  .select("id, title, state, resolved_url, url, source_name, body_extract_attempts")
+  .select("id, title, state, resolved_url, url, source_name, scraped_at, body_extract_attempts")
   .not("policy_classified_at", "is", null)
   .not("resolved_url", "is", null)
   .is("duplicate_of", null)
@@ -127,7 +127,12 @@ for (const item of items) {
     }
   }
 
-  if (!html && !rendered && !blocked) {
+  // Every feed lists only stamped rows, so a story that never fetches must
+  // still reach RETRY_CAP or it stays hidden for good (until 2026-11-05 a 403
+  // or timeout never counted: Reuters and NYT stories sat at 0 attempts until
+  // they aged out of the query window).
+  const fetchFailed = !html && !rendered && !blocked;
+  if (fetchFailed && !isLastingFetchFailure(item.scraped_at)) {
     console.log(`  ✗ ${item.id.slice(0, 8)} fetch failed (${fetchErr?.message?.slice(0, 50)}) — retry next run`);
     failed++;
     continue; // don't stamp — transient; retry
@@ -136,7 +141,7 @@ for (const item of items) {
   const nImages = media.filter((m) => m.type === "image").length;
   if (paragraphs.length > 0) withBody++;
   if (media.length > 0) withMedia++;
-  console.log(`  ${item.id.slice(0, 8)} "${(item.title ?? "").slice(0, 48)}" → ${paragraphs.length}¶ · ${nVideos} video · ${nImages} img${rendered ? " · ⚙ rendered" : ""}${blocked ? " · ⛔ access denied" : ""}`);
+  console.log(`  ${item.id.slice(0, 8)} "${(item.title ?? "").slice(0, 48)}" → ${paragraphs.length}¶ · ${nVideos} video · ${nImages} img${rendered ? " · ⚙ rendered" : ""}${blocked ? " · ⛔ access denied" : ""}${fetchFailed ? ` · ✗ ${fetchErr?.message?.slice(0, 40)}` : ""}`);
 
   // A headline that names no state was filed under whichever state's news
   // query found it; the body can say it belongs elsewhere. This runs before
@@ -170,7 +175,9 @@ for (const item of items) {
 
   const { error: upErr } = await sb.from("news_items").update(update).eq("id", item.id);
   if (upErr) { console.log(`     ⚠ update failed: ${upErr.message?.slice(0, 80)}`); failed++; continue; }
-  processed++;
+  // Still a failure in the run's telemetry, so a run where nothing fetched
+  // reports "error" even though the attempts were recorded.
+  if (fetchFailed) failed++; else processed++;
 
   // polite pacing between publisher fetches
   await new Promise((r) => setTimeout(r, 800));
