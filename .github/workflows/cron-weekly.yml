@@ -226,6 +226,15 @@ jobs:
   # tests/patch-notes-publishing.test.ts fails if a workflow sends one again.
 
   weekly-self-review:
+    # PAUSED 2026-11-06 at the owner's request. This repo is public, so the issue
+    # comment, the run summary and the log are all public, and --dry-run does not
+    # help because it still prints the report in the log. The report is for
+    # internal use: run it on the owner's machine instead, with
+    #   node --env-file=.env.local scripts/weekly-self-review.mjs --dry-run
+    # Give it a private destination before turning this back on.
+    # tests/self-review-stays-private.test.ts holds this.
+    if: false
+    #
     # The PROPOSE arm. Reads a week of scraper_runs, a week of admin_audit_log
     # (action names only) and this repo's merge history, then asks the free AI
     # pool for "what moved, what decayed, what I would do next" and posts it as

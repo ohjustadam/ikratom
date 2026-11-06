@@ -261,11 +261,11 @@ real writer, and every writer must be registered.
 Four budget and uptime guards sit alongside it: egress, Netlify credits, a
 live-URL watchdog, and the staleness pager itself.
 
-**It also reflects, weekly.** Every Sunday `scripts/weekly-self-review.mjs`
-posts what moved, what decayed and what it would do next as a comment on
-GitHub issue #929 (running since 2026-09-20). It catches what the pager
-cannot: a job that runs on time and writes nothing. Nothing acts on its
-proposals automatically — read them before starting a session.
+**It can also reflect, on request.** `scripts/weekly-self-review.mjs --dry-run`
+prints what moved, what decayed and what it would do next. It catches what the
+pager cannot: a job that runs on time and writes nothing. Its Sunday job is
+paused (2026-11-06) because CI output on this repo is public, so run it on the
+owner's machine. Nothing acts on its proposals automatically.
 
 ---
 
