@@ -28,12 +28,14 @@ export async function RecentActivity({ limit = 6 }: { limit?: number }) {
       .from("forum_threads")
       .select("id, state, title, author_id, created_at, moderation_status")
       .eq("moderation_status", "approved")
+      .eq("system_generated", false)
       .order("created_at", { ascending: false })
       .limit(limit),
     supabase
       .from("forum_posts")
       .select("id, thread_id, author_id, created_at, moderation_status")
       .eq("moderation_status", "approved")
+      .not("author_id", "is", null)
       .order("created_at", { ascending: false })
       .limit(limit),
     supabase

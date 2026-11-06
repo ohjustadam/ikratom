@@ -149,6 +149,21 @@ export function detectModerationSignals(text: string): ModerationSignals {
   return out;
 }
 
+// Crude link detector: http(s)://, www., and bare domains on common TLDs. Not
+// exhaustive; it only has to catch what a brand-new account would drop in chat.
+const LINK_LIKE_RE = /\b(?:https?:\/\/|www\.|[a-z0-9-]+\.(?:com|net|org|io|co|gg|xyz|info|biz|tv|me|app|link|tk|ml|ga|cf|live|shop|store|site)\b)/i;
+
+/** True when the text holds anything that looks like a link, trusted or not. */
+export function looksLikeLink(text: string): boolean {
+  return LINK_LIKE_RE.test(text);
+}
+
+/** Links in the text that aren't on the trusted list. */
+export function unapprovedLinks(text: string): string[] {
+  const { urls, bareDomains } = detectModerationSignals(text);
+  return [...urls, ...bareDomains];
+}
+
 export type ModerationDecision = {
   status: "approved" | "pending" | "auto_flagged";
   signals: ModerationSignals | null;
