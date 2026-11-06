@@ -10,6 +10,7 @@ A nonpartisan political action platform for the kratom advocacy community. Indep
 - **Free-tier only.** No paid APIs. Members send letters from their OWN mailbox: one-click through their connected Gmail or SMTP account, or a `mailto:` link. Platform mail (signup, resets, notices) uses the free tiers of Resend and Brevo. (Owner, 2026-10-23: this replaces the v1 "mailto only, no email service" rule.)
 - **Real data only.** Bill status, legislator contact info, news — must be scraped/synced, never manually maintained beyond seed.
 - **Recruitment angle.** Shop owners and medical professionals are first-class users — features should make it easy for them to opt in to advocacy.
+- **What's New is user-facing only.** `/whats-new` carries changes a member can see. Internal, infrastructure and security work never goes there, not even as a generic line. Publish refuses it, and CI holds the file notes to the same list (`scripts/lib/changelog-safety.mjs`). (Owner, 2026-11-06.)
 - **Public anonymity.** Users appear by `@username` only in every public surface (chat, forum, activity, profiles, DM). Never expose real name or email between users — render via `publicHandle()` (`src/lib/public-handle.ts`). Users act as themselves privately (campaign sends use real name); publicly they stay anonymous by default.
 
 ## Roles

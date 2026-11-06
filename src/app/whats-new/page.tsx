@@ -33,9 +33,8 @@ export default async function WhatsNewIndex() {
         </p>
         <h1 className="mt-2 text-4xl font-bold">Platform changelog</h1>
         <p className="mt-3 max-w-2xl text-sm text-zinc-400">
-          We ship updates daily. Every feature, fix, and improvement is logged
-          here with links to the underlying commits — full transparency on what
-          this platform is becoming.
+          New features and fixes you can use. We post here when something changes
+          for you.
         </p>
       </header>
 
@@ -50,11 +49,6 @@ export default async function WhatsNewIndex() {
               <Link href={`/whats-new/${n.slug}`} className="block">
                 <div className="flex flex-wrap items-center gap-3 text-xs">
                   {n.published && <span className="font-mono text-zinc-500">{n.published}</span>}
-                  {n.totalCommits != null && (
-                    <span className="rounded bg-emerald-950/30 px-2 py-0.5 text-emerald-300">
-                      {n.totalCommits} commits
-                    </span>
-                  )}
                 </div>
                 <h2 className="mt-2 text-xl font-bold leading-tight">{n.title}</h2>
                 {n.summary && <p className="mt-1 text-sm text-zinc-400">{n.summary}</p>}
@@ -64,17 +58,6 @@ export default async function WhatsNewIndex() {
           ))}
         </ul>
       )}
-
-      <footer className="mt-10 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-xs text-zinc-500">
-        <p className="font-semibold text-zinc-300">Building in the open</p>
-        <p className="mt-1">
-          All code is auditable at{" "}
-          <a href="https://github.com/ohjustadam/ikratom" className="text-emerald-400 hover:underline" target="_blank" rel="noopener noreferrer">
-            github.com/ohjustadam/ikratom
-          </a>
-          . Each patch note links to the specific commits that landed.
-        </p>
-      </footer>
     </div>
   );
 }

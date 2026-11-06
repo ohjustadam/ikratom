@@ -353,11 +353,13 @@ editing an event's time (cancel and re-post), and a real cover photo.
 
 1. **The changelog no longer lives in the repo.** As of 2026-09-18, patch
    notes are rows in `patch_notes` (migration 0250), drafted by the daily and
-   Sunday jobs and published from `/admin/whats-new`. The 40 markdown files
+   Sunday jobs and published from `/admin/whats-new`. The 33 markdown files
    under `src/content/patch-notes/` are the back-catalogue and still render. Do
    not add a new `.md` note — it would cost a build, which is the whole reason
    this moved. Publishing sends nothing, and no job pushes a note: a push is
    `scripts/broadcast-whats-new.mjs`, run by hand after the owner says yes.
+   The page carries only changes a member can see: Publish refuses internal or
+   security wording, and CI holds the files to the same list.
 2. **A branch that looks unlanded may already be merged by content.** Release
    PRs squash several branches at once, so GitHub never marks the sources
    merged and they stay permanently "ahead". Test-merge into `origin/main` and

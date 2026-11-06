@@ -13,13 +13,39 @@
  *                         gitignored sidecar + the console for a human to review
  *                         and re-add by hand if genuinely safe. The auto-draft is
  *                         meant to be CURATED, never shipped raw.
- *   PUBLISH_BLOCKLIST   — NARROW, high-confidence. A vitest guard (CI) asserts NO
- *                         published patch-note (src/content/patch-notes/*.md) ever
- *                         contains one — so a leak can't merge even if a post is
- *                         hand-written. Kept tight to avoid false-positives on
- *                         legit user copy (e.g. "where your reps stand", a generic
- *                         "security hardening" mention).
+ *   PUBLISH_BLOCKLIST   — High-confidence terms for finished copy. A vitest guard
+ *                         (CI) asserts no patch-note file contains one, and
+ *                         /admin/whats-new refuses to publish a database note that
+ *                         does. Kept off everyday words so legit copy still passes
+ *                         (e.g. "where your reps stand", "group admins").
+ *
+ * The rule behind both (owner, 2026-11-06): What's New carries only changes a
+ * member can see. Internal, infrastructure and security work stays off it, and
+ * that includes a generic "security improvements" line, which the blocklist used
+ * to allow.
  */
+
+/**
+ * Words that mark a line as internal or security work. They hold a commit out
+ * of a draft and stop finished copy going public.
+ */
+export const INTERNAL_TERMS = [
+  // — Security work, even described in general terms —
+  /\bsecurity\b/i, /\bharden(?:ed|ing)\b/i, /\bPII\b/, /\bleak(?:s|ed|ing)?\b/i, /\bbreach/i,
+  /\brate[-\s]?limit/i, /\bbypass/i,
+  // — How the platform is run —
+  /\bcrons?\b/i, /\bworkflows?\b/i, /\bdeploy(?:s|ed|ments?)?\b/i, /\bmigrations?\b/i, /\bwebhooks?\b/i,
+  /\bnetlify\b/i, /\bvercel\b/i, /\bcloudflare\b/i, /\bsupabase\b/i, /\bpostgres/i, /\bgithub\b/i,
+  /\btelemetry\b/i, /\bwatchdog\b/i, /\begress\b/i, /\bscrapers?\b/i, /\bpipelines?\b/i, /\bbackfill/i,
+  /\bschema\b/i, /\bRLS\b/,
+  // — AI providers —
+  /\bollama\b/i, /\bgroq\b/i, /\bgemini\b/i, /\bmistral\b/i, /\bcerebras\b/i,
+  // — Pages members don't use —
+  /\/admin\b/i, /\/pitch\b/i,
+  // — The catch-all lines drafts used to end with —
+  /\bunder the hood\b/i, /\bbehind[-\s]the[-\s]scenes\b/i,
+];
+
 
 export const SENSITIVE_PATTERNS = [
   // — Security / vulnerability vocabulary —
@@ -54,13 +80,16 @@ export const PUBLISH_BLOCKLIST = [
   /[A-Z0-9]{2,}_(?:KEY|TOKEN|SECRET|PASSWORD|PAT)\b/,
   // Pen-test / finding identifiers that leaked via commit scopes.
   /\bSHC-\d/i, /\bABUSE-\d/i, /\bOAUTH-\d/i, /\bSSRF-\d/i,
+  ...INTERNAL_TERMS,
+  // Build bookkeeping. Commit and PR references mean nothing to a member.
+  /\(#\d+\)/, /\b\d+ commits?\b/i,
 ];
 
 const CONVENTIONAL = /^(\w+)(?:\(([^)]*)\))?:\s*(.*)$/s;
 
 /** True if a commit subject should be HELD OUT of the public auto-draft. */
 export function isSensitiveSubject(text) {
-  return SENSITIVE_PATTERNS.some((re) => re.test(text));
+  return SENSITIVE_PATTERNS.some((re) => re.test(text)) || INTERNAL_TERMS.some((re) => re.test(text));
 }
 
 /**
@@ -86,6 +115,21 @@ export function classifyCommit(subject) {
   if (isSecurityCommit(subject)) return "security";
   if (isSensitiveSubject(subject)) return "held";
   return "public";
+}
+
+/**
+ * The words in a note that stop it going public, for a message a person can act
+ * on (empty array = clean).
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function publishBlocklistMatches(text) {
+  const words = new Set();
+  for (const re of PUBLISH_BLOCKLIST) {
+    const m = text.match(re);
+    if (m) words.add(m[0].trim().toLowerCase());
+  }
+  return [...words];
 }
 
 /** Patterns a published string trips (empty array = clean). Used by the CI guard. */

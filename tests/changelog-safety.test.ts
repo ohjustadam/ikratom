@@ -6,6 +6,7 @@ import {
   isSensitiveSubject,
   isSecurityCommit,
   publishBlocklistHits,
+  publishBlocklistMatches,
 } from "../scripts/lib/changelog-safety.mjs";
 
 describe("changelog-safety: holds sensitive commits out of auto-drafts", () => {
@@ -62,6 +63,84 @@ describe("changelog-safety: holds sensitive commits out of auto-drafts", () => {
     expect(isSensitiveSubject("opposition donor money-trail surface")).toBe(true);
     expect(isSensitiveSubject("switch inference to groq fallback")).toBe(true);
     expect(isSensitiveSubject("ship a community calendar widget")).toBe(false);
+  });
+});
+
+describe("What's New carries only changes members can see (owner, 2026-11-06)", () => {
+  // Lines of the kinds that were on the public page before this rule.
+  const MUST_BLOCK = [
+    "Reliability and security improvements plus behind-the-scenes maintenance landed this period.",
+    "## 🛠 Under the hood",
+    "A large reliability and security hardening pass landed this week",
+    "migrate hosting to Netlify + 3-layer deploy gate",
+    "split hourly pipeline so it stops timing out",
+    "unblock the hourly fan-out from our own Cloudflare bot protection",
+    "egress watchdog: never get restricted blind again",
+    "admin review surface at /admin/intel-health",
+    "live /pitch/efficiency",
+    "We closed several ways your identity could have leaked",
+    "Shipped 32 commits",
+    "Everything above shipped in (#874)",
+    "see [abc1234](https://github.com/ohjustadam/ikratom/commit/abc1234)",
+  ];
+  for (const line of MUST_BLOCK) {
+    it(`blocks: ${line.slice(0, 60)}`, () => {
+      expect(publishBlocklistHits(line)).not.toEqual([]);
+    });
+  }
+
+  // Copy of the kind members should keep getting. Everyday words that sit next
+  // to the blocked ones must pass, or the gate gets switched off.
+  const MUST_PASS = [
+    "**One-click sending does what it says.** It sends the letter you wrote.",
+    "Organizers can review join requests, and group admins can pin resources.",
+    "Committee chairs now show on every bill.",
+    "**Fewer interruptions.** By default, push alerts now arrive together.",
+    "Moderators work from @usernames, so your real name stays out of their view.",
+    "Report buttons now work the same way across the community.",
+    "Your choice stays private. Other members only ever see your @username.",
+  ];
+  for (const line of MUST_PASS) {
+    it(`passes: ${line.slice(0, 60)}`, () => {
+      expect(publishBlocklistHits(line)).toEqual([]);
+    });
+  }
+
+  it("names the words, so the person publishing knows what to change", () => {
+    expect(publishBlocklistMatches("Our Security work and a cron fix")).toEqual(["security", "cron"]);
+    expect(publishBlocklistMatches("A new calendar view")).toEqual([]);
+  });
+
+  it("holds internal commits out of drafts", () => {
+    expect(classifyCommit("fix(news): split hourly pipeline so it stops timing out")).toBe("held");
+    expect(classifyCommit("feat(ops): migrate hosting to Netlify")).toBe("held");
+  });
+
+  const read = (...p: string[]) => readFileSync(join(process.cwd(), ...p), "utf8");
+
+  it("checks a note before it goes public and before live copy changes", () => {
+    const actions = read("src", "modules", "admin", "patch-note-actions.ts");
+    const publish = actions.slice(actions.indexOf("export async function setPatchNoteStatus"));
+    const save = actions.slice(
+      actions.indexOf("export async function savePatchNote"),
+      actions.indexOf("export async function setPatchNoteStatus"),
+    );
+    expect(publish).toMatch(/publishBlockReason\(note\)/);
+    expect(save).toMatch(/publishBlockReason\(\{ title, summary, body_md: body \}\)/);
+  });
+
+  it("drafts carry no commit links and no catch-all line", () => {
+    const gen = read("scripts", "generate-patch-note.mjs");
+    expect(gen).not.toMatch(/ikratom\/commit\//);
+    expect(gen).not.toMatch(/Under the hood/);
+    expect(gen).not.toMatch(/## 📚 Docs/);
+  });
+
+  it("the public pages make no promise of commit links or counts", () => {
+    for (const page of [read("src", "app", "whats-new", "page.tsx"), read("src", "app", "whats-new", "[slug]", "page.tsx")]) {
+      expect(page).not.toMatch(/totalCommits/);
+      expect(page).not.toMatch(/underlying commits|specific commits/);
+    }
   });
 });
 
