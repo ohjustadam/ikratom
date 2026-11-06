@@ -197,6 +197,8 @@ fixed by a better estimate:
   stamps those stories with no body. Their reader page links out to the source.
   Never clear `news_items.body_extracted_at` to force a re-extract: every news
   feed lists only rows that have it. Clearing `body_paragraphs` is enough.
+  Since 2026-11-05 a 403 or timeout also counts toward the retry cap once a
+  story is a day old, so paywalled Reuters and NYT stories reach the feeds.
 - **Legal status re-check, 2026-10-29/30.** The 43 rows without a recent
   confirmation were checked against primary sources and stamped, so all 51
   are confirmed. Four were wrong:
