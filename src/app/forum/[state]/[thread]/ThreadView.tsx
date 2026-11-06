@@ -112,6 +112,9 @@ export function ThreadView({
     return true;
   });
   const topLevel = visiblePosts.filter((p) => !p.parent_post_id);
+  // A comment with no author is the bot's, in a state's running bill thread.
+  const nameOf = (id: string | null) =>
+    id ? (authorNamesLocal[id] ?? "Member") : thread.system_generated ? "🤖 iKratom bot" : "Member";
   const repliesByParent = new Map<string, PostRow[]>();
   for (const p of visiblePosts) {
     if (p.parent_post_id) {
@@ -189,7 +192,7 @@ export function ThreadView({
             <li key={p.id}>
               <PostCard
                 post={p}
-                authorName={authorNamesLocal[p.author_id ?? ""] ?? "Member"}
+                authorName={nameOf(p.author_id)}
                 threadState={threadState}
                 hasUpvote={hasReaction("post", p.id, "upvote")}
                 hasHelpful={hasReaction("post", p.id, "helpful")}
@@ -204,7 +207,7 @@ export function ThreadView({
                 <div key={r.id} className="ml-3 mt-3 sm:ml-8">
                   <PostCard
                     post={r}
-                    authorName={authorNamesLocal[r.author_id ?? ""] ?? "Member"}
+                    authorName={nameOf(r.author_id)}
                     threadState={threadState}
                     hasUpvote={hasReaction("post", r.id, "upvote")}
                     hasHelpful={hasReaction("post", r.id, "helpful")}
