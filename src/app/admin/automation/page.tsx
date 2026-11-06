@@ -96,7 +96,7 @@ const CRON_SYSTEMS = [
   },
   {
     name: "GH Actions cron-weekly",
-    purpose: "990 finances, weekly digest, committee re-sync, patch notes.",
+    purpose: "990 finances, committee re-sync, stance pass, self-review.",
     schedule: "Weekly Sun 02:00 UTC",
     host: "GitHub Actions",
     indicator_source: "sync_nonprofit_990s",
