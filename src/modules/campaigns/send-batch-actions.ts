@@ -18,13 +18,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getEmailIntegration } from "@/lib/email/user-send";
-import { resolveLimits, planParts, type ProviderTier } from "@/lib/email/provider-limits";
+import { capForNewAccount, resolveLimits, planParts, type ProviderTier } from "@/lib/email/provider-limits";
 import { legislatorInCampaignScope } from "./scope";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { adaptForHiddenHome, adaptForNonResident, buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
 import { getSafeMode } from "./safe-mode";
 import { drainBatch } from "./drain-batch";
-import { screenMemberLetter } from "./screen-content";
+import { screenLetterFrom } from "./letter-blocks";
 import { isMailbox } from "@/lib/mailbox";
 
 /** Hard ceiling on one batch. Not a security boundary — scope is. */
@@ -127,7 +127,7 @@ export async function enqueueCampaignSend(input: {
     }
     // The member's own words leave through iKratom, so they are screened here,
     // where it can't be skipped (owner rules, 2026-10-22; see screen-content.ts).
-    const screen = await screenMemberLetter({ subject: subjectTpl, body: bodyTpl });
+    const screen = await screenLetterFrom(user.id, { subject: subjectTpl, body: bodyTpl });
     if (screen.block) {
       return { ok: false, error: `${screen.message} If you think this is a mistake, contact us at /support.` };
     }
@@ -142,10 +142,9 @@ export async function enqueueCampaignSend(input: {
     }
   }
 
-  const limits = resolveLimits(
-    integration.provider,
-    integration.account_email,
-    (profile?.email_provider_tier as ProviderTier) ?? null,
+  const limits = capForNewAccount(
+    resolveLimits(integration.provider, integration.account_email, (profile?.email_provider_tier as ProviderTier) ?? null),
+    user.created_at,
   );
 
   // Re-derive every recipient from the DB. The browser supplied ids; it does
@@ -276,11 +275,11 @@ export async function checkLetter(subject: string, body: string): Promise<{ ok: 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: true, message: "" };
   if (!(await checkRateLimit(`letter:screen:${user.id}`, 30, 600))) return { ok: true, message: "" };
-  const s = await screenMemberLetter({ subject: String(subject ?? "").slice(0, 300), body: String(body ?? "").slice(0, 12_000) });
+  const s = await screenLetterFrom(user.id, { subject: String(subject ?? "").slice(0, 300), body: String(body ?? "").slice(0, 12_000) });
   return { ok: !s.block, message: s.message };
 }
 
-export type SendAllowance = { used: number; limit: number; providerLabel: string } | null;
+export type SendAllowance = { used: number; limit: number; providerLabel: string; newAccount: boolean } | null;
 
 /**
  * How much of today's safe sending allowance this user has used (rolling 24h,
@@ -294,14 +293,17 @@ export async function getSendAllowance(): Promise<SendAllowance> {
   const integration = await getEmailIntegration(user.id);
   if (!integration) return null;
   const { data: profile } = await supabase.from("profiles").select("email_provider_tier").eq("id", user.id).maybeSingle();
-  const limits = resolveLimits(integration.provider, integration.account_email, (profile?.email_provider_tier as ProviderTier) ?? null);
+  const limits = capForNewAccount(
+    resolveLimits(integration.provider, integration.account_email, (profile?.email_provider_tier as ProviderTier) ?? null),
+    user.created_at,
+  );
   const { count } = await supabase
     .from("campaign_actions")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
     .eq("method", "platform_email")
     .gte("sent_at", new Date(Date.now() - 86_400_000).toISOString());
-  return { used: count ?? 0, limit: limits.effectiveDaily, providerLabel: limits.label };
+  return { used: count ?? 0, limit: limits.effectiveDaily, providerLabel: limits.label, newAccount: !!limits.newAccount };
 }
 
 /** Batch statuses that still have letters to send. */
