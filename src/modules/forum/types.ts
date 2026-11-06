@@ -38,6 +38,8 @@ export type ThreadRow = {
   locked: boolean;
   /** True for threads created by automation (auto-bill-poster). UI attributes to "iKratom Bot". */
   system_generated?: boolean;
+  /** The one thread per state the bot keeps its bill updates in. */
+  is_state_digest?: boolean;
   /** Only set when the query selects it. */
   moderation_status?: string;
   edited_at?: string | null;

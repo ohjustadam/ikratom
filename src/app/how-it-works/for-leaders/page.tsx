@@ -122,7 +122,7 @@ export default async function LeaderHowItWorksPage() {
         <Section
           n="07"
           title="Moderate the forum"
-          body="/admin/forum is your queue for posts that auto-flagged (commercial spam, links, phone numbers, crypto wallets), user-reported posts, and first-3-posts from new accounts. One-click approve, one-click remove (with optional reason), see the post in context. Forum stays clean without you having to police every thread."
+          body="/admin/forum is your queue for posts that auto-flagged (commercial spam, links, phone numbers, crypto wallets), reported posts, even ones still showing, and first-3-posts from new accounts. One-click approve, one-click remove (with optional reason), see the post in context. It also shows recent edits with the old wording, and bill threads gone quiet for six months. You can hide a post, but only an admin can change someone else's words."
           actionHref="/admin/forum"
           actionLabel="Forum moderation queue"
           gated
