@@ -20,7 +20,15 @@ const VETO_OVERRIDE_RE =
 // Strong enactment signals. "signed" is qualified (by governor/president/mayor or
 // "into law") so a procedural "Signed by the Speaker/Clerk" is NOT misread as enacted.
 const ENACTED_RE =
-  /(?:\bsigned\s+(?:into\s+law|by\s+(?:the\s+)?(?:governor|president|mayor))|\bgovernor\s+signed|\bbec(?:ame|omes)\s+law|\bapproved\s+by\s+(?:the\s+)?governor|\benacted\b|\bchaptered\b|\bchapter\s+(?:no\.?\s*)?\d+|\bact\s+no\.?\s*\d|\bpublic\s+(?:law|act)\b|\bsession\s+law\b)/i;
+  /(?:\bsigned\s+(?:into\s+law|by\s+(?:the\s+)?(?:governor|president|mayor))|\bgovernor\s+signed|\bbec(?:ame|omes)\s+law|\bapproved\s+by\s+(?:the\s+)?governor|\benacted\b|\bchaptered\b|\bchapter\s+(?:no\.?\s*|number\s*)?\d+|\bchapter\s+number\s+assigned\b|\bacts\s+of\s+assembly\s+chapter\b|\bsigned\s+chap\b|\bapproval\s+memo\b|\bassigned\s+pa\s+\d|\bact\s+no\.?\s*\d|\bpublic\s+(?:law|act)\b|\bsession\s+law\b)/i;
+
+// LA, GA, OR, TX and TN log the effective date as a bill's last action, which
+// only happens after it became law (LA SB 154 read "Dead" until 2026-11-05 on
+// "Effective date 8/1/2025."). Anchored, so an amendment about a date isn't one.
+const EFFECTIVE_RE = /^\s*effective\s+(?:date|on|immediately)\b(?!.*\bamend)/i;
+
+// A line-item veto strikes part of a bill; the rest of it is law.
+const LINE_ITEM_RE = /\bline[-\s]item\s+veto\b/i;
 
 const VETO_RE = /\bveto(?:ed|es)?\b/i;
 
@@ -39,8 +47,8 @@ export function terminalStatusFromAction(lastAction) {
   const s = String(lastAction ?? "");
   if (!s.trim()) return null;
   if (COMPANION_RE.test(s)) return null;
-  if (VETO_OVERRIDE_RE.test(s)) return "enacted";
-  if (ENACTED_RE.test(s) || PUB_CH_RE.test(s)) return "enacted";
+  if (VETO_OVERRIDE_RE.test(s) || LINE_ITEM_RE.test(s)) return "enacted";
+  if (ENACTED_RE.test(s) || PUB_CH_RE.test(s) || EFFECTIVE_RE.test(s)) return "enacted";
   if (VETO_RE.test(s)) return "vetoed";
   if (DEAD_RE.test(s)) return "dead";
   return null;
@@ -59,3 +67,55 @@ export function deriveStatusFromAction(lastAction) {
 }
 
 export const TERMINAL_STATUSES = new Set(["enacted", "vetoed", "dead", "failed"]);
+
+// What LegiScan's status code proves about a bill that has stopped moving. Code
+// 4 means it passed, and that catches wording no regex here knows ("Filed with
+// Secretary Of State"). A companion's 4 is its twin's law, and a one-chamber
+// resolution is adopted rather than enacted. Null means no proof either way.
+export function statusFromLegiscanCode({ code, billNumber, lastAction }) {
+  if (code === 5) return "vetoed";
+  if (code === 6) return "dead";
+  if (code !== 4 || COMPANION_RE.test(String(lastAction ?? ""))) return null;
+  return /^[HSA]\.?\s?R\b/i.test(String(billNumber ?? "")) ? "passed_chamber" : "enacted";
+}
+
+// A number gets reused every session, so a stored LegiScan id can point at a
+// newer bill (MI SB 433: a 2019 kratom row held the id of a 2026 THC law). Its
+// code only counts when the row's last action falls inside that session, plus a
+// year for effective dates.
+export function legiscanSessionFits(lastActionAt, session) {
+  const year = Number(String(lastActionAt ?? "").slice(0, 4));
+  const start = Number(session?.year_start);
+  const end = Number(session?.year_end);
+  if (!year || !start || !end) return false;
+  return year >= start && year <= end + 1;
+}
+
+const TWIN_RANK = { enacted: 3, vetoed: 2, dead: 1 };
+
+// "WY SF 56" and "WY SF 0056" are one bill, and so is a row each sync wrote for
+// it. The same number in another session has a different last action date.
+export function billTwinKey(b) {
+  const number = String(b.bill_number ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().replace(/^([A-Z]+)0+/, "$1");
+  return `${b.state}|${number}|${String(b.last_action_at ?? "").slice(0, 10)}`;
+}
+
+// Two rows for one bill must not disagree: each row behind the strongest
+// terminal status among its twins moves up to it. Rows with no date are skipped.
+export function twinCorrections(rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    if (!r.last_action_at) continue;
+    const k = billTwinKey(r);
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  const out = [];
+  for (const twins of groups.values()) {
+    const best = twins.reduce((a, b) => ((TWIN_RANK[b.status] ?? 0) > (TWIN_RANK[a.status] ?? 0) ? b : a));
+    if (!TWIN_RANK[best.status]) continue;
+    for (const t of twins) {
+      if ((TWIN_RANK[t.status] ?? 0) < TWIN_RANK[best.status]) out.push({ id: t.id, next: best.status });
+    }
+  }
+  return out;
+}
