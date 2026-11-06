@@ -223,3 +223,24 @@ export function moderateNewContent(input: {
 
   return { status: "approved", signals: null, reason: null };
 }
+
+/**
+ * Screen an author's edit, so a post can't pass review and then turn into spam.
+ *
+ *   the new text has a link or contact details   → auto_flagged
+ *   the post was already waiting for a moderator → it keeps waiting
+ *   otherwise the same rules as a new post, so an account with under three
+ *   approved posts goes back to review
+ */
+export function moderateEdit(input: {
+  currentStatus: string | null | undefined;
+  body: string;
+  authorPostCount: number;
+  isPrivileged: boolean;
+}): { status: string; reason: string | null; signals: ModerationSignals | null } {
+  const decision = moderateNewContent(input);
+  if (decision.status === "auto_flagged") return decision;
+  const current = input.currentStatus ?? "approved";
+  if (current !== "approved") return { status: current, reason: "Edited while in review", signals: null };
+  return decision;
+}

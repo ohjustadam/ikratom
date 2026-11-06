@@ -40,8 +40,9 @@ export default async function StateForumPage({
   // Build threads query
   let threadsQuery = supabase
     .from("forum_threads")
-    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, system_generated, post_count, upvote_count, helpful_count, last_activity_at, created_at")
+    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, system_generated, is_state_digest, post_count, upvote_count, helpful_count, last_activity_at, created_at")
     .eq("state", abbr)
+    .neq("moderation_status", "removed")
     // The bot gets one thread here. Its old per-bill threads stay on their bill
     // pages, and come back to this list if a person replies.
     .or("system_generated.eq.false,is_state_digest.eq.true,post_count.gt.0");
@@ -62,6 +63,10 @@ export default async function StateForumPage({
   }
 
   const { data: threads } = await threadsQuery.limit(100);
+
+  // The bot's running thread sits apart, so the list below is what people wrote.
+  const digest = (threads ?? []).find((t) => t.is_state_digest) ?? null;
+  const memberThreads = (threads ?? []).filter((t) => !t.is_state_digest);
 
   // Recent state news for sidebar
   const stateNews = await listNewsForState(abbr, 5);
@@ -153,8 +158,23 @@ export default async function StateForumPage({
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
+          {digest && (
+            <a
+              href={`/forum/${abbr}/${digest.id}`}
+              className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 px-4 py-3 text-sm hover:border-emerald-700/50"
+            >
+              <span className="min-w-0">
+                <span className="font-semibold text-zinc-200">🤖 Bill updates</span>
+                <span className="ml-2 text-xs text-zinc-500">
+                  {digest.post_count} update{digest.post_count === 1 ? "" : "s"} · latest{" "}
+                  {new Date(digest.last_activity_at).toLocaleDateString()}
+                </span>
+              </span>
+              <span className="text-emerald-400">→</span>
+            </a>
+          )}
           <ThreadList
-            threads={threads ?? []}
+            threads={memberThreads}
             state={abbr}
             currentTag={tag ?? "all"}
             currentSort={sort ?? "hot"}

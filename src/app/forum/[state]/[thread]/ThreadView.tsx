@@ -7,6 +7,8 @@ import { createPost, toggleReaction } from "@/modules/forum/actions";
 import type { PostRow, ThreadRow } from "@/modules/forum/types";
 import { Markdown } from "@/components/Markdown";
 import { ReportButton } from "@/modules/forum/components/ReportButton";
+import { ContentButtons, EditForm, ThreadModButtons } from "@/modules/forum/components/ContentControls";
+import { forumRights, type ForumRights, type ForumRole, type ForumViewer } from "@/lib/forum-permissions";
 import { createClient } from "@/lib/supabase/client";
 
 type ReactionRow = { target_type: string; target_id: string; reaction: string };
@@ -20,6 +22,8 @@ export function ThreadView({
   canReply,
   replyBlockReason,
   userIsCreator,
+  viewer,
+  authorRoles,
   userReactions: initialReactions,
 }: {
   thread: ThreadRow;
@@ -30,6 +34,8 @@ export function ThreadView({
   canReply: boolean;
   replyBlockReason: string | null;
   userIsCreator: boolean;
+  viewer: ForumViewer;
+  authorRoles: Record<string, ForumRole>;
   userReactions: ReactionRow[];
 }) {
   const router = useRouter();
@@ -37,6 +43,9 @@ export function ThreadView({
   const [, startTransition] = useTransition();
   // Live posts list — appends new replies via Supabase Realtime
   const [livePosts, setLivePosts] = useState<PostRow[]>(posts);
+  const [editingThread, setEditingThread] = useState(false);
+  // An edit or delete comes back as new props from router.refresh().
+  useEffect(() => setLivePosts(posts), [posts]);
   const [authorNamesLocal, setAuthorNamesLocal] = useState<Record<string, string>>(authorNames);
   // Authors we've already resolved — a ref (not state) so the realtime handler
   // can dedup without the effect depending on authorNamesLocal. Depending on it
@@ -111,7 +120,24 @@ export function ThreadView({
     if (p.moderation_status === "removed") return false;
     return true;
   });
-  const topLevel = visiblePosts.filter((p) => !p.parent_post_id);
+  // A reply outlives the post it answered: if that post is gone, it moves up.
+  const visibleIds = new Set(visiblePosts.map((p) => p.id));
+  const topLevel = visiblePosts.filter((p) => !p.parent_post_id || !visibleIds.has(p.parent_post_id));
+  const rightsFor = (authorId: string | null, status?: string | null) =>
+    forumRights(viewer, {
+      authorId,
+      authorRole: (authorId && authorRoles[authorId]) || "member",
+      isBot: !authorId && !!thread.system_generated,
+      status,
+      threadLocked: thread.locked,
+    });
+  const threadRights = forumRights(viewer, {
+    authorId: thread.author_id,
+    authorRole: (thread.author_id && authorRoles[thread.author_id]) || "member",
+    isBot: !!thread.system_generated,
+    status: thread.moderation_status,
+    threadLocked: thread.locked,
+  });
   // A comment with no author is the bot's, in a state's running bill thread.
   const nameOf = (id: string | null) =>
     id ? (authorNamesLocal[id] ?? "Member") : thread.system_generated ? "🤖 iKratom bot" : "Member";
@@ -126,10 +152,21 @@ export function ThreadView({
   return (
     <div>
       {/* Thread body */}
-      {thread.body && (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 text-sm text-zinc-200">
-          <Markdown>{thread.body}</Markdown>
-        </div>
+      {editingThread ? (
+        <EditForm
+          targetType="thread"
+          targetId={thread.id}
+          title={thread.title}
+          body={thread.body ?? ""}
+          asModerator={thread.author_id !== viewer.id}
+          onDone={() => setEditingThread(false)}
+        />
+      ) : (
+        thread.body && (
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 text-sm text-zinc-200">
+            <Markdown>{thread.body}</Markdown>
+          </div>
+        )
       )}
 
       {/* Thread reactions + spawn-campaign */}
@@ -158,6 +195,21 @@ export function ThreadView({
         />
         <span className="text-xs text-zinc-500">·</span>
         <span className="text-xs text-zinc-500">{thread.post_count} replies</span>
+        <span className="flex flex-wrap items-center gap-3 text-xs">
+          <ContentButtons
+            targetType="thread"
+            targetId={thread.id}
+            rights={threadRights}
+            onEdit={() => setEditingThread(true)}
+            afterDeleteHref={`/forum/${threadState}`}
+          />
+          {viewer.canModerate && (
+            <ThreadModButtons threadId={thread.id} locked={thread.locked} pinned={thread.pinned} />
+          )}
+          {currentUserId && thread.author_id !== currentUserId && (
+            <ReportButton targetType="thread" targetId={thread.id} />
+          )}
+        </span>
 
         {userIsCreator && (
           <a
@@ -200,6 +252,7 @@ export function ThreadView({
                 canReply={canReply}
                 currentUserId={currentUserId}
                 isOwnPost={p.author_id === currentUserId}
+                rights={rightsFor(p.author_id, p.moderation_status)}
               />
 
               {/* One level of replies under this post */}
@@ -215,6 +268,7 @@ export function ThreadView({
                     canReply={false}  // no nested replies (Reddit-flat = one level)
                     currentUserId={currentUserId}
                     isOwnPost={r.author_id === currentUserId}
+                    rights={rightsFor(r.author_id, r.moderation_status)}
                   />
                 </div>
               ))}
@@ -236,6 +290,7 @@ function PostCard({
   canReply,
   currentUserId,
   isOwnPost,
+  rights,
 }: {
   post: PostRow;
   authorName: string;
@@ -246,8 +301,10 @@ function PostCard({
   canReply: boolean;
   currentUserId: string | null;
   isOwnPost: boolean;
+  rights: ForumRights;
 }) {
   const [showReply, setShowReply] = useState(false);
+  const [editing, setEditing] = useState(false);
   const isFromOutOfState = post.author_state && post.author_state !== threadState;
   const isInReview = isOwnPost && post.moderation_status && post.moderation_status !== "approved";
 
@@ -283,10 +340,21 @@ function PostCard({
         )}
         <span>·</span>
         <span>{timeAgo(post.created_at)}</span>
+        {post.edited_at && <span>{post.edited_by_moderator ? "· edited by a moderator" : "· edited"}</span>}
       </div>
-      <div className="mt-2 text-sm text-zinc-200">
-        <Markdown>{post.body}</Markdown>
-      </div>
+      {editing ? (
+        <EditForm
+          targetType="post"
+          targetId={post.id}
+          body={post.body}
+          asModerator={!isOwnPost}
+          onDone={() => setEditing(false)}
+        />
+      ) : (
+        <div className="mt-2 text-sm text-zinc-200">
+          <Markdown>{post.body}</Markdown>
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
         <ReactionBtn
           type="post"
@@ -318,6 +386,7 @@ function PostCard({
             {showReply ? "Cancel" : "Reply"}
           </button>
         )}
+        <ContentButtons targetType="post" targetId={post.id} rights={rights} onEdit={() => setEditing(true)} />
         {currentUserId && !isOwnPost && (
           <ReportButton targetType="post" targetId={post.id} />
         )}
