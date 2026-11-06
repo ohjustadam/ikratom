@@ -88,7 +88,7 @@ export function CampaignForm({ initial }: { initial?: Initial }) {
       </Section>
 
       <Section title="Email template">
-        <Field name="subject_template" label="Subject *" required defaultValue={initial?.subject_template} placeholder="Constituent input on kratom policy in {{state}}" />
+        <Field name="subject_template" label="Subject * (members get a short, varied one; this joins the rotation at 40 characters or less)" required defaultValue={initial?.subject_template} placeholder="Constituent input on kratom policy in {{state}}" />
         <Textarea
           name="body_template"
           label="Body * — placeholders: {{full_name}}, {{city}}, {{state}}, {{zip}}, {{legislator_name}} (street is never included — privacy)"
