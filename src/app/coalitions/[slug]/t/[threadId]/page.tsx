@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { publicHandle } from "@/lib/public-handle";
 import { groupForViewer } from "@/modules/coalitions/moderation";
 import { ReportButton } from "@/modules/reports/components/ReportButton";
-import { PinButton, ReplyForm, RemoveButton } from "./ThreadClient";
+import { PinButton, PostText, ReplyForm, RemoveButton } from "./ThreadClient";
+import { GroupImage } from "../../GroupImage";
 
 /**
  * One discussion in a coalition's private board (migration 0273). RLS returns
@@ -31,17 +32,19 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
 
   const [{ data: thread }, { data: postRows }] = await Promise.all([
     sb.from("coalition_threads")
-      .select("id, title, body, author_id, created_at, pinned_at")
+      .select("id, title, body, author_id, created_at, pinned_at, photo_id, edited_at")
       .eq("id", threadId).eq("coalition_id", c.id).is("deleted_at", null).maybeSingle(),
     sb.from("coalition_posts")
-      .select("id, body, author_id, created_at")
+      .select("id, body, author_id, created_at, photo_id, edited_at")
       .eq("thread_id", threadId).is("deleted_at", null)
       .order("created_at", { ascending: true }).limit(500),
   ]);
   if (!thread) notFound();
   const isMember = !viewer.moderator;
 
-  const posts = (postRows ?? []) as { id: string; body: string; author_id: string; created_at: string }[];
+  const posts = (postRows ?? []) as {
+    id: string; body: string; author_id: string; created_at: string; photo_id: string | null; edited_at: string | null;
+  }[];
   const ids = [...new Set([thread.author_id, ...posts.map((p) => p.author_id)])];
   const handles = new Map<string, string>();
   const { data: profs } = await sb.rpc("get_public_profiles", { p_ids: ids });
@@ -65,8 +68,18 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
 
       <article className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
         <h1 className="text-2xl font-bold text-zinc-100">{thread.title}</h1>
-        <p className="mt-1 text-[11px] text-zinc-500">{who(thread.author_id)} · {when(thread.created_at)}</p>
-        <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-200">{thread.body}</p>
+        <p className="mt-1 text-[11px] text-zinc-500">
+          {who(thread.author_id)} · {when(thread.created_at)}{thread.edited_at && " · edited"}
+        </p>
+        {thread.photo_id && <GroupImage id={thread.photo_id} />}
+        <PostText
+          slug={c.slug}
+          kind="thread"
+          id={thread.id}
+          title={thread.title}
+          body={thread.body}
+          canEdit={isMember && thread.author_id === user.id}
+        />
         {(thread.author_id === user.id || canModerate) && (
           <RemoveButton slug={c.slug} kind="thread" id={thread.id} redirectTo={`/coalitions/${c.slug}#discussion`} />
         )}
@@ -77,8 +90,11 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
       <ul className="mt-4 space-y-2">
         {posts.map((p) => (
           <li key={p.id} id={`post-${p.id}`} className="scroll-mt-20 rounded-lg border border-zinc-800 bg-zinc-950/30 p-3 target:border-amber-500">
-            <p className="text-[11px] text-zinc-500">{who(p.author_id)} · {when(p.created_at)}</p>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">{p.body}</p>
+            <p className="text-[11px] text-zinc-500">
+              {who(p.author_id)} · {when(p.created_at)}{p.edited_at && " · edited"}
+            </p>
+            {p.photo_id && <GroupImage id={p.photo_id} />}
+            <PostText slug={c.slug} kind="post" id={p.id} body={p.body} canEdit={isMember && p.author_id === user.id} />
             {(p.author_id === user.id || canModerate) && (
               <RemoveButton slug={c.slug} kind="post" id={p.id} />
             )}
