@@ -201,11 +201,11 @@ export default async function ForumIndexPage() {
 
       {/* National board — first-class link, not buried with the states */}
       {(() => {
-        const fedKey = "state:FED";
+        const fedKey = "state:US";
         const s = stats[fedKey];
         return (
           <div className="mb-8 rounded-lg border border-emerald-700/40 bg-emerald-950/10 p-4 hover:border-emerald-500">
-            <Link href="/forum/FED" className="flex items-start justify-between gap-3">
+            <Link href="/forum/US" className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-xs text-emerald-400">FED</span>

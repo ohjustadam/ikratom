@@ -6,7 +6,7 @@
  *
  * Key encoding (matches the SQL CHECK constraint in 0060):
  *   "state:OK"           — Oklahoma state forum
- *   "state:FED"          — National (federal) forum
+ *   "state:US"           — National (federal) forum
  *   "community:<uuid>"   — topical community
  */
 
