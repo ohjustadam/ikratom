@@ -114,6 +114,14 @@ describe("What's New carries only changes members can see (owner, 2026-11-06)", 
   it("holds internal commits out of drafts", () => {
     expect(classifyCommit("fix(news): split hourly pipeline so it stops timing out")).toBe("held");
     expect(classifyCommit("feat(ops): migrate hosting to Netlify")).toBe("held");
+    expect(classifyCommit("fix(ops): stop a build timeout, netlify side [skip netlify] (#900)")).toBe("held");
+  });
+
+  // Almost every real title ends this way. Reading the tag as the word
+  // "netlify" held every commit out and left drafts empty.
+  it("does not read the build tag on a title as internal work", () => {
+    expect(classifyCommit("feat(media): members can reply to reporters [skip netlify] (#1134)")).toBe("public");
+    expect(classifyCommit("fix(bills): a bill that became law stops reading Dead [skip netlify] (#1129)")).toBe("public");
   });
 
   const read = (...p: string[]) => readFileSync(join(process.cwd(), ...p), "utf8");
@@ -134,6 +142,8 @@ describe("What's New carries only changes members can see (owner, 2026-11-06)", 
     expect(gen).not.toMatch(/ikratom\/commit\//);
     expect(gen).not.toMatch(/Under the hood/);
     expect(gen).not.toMatch(/## 📚 Docs/);
+    // Left behind by the old sections, these crash the run after the draft is written.
+    expect(gen).not.toMatch(/\b(?:behindCount|securityCount|featureCount|fixCount|docs\.length)\b/);
   });
 
   it("the public pages make no promise of commit links or counts", () => {

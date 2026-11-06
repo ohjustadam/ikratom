@@ -87,9 +87,19 @@ export const PUBLISH_BLOCKLIST = [
 
 const CONVENTIONAL = /^(\w+)(?:\(([^)]*)\))?:\s*(.*)$/s;
 
+/**
+ * A commit subject without the bookkeeping every subject carries. Nearly every
+ * title ends "[skip netlify] (#123)", and "netlify" is an internal term, so
+ * reading the raw title would hold every commit out of the draft.
+ */
+export function cleanSubject(subject) {
+  return subject.replace(/\s*\[skip netlify\]/gi, "").replace(/\s*\(#\d+\)\s*$/, "").trim();
+}
+
 /** True if a commit subject should be HELD OUT of the public auto-draft. */
 export function isSensitiveSubject(text) {
-  return SENSITIVE_PATTERNS.some((re) => re.test(text)) || INTERNAL_TERMS.some((re) => re.test(text));
+  const subject = cleanSubject(text);
+  return SENSITIVE_PATTERNS.some((re) => re.test(subject)) || INTERNAL_TERMS.some((re) => re.test(subject));
 }
 
 /**

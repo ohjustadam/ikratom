@@ -27,7 +27,7 @@
 import { execSync } from "node:child_process";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { classifyCommit } from "./lib/changelog-safety.mjs";
+import { classifyCommit, cleanSubject } from "./lib/changelog-safety.mjs";
 
 const args = process.argv.slice(2);
 const sinceIdx = args.indexOf("--since");
@@ -78,10 +78,9 @@ for (const c of commits) {
   // Only feat: and fix: can be something a member sees. Everything else stays
   // out and is not mentioned either: What's New is for changes members can see
   // (owner, 2026-11-06).
-  const m = c.subject.match(/^(feat|fix)(?:\([^)]+\))?:\s*(.*)/i);
+  const m = cleanSubject(c.subject).match(/^(feat|fix)(?:\([^)]+\))?:\s*(.*)/i);
   if (!m) continue;
-  const text = m[2].replace(/\s*\[skip netlify\]/i, "").replace(/\s*\(#\d+\)\s*$/, "");
-  (m[1].toLowerCase() === "feat" ? feats : fixes).push({ text });
+  (m[1].toLowerCase() === "feat" ? feats : fixes).push({ text: m[2] });
 }
 
 if (feats.length + fixes.length === 0) {
@@ -250,6 +249,6 @@ if (held.length > 0) {
 
 console.log(`\n✓ Draft written: ${path}`);
 if (dbNote) console.log(dbNote.replace(/^\n/, ""));
-console.log(`  ${feats.length} feat · ${fixes.length} fix · published · ${held.length} held · ${behindCount} behind-the-scenes (collapsed)`);
+console.log(`  ${feats.length} feat · ${fixes.length} fix · ${held.length} held out`);
 if (heldNote) console.log(heldNote);
 console.log(`\nThis draft is a STARTING POINT — never publish raw commit subjects. Security, intel, and infra lines are held automatically; review the rest for user impact before committing.`);
