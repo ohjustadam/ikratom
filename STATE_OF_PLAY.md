@@ -197,6 +197,8 @@ fixed by a better estimate:
   stamps those stories with no body. Their reader page links out to the source.
   Never clear `news_items.body_extracted_at` to force a re-extract: every news
   feed lists only rows that have it. Clearing `body_paragraphs` is enough.
+  Since 2026-11-05 a 403 or timeout also counts toward the retry cap once a
+  story is a day old, so paywalled Reuters and NYT stories reach the feeds.
 - **Legal status re-check, 2026-10-29/30.** The 43 rows without a recent
   confirmation were checked against primary sources and stamped, so all 51
   are confirmed. Four were wrong:
@@ -350,11 +352,12 @@ editing an event's time (cancel and re-post), and a real cover photo.
 ## Things that will bite you
 
 1. **The changelog no longer lives in the repo.** As of 2026-09-18, patch
-   notes are rows in `patch_notes` (migration 0250), drafted by the daily job
-   and published from `/admin/whats-new`. The 40 markdown files under
-   `src/content/patch-notes/` are the back-catalogue and still render. Do not
-   add a new `.md` note — it would cost a build, which is the whole reason
-   this moved.
+   notes are rows in `patch_notes` (migration 0250), drafted by the daily and
+   Sunday jobs and published from `/admin/whats-new`. The 40 markdown files
+   under `src/content/patch-notes/` are the back-catalogue and still render. Do
+   not add a new `.md` note — it would cost a build, which is the whole reason
+   this moved. Publishing sends nothing, and no job pushes a note: a push is
+   `scripts/broadcast-whats-new.mjs`, run by hand after the owner says yes.
 2. **A branch that looks unlanded may already be merged by content.** Release
    PRs squash several branches at once, so GitHub never marks the sources
    merged and they stay permanently "ahead". Test-merge into `origin/main` and
