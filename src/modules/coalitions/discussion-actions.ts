@@ -42,9 +42,13 @@ async function memberContext(slug: string) {
 }
 
 /** A photo id is good only if this member uploaded it for a group post. */
-async function ownGroupPhoto(userId: string, photoId: string | null | undefined): Promise<string | null> {
+async function ownGroupPhoto(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  photoId: string | null | undefined,
+): Promise<string | null> {
   if (!photoId || !UUID_RE.test(photoId)) return null;
-  const { data } = await createServiceRoleClient()
+  const { data } = await supabase
     .from("member_photos").select("id")
     .eq("id", photoId).eq("owner_id", userId).eq("kind", "group").maybeSingle();
   return data?.id ?? null;
@@ -81,7 +85,7 @@ export async function createCoalitionThread(
   if (!(await checkRateLimit(`coalition:thread:${ctx.user.id}`, 5, 3600))) {
     return { ok: false, error: "You've started several discussions this hour. Try again a little later." };
   }
-  const photoId = await ownGroupPhoto(ctx.user.id, opts.photoId);
+  const photoId = await ownGroupPhoto(ctx.supabase, ctx.user.id, opts.photoId);
   if (!b && !photoId) return { ok: false, error: "That image didn't upload. Try adding it again." };
 
   const { data, error } = await ctx.supabase
@@ -133,7 +137,7 @@ export async function replyCoalitionThread(
   if (!(await checkRateLimit(`coalition:reply:${ctx.user.id}`, 30, 3600))) {
     return { ok: false, error: "You're replying very fast. Give it a minute." };
   }
-  const photoId = await ownGroupPhoto(ctx.user.id, opts.photoId);
+  const photoId = await ownGroupPhoto(ctx.supabase, ctx.user.id, opts.photoId);
   if (!b && !photoId) return { ok: false, error: "That image didn't upload. Try adding it again." };
 
   const { data: thread } = await ctx.supabase
