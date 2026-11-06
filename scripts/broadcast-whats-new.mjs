@@ -3,6 +3,12 @@
  * Broadcast a "What's new" notification to every user pointing them
  * to the latest /whats-new patch note.
  *
+ * MANUAL ONLY. This reaches every member, so it runs by hand, --dry-run first,
+ * after the owner says yes in chat (AGENTS.md rule 3). No workflow runs it.
+ * cron-weekly.yml did until 2026-11-05: it read the newest FILE note, could not
+ * see database notes, and kept pushing the 2026-10-08 note to each new member.
+ * tests/patch-notes-publishing.test.ts fails if a workflow sends one again.
+ *
  * Strict guardrails so we never spam:
  *   - Idempotent via notifications.kind='whats_new' + link=/whats-new/SLUG.
  *     A second run with the same slug is a no-op — we check for an
@@ -42,8 +48,8 @@ const DRY_RUN = args.includes("--dry-run");
 const ALL_USERS = args.includes("--all-users");
 const STATELESS = args.includes("--stateless");
 // --briefing switches the source to src/content/briefings and the link to
-// /briefings/<slug>. Default (no flag) is unchanged: patch notes -> /whats-new,
-// which is what cron-weekly.yml fires. Never make this the default.
+// /briefings/<slug>. Default (no flag) is unchanged: patch notes -> /whats-new.
+// Never make this the default.
 const BRIEFING = args.includes("--briefing");
 
 if (!SLUG) {
@@ -90,7 +96,7 @@ try {
 
 const link = BRIEFING ? `/briefings/${SLUG}` : `/whats-new/${SLUG}`;
 // Dedupe is keyed on (kind, link), so a distinct kind keeps briefing pushes
-// from ever colliding with the weekly digest's idempotency check.
+// from ever colliding with a what's-new push's idempotency check.
 const notifKind = BRIEFING ? "briefing" : "whats_new";
 
 console.log(`Broadcasting "${title}"`);
@@ -176,6 +182,8 @@ for (let i = 0; i < toNotify.length; i += BATCH) {
 console.log(`\nDone — ${inserted} notifications inserted.`);
 console.log("The fanoutPushNotifications cron will deliver them as web push within the hour.");
 
+// A record of each push, not a heartbeat. This source stays out of the pager
+// registry on purpose: a month with no push is normal, not a dead job.
 try {
   await sb.from("scraper_runs").insert({
     source: "broadcast_whats_new",

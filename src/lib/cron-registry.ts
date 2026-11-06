@@ -521,16 +521,10 @@ export const CRON_REGISTRY: CronEntry[] = [
     system: "gh-weekly", cadence: "weekly", runs_per_day: 1 / 7, category: "donors",
   },
   {
-    source: "weekly_patch_note_draft",
+    source: "patch_note_draft",
     label: "Patch note draft",
-    purpose: "Generate weekly patch note draft (7-day lookback)",
+    purpose: "Write a 7-day patch note draft into patch_notes for review at /admin/whats-new",
     system: "gh-weekly", cadence: "weekly", runs_per_day: 1 / 7, category: "moderation",
-  },
-  {
-    source: "broadcast_whats_new",
-    label: "Broadcast weekly digest",
-    purpose: "Broadcast weekly digest to all opted-in users",
-    system: "gh-weekly", cadence: "weekly", runs_per_day: 1 / 7, category: "push",
   },
   {
     source: "weekly_legislator_stance_all",

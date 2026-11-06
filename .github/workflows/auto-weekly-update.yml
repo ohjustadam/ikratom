@@ -1,18 +1,29 @@
 name: Weekly update auto-draft
 
-# Drafts a WEEKLY "what's new" digest (7-day lookback) and opens a PR for the
-# owner to CURATE — unlike the daily auto-patch-note (auto-patch-notes.yml),
-# this one does NOT auto-merge, because the weekly digest is the user-facing
-# newsletter the owner edits by impact before it goes out.
+# Writes a WEEKLY "what's new" draft (7-day lookback) into the `patch_notes`
+# table with status='draft', so an admin has one week's changes to curate at
+# /admin/whats-new. The daily job (auto-patch-notes.yml) does the same thing
+# with a 24-hour window.
 #
-# IMPORTANT: this workflow sends NO notifications. It only writes a markdown
-# draft + opens a PR. The push broadcast is always a separate, manual step
-# (scripts/broadcast-whats-new.mjs) the owner fires after reviewing + merging —
-# never automated. See private/ACHIEVEMENTS_AND_ACADEMY_PLAN.md / the compose
-# work for why mass push stays manual.
+# ⚠️ CHANGED 2026-11-05 — read before editing.
+# This used to open a pull request adding a src/content/patch-notes/*.md file.
+# Merging that cost a 15-credit Netlify build for a note the database publishes
+# for free, the same trap auto-patch-notes.yml left on 2026-09-17, and a merged
+# file also fed the Sunday push that has since been removed from cron-weekly.yml.
 #
-# Schedule: Sunday 15:00 UTC (~10am ET) — after the Sunday state syncs, quiet
-# weekend window, fresh draft waiting Monday morning.
+# WHAT HAPPENS TO THE DRAFT:
+#   1. This job writes it. It sends nothing, and nobody can see it yet.
+#   2. An admin edits it and presses Publish at /admin/whats-new. That puts it on
+#      the public page, and sends nothing either.
+#   3. Telling members is a separate step: broadcast-whats-new.mjs, run by hand
+#      with --dry-run first, after the owner says yes in chat (AGENTS.md rule 3).
+#      No workflow runs it on any trigger, and
+#      tests/patch-notes-publishing.test.ts fails if one starts to.
+#
+# Schedule: Sunday 15:00 UTC (~10am ET), so a fresh draft is waiting Monday
+# morning. The daily job runs on weekdays only, so the two never share a slug
+# on schedule. A manual weekday run shares that day's YYYY-MM-DD-update slug: the
+# later write replaces the draft, and neither can touch a published note.
 
 on:
   schedule:
@@ -26,9 +37,10 @@ concurrency:
 jobs:
   draft-weekly-digest:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Read-only: no branch, no pull request.
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v5
         with:
@@ -38,50 +50,12 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Generate weekly digest draft (last 7 days)
-        id: gen
-        run: |
-          node --import=./scripts/lib/egress-meter.mjs scripts/generate-patch-note.mjs --since "7 days ago"
-          NEW=$(git status --porcelain src/content/patch-notes/ | awk '/^\?\?/ {print $2}' | head -1)
-          if [ -z "$NEW" ]; then
-            echo "No new digest generated (no commits in last 7d, or file already exists)."
-            echo "should_pr=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "Generated $NEW"
-          echo "patch_file=$NEW" >> "$GITHUB_OUTPUT"
-          echo "should_pr=true" >> "$GITHUB_OUTPUT"
-          TITLE=$(grep -m1 '^title:' "$NEW" | sed -E 's/title: "(.*)"/\1/')
-          echo "patch_title=$TITLE" >> "$GITHUB_OUTPUT"
+      - run: npm ci --omit=dev --ignore-scripts
 
-      - name: Open PR for owner review (NO auto-merge, NO send)
-        if: steps.gen.outputs.should_pr == 'true'
+      - name: Write the 7-day draft into patch_notes
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          BR="auto-weekly-update-$(date -u +%Y%m%d)"
-          git config user.name "ikratom-bot"
-          git config user.email "noreply@ikratom.org"
-          git checkout -b "$BR"
-          git add "${{ steps.gen.outputs.patch_file }}"
-          git commit -m "docs(weekly): ${{ steps.gen.outputs.patch_title }} (auto-draft)"
-          git push -u origin "$BR"
-          # A LABEL MUST NOT BE ABLE TO KILL THIS JOB (2026-09-24).
-          # `gh pr create --label` fails outright when a label does not exist in
-          # the repo, and "weekly-digest" never did. So every weekly run wrote
-          # the patch note, committed it and pushed the branch — and then died on
-          # `could not add label: 'weekly-digest' not found` with exit 1. The PR
-          # was NEVER created. That read as a noisy failure email for weeks while
-          # the actual breakage was silent: no weekly digest ever reached review.
-          # Ensure the labels exist first (idempotent), then never let labelling
-          # fail the step that does the real work.
-          gh label create patch-notes   --color 1D76DB --description "Auto-drafted patch note" 2>/dev/null || true
-          gh label create weekly-digest --color 0E8A16 --description "Auto-drafted weekly update digest (curate before merge)" 2>/dev/null || true
-          gh pr create \
-            --title "docs(weekly): ${{ steps.gen.outputs.patch_title }} (curate before broadcast)" \
-            --body "Weekly digest auto-draft (last 7 days), markdown-only. **Curate the headlines by user impact, then merge.** After it deploys, fire the push manually: \`node --import=./scripts/lib/egress-meter.mjs --env-file=.env.local scripts/broadcast-whats-new.mjs --slug <slug> --all-users\` (dry-run first). This workflow sends nothing on its own. 🤖 .github/workflows/auto-weekly-update.yml" \
-            --label "patch-notes,weekly-digest" \
-            || gh pr create \
-              --title "docs(weekly): ${{ steps.gen.outputs.patch_title }} (curate before broadcast)" \
-              --body "Weekly digest auto-draft (last 7 days), markdown-only. Curate before merge. (Labels could not be applied.) 🤖 .github/workflows/auto-weekly-update.yml"
-          echo "PR opened — left for owner review (not auto-merged)."
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        # Writes scraper_runs source `patch_note_draft`, the same source as the
+        # daily job, registered in scripts/lib/cron-pager-registry.mjs.
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/generate-patch-note.mjs --since "7 days ago" --db
