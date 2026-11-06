@@ -8,9 +8,8 @@ import { frontmatterString } from "@/lib/frontmatter";
 /**
  * One reader for /whats-new, over two sources.
  *
- * The 40 notes published before 2026-09-17 are markdown files in
- * src/content/patch-notes/ and stay there — they are already indexed and
- * their URLs are permanent. Everything published from now on is a row in
+ * The notes published before 2026-09-17 are markdown files in
+ * src/content/patch-notes/ and stay there. Everything published since is a row in
  * `patch_notes` (migration 0250), because a file needs a deploy and a row
  * does not.
  *
@@ -40,7 +39,6 @@ export type PatchNote = {
   title: string;
   summary: string | null;
   published: string | null;
-  totalCommits: number | null;
   source: "db" | "file";
 };
 
@@ -65,7 +63,6 @@ function readFileNote(slug: string): PatchNoteDetail | null {
     title: frontmatterString(data.title) ?? slug,
     summary: frontmatterString(data.summary) ?? null,
     published: frontmatterString(data.published) ?? null,
-    totalCommits: typeof data.total_commits === "number" ? data.total_commits : null,
     bodyMd: content,
     source: "file",
   };
@@ -86,7 +83,7 @@ export async function listPatchNotes(): Promise<PatchNote[]> {
     // edit, not decoration.
     const { data } = await supabase
       .from("patch_notes")
-      .select("slug, title, summary, published_on, total_commits")
+      .select("slug, title, summary, published_on")
       .eq("status", "published")
       .order("published_on", { ascending: false })
       .limit(200);
@@ -95,7 +92,6 @@ export async function listPatchNotes(): Promise<PatchNote[]> {
       title: r.title as string,
       summary: (r.summary as string | null) ?? null,
       published: (r.published_on as string | null) ?? null,
-      totalCommits: (r.total_commits as number | null) ?? null,
       source: "db" as const,
     }));
   } catch {
@@ -124,7 +120,7 @@ export async function getPatchNote(slug: string): Promise<PatchNoteDetail | null
     const supabase = createAnonClient();
     const { data } = await supabase
       .from("patch_notes")
-      .select("slug, title, summary, body_md, published_on, total_commits")
+      .select("slug, title, summary, body_md, published_on")
       .eq("slug", slug)
       .eq("status", "published")
       .maybeSingle();
@@ -134,7 +130,6 @@ export async function getPatchNote(slug: string): Promise<PatchNoteDetail | null
         title: data.title as string,
         summary: (data.summary as string | null) ?? null,
         published: (data.published_on as string | null) ?? null,
-        totalCommits: (data.total_commits as number | null) ?? null,
         bodyMd: data.body_md as string,
         source: "db",
       };
