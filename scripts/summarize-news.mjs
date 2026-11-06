@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /**
  * summarize-news.mjs — generate a short, neutral AI summary for each kratom news
- * item so /news/[id] always shows OUR own synthesis (copyright-safe), even when
- * raw body extraction fails on JS-heavy sources (MSN, Yahoo, aggregators). 2-3
- * plain factual sentences, no opinion. Free-tier AI router; circuit-broken.
+ * item so /news/[id] shows OUR own synthesis (copyright-safe). 2-3 plain factual
+ * sentences, no opinion. Free-tier AI router; circuit-broken.
  *
- * Pairs with extract-news-content.mjs (fair-use excerpt + media): the summary is
- * the always-present layer; the excerpt/media fill in when extraction succeeds.
+ * Runs after extract-news-content.mjs: a story whose text never arrives gets its
+ * headline, not an AI guess (lib/news-summary.mjs).
  *
  *   node --env-file=.env.local scripts/summarize-news.mjs
  *   node --env-file=.env.local scripts/summarize-news.mjs --limit 80 --days 30
@@ -16,6 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 import { aiRouter, listAvailableProviders, logProviderSummary, providerNote } from "./lib/ai-router.mjs";
 import { makeFailGuard } from "./lib/batch-guard.mjs";
 import { getFederalSchedulingFacts, groundingBlock, findFalseClaims, enforceFederalTruth } from "./lib/federal-scheduling.mjs";
+import { SUMMARY_READY_FILTER, articleText, headlineSummary, summaryPlan } from "./lib/news-summary.mjs";
 
 const args = process.argv.slice(2);
 const arg = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : null; };
@@ -48,10 +48,11 @@ const SYS = [SYS_BASE, groundingBlock(federalFacts)].filter(Boolean).join("\n\n"
 
 const since = new Date(Date.now() - DAYS * 86400_000).toISOString();
 let q = sb.from("news_items")
-  .select("id, title, source_name, state, body_paragraphs, body_extract_excerpt")
+  .select("id, title, source_name, state, body_paragraphs, body_extract_excerpt, body_extracted_at")
   .eq("active", true)
   .not("body_has_kratom_keyword", "is", false)
   .not("policy_classified_at", "is", null)
+  .or(SUMMARY_READY_FILTER)
   .gte("scraped_at", since)
   .order("published_at", { ascending: false, nullsFirst: false })
   .limit(LIMIT);
@@ -63,13 +64,21 @@ console.log(`${items.length} article(s) to summarize${DRY ? " [DRY]" : ""}`);
 
 let done = 0, failed = 0;
 for (const it of items) {
-  const body = Array.isArray(it.body_paragraphs) && it.body_paragraphs.length
-    ? it.body_paragraphs.join("\n\n").slice(0, 4000)
-    : (it.body_extract_excerpt || "").slice(0, 4000);
+  const plan = summaryPlan(it);
+  if (plan === "wait") continue;
+  if (plan === "headline") {
+    // A headline can carry a false scheduling claim too, so it takes the same gate.
+    const summary = enforceFederalTruth(headlineSummary(it), federalFacts).text.slice(0, 1200);
+    console.log(`  ${it.id.slice(0, 8)} headline: ${summary.slice(0, 56)}…`);
+    if (DRY) { done++; continue; }
+    const { error: upErr } = await sb.from("news_items").update({ summary }).eq("id", it.id);
+    if (upErr) { console.log(`     ⚠ ${upErr.message?.slice(0, 60)}`); failed++; continue; }
+    done++;
+    continue;
+  }
+
   const loc = it.state ? `\nState: ${it.state}` : "";
-  const user = body
-    ? `Title: ${it.title}\nSource: ${it.source_name || "?"}${loc}\n\nArticle:\n${body}`
-    : `Only the headline is available (full text could not be fetched). Summarize what it is about, factually, framing it as based on the headline.\n\nHeadline: ${it.title}\nSource: ${it.source_name || "?"}${loc}`;
+  const user = `Title: ${it.title}\nSource: ${it.source_name || "?"}${loc}\n\nArticle:\n${articleText(it)}`;
 
   let summary;
   try {

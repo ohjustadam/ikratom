@@ -199,6 +199,9 @@ fixed by a better estimate:
   feed lists only rows that have it. Clearing `body_paragraphs` is enough.
   Since 2026-11-05 a 403 or timeout also counts toward the retry cap once a
   story is a day old, so paywalled Reuters and NYT stories reach the feeds.
+  Since 2026-11-06 a story with no text shows its headline as its summary,
+  because AI summaries of a headline alone invented facts. `summarize-news`
+  waits for extraction to finish, and `enrich-news` only scores stories.
 - **Legal status re-check, 2026-10-29/30.** The 43 rows without a recent
   confirmation were checked against primary sources and stamped, so all 51
   are confirmed. Four were wrong:
