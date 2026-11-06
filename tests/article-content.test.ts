@@ -4,6 +4,7 @@ import {
   extractArticleContent,
   isAkamaiBlockPage,
   isAkamaiBlockExcerpt,
+  isLastingFetchFailure,
 } from "../scripts/lib/article-content.mjs";
 
 const fixture = (name: string) =>
@@ -58,6 +59,29 @@ const wrap = (body: string) =>
   `<html><head><meta property="og:image" content="https://cdn.pub.com/lead.jpg"></head><body><article>${body}</article></body></html>`;
 const para = (n: number) =>
   `<p>Lead paragraph number ${n} of a kratom policy story, long enough to clear the minimum-character threshold for inclusion in the excerpt.</p>`;
+
+describe("isLastingFetchFailure — when a failed fetch starts counting", () => {
+  const now = Date.parse("2026-11-05T12:00:00Z");
+  const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
+
+  it("gives a story its first day, so an outage can't burn retries", () => {
+    expect(isLastingFetchFailure(hoursAgo(1), now)).toBe(false);
+    expect(isLastingFetchFailure(hoursAgo(23), now)).toBe(false);
+  });
+
+  it("stays past push-state-news's 12h window, so no one is pushed to an empty page", () => {
+    expect(isLastingFetchFailure(hoursAgo(12), now)).toBe(false);
+  });
+
+  it("counts from day two, in the timestamp format the database returns", () => {
+    expect(isLastingFetchFailure(hoursAgo(25), now)).toBe(true);
+    expect(isLastingFetchFailure("2026-10-18T12:14:27.300889+00:00", now)).toBe(true);
+  });
+
+  it("treats a missing date as not lasting rather than burning a retry", () => {
+    expect(isLastingFetchFailure(null, now)).toBe(false);
+  });
+});
 
 describe("extractArticleContent — fair-use excerpt", () => {
   it("keeps a LEAD, never the full body (paragraph + char caps)", () => {

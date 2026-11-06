@@ -271,3 +271,12 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 - **Members' settings decide delivery, not this code.** Each push is a `notifications` row: `notify_news` off drops it, the email digest carries `state_news` under "Your state", and quiet hours and digest cadence hold the web push.
 
 **Why:** the owner, 2026-10-29: a story re-filed under its real state should still link and notify the states it discusses (a Mississippi story about Louisiana's ban reaches Louisiana members).
+
+## What's-new pushes are manual; the weekly draft goes to the database (2026-11-05)
+
+**Decision:** no workflow pushes a What's New note. `weekly-patch-digest-broadcast` is gone from `cron-weekly.yml`, and `auto-weekly-update.yml` writes a `patch_notes` draft instead of opening a file PR. A push is `scripts/broadcast-whats-new.mjs`, run by hand with `--dry-run` first, after the owner's yes.
+- **Database notes do not auto-push either.** Publishing puts a note on the page and nothing more. Making Publish send would turn one click into a mass send, and that needs the owner's say-so.
+- **`broadcast_whats_new` is not a monitored cron.** It left the pager registry, `cron-expectations.ts` and the `/admin/automation` catalog, because a quiet month is normal. The script still writes its `scraper_runs` row as a record of each push.
+- **New members get no back-issue.** Someone who joins after a note went out sees it at `/whats-new`, not as a push.
+
+**Why:** the Sunday job read only files, so after notes moved to the database it kept sending the 2026-10-08 note to each new member, while the weekly workflow said pushes were never automated. A merged weekly file also cost a 15-credit build.

@@ -338,6 +338,18 @@ export function isAkamaiBlockExcerpt(paragraphs) {
     && paragraphs.every((p) => typeof p === "string" && AKAMAI_LINE_RE.test(p.trim()));
 }
 
+// A publisher that still won't answer a day after we found the story is a
+// lasting failure (NYT's 403, McClatchy's timeouts), not a blip. The first day
+// stays free so an outage can't burn retries, and so a story stamped with no
+// body lands outside push-state-news's 12h window: nobody is pushed to a page
+// with nothing to read.
+const FETCH_GRACE_MS = 24 * 3600_000;
+
+/** True once a failed fetch should count toward the extractor's retry cap. */
+export function isLastingFetchFailure(scrapedAt, now = Date.now()) {
+  return now - Date.parse(scrapedAt) > FETCH_GRACE_MS;
+}
+
 /**
  * @returns {{ paragraphs: string[], media: Array<{type,url,embed_url?,video_id?,poster?,lead?}> }}
  */

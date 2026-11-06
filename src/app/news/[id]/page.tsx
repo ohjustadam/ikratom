@@ -64,6 +64,7 @@ type ArticleRow = {
   summary: string | null;
   body_extract_excerpt: string | null;
   body_paragraphs: string[] | null;
+  body_extracted_at: string | null;
   digest_paragraphs: string[] | null;
   media_urls: Array<{ type: string; url: string; embed_url?: string; video_id?: string; poster?: string; lead?: boolean }> | null;
   url: string;
@@ -95,7 +96,7 @@ async function loadNewsArticle(id: string) {
     sb
       .from("news_items")
       .select(
-        "id, state, mentioned_states, title, summary, body_extract_excerpt, body_paragraphs, digest_paragraphs, media_urls, url, resolved_url, " +
+        "id, state, mentioned_states, title, summary, body_extract_excerpt, body_paragraphs, body_extracted_at, digest_paragraphs, media_urls, url, resolved_url, " +
         "source_name, published_at, scraped_at, kratom_topic, ai_relevance_score, " +
         "duplicate_count, policy_alert_id, bill_id, " +
         "bills(id, bill_number, state, title, status, last_action, last_action_at, kratom_relevance)"
@@ -421,11 +422,14 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
           </blockquote>
         </section>
       ) : digest.length === 0 ? (
-        // Reached before the pipeline finished (lists/notifications gate on
-        // body_extracted_at, so this is rare — a direct/sibling link to a
-        // not-yet-extracted item). Don't show a blank body; point to the source.
+        // Don't show a blank body; point to the source. With body_extracted_at
+        // set, extraction is finished and came back empty (the publisher blocks
+        // us, or the page has no readable text). Unset is a direct/sibling link
+        // to an item still in the pipeline, since lists gate on that stamp.
         <section className="mb-6 rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-sm text-zinc-400">
-          We&apos;re still preparing the full article for in-app reading. You can read it now at the source below.
+          {article.body_extracted_at
+            ? "We couldn't load this article here. You can read it at the source below."
+            : "We're still preparing the full article for in-app reading. You can read it now at the source below."}
         </section>
       ) : null}
 

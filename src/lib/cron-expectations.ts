@@ -27,7 +27,7 @@ export const EXPECTED_INTERVAL_HOURS: Record<string, number> = {
   // automated check that a reader isn't the first to spot a false ban claim.
   audit_federal_claims: 36, translate_content: 36, backfill_alert_source_urls: 36,
   // weekly pipeline
-  sync_nonprofit_990s: 216, broadcast_whats_new: 216, sync_elections: 216,
+  sync_nonprofit_990s: 216, sync_elections: 216,
   official_portraits_sync: 216, bill_topics_classify: 216,
   backfill_term_dates: 216, seed_county_directories: 216,
   // LegiScan session list: self-gated weekly since 2026-10-28 (10k/month cap).
