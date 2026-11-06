@@ -207,6 +207,10 @@ jobs:
         continue-on-error: true
         run: node --import=./scripts/lib/egress-meter.mjs scripts/review-lapsed-items.mjs --apply
 
+      # Media Persuasion: the addresses writers and researchers printed themselves.
+      - name: Find press contacts
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/find-press-contacts.mjs --limit 300 --max-minutes 8
       # A bill whose last action says it became law reads Enacted, and two rows
       # for one bill agree. Never marks anything dead for being old.
       - name: Correct bill statuses from their last action

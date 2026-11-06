@@ -9,7 +9,7 @@
  */
 import { createHash } from "node:crypto";
 
-export const BASELINE_TOTAL = 130;
+export const BASELINE_TOTAL = 131; // +1 press_contacts: no member policy on purpose (0316)
 export const BASELINE_TYPES = new Set([
   "5cca109bf0f23243", "5ef23c8e87a9b262", "7315b323c230fbf8", "db2dd3591be93007", "f05671f0e276f3cb",
 ]);

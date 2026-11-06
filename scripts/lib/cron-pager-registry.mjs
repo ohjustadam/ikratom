@@ -79,6 +79,7 @@ export const REGISTRY = [
       "expire_rotating_campaigns",
       "locality_state_audit",
       "review_lapsed_items",
+      "find_press_contacts",
       "backfill_bill_status",
       // /videos (mig 0260): orgs' + creators' YouTube uploads and upcoming lives.
       "sync_community_videos",
