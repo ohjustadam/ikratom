@@ -32,7 +32,7 @@ export default async function ThreadPage({
   // Fetch thread
   const { data: thread } = await supabase
     .from("forum_threads")
-    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, post_count, upvote_count, helpful_count, last_activity_at, created_at")
+    .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, system_generated, post_count, upvote_count, helpful_count, last_activity_at, created_at")
     .eq("id", threadId)
     .single();
   if (!thread) notFound();
@@ -178,7 +178,7 @@ export default async function ThreadPage({
               {powerUsers.has(thread.author_id) && <PowerUserBadge />}
             </a>
           ) : (
-            <span>Member</span>
+            <span>{thread.system_generated ? "🤖 iKratom bot" : "Member"}</span>
           )}
           {" · "}
           {new Date(thread.created_at).toLocaleString()}

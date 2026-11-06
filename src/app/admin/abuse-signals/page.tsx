@@ -3,6 +3,8 @@ import Link from "@/components/Link";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "@/modules/admin/actions";
 import { maskEmail, maskIp } from "@/lib/redact";
+import { loadContentSignals } from "@/modules/admin/abuse-content-signals";
+import ContentSignals from "./ContentSignals";
 
 export const metadata = { title: "Abuse signals" };
 export const dynamic = "force-dynamic";
@@ -16,8 +18,10 @@ export const dynamic = "force-dynamic";
  *   3. Failed-login spikes per IP (potential credential-stuffing)
  *   4. Failed-signup spikes per IP (account-creation abuse)
  *   5. Top error codes across all auth events
+ *   6. Inside the site: refused letters, reports by new accounts, posts hidden
+ *      by reports, groups by new accounts (ContentSignals.tsx)
  *
- * All data lives in `auth_events`. Service-role client used because
+ * Signals 1-5 live in `auth_events`. Service-role client used because
  * the RLS policy on auth_events is admin-only — keeps the data
  * available to admins without exposing it to other roles.
  *
@@ -118,6 +122,8 @@ export default async function AbuseSignalsPage() {
   }
   const topCodes = [...codeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
 
+  const contentSignals = await loadContentSignals(cutoff7);
+
   // Topline counts
   const signupOk = events.filter((e) => e.kind === "signup" && e.status === "ok").length;
   const signupFail = events.filter((e) => e.kind === "signup" && e.status !== "ok").length;
@@ -140,6 +146,8 @@ export default async function AbuseSignalsPage() {
           <Link href="/admin/users" className="text-amber-400 underline hover:text-amber-300">users admin</Link>.
         </p>
       </header>
+
+      <ContentSignals data={contentSignals} />
 
       {/* Topline counts */}
       <section className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
