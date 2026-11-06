@@ -33,7 +33,8 @@ export default async function AdminWhatsNewPage() {
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
           The daily job drafts a note from the last 24 hours of commits. Nothing
           here is public until you press Publish. Publishing is free — it does
-          not deploy the site.
+          not deploy the site. Only changes members can see belong here: Publish
+          refuses a note that mentions internal or security work.
         </p>
         {drafts.length > 0 && (
           <p className="mt-3 rounded border border-amber-600/40 bg-amber-950/20 px-3 py-2 text-sm text-amber-300">
