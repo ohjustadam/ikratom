@@ -344,8 +344,24 @@ The first real community is "Rein In Chaos Coalition" (MI, private).
 Privacy, everywhere: `@handle` only. A private group 404s for outsiders. RSVPs
 are own-row-only, and everyone else sees counts.
 
-Not built yet: reporting group content (waits on B4b's shared report system),
-editing an event's time (cancel and re-post), and a real cover photo.
+Images (2026-11-06): a group post can carry one image, a `member_photos` row of
+kind `group`, stored on R2. `get_media_object` serves it only to members of the
+group whose post holds it, and only while that post stands. The post's author
+must own the photo, so nobody can attach another member's image to read it. Each
+member gets 100. Nothing screens the picture itself.
+
+"Officials the group wrote to" counts letters sent after a member joined
+(`coalition_top_legislators`). A member who just joined and has a batch still
+draining will see those letters land in the group's count, which is right.
+
+Members report group content with the shared report button. A site moderator
+outside the group gets a read-only view, and Handled in
+`/admin/moderation/reports` takes down a group post, thread or event
+(`groupRemoval()`). Chat lines and resources have no soft delete, so organizers
+remove those.
+
+Not built yet: editing an event's time (cancel and re-post), and a real cover
+photo.
 
 ---
 
@@ -372,6 +388,54 @@ A member's report in November led to four changes.
   That table has no member policy: `getPressContact` is the only way to an
   address, at 10 a day, so the list can't be read out in bulk. Don't aim a
   campaign or wave at it.
+
+---
+
+## Forum roles, spam limits and member posts (2026-11-06)
+
+**Who can do what** lives in one place: `forumRights()` in
+`src/lib/forum-permissions.ts`. Change it there, not in a page. Ranks are member,
+leader, admin, owner.
+
+- A member edits or deletes their own post. A removed post can't be edited, and
+  neither can anything in a locked thread, though a member can still delete there.
+- Anyone with `moderate_forum` can hide a post by someone below their rank. Leaders
+  hide but never rewrite. Only an admin or the owner can change someone else's
+  words, and the post then reads "edited by a moderator".
+- Two admins can't act on each other. That goes to the owner.
+- The bill bot counts as a leader, so only an admin or the owner can touch it.
+
+**The database refuses forum body and title changes from anything but the service
+role**, moderators included (migration 0317). Every edit goes through
+`src/modules/forum/edit-actions.ts`, which writes the old text to `forum_edits`
+first. A new write path must do the same, or it will fail silently as zero rows.
+
+**Spam limits** (`postingBlock()` in `src/modules/forum/actions.ts`): under 72
+hours old, 3 threads a day and 10 posts an hour. The same words within 10 minutes
+are refused. Locked accounts can't post. 30 edits an hour. Author edits run the
+same screens as a new post.
+
+**Reports** always reach a moderator. A post hides only at three different
+reporters who are a week old or staff. `/admin/forum` reads through the service
+role, because the old RLS read showed leaders an empty queue, and it now lists
+reported posts that are still visible, plus recent edits and old bill threads.
+
+**Member posts come first.** `memberFeedItems()` drops bot posts, and the forum
+home shows "New from members" and "New in your groups", the second one limited to
+groups the viewer belongs to, because admins can read them all. The state page
+puts the bot's thread in a card above member threads. A bill thread with no action
+in 180 days (`isStaleBill`) gets a banner, and `/admin/forum` lists it for review.
+Nothing deletes one automatically.
+
+**The Lounge counter** clears through `useLoungeSeen`. It marks the chat as seen
+while it's on screen, at most every 2 seconds, skips hidden tabs, and tells the
+chat bubble through the `ikratom:lounge-seen` event.
+
+**January.** A campaign's targets come from the live roster, and sends cool down
+after 7 days, so new officials show as not yet written with no reset needed.
+`scripts/remind-new-officials.mjs --since YYYY-MM-DD` tells members about them. It
+dry-runs by default, isn't on a schedule, and `--apply` is a mass notice that needs
+the owner's yes.
 
 ---
 

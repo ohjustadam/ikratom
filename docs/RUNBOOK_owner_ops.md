@@ -76,6 +76,9 @@ usable from any device — and the desktop app wraps it natively for free.
 | Symptom | Fix (no developer needed) |
 |---|---|
 | Data looks stale (bills/news/briefings) | Ask the AI editor "what's stale?" → confirm its `trigger_cron` proposal. Or `/admin/console` → run the sync. |
+| A forum post is wrong or spam | `/admin/forum`. Reported posts appear there even while they're still visible. Remove hides the post. On the thread itself, an admin can edit a post, and it then reads "edited by a moderator". Pin and lock are on the thread too. |
+| Someone edited a post and you want the old words | `/admin/forum` → Recent edits keeps the wording from before each edit or delete. |
+| An old bill thread is cluttering a state | `/admin/forum` → Old bill threads lists bills with no action in six months. Remove the ones nobody needs. Nothing goes on its own. |
 | Review queue piling up | `/admin/moderation` → Auto-resolve (or ask the AI editor to do it). |
 | A bill shows the wrong status | AI editor: "look up <bill> — is its status right?" → confirm the fix. Or `/admin/master-edit` → Bills → edit `status`. |
 | Wrong contact info on an official | `/admin/master-edit` → Officials, or ask the AI editor. |
