@@ -1,4 +1,5 @@
 import Link from "@/components/Link";
+import { PressReplyButton } from "@/modules/press/PressReplyButton";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { SubmitFlash } from "./SubmitFlash";
@@ -30,7 +31,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // below (never cache a signed URL or a viewer's admin status).
 async function loadResearchPaper(id: string) {
   const sb = createServiceRoleClient();
-  const [{ data, error }, priv] = await Promise.all([sb
+  const [{ data, error }, priv, authorRes] = await Promise.all([sb
     .from("research_papers")
     .select(
       "id, pubmed_id, doi, semantic_scholar_id, title, authors, journal, journal_iso_abbreviation, publication_year, publication_date, abstract, full_text_url, pdf_url, topics, study_type, ai_methodology_quality, ai_sample_size_adequate, ai_sample_size_notes, ai_bias_indicators, ai_evidence_strength, ai_key_findings_md, ai_relevance_natural_leaf, ai_relevance_7oh, ai_distinguishes_natural_vs_synthetic, ai_evaluated_at, ai_evaluated_by_provider, citation_count, retracted, retraction_url, retraction_reason, admin_quality_override, is_active, ingested_at, ingested_via",
@@ -39,6 +40,8 @@ async function loadResearchPaper(id: string) {
     .eq("is_active", true)
     .maybeSingle(),
     sb.from("research_papers").select("uploaded_storage_path").eq("id", id).maybeSingle(),
+    // The id and name only. The address goes out through getPressContact.
+    sb.from("press_contacts").select("id, name").eq("paper_id", id).maybeSingle(),
   ]);
   if (error) throw new Error(`research paper ${id}: ${error.message}`);
   if (!data) return { data: null, cacheable: false };
@@ -47,7 +50,8 @@ async function loadResearchPaper(id: string) {
   // signed per click by /api/research/[id]/file.
   const path = (priv.data?.uploaded_storage_path as string | null | undefined) ?? null;
   const upload: "pdf" | "file" | null = path ? (path.toLowerCase().endsWith(".pdf") ? "pdf" : "file") : null;
-  return { data: { ...data, upload }, cacheable: !priv.error };
+  const author = authorRes.data as { id: string; name: string | null } | null;
+  return { data: { ...data, upload, author }, cacheable: !priv.error };
 }
 
 type ResearchSnapshot = NonNullable<Awaited<ReturnType<typeof loadResearchPaper>>["data"]>;
@@ -155,6 +159,15 @@ export default async function ResearchPaperPage({
           <p className="mt-2 text-sm text-zinc-400">
             {(p.authors as string[]).join(", ")}
           </p>
+        )}
+        {p.author && (
+          <div className="mt-3">
+            <PressReplyButton
+              contactId={p.author.id}
+              source="paper_author"
+              label={`✉ Write to ${p.author.name ?? "the author"}`}
+            />
+          </div>
         )}
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           {p.pubmed_id && (
