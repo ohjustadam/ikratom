@@ -79,6 +79,7 @@ export const REGISTRY = [
       "expire_rotating_campaigns",
       "locality_state_audit",
       "review_lapsed_items",
+      "find_press_contacts",
       // /videos (mig 0260): orgs' + creators' YouTube uploads and upcoming lives.
       "sync_community_videos",
       // Fact-integrity watchdog (added after the 2026-08-28 false-ban incident):

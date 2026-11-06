@@ -179,6 +179,7 @@
     {"route":"/locked","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":true,"redirectOnly":false},
     {"route":"/login","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/login/mfa","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":true,"loginGated":true,"redirectOnly":false},
+    {"route":"/media","dynamic":false,"forceDynamic":false,"revalidate":3600,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/meetings/[id]","dynamic":true,"forceDynamic":false,"revalidate":900,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/membership","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/messages","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":true,"redirectOnly":false},
