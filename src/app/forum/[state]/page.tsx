@@ -42,6 +42,7 @@ export default async function StateForumPage({
     .from("forum_threads")
     .select("id, state, locality, author_id, author_state, title, body, tag, residents_only, pinned, locked, system_generated, post_count, upvote_count, helpful_count, last_activity_at, created_at")
     .eq("state", abbr)
+    .neq("moderation_status", "removed")
     // The bot gets one thread here. Its old per-bill threads stay on their bill
     // pages, and come back to this list if a person replies.
     .or("system_generated.eq.false,is_state_digest.eq.true,post_count.gt.0");
