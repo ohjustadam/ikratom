@@ -80,9 +80,6 @@ jobs:
   # billing for it — hitting it takes the SITE down. The weekly fleet is the
   # widest work we run (term backfills touch 7.5k rows, committees 33k), so it
   # defers first. See scripts/lib/egress-budget.mjs.
-  #
-  # NOT gated: weekly-patch-digest-broadcast — it sends a real notification to
-  # real users, and a skipped week is a silently missing digest.
   budget:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -220,48 +217,13 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-nonprofit-990s.mjs
 
-  weekly-patch-digest-broadcast:
-    # Sunday morning weekly digest. Broadcasts a web-push notification to
-    # every user pointing at the LATEST COMMITTED patch note. The daily
-    # auto-patch-notes workflow is what creates + merges the notes; this job
-    # must NOT generate its own. (An earlier version ran generate-patch-note
-    # here, which wrote an ephemeral note on the runner that was never
-    # committed — so the broadcast linked to a /whats-new/<slug> that 404'd
-    # in production. That's the bug this comment exists to prevent recurring.)
-    #
-    # Security guardrail: the notification body is the patch-note
-    # front-matter `summary` only, NOT the full markdown. Full notes
-    # live at /whats-new/<slug>; users click through. This means
-    # we don't accidentally leak any internal detail even if the
-    # patch-note draft contains technical refs.
-    #
-    # Idempotent via notifications.kind='whats_new' + link=/whats-new/<slug>:
-    # second run with the same slug is a no-op per user (and if no new note
-    # landed since last week, the latest slug is unchanged → no spam).
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: "npm"
-      - run: npm ci --omit=dev --no-audit --no-fund
-      - name: Determine latest committed patch-note slug
-        id: latest
-        shell: bash
-        run: |
-          # Latest note that actually exists in the repo (and therefore has a
-          # live /whats-new/<slug> page). Do NOT generate one here.
-          SLUG=$(ls -1 src/content/patch-notes/*.md | sort | tail -1 | xargs basename | sed 's/\.md$//')
-          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
-      - name: Broadcast weekly digest to all users
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node --import=./scripts/lib/egress-meter.mjs scripts/broadcast-whats-new.mjs --slug ${{ steps.latest.outputs.slug }} --all-users
+  # NO WHAT'S-NEW PUSH LIVES IN THIS FILE (removed 2026-11-05). A job here pushed
+  # the newest FILE in src/content/patch-notes/ to every member each Sunday. Notes
+  # moved to the patch_notes table in 2026-09, so it never saw a new one, and its
+  # per-member dedupe meant it kept sending the 2026-10-08 note to whoever had
+  # joined since. A push to every member is a step the owner approves, so it does
+  # not belong on a clock, and this workflow can also be run from /admin/console.
+  # tests/patch-notes-publishing.test.ts fails if a workflow sends one again.
 
   weekly-self-review:
     # The PROPOSE arm. Reads a week of scraper_runs, a week of admin_audit_log
@@ -271,10 +233,10 @@ jobs:
     # no deploy — telling the owner what changed must never cost Netlify
     # credits, which is the same lesson the patch-note backlog taught.
     #
-    # NOT behind the egress gate, for the same reason the digest broadcast
-    # isn't: a review that gets shed is a review that never happens, and a
-    # skipped week leaves a hole in the week-over-week comparison the next run
-    # depends on. Its read is deliberately small — six columns over 14 days.
+    # NOT behind the egress gate: a review that gets shed is a review that
+    # never happens, and a skipped week leaves a hole in the week-over-week
+    # comparison the next run depends on. Its read is deliberately small — six
+    # columns over 14 days.
     #
     # fetch-depth: 0 is load-bearing. The "what shipped" section is `git log`
     # on the checkout rather than an API call; at the default depth of 1 it
