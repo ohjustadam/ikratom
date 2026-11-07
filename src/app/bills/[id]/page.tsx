@@ -15,7 +15,8 @@ import { EnablePushNudge } from "@/components/EnablePushNudge";
 import { BillTimeline } from "./BillTimeline";
 import { YourRepDecidingThisBill } from "./YourRepDecidingThisBill";
 import { displayTitle, displaySubtitle } from "@/lib/bill-title";
-import { billStatusLabel } from "@/lib/bill-status";
+import { billDisplayStatus, billSessionEnded, effectiveBillStatus } from "@/lib/bill-status";
+import { SessionEndedNotice } from "./SessionEndedNotice";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { fetchOpenStatesBillDetail } from "@/lib/openstates-bill";
 import { BillFullText } from "./BillFullText";
@@ -54,6 +55,7 @@ type BillRow = {
   last_action_at: string | null;
   current_committee_name: string | null;
   active: boolean | null;
+  session_sine_die: boolean | null;
   source_url: string | null;
   official_url: string | null;
   session_id: string | null;
@@ -182,7 +184,7 @@ async function loadBillPublic(id: string) {
       .select(
         "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
         "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
-        "source_url, official_url, session_id, scope, locality, active, " +
+        "source_url, official_url, session_id, scope, locality, active, session_sine_die, " +
         "enriched_at, last_synced_at, " +
         "journey_narrative, amendments_count, journey_analyzed_at, " +
         "substance_targeting, substance_targeting_analyzed_at, " +
@@ -360,7 +362,7 @@ async function loadBillPublic(id: string) {
     bill.kratom_relevance
       ? sb
           .from("bills")
-          .select("id, state, bill_number, title, status, last_action_at, scope")
+          .select("id, state, bill_number, title, status, session_sine_die, last_action_at, scope")
           .eq("kratom_relevance", bill.kratom_relevance)
           .eq("active", true)
           .neq("id", bill.id)
@@ -527,7 +529,8 @@ async function loadBillPublic(id: string) {
 
   const similar = (similarRes.data ?? []) as Array<{
     id: string; state: string; bill_number: string; title: string | null;
-    status: string | null; last_action_at: string | null; scope: string | null;
+    status: string | null; session_sine_die: boolean | null;
+    last_action_at: string | null; scope: string | null;
   }>;
 
   const parts = [billRes, extraRes, stakeholdersRes, campaignsRes, billAlertsRes, linkedAlertsRes, sponsorsRes,
@@ -583,7 +586,7 @@ export async function generateMetadata({
     ? "kratom-hostile" : data.kratom_relevance === "pro" ? "kratom-supportive" : "kratom-neutral";
   const title = `${data.state} ${data.bill_number} — ${data.title?.slice(0, 80) ?? ""}`;
   const description = (data.summary_ai ?? data.summary ?? "").slice(0, 200) ||
-    `${data.state} bill ${data.bill_number}, ${stance}. Status: ${data.status ?? "tracking"}. Tracked live on iKratom.`;
+    `${data.state} bill ${data.bill_number}, ${stance}. Status: ${billDisplayStatus(data) ?? "tracking"}. Tracked live on iKratom.`;
   const url = `${(process.env.APP_URL ?? "https://www.ikratom.org").replace(/\/+$/, "")}/bills/${id}`;
 
   return {
@@ -660,7 +663,8 @@ export default async function BillDetailPage({
   const isStale = daysSinceAction != null && daysSinceAction > 365;
 
   const relevance = RELEVANCE_STYLE[bill.kratom_relevance ?? "neutral"] ?? RELEVANCE_STYLE.neutral;
-  const status = billStatusLabel(bill.status);
+  const sessionEnded = billSessionEnded(bill);
+  const status = billDisplayStatus(bill);
 
   // schema.org Legislation — when AI agents answer 'what's NY S 1234?',
   // this gives them a structured record (jurisdiction, status, last
@@ -686,7 +690,7 @@ export default async function BillDetailPage({
     ...(bill.title ? { description: bill.title.slice(0, 500) } : {}),
     ...(bill.last_action_at ? { datePublished: bill.last_action_at } : {}),
     ...(bill.last_action_at ? { dateModified: bill.last_action_at } : {}),
-    ...(bill.status ? { legislationType: bill.status } : {}),
+    ...(bill.status ? { legislationType: effectiveBillStatus(bill) } : {}),
     isAccessibleForFree: true,
     keywords: ["kratom", "policy", bill.state, bill.kratom_relevance, stanceLabel.toLowerCase()].filter(Boolean).join(", "),
     publisher: { "@type": "Organization", name: "iKratom", url: SITE },
@@ -763,14 +767,18 @@ export default async function BillDetailPage({
             </span>
           )}
           {status && (
-            <span className="rounded bg-zinc-900 px-2 py-1 text-zinc-400">{status}</span>
+            <span className={`rounded px-2 py-1 ${sessionEnded ? "bg-amber-950/40 font-semibold text-amber-300" : "bg-zinc-900 text-zinc-400"}`}>
+              {status}
+            </span>
           )}
-          <span
-            className={`rounded border px-2 py-1 font-semibold ${MOMENTUM_TONE[momentum.label]}`}
-            title={`${momentum.rationale} (score: ${momentum.score}/100)`}
-          >
-            {MOMENTUM_LABEL[momentum.label]}
-          </span>
+          {!sessionEnded && (
+            <span
+              className={`rounded border px-2 py-1 font-semibold ${MOMENTUM_TONE[momentum.label]}`}
+              title={`${momentum.rationale} (score: ${momentum.score}/100)`}
+            >
+              {MOMENTUM_LABEL[momentum.label]}
+            </span>
+          )}
         </div>
         <h1 className="mt-3 text-2xl font-bold leading-tight sm:text-3xl">
           {displayTitle(bill.title, 120)}
@@ -910,10 +918,14 @@ export default async function BillDetailPage({
       {/* Per-bill timeline — surfaces the legislative-journey stage tracker
           + full action history. Lobbyists know the planned next-step
           calendar; this gives advocates the same intel + a status badge. */}
-      <BillTimeline billId={bill.id} currentStatus={bill.status} billActive={(bill as { active?: boolean | null }).active === true} />
+      <BillTimeline billId={bill.id} currentStatus={bill.status} billActive={(bill as { active?: boolean | null }).active === true && !sessionEnded} />
+
+      {/* The session flag is a fact; the stale warning below is only a guess
+          from silence, so it steps aside when the fact is known. */}
+      {sessionEnded && <SessionEndedNotice state={bill.state} lastAction={bill.last_action} />}
 
       {/* Stale warning — most important for SB-1639-style problems */}
-      {isStale && (
+      {isStale && !sessionEnded && (
         <div className="mb-6 rounded-lg border border-amber-700/50 bg-amber-950/20 p-4 text-sm">
           <p className="font-semibold text-amber-300">
             ⚠ This bill appears to be from a closed legislative session
@@ -1396,7 +1408,7 @@ export default async function BillDetailPage({
                       )}
                       {s.status && (
                         <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400">
-                          {billStatusLabel(s.status)}
+                          {billDisplayStatus(s)}
                         </span>
                       )}
                       {s.last_action_at && (

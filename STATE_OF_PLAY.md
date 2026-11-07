@@ -381,6 +381,16 @@ A member's report in November led to four changes.
   because reused ids can point at another session's bill. `dead` never overrides
   a terminal status. `backfill-bill-status.mjs --actions-only` runs nightly; the
   `--legiscan` pass spends API quota, so it runs by hand.
+- **Session ended.** A bill whose session adjourned while it was still open reads
+  "Session ended" on its page, on `/bills` and on state hubs, through
+  `billDisplayStatus()`. A terminal status always beats the label.
+  `sessionFlag()` (`scripts/lib/review-dates.mjs`) decides `session_sine_die`, and
+  `review-lapsed-items.mjs` applies it nightly to every open bill, in both
+  directions. Three things it refuses on purpose: city and county rows have no
+  session; a bill waiting on the governor hasn't lapsed; and a last action outside
+  the matched session means the row carries another bill's data. LegiScan calls
+  Illinois's General Assembly adjourned in spring, but it sits until January, so
+  Illinois is held open until its term ends.
 - **Subjects.** `memberSubject()` (`src/lib/letter-subject.ts`) picks a short
   subject from a hash of member and campaign, so one office doesn't get a hundred
   identical lines. A stored subject of 40 characters or fewer joins the rotation.
