@@ -20,7 +20,7 @@ const VETO_OVERRIDE_RE =
 // Strong enactment signals. "signed" is qualified (by governor/president/mayor or
 // "into law") so a procedural "Signed by the Speaker/Clerk" is NOT misread as enacted.
 const ENACTED_RE =
-  /(?:\bsigned\s+(?:into\s+law|by\s+(?:the\s+)?(?:governor|president|mayor))|\bgovernor\s+signed|\bbec(?:ame|omes)\s+law|\bapproved\s+by\s+(?:the\s+)?governor|\benacted\b|\bchaptered\b|\bchapter\s+(?:no\.?\s*|number\s*)?\d+|\bchapter\s+number\s+assigned\b|\bacts\s+of\s+assembly\s+chapter\b|\bsigned\s+chap\b|\bapproval\s+memo\b|\bassigned\s+pa\s+\d|\bact\s+no\.?\s*\d|\bpublic\s+(?:law|act)\b|\bsession\s+law\b)/i;
+  /(?:\bsigned\s+(?:into\s+law|by\s+(?:the\s+)?(?:governor|president|mayor))|\bgovernor\s+signed|\bbec(?:ame|omes)\s+law|\bapproved\s+by\s+(?:the\s+)?governor|\benacted\b|\bchaptered\b|\bchapter\s+(?:no\.?\s*|number\s*)?\d+|\bchapter\s+number\s+assigned\b|\bacts\s+of\s+assembly\s+chapter\b|\bsigned\s+chap\b|\bapproval\s+memo\b|\bassigned\s+pa\s+\d|\bact\s+no\.?\s*\d|\bpublic\s+(?:law|act)\b|\bsession\s+law\b|\bfiled\s+with\s+(?:the\s+)?secretary\s+of\s+state\b)/i;
 
 // LA, GA, OR, TX and TN log the effective date as a bill's last action, which
 // only happens after it became law (LA SB 154 read "Dead" until 2026-11-05 on
@@ -38,6 +38,15 @@ const VETO_RE = /\bveto(?:ed|es)?\b/i;
 // same law counting twice (TN SB 1656 sat at passed_chamber until 2026-11-03).
 const PUB_CH_RE = /\bpub\.?\s*ch\.?\s*\d+/i;
 const COMPANION_RE = /\bcomp(?:anion)?\.?\s+(?:bill\s+)?became\b/i;
+
+// Another bill carried on in this one's place: TN "Comp. became Pub. Ch. 950",
+// NY "substituted by s8925a", FL "companion bill(s) passed". The number on this
+// row stopped, but the idea did not.
+const HANDED_OFF_RE = /\bsubstituted\s+by\b|\bcomp(?:anion)?\.?\s+(?:bill(?:\(s\))?\s+)?(?:became|passed)\b/i;
+
+export function companionMovedOn(lastAction) {
+  return HANDED_OFF_RE.test(String(lastAction ?? ""));
+}
 
 const DEAD_RE =
   /\b(?:died|indefinitely\s+postponed|postponed\s+indefinitely|withdrawn|failed|stricken|tabled|defeated|killed|adjourned\s+sine\s+die|did\s+not\s+pass|enacting\s+clause\s+stricken|sine\s+die)\b/i;
@@ -61,22 +70,40 @@ export function deriveStatusFromAction(lastAction) {
   const t = terminalStatusFromAction(lastAction);
   if (t) return t;
   const s = String(lastAction ?? "").toLowerCase();
-  if (s.includes("passed") || s.includes("third reading") || s.includes("read third time")) return "passed_chamber";
+  if (s.includes("passed") || s.includes("third reading") || s.includes("read third time") || NY_BOTH_HOUSES_RE.test(s)) return "passed_chamber";
   if (s.includes("committee") || s.includes("referred")) return "committee";
   return "introduced";
 }
 
 export const TERMINAL_STATUSES = new Set(["enacted", "vetoed", "dead", "failed"]);
 
+// Waiting on a signature is not lapsing. New York logs "returned to senate" once
+// the second house passes a bill, and the governor can get it as late as
+// December, so S 8925A read "session over, did not pass" for months after both
+// chambers passed it (found 2026-11-06).
+const TO_GOVERNOR_RE = /\b(?:delivered|sent|presented|transmitted)\s+to\s+(?:the\s+)?governor\b/i;
+const NY_BOTH_HOUSES_RE = /\breturned\s+to\s+(?:senate|assembly)\b/i;
+
+export function awaitingGovernor({ state, last_action }) {
+  const action = String(last_action ?? "");
+  if (terminalStatusFromAction(action)) return false;
+  return TO_GOVERNOR_RE.test(action) || (state === "NY" && NY_BOTH_HOUSES_RE.test(action));
+}
+
+// A House or Senate resolution needs one chamber, so passing it is the end.
+export function isOneChamberResolution(billNumber) {
+  return /^[HSA]\.?\s?R\b/i.test(String(billNumber ?? ""));
+}
+
 // What LegiScan's status code proves about a bill that has stopped moving. Code
-// 4 means it passed, and that catches wording no regex here knows ("Filed with
-// Secretary Of State"). A companion's 4 is its twin's law, and a one-chamber
-// resolution is adopted rather than enacted. Null means no proof either way.
+// 4 means it passed, and that catches wording no regex here knows. A companion's
+// 4 is its twin's law, and a one-chamber resolution is adopted rather than
+// enacted. Null means no proof either way.
 export function statusFromLegiscanCode({ code, billNumber, lastAction }) {
   if (code === 5) return "vetoed";
   if (code === 6) return "dead";
   if (code !== 4 || COMPANION_RE.test(String(lastAction ?? ""))) return null;
-  return /^[HSA]\.?\s?R\b/i.test(String(billNumber ?? "")) ? "passed_chamber" : "enacted";
+  return isOneChamberResolution(billNumber) ? "passed_chamber" : "enacted";
 }
 
 // A number gets reused every session, so a stored LegiScan id can point at a

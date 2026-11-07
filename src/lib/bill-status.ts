@@ -1,3 +1,7 @@
+import { TERMINAL_STATUSES, companionMovedOn } from "../../scripts/lib/bill-status.mjs";
+
+export { companionMovedOn };
+
 // Canonical bill-status display labels + filter grouping.
 //
 // Two sync sources write the "in committee" stage under different strings:
@@ -18,6 +22,7 @@ export const BILL_STATUS_LABELS: Record<string, string> = {
   vetoed: "Vetoed",
   dead: "Dead",
   failed: "Failed",
+  session_ended: "Session ended",
 };
 
 // Stable display order for the filter dropdown.
@@ -27,6 +32,7 @@ const STATUS_ORDER = [
   "in_committee",
   "in_chamber",
   "passed_chamber",
+  "session_ended",
   "enacted",
   "vetoed",
   "dead",
@@ -36,6 +42,24 @@ const STATUS_ORDER = [
 export function billStatusLabel(status: string | null | undefined): string | null {
   if (!status) return null;
   return BILL_STATUS_LABELS[status] ?? status;
+}
+
+type SessionFields = { status?: string | null; session_sine_die?: boolean | null };
+
+// A bill whose session adjourned while it was still open must not read as alive.
+// A terminal status always wins: a law stays a law, and "dead" is never inferred
+// from a calendar (#1129). scripts/lib/review-dates.mjs decides who gets the flag.
+export function billSessionEnded(b: SessionFields): boolean {
+  return b.session_sine_die === true && !TERMINAL_STATUSES.has(b.status ?? "");
+}
+
+// The status a reader sees and filters on. The stored status stays as synced.
+export function effectiveBillStatus(b: SessionFields): string | null {
+  return billSessionEnded(b) ? "session_ended" : (b.status ?? null);
+}
+
+export function billDisplayStatus(b: SessionFields): string | null {
+  return billStatusLabel(effectiveBillStatus(b));
 }
 
 // Build deduped filter options from the statuses actually present, collapsing
