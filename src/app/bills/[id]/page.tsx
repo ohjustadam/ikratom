@@ -771,12 +771,14 @@ export default async function BillDetailPage({
               {status}
             </span>
           )}
-          <span
-            className={`rounded border px-2 py-1 font-semibold ${MOMENTUM_TONE[momentum.label]}`}
-            title={`${momentum.rationale} (score: ${momentum.score}/100)`}
-          >
-            {MOMENTUM_LABEL[momentum.label]}
-          </span>
+          {!sessionEnded && (
+            <span
+              className={`rounded border px-2 py-1 font-semibold ${MOMENTUM_TONE[momentum.label]}`}
+              title={`${momentum.rationale} (score: ${momentum.score}/100)`}
+            >
+              {MOMENTUM_LABEL[momentum.label]}
+            </span>
+          )}
         </div>
         <h1 className="mt-3 text-2xl font-bold leading-tight sm:text-3xl">
           {displayTitle(bill.title, 120)}
