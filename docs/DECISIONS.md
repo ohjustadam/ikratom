@@ -292,3 +292,21 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 **Why:** the owner's call, 2026-11-06. The generated notes put raw commit subjects in front of the public.
 
 **Limits:** this cleans the site, not GitHub. The repository is public, so commit subjects stay visible there. A direct database write skips the check, so run the list over anything written that way.
+
+
+## Who can change a forum post (2026-11-06)
+
+**Decision:** members edit or delete their own posts. Leaders hide posts but never rewrite them. Only an admin or the owner can change someone else's words, and the post then reads "edited by a moderator". Two admins can't act on each other. The rules live in `forumRights()` (`src/lib/forum-permissions.ts`).
+
+- **Hiding is reversible, rewriting isn't obvious.** Putting words in a member's mouth is the worst thing a moderator can do, so the power sits high and it shows on the post.
+- **Every change keeps the old wording.** `forum_edits` holds it, and the database refuses forum text changes from anything but the service role, moderators included. A moderator can't quietly skip the log.
+- **A member can delete in a locked thread but not edit.** Taking your own words down is a privacy right. Rewriting a thread someone locked isn't.
+- **Reports hide at three, from accounts a week old.** Same rule as 0307, so a burst of new accounts can't silence anyone.
+
+**Why:** the owner, 2026-11-06: "acknowledge the different permissions and roles", after PJ found no edit or delete button and warned about false posts and spam.
+
+## Old bot threads are hidden, not deleted (2026-11-06)
+
+**Decision:** bill threads are never deleted automatically. No action in 180 days puts a banner on the thread. A bill thread with member replies that's been quiet for 90 days is listed at `/admin/forum` for a moderator. 374 old bot threads with no replies stay in the table, off the forum lists, because bill pages still link to them.
+
+**Why:** PJ asked for a cutoff, with threads that drew real conversation going to manual review. Deleting needs the owner's yes, and nothing is lost by hiding them.
