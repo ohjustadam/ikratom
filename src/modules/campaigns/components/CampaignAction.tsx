@@ -645,7 +645,7 @@ export function CampaignAction({
             <strong className="text-zinc-200">{skippedAlreadySent}</strong> of{" "}
             {allWithEmail.length} legislator{allWithEmail.length === 1 ? "" : "s"}
             {lastSentAt && <> — last sent {timeAgo(lastSentAt)}</>}.
-            {targetsWithEmail.length > 0 && <> The remaining {targetsWithEmail.length} are still pending.</>}
+            {targetsWithEmail.length > 0 && <> The other {targetsWithEmail.length} haven&apos;t heard from you yet, including anyone new in office.</>}
           </span>
         </div>
       )}
