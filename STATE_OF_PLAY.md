@@ -394,6 +394,33 @@ A member's report in November led to four changes.
 
 ---
 
+## Reused bill numbers (2026-11-08)
+
+Every session reuses bill numbers, and LegiScan search matches the number
+alone. So a row from an old session could pick up a newer, unrelated bill's
+actions, sponsors, votes and text. NE LB 972 (108th, indefinitely postponed in
+2024) read as an enacted kratom ban using a 2026 motor-vehicle bill, and Nebraska's
+derived 7-OH status said "banned" because of it.
+
+- **The sync's guard** is `sessionMismatch()` in `scripts/lib/bill-session.mjs`.
+  It reads a session label three ways: as a LegiScan session id, as an assembly
+  number ("101st", "89R", "136"), or as years. The old guard read years only,
+  so a third of the labels had no reading and passed, and it let the next
+  biennium through. A one-year label may still be a year off: Oklahoma's
+  OpenStates labels use the end year, and Virginia relabels continued bills.
+  `sync-bills-via-legiscan.mjs` saves a searched LegiScan id only once the
+  guard accepts it.
+- **The repair** is `audit-bill-session-drift.mjs --restore <ids> [--apply]`.
+  It reads each row's own bill from the session its label names, holds any row
+  it can't confirm, and clears the text and AI summaries built from the other
+  bill. `active` is only changed for a live row whose own bill died with its
+  session.
+- **Still to check:** 20 inactive rows whose label doesn't fit their last action
+  (FL, IN, KS, LA, ME, MI, MN, MS and GA HB 181, which may just be an effective
+  date). Several read "enacted".
+
+---
+
 ## Forum roles, spam limits and member posts (2026-11-06)
 
 **Who can do what** lives in one place: `forumRights()` in
