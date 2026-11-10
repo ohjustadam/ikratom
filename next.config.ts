@@ -152,6 +152,13 @@ const nextConfig: NextConfig = {
       // are both literal same-origin paths with no interpolation, so this cannot
       // become an open redirect.
       { source: "/events", destination: "/calendar", permanent: false },
+      // Signup confirmations sent before 2026-11-10 carry no redirect, so
+      // Supabase sent them to the Site URL: the homepage, as /?code=… (or
+      // /?error_code=… for a spent link). The homepage ignores both, which left
+      // members signed out with no message. Hand them to the callback, which
+      // signs them in or says what to do. The query string passes through.
+      { source: "/", has: [{ type: "query", key: "code" }], destination: "/auth/callback", permanent: false },
+      { source: "/", has: [{ type: "query", key: "error_code" }], destination: "/auth/callback", permanent: false },
     ];
   },
 };

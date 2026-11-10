@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { PENDING_JOIN_COOKIE, pendingJoinPath } from "@/lib/pending-join";
+import { authLinkFailurePath } from "@/modules/auth/signup-outcome";
 
 /**
  * Auth callback for Supabase magic links — handles both:
@@ -48,13 +49,16 @@ export async function GET(request: NextRequest) {
    * says so and can re-send.
    */
   const isRecovery = safeNext === "/reset-password" || type === "recovery";
-  const failTo = (reason: string) =>
-    NextResponse.redirect(
-      new URL(
-        isRecovery ? "/forgot?expired=1" : `/login?error=${encodeURIComponent(reason)}`,
-        request.url,
-      ),
+  // A failed SIGNUP link used to land on /login?error=…, which the login form
+  // never reads, so the member saw a plain login page and no explanation
+  // (member report 2026-11-09). authLinkFailurePath() picks a page that says
+  // what happened; see its comment for why a ?code= means "already confirmed".
+  const failTo = (reason: string) => {
+    console.warn("[auth/callback] link failed", { reason, hadCode: !!code, type });
+    return NextResponse.redirect(
+      new URL(authLinkFailurePath({ isRecovery, hadCode: !!code }), request.url),
     );
+  };
 
   if (error) return failTo(errorDescription ?? error);
 
@@ -72,11 +76,12 @@ export async function GET(request: NextRequest) {
    *     these tokens are single-use, so the human's click arrives already spent
    *     as ?error=access_denied&error_code=otp_expired.
    *
-   * verifyOtp({ type, token_hash }) needs no verifier, so it survives both. We
-   * cannot instead fix this in the email body: the dashboard requires custom
-   * SMTP to edit templates and this project has none, so Supabase's default
-   * template is what ships. src/app/auth/confirm/route.ts already proves this
-   * exact pattern for admin-generated links.
+   * verifyOtp({ type, token_hash }) needs no verifier, so it survives both.
+   * Auth mail now goes through custom SMTP (Resend), so the templates are
+   * editable, and since 2026-11-10 they link straight to /auth/confirm with a
+   * token_hash (scripts/auth-email-templates.mjs). This route still serves
+   * links already sitting in inboxes, and the ?code= shape if the templates
+   * are ever reset to Supabase's defaults.
    */
   if (!code) {
     if (!tokenHash || !type) return failTo("missing_code");
