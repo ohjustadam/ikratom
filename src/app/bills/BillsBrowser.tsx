@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { displayTitle } from "@/lib/bill-title";
-import { billStatusLabel, billStatusFilterOptions, billStatusMatches } from "@/lib/bill-status";
+import { billDisplayStatus, billSessionEnded, billStatusFilterOptions, billStatusMatches, effectiveBillStatus } from "@/lib/bill-status";
 
 type Bill = {
   id: string;
@@ -13,6 +13,7 @@ type Bill = {
   summary_ai: string | null;
   advocacy_callout: string | null;
   status: string | null;
+  session_sine_die: boolean | null;
   kratom_relevance: string | null;
   relevance_confidence: number | null;
   last_action: string | null;
@@ -39,7 +40,7 @@ type Sort = "recent" | "state" | "alpha";
 // action while fully alive, and post-heal truthful dates made whole states
 // render "0 bills". Owner directive 2026-06-11: current bills on top, past
 // attempts below in their own section — both always visible, zero confusion.
-const isCurrent = (b: Bill) => b.active === true && b.status !== "dead";
+const isCurrent = (b: Bill) => b.active === true && b.status !== "dead" && !billSessionEnded(b);
 const MOVING_MS = 90 * 86_400_000;
 
 export function BillsBrowser({ bills, userState, initialState }: { bills: Bill[]; userState: string | null; initialState?: string | null }) {
@@ -57,7 +58,7 @@ export function BillsBrowser({ bills, userState, initialState }: { bills: Bill[]
 
   // Status filter options, derived from what's actually present and grouped so
   // committee/in_committee collapse to one "In committee" option.
-  const statusOptions = useMemo(() => billStatusFilterOptions(bills.map((b) => b.status)), [bills]);
+  const statusOptions = useMemo(() => billStatusFilterOptions(bills.map(effectiveBillStatus)), [bills]);
 
   const relevanceCounts = useMemo(() => {
     const c: Record<string, number> = { all: bills.length, pro: 0, anti: 0, neutral: 0 };
@@ -80,7 +81,7 @@ export function BillsBrowser({ bills, userState, initialState }: { bills: Bill[]
         if (r !== relevanceFilter) return false;
       }
       // Status (groups committee/in_committee under one label)
-      if (!billStatusMatches(b.status, statusFilter)) return false;
+      if (!billStatusMatches(effectiveBillStatus(b), statusFilter)) return false;
       // Search
       if (q) {
         const hay = `${b.bill_number} ${b.title ?? ""} ${b.summary ?? ""} ${b.last_action ?? ""}`.toLowerCase();
@@ -247,7 +248,7 @@ export function BillsBrowser({ bills, userState, initialState }: { bills: Bill[]
 
 function BillCard({ b, userState, stale }: { b: Bill; userState: string | null; stale: boolean }) {
   const tag = RELEVANCE[b.kratom_relevance ?? "neutral"] ?? RELEVANCE.neutral;
-  const status = billStatusLabel(b.status);
+  const status = billDisplayStatus(b);
   const isMine = userState === b.state;
   const isMoving = !stale && b.last_action_at != null
     && Date.now() - new Date(b.last_action_at).getTime() <= MOVING_MS;

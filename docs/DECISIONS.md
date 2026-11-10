@@ -293,6 +293,18 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 
 **Limits:** this cleans the site, not GitHub. The repository is public, so commit subjects stay visible there. A direct database write skips the check, so run the list over anything written that way.
 
+## "Session ended" is a label over the status, not a new status (2026-11-06)
+
+**Decision:** `bills.status` stays as synced. `session_sine_die` is shown as "Session ended" over an open status only, and it never touches a terminal one. `status` keeps the last real stage the bill reached, and "dead" is still never inferred from a calendar (#1129).
+
+- **Who gets the flag.** `sessionFlag()` in `scripts/lib/review-dates.mjs`. City and county rows get none. A bill waiting on the governor gets none, and isn't retired. A row whose last action falls outside its matched session gets none, because that means it carries another bill's data. An open bill whose last action is its outcome, or an adopted one-chamber resolution, gets none.
+- **Illinois is named in code.** LegiScan marks the General Assembly adjourned after spring, but it passes bills in veto and lame-duck sessions until January, and LegiScan's own history shows Senate action on 2026-07-02. One named state is cheaper than a calendar feed, and it is the only state where we have seen this. New York's term also runs to December 31, but the last floor action in our data is June, so its flag stands. The owner can overrule that.
+- **Congress is worked out from its number.** LegiScan's session list has no federal rows.
+- **Companions keep the flag.** Their session did end, and #1129 already chose not to count one law twice. The bill page says the companion moved ahead, so nobody reads it as a defeat.
+- **The cron writes both directions, on inactive rows too.** It used to set the flag only on active rows and never clear it, so a wrong flag stayed forever and a bill retired another way never got one. Terminal rows are left alone, except city and county rows.
+
+**Why:** PJ noticed Georgia HB 968 still reading "introduced" after its term ended. The audit that followed found the flag wrong on 33 of the 216 open rows, including a New York bill both chambers had passed.
+
 
 ## Who can change a forum post (2026-11-06)
 

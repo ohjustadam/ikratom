@@ -12,12 +12,86 @@ import {
   statusFromLegiscanCode,
   legiscanSessionFits,
   twinCorrections,
+  awaitingGovernor,
+  companionMovedOn,
+  isOneChamberResolution,
 } from "../scripts/lib/bill-status.mjs";
-import { billStatusLabel, billStatusFilterOptions, billStatusMatches, collapseBillTwins } from "@/lib/bill-status";
+import {
+  billDisplayStatus,
+  billSessionEnded,
+  billStatusLabel,
+  billStatusFilterOptions,
+  billStatusMatches,
+  collapseBillTwins,
+  effectiveBillStatus,
+} from "@/lib/bill-status";
+
+describe("session ended label", () => {
+  it("replaces an open status when the flag is set", () => {
+    const hb968 = { status: "introduced", session_sine_die: true };
+    expect(billSessionEnded(hb968)).toBe(true);
+    expect(effectiveBillStatus(hb968)).toBe("session_ended");
+    expect(billDisplayStatus(hb968)).toBe("Session ended");
+  });
+  it("never beats a terminal status (#1129)", () => {
+    for (const status of ["enacted", "vetoed", "dead", "failed"]) {
+      expect(billSessionEnded({ status, session_sine_die: true })).toBe(false);
+      expect(effectiveBillStatus({ status, session_sine_die: true })).toBe(status);
+    }
+    expect(billDisplayStatus({ status: "enacted", session_sine_die: true })).toBe("Enacted");
+  });
+  it("leaves a bill alone without the flag, or from a snapshot cached before it", () => {
+    expect(billDisplayStatus({ status: "committee", session_sine_die: false })).toBe("In committee");
+    expect(billDisplayStatus({ status: "in_committee" })).toBe("In committee");
+    expect(billDisplayStatus({ status: null, session_sine_die: true })).toBe("Session ended");
+    expect(billDisplayStatus({ status: null })).toBeNull();
+  });
+  it("gives the filter one option that matches what the card says", () => {
+    const rows = [
+      { status: "introduced", session_sine_die: true },
+      { status: "introduced", session_sine_die: false },
+    ];
+    expect(billStatusFilterOptions(rows.map(effectiveBillStatus)).map((o) => o.label)).toEqual(["Introduced", "Session ended"]);
+    expect(billStatusMatches(effectiveBillStatus(rows[0]), "session_ended")).toBe(true);
+    expect(billStatusMatches(effectiveBillStatus(rows[0]), "introduced")).toBe(false);
+    expect(billStatusMatches(effectiveBillStatus(rows[1]), "introduced")).toBe(true);
+  });
+});
+
+describe("bills that didn't simply lapse", () => {
+  it("knows a bill waiting on the governor", () => {
+    expect(awaitingGovernor({ state: "NY", last_action: "RETURNED TO SENATE" })).toBe(true);
+    expect(awaitingGovernor({ state: "NY", last_action: "returned to assembly" })).toBe(true);
+    expect(awaitingGovernor({ state: "SC", last_action: "Sent to Governor" })).toBe(true);
+    expect(awaitingGovernor({ state: "MA", last_action: "Delivered to the Governor" })).toBe(true);
+  });
+  it("reads the New York wording in New York only, and lets an outcome win", () => {
+    expect(awaitingGovernor({ state: "MD", last_action: "Returned to Senate" })).toBe(false);
+    expect(awaitingGovernor({ state: "NY", last_action: "referred to health" })).toBe(false);
+    expect(awaitingGovernor({ state: "VA", last_action: "Sent to Governor, Vetoed by Governor" })).toBe(false);
+    expect(awaitingGovernor({ state: "NY", last_action: null })).toBe(false);
+  });
+  it("keeps a bill the second house passed from sliding back to introduced", () => {
+    expect(deriveStatusFromAction("RETURNED TO SENATE")).toBe("passed_chamber");
+  });
+  it("sees a companion taking over, in each state's wording", () => {
+    for (const a of ["Comp. became Pub. Ch. 950", "substituted by s8925a", "SUBSTITUTED BY A5852A", "Laid on Table, companion bill(s) passed, see CS/CS/CS/HB 137"]) {
+      expect(companionMovedOn(a)).toBe(true);
+    }
+    expect(companionMovedOn("substituted for a9156b")).toBe(false);
+    expect(companionMovedOn("Referred to Rules")).toBe(false);
+    expect(companionMovedOn(null)).toBe(false);
+  });
+  it("tells a one-chamber resolution from a joint one", () => {
+    for (const n of ["HR 177", "SR 832", "AR 12", "H.R. 9"]) expect(isOneChamberResolution(n)).toBe(true);
+    for (const n of ["HJR 12", "SJR 346", "HB 968", "SCR 4"]) expect(isOneChamberResolution(n)).toBe(false);
+  });
+});
 
 describe("terminalStatusFromAction", () => {
   it("detects enacted across real state phrasings", () => {
     for (const a of [
+      "Filed with Secretary Of State 09/04", // ND HB 1628
       "Becomes law without Governor's signature 05/22/2025", // OK SB 891
       "Approved by Governor 05/24/2021", // OK HB 1784
       "Governor Signed", // CO

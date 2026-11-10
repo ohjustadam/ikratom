@@ -21,6 +21,7 @@ type BillRow = {
   summary_ai: string | null;
   advocacy_callout: string | null;
   status: string | null;
+  session_sine_die: boolean | null;
   kratom_relevance: string | null;
   relevance_confidence: number | null;
   last_action: string | null;
@@ -50,7 +51,7 @@ const getBillsSnapshot = unstable_cache(
       .select(
         "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
         "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
-        "source_url, official_url, session_id, scope, locality, active"
+        "source_url, official_url, session_id, scope, locality, active, session_sine_die"
       )
       .order("active", { ascending: false })
       .order("last_action_at", { ascending: false, nullsFirst: false })

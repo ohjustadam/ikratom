@@ -15,6 +15,7 @@ import { renderMarkdown, mdToPlainText } from "@/lib/markdown";
 import { STATE_NAMES } from "@/lib/state-names";
 import { publishedStance } from "@/lib/published-stance";
 import { newsAboutState } from "@/lib/news-state-filter";
+import { billDisplayStatus } from "@/lib/bill-status";
 
 /**
  * Static + ISR, 15 minutes — matching the snapshot's own revalidate window.
@@ -80,6 +81,7 @@ export async function generateMetadata({ params }: Props) {
 
 type BillRow = {
   id: string; bill_number: string; title: string | null; status: string | null;
+  session_sine_die: boolean | null;
   kratom_relevance: string | null; last_action: string | null; last_action_at: string | null;
   scope: string | null; locality: string | null;
 };
@@ -165,7 +167,7 @@ async function loadStateHubFast(codeUpper: string): Promise<SnapshotLoad<HubFast
   const [bills, meetings, pastMeetings, alerts, campaigns, briefing, newsRaw, takebackBill, statusRes] = await Promise.all([
     supabase
       .from("bills")
-      .select("id, bill_number, title, status, kratom_relevance, last_action, last_action_at, scope, locality")
+      .select("id, bill_number, title, status, session_sine_die, kratom_relevance, last_action, last_action_at, scope, locality")
       // The `active` flag (LegiScan session hygiene) is the currency signal; a
       // wall-clock window hid live carryover bills.
       .eq("state", codeUpper)
@@ -887,7 +889,7 @@ export default async function StatePage({ params }: Props) {
                       }`}>
                         {b.kratom_relevance === "anti" ? "🚫 restrictive" : "✅ supportive"}
                       </span>
-                      <span className="ml-auto text-[10px] text-zinc-500">{b.status}{daysAgo != null && ` · ${daysAgo}d`}</span>
+                      <span className="ml-auto text-[10px] text-zinc-500">{billDisplayStatus(b)}{daysAgo != null && ` · ${daysAgo}d`}</span>
                     </p>
                     {b.title && <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{b.title}</p>}
                     {b.last_action && (
