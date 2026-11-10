@@ -33,7 +33,7 @@
 import { writeFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { createLegiscanClient } from "./lib/legiscan-budget.mjs";
-import { terminalStatusFromAction } from "./lib/bill-status.mjs";
+import { deriveStatusFromAction, terminalStatusFromAction } from "./lib/bill-status.mjs";
 import {
   actionInSession, normBillNumber, sessionsForLabel, sortedHistory, statusFromOwnLegiscanBill,
 } from "./lib/bill-session.mjs";
@@ -250,6 +250,7 @@ async function masterList(sessionId) {
   return masterLists.get(sessionId);
 }
 const KRATOM_RE = /kratom|mitragyn/i;
+const RANK = { enacted: 3, vetoed: 2, dead: 1 };
 const actionKey = (date, text) => `${date}|${String(text ?? "").slice(0, 800)}`;
 
 /** Work out the repair for one row, writing nothing. */
@@ -267,27 +268,57 @@ async function planRestore(row) {
   const history = sortedHistory(detail);
   const last = history[history.length - 1] ?? null;
 
+  const ownKeys = new Set(history.map((h) => actionKey(h.date, h.action)));
+  const wide = { year_start: session.year_start, year_end: Number(session.year_end) + 1 };
+  const { data: acts } = await sb.from("bill_actions").select("id, action_date, description, source").eq("bill_id", row.id);
+  const { data: oldSponsors } = await sb.from("bill_sponsors").select("id, name, classification").eq("bill_id", row.id);
+  const stapled = new Set((acts ?? []).filter((a) => a.source === "legiscan" && !ownKeys.has(actionKey(a.action_date, a.description)))
+    .map((a) => actionKey(a.action_date, a.description)));
+
   // Proof the stored data is another bill's, and that LegiScan's is this one.
+  // The OpenStates sweep rewrites a row's own last action, so the other bill
+  // can still be in its LegiScan id, its actions or its sponsors after that.
   const foreignId = row.legiscan_bill_id && Number(row.legiscan_bill_id) !== Number(own.bill_id) ? row.legiscan_bill_id : null;
   const lastOutside = Boolean(row.last_action_at) && !actionInSession(row.last_action_at, session);
+  // A person matches by surname ("Rep. Joe Smith" is "Smith"), a committee
+  // by its whole name.
+  const surname = (n) => {
+    const s = String(n ?? "").toLowerCase().replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+    return /committee/.test(s) ? s : s.split(" ").pop();
+  };
+  const ownSurnames = new Set((detail?.sponsors ?? []).map((s) => surname(s.name)));
+  const foreignSponsors = (oldSponsors ?? []).length > 0 && ownSurnames.size > 0 && !(oldSponsors ?? []).some((s) => ownSurnames.has(surname(s.name)));
   const ownText = `${detail?.title ?? ""} ${detail?.description ?? ""}`;
   const overlap = titleOverlap(`${row.title ?? ""} ${row.summary ?? ""}`, ownText);
-  const base = { row, tag, own: { bill_id: Number(own.bill_id), session: session.session_name, years: `${session.year_start}-${session.year_end}`, title: detail?.title, description: detail?.description }, overlap, foreignId, lastOutside };
-  if (!foreignId && !lastOutside) return { ...base, hold: "its last action already fits its own session" };
+  const base = { row, tag, own: { bill_id: Number(own.bill_id), session: session.session_name, years: `${session.year_start}-${session.year_end}`, title: detail?.title, description: detail?.description }, overlap, foreignId, lastOutside, foreignSponsors, stapledActions: stapled.size };
+  if (!foreignId && !lastOutside && !foreignSponsors && stapled.size === 0) return { ...base, hold: "nothing on it belongs to another bill" };
   if (!KRATOM_RE.test(ownText) && overlap < 0.3) return { ...base, hold: `LegiScan's ${row.bill_number} doesn't match this row (title overlap ${overlap.toFixed(2)})` };
 
   const { data: holders } = await sb.from("bills").select("id, bill_number, session_id")
     .eq("legiscan_bill_id", Number(own.bill_id)).neq("id", row.id);
   const twin = holders?.[0] ?? null;
-  const status = statusFromOwnLegiscanBill(detail, row.bill_number);
-  const enactedOn = status === "enacted"
-    ? [...history].reverse().find((h) => terminalStatusFromAction(h.action) === "enacted")?.date ?? null
-    : null;
+
+  // The row's current last action is its own when it falls in its session (an
+  // Illinois "Session Sine Die" lands the January after) and the other bill
+  // didn't bring it. Then it stays if newer than LegiScan's, and so does a
+  // terminal status set on it, since LegiScan's record can stop short. The
+  // strongest terminal wins, so dead never beats enacted.
+  const curDate = String(row.last_action_at ?? "").slice(0, 10);
+  const curOwn = Boolean(curDate && row.last_action)
+    && (actionInSession(curDate, session) || (/sine die/i.test(row.last_action) && actionInSession(curDate, wide)))
+    && !stapled.has(actionKey(curDate, row.last_action));
+  const keepCurrent = curOwn && curDate > String(last?.date ?? "");
+  const ownStatus = statusFromOwnLegiscanBill(detail, row.bill_number);
+  const rowTerminal = curOwn ? (RANK[row.status] ? row.status : terminalStatusFromAction(row.last_action)) : null;
+  const terminal = [RANK[ownStatus] ? ownStatus : null, rowTerminal].filter(Boolean).sort((a, b) => RANK[b] - RANK[a])[0];
+  const status = terminal ?? (keepCurrent ? deriveStatusFromAction(row.last_action) ?? ownStatus : ownStatus);
+  const enactedOn = status !== "enacted" ? null
+    : [...history].reverse().find((h) => terminalStatusFromAction(h.action) === "enacted")?.date ?? row.signed_at ?? (keepCurrent ? curDate : null);
   const today = new Date().toISOString().slice(0, 10);
   const patch = {
     status,
-    last_action: last ? String(last.action).slice(0, 500) : null,
-    last_action_at: last?.date ?? null,
+    last_action: keepCurrent ? String(row.last_action).slice(0, 500) : last ? String(last.action).slice(0, 500) : null,
+    last_action_at: keepCurrent ? curDate : last?.date ?? null,
     legiscan_bill_id: twin ? null : Number(own.bill_id),
     legiscan_change_hash: twin ? null : detail?.change_hash ?? null,
     signed_at: enactedOn,
@@ -295,7 +326,8 @@ async function planRestore(row) {
     verification_note:
       `Restored ${today} from LegiScan bill ${own.bill_id} (${session.session_name}). The row carried ` +
       `${foreignId ? `LegiScan bill ${foreignId}` : "another bill's actions"}, the same number in a later session. ` +
-      `Its text and the AI summaries written from it were cleared.${twin ? ` Twin row ${twin.id.slice(0, 8)} holds the LegiScan id.` : ""}`,
+      `Its text and the AI summaries written from it were cleared.${twin ? ` Twin row ${twin.id.slice(0, 8)} holds the LegiScan id.` : ""}` +
+      (keepCurrent ? ` Its last action (${curDate}) is its own, newer than LegiScan's.` : ""),
   };
   for (const k of BORROWED_FIELDS) if (row[k] != null) patch[k] = null;
   if (!String(row.summary ?? "").trim() && detail?.description) patch.summary = String(detail.description).slice(0, 4000);
@@ -308,9 +340,6 @@ async function planRestore(row) {
   }
 
   // Child rows. History the other bill brought goes; the row's own stays.
-  const ownKeys = new Set(history.map((h) => actionKey(h.date, h.action)));
-  const wide = { year_start: session.year_start, year_end: Number(session.year_end) + 1 };
-  const { data: acts } = await sb.from("bill_actions").select("id, action_date, description, source").eq("bill_id", row.id);
   const dropActions = (acts ?? []).filter((a) => !ownKeys.has(actionKey(a.action_date, a.description))
     && (a.source === "legiscan" || !actionInSession(a.action_date, wide)));
   const haveKeys = new Set((acts ?? []).filter((a) => !dropActions.includes(a)).map((a) => actionKey(a.action_date, a.description)));
@@ -320,7 +349,6 @@ async function planRestore(row) {
     source: "legiscan", raw_json: h,
   }));
 
-  const { data: oldSponsors } = await sb.from("bill_sponsors").select("id, name, classification").eq("bill_id", row.id);
   const peopleIds = (detail?.sponsors ?? []).map((s) => s.people_id).filter(Boolean);
   const { data: people } = peopleIds.length
     ? await sb.from("legislators").select("id, legiscan_people_id").in("legiscan_people_id", peopleIds)
@@ -355,7 +383,12 @@ function printPlan(p) {
   console.log(`\n${p.tag} (${r.id.slice(0, 8)}) · label ${r.session_id}`);
   if (p.own) console.log(`  own bill   LegiScan ${p.own.bill_id}, ${p.own.session}: "${String(p.own.title ?? "").slice(0, 70)}" (title overlap ${p.overlap.toFixed(2)})`);
   if (p.hold) { console.log(`  HELD: ${p.hold}`); return; }
-  console.log(`  evidence   ${[p.foreignId && `stored LegiScan id ${p.foreignId}`, p.lastOutside && `last action ${r.last_action_at} is outside ${p.own.years}`].filter(Boolean).join("; ")}`);
+  console.log(`  evidence   ${[
+    p.foreignId && `stored LegiScan id ${p.foreignId}`,
+    p.lastOutside && `last action ${r.last_action_at} is outside ${p.own.years}`,
+    p.stapledActions && `${p.stapledActions} LegiScan action(s) not in its own history`,
+    p.foreignSponsors && "none of its sponsors are its own bill's",
+  ].filter(Boolean).join("; ")}`);
   console.log(`  status     ${r.status} → ${p.patch.status}`);
   console.log(`  last act.  ${r.last_action_at} ${String(r.last_action ?? "").slice(0, 60)}`);
   console.log(`          →  ${p.patch.last_action_at} ${String(p.patch.last_action ?? "").slice(0, 60)}`);

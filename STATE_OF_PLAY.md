@@ -414,10 +414,21 @@ derived 7-OH status said "banned" because of it.
   It reads each row's own bill from the session its label names, holds any row
   it can't confirm, and clears the text and AI summaries built from the other
   bill. `active` is only changed for a live row whose own bill died with its
-  session.
+  session. The OpenStates sweep (`sync-bills.mjs`) also rewrites an old row's
+  status and last action from its own session, so another bill can survive
+  only in the LegiScan id, actions or sponsors. The restore counts those as
+  evidence too. It keeps the row's own last action when that is newer than
+  LegiScan's, and keeps a terminal status the row already has unless a
+  stronger one is proven.
+- **Done 2026-11-10 (owner's yes):** 23 rows, read back clean. They were 12
+  Illinois rows, GA SR 832, SR 783, HR 1159 and HR 1160, ID H 168 and H 567,
+  LA HB 14, MD HB 1229, MN SF 2578, NE LB 972 and TN HB 861. NE LB 972 and
+  TN HB 861 now read dead; MD HB 1229 and MN SF 2578 now read enacted.
+  ID H 168, ID H 567, IL HB 622 and TN HB 861 have no LegiScan id, because
+  a twin row of the same bill holds it.
 - **Still to check:** 20 inactive rows whose label doesn't fit their last action
   (FL, IN, KS, LA, ME, MI, MN, MS and GA HB 181, which may just be an effective
-  date). Several read "enacted".
+  date). Several read "enacted". Also merge the four twin pairs.
 
 ---
 
