@@ -152,6 +152,12 @@ describe("the code paths the links depend on", () => {
     expect(cfg).toMatch(/source: "\/", has: \[\{ type: "query", key: "error_code" \}\], destination: "\/auth\/callback"/);
   });
 
+  it("anon never evaluates the profiles owner policies (0319), so its queries can't error", () => {
+    const sql = src("supabase/migrations/0319_profiles_owner_policies_authenticated.sql");
+    expect(sql).toMatch(/create policy profiles_owner_read_all on public\.profiles\s+for select to authenticated/);
+    expect(sql).toMatch(/create policy profiles_owner_update_all on public\.profiles\s+for update to authenticated/);
+  });
+
   it("the username is checked and stamped with the service role, since a new signup has no session", () => {
     const actions = src("src/modules/auth/actions.ts");
     const body = actions.slice(actions.indexOf("export async function signUp"), actions.indexOf("async function sendExistingAccountNotice"));

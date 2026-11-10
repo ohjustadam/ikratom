@@ -173,12 +173,14 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   }
 
   const supabase = await createClient();
-  // Username reads and the stamp below run as the service role. profiles RLS
-  // lets a visitor read and write only their OWN row, and someone who has just
-  // signed up has no session until they confirm. Run as the visitor, the
-  // "already taken" check never matched anyone and the stamp matched zero rows
-  // without an error, so 15 of 18 signups from Sep to Nov 2026 kept the
-  // automatic "member_…" handle instead of the one they typed.
+  // Username reads and the stamp below run as the service role. Someone who
+  // has just signed up has no session until they confirm, so as the visitor
+  // they are `anon`, and profiles RLS never lets anon read or write a row.
+  // Worse, since migration 0310 (2026-11-04) took EXECUTE on is_owner() away
+  // from anon, the owner policies make that update ERROR: every new member saw
+  // "Couldn't set username: permission denied for function is_owner" after
+  // their account had in fact been created, and kept signing up again
+  // (member report 2026-11-09). All 7 signups from Nov 5 to Nov 9 hit it.
   const sr = createServiceRoleClient();
 
   // Staff-looking handles ("ikratom_support", "admin_jane"): the database rule

@@ -14,6 +14,9 @@
  *  3. A second signup never changes the password: Supabase keeps the first
  *     one. So people who confirmed later typed the newer password and got
  *     "Invalid login credentials".
+ *  4. Since migration 0310 (2026-11-04) the username step errored for every
+ *     new member ("permission denied for function is_owner"), so the form
+ *     said signup failed when the account had been made. Fixed in actions.ts.
  */
 
 /** How long after creation an account still counts as made by THIS request. */

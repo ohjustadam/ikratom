@@ -551,7 +551,11 @@ the owner's yes.
     drift with `node --env-file=.env.local scripts/auth-email-templates.mjs --check`;
     `--rollback` restores Supabase's defaults. A second signup never changes
     the password (Supabase keeps the first), and the username a new member
-    types is stamped with the service role, because they have no session yet.
+    types is stamped with the service role, because they have no session yet:
+    as `anon`, any profiles query trips the owner policies, and since
+    migration 0310 that ERRORS ("permission denied for function is_owner").
+    From Nov 5 to Nov 10 every signup showed that error after the account
+    had been created.
 
 ---
 
