@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { signIn, signUp } from "../actions";
+import { SIGNUP_SENT_HINT, SIGNUP_SENT_MESSAGE } from "../signup-outcome";
+import { AuthNotice } from "./AuthNotice";
+import { ResendLinkForm } from "./ResendLinkForm";
 
 type Mode = "signin" | "signup";
 
@@ -20,6 +23,7 @@ export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) 
   const [error, setError] = useState<string | null>(null);
   const [errorHint, setErrorHint] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState("");
   const [pending, startTransition] = useTransition();
 
   // Anti-bot: capture how long the form was visible before submit.
@@ -42,15 +46,16 @@ export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) 
       if (result?.error) {
         setError(result.error);
         if ("hint" in result && result.hint) setErrorHint(result.hint);
-      } else if (mode === "signup")
-        setSuccess(
-          "Account created. Check your email for a confirmation link, then sign in."
-        );
+      } else if (mode === "signup") {
+        setSentTo(String(formData.get("email") ?? ""));
+        setSuccess(SIGNUP_SENT_MESSAGE);
+      }
     });
   }
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
+      <AuthNotice />
       <div className="flex rounded-md border border-zinc-800 bg-zinc-950/40 p-1">
         <Tab active={mode === "signin"} onClick={() => setMode("signin")}>
           Sign in
@@ -118,9 +123,12 @@ export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) 
         </div>
       )}
       {success && (
-        <p className="rounded-md border border-emerald-900/40 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-300">
-          {success}
-        </p>
+        <div className="rounded-md border border-emerald-900/40 bg-emerald-950/40 px-3 py-2 text-sm">
+          <p className="text-emerald-300">{success}</p>
+          <p className="mt-1 text-xs text-emerald-200/70">{SIGNUP_SENT_HINT}</p>
+          <p className="mt-2 text-xs text-zinc-400">Nothing arrived after a few minutes?</p>
+          <ResendLinkForm defaultEmail={sentTo} />
+        </div>
       )}
 
       <button

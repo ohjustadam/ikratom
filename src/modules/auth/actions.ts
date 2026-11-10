@@ -12,6 +12,7 @@ import { recordSignIn } from "./actions-devices";
 import { recordAuthEvent } from "@/lib/auth-events";
 import type { AuthResult } from "./types";
 import { PENDING_JOIN_COOKIE, joinCodeFromPath, pendingJoinCookieOptions, pendingJoinPath } from "@/lib/pending-join";
+import { classifySignUp } from "./signup-outcome";
 
 /**
  * Look up the most recent active campaign for a state and return its slug.
@@ -172,6 +173,13 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   }
 
   const supabase = await createClient();
+  // Username reads and the stamp below run as the service role. profiles RLS
+  // lets a visitor read and write only their OWN row, and someone who has just
+  // signed up has no session until they confirm. Run as the visitor, the
+  // "already taken" check never matched anyone and the stamp matched zero rows
+  // without an error, so 15 of 18 signups from Sep to Nov 2026 kept the
+  // automatic "member_…" handle instead of the one they typed.
+  const sr = createServiceRoleClient();
 
   // Staff-looking handles ("ikratom_support", "admin_jane"): the database rule
   // is the authority (migration 0308), and also stops a later change via the API.
@@ -183,98 +191,71 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   // Race: two parallel signups for the same username — the unique index
   // is the final guard; whoever lands second gets the friendly error
   // below when the post-signup update fails.
-  const { data: existing } = await supabase
+  const { data: existing } = await sr
     .from("profiles")
     .select("id")
     .eq("username", usernameRaw)
     .maybeSingle();
   if (existing) return { error: "That username is already taken." };
 
-  const { error, data } = await supabase.auth.signUp({ email, password });
+  const appUrl = process.env.APP_URL ?? "https://www.ikratom.org";
+  const { error, data } = await supabase.auth.signUp({
+    email,
+    password,
+    // Without this Supabase sends the link to the Site URL: the homepage,
+    // which ignores ?code= and leaves the person signed out with no message.
+    options: { emailRedirectTo: `${appUrl}/auth/callback` },
+  });
+  const kind = classifySignUp({ error, user: data?.user });
+  // A real account id only when Supabase made or found an unconfirmed account;
+  // for a confirmed address it hands back a stand-in with a random id.
+  const realUserId = kind === "created" || kind === "resent" ? data?.user?.id ?? null : null;
 
-  if (error) {
-    await recordAuthEvent({
-      kind: "signup", provider: "password", status: "fail",
-      errorCode: error.code ?? "signup_error",
-      errorMessage: error.message,
-      email, ip: ip ?? null,
-    });
-  } else if (data.user) {
-    await recordAuthEvent({
-      kind: "signup", provider: "password", status: "ok",
-      userId: data.user.id, email, ip: ip ?? null,
-    });
+  await recordAuthEvent({
+    kind: "signup", provider: "password",
+    status: error ? "fail" : "ok",
+    errorCode: error ? error.code ?? "signup_error" : null,
+    errorMessage: error?.message,
+    userId: realUserId,
+    email, ip: ip ?? null,
+    context: { outcome: kind },
+  });
+
+  if (kind === "error") {
+    return { error: error?.message || "We couldn't create the account. Try again in a minute." };
   }
 
-  if (error) {
-    // Email-enumeration defense: Supabase returns "User already
-    // registered" (or similar) when the email exists. Returning that
-    // verbatim lets an attacker enumerate which emails have accounts.
-    //
-    // Pattern: return success regardless of whether the email is in
-    // use. If the email IS in use, the user simply won't get a new
-    // confirmation email. The attacker can't distinguish that outcome
-    // from a real new signup without access to the target's inbox.
-    //
-    // Real users who forgot they had an account will figure it out
-    // when their confirmation email never arrives and they try the
-    // "Forgot password" flow.
-    const msg = (error.message ?? "").toLowerCase();
-    if (
-      msg.includes("already registered") ||
-      msg.includes("already been registered") ||
-      msg.includes("user already exists") ||
-      msg.includes("email exists")
-    ) {
-      // Log for our own visibility — never surface to the user.
-      console.warn("[signup] duplicate email attempt", {
-        ip: await getClientIp(),
-        // Log only the hash so emails don't sit in logs:
-        email_hash: hashForLog(email),
-      });
-      // Best-effort: send the existing-account holder a heads-up email
-      // so a legit user who forgot their account knows what happened.
-      // No-op if Resend isn't configured.
-      try {
-        const APP_URL = process.env.APP_URL ?? "https://www.ikratom.org";
-        if (process.env.RESEND_API_KEY) {
-          await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              from: `${process.env.RESEND_FROM_NAME ?? "iKratom"} <${process.env.RESEND_FROM_EMAIL ?? "no-reply@ikratom.org"}>`,
-              to: email,
-              subject: "Someone tried to sign up with your iKratom email",
-              html: `<p>Hi,</p>
-<p>Someone just tried to create a new iKratom account with this email — but your address is already registered.</p>
-<p>If that was you, just sign in:</p>
-<p style="text-align:center;margin:32px 0"><a href="${APP_URL}/login" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Sign in →</a></p>
-<p>Forgot your password? <a href="${APP_URL}/forgot">${APP_URL}/forgot</a></p>
-<p style="color:#666;font-size:12px">If it wasn't you, no action needed. We didn't reveal that your email is registered, and we didn't change anything on your account.</p>`,
-            }),
-            signal: AbortSignal.timeout(10_000),
-          });
-        }
-      } catch (e) {
-        console.error("[signup] heads-up email failed:", e);
-      }
-      // Return success shape so the attacker can't tell from response.
-      return { success: true };
+  if (kind === "existing_confirmed") {
+    // Email-enumeration defense: the form answers exactly as it does for a new
+    // account, so nobody learns which addresses are registered. The owner of
+    // the address gets a heads-up instead, so a member who forgot they had an
+    // account is not left waiting for a confirmation that never comes.
+    console.warn("[signup] existing account", { email_hash: hashForLog(email) });
+    if (await checkRateLimit(`signup-notice:email:${email.toLowerCase()}`, 1, 86400)) {
+      await sendExistingAccountNotice(email, appUrl);
     }
-    return { error: error.message };
+    return { success: true };
   }
 
-  // The on_auth_user_created trigger has now inserted a profile row for
-  // this user. Stamp the username on it. If the unique index trips
-  // (race), surface a clean error.
-  if (data.user) {
-    const { error: updateErr } = await supabase
+  // "wait" and "resent" are an address with an unconfirmed account. A link is
+  // in their inbox (sent now, or under a minute ago), and the form says to use
+  // the newest one. The password typed this time is NOT applied, because
+  // Supabase keeps the first one; the form's hint says so.
+
+  // Came from a group invite? Remember it, so confirming the email lands
+  // them in the group instead of on the default page (lib/pending-join.ts).
+  const joinCode = joinCodeFromPath(formData.get("redirect") as string | null);
+  if (joinCode) (await cookies()).set(PENDING_JOIN_COOKIE, joinCode, pendingJoinCookieOptions);
+
+  if (kind === "created" && realUserId) {
+    // The on_auth_user_created trigger has now inserted a profile row for
+    // this user. Stamp the username on it. If the unique index trips
+    // (race), surface a clean error.
+    const { data: stamped, error: updateErr } = await sr
       .from("profiles")
       .update({ username: usernameRaw })
-      .eq("id", data.user.id);
+      .eq("id", realUserId)
+      .select("id");
     if (updateErr) {
       // 23505 = unique violation
       if ((updateErr as { code?: string }).code === "23505") {
@@ -284,12 +265,10 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
       // first profile save. Surface the error so they know.
       return { error: `Couldn't set username: ${updateErr.message}` };
     }
+    if (!stamped?.length) console.warn("[signup] username stamp matched no profile row");
+  }
 
-    // Came from a group invite? Remember it, so confirming the email lands
-    // them in the group instead of on the default page (lib/pending-join.ts).
-    const joinCode = joinCodeFromPath(formData.get("redirect") as string | null);
-    if (joinCode) (await cookies()).set(PENDING_JOIN_COOKIE, joinCode, pendingJoinCookieOptions);
-
+  if (realUserId) {
     // Invite-redemption link. If the prospect landed via a friend's
     // /i/CODE link, proxy.ts wrote the code into the invite_ref
     // cookie. Call the SECURITY DEFINER RPC to:
@@ -304,9 +283,9 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
       if (inviteCode) {
         // Service role, not the visitor's session: the RPC is locked to
         // service_role (mig 0267) so nobody can record fake redemptions for an
-        // arbitrary invitee. data.user.id comes from auth.signUp, not the client.
-        await createServiceRoleClient().rpc("record_invite_redemption", {
-          p_invitee: data.user.id,
+        // arbitrary invitee. realUserId comes from auth.signUp, not the client.
+        await sr.rpc("record_invite_redemption", {
+          p_invitee: realUserId,
           p_invite_code: inviteCode,
         });
         // Clear the cookie so we don't double-record on a later
@@ -319,6 +298,37 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   }
 
   return { success: true };
+}
+
+/**
+ * Best-effort heads-up to the owner of an address that already has a confirmed
+ * account. No-op if Resend isn't configured.
+ */
+async function sendExistingAccountNotice(email: string, appUrl: string): Promise<void> {
+  if (!process.env.RESEND_API_KEY) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: `${process.env.RESEND_FROM_NAME ?? "iKratom"} <${process.env.RESEND_FROM_EMAIL ?? "no-reply@ikratom.org"}>`,
+        to: email,
+        subject: "You already have an iKratom account",
+        html: `<p>Hi,</p>
+<p>Someone just tried to create a new iKratom account with this email, but your address already has one.</p>
+<p>If that was you, just sign in:</p>
+<p style="text-align:center;margin:32px 0"><a href="${appUrl}/login" style="display:inline-block;background:#10b981;color:#0a0a0a;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Sign in →</a></p>
+<p>Forgot your password? <a href="${appUrl}/forgot">${appUrl}/forgot</a></p>
+<p style="color:#666;font-size:12px">If it wasn't you, no action needed. We didn't reveal that your email is registered, and we didn't change anything on your account.</p>`,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (e) {
+    console.error("[signup] heads-up email failed:", e);
+  }
 }
 
 function hashForLog(s: string): string {
@@ -380,7 +390,7 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
       // response for all three, with a hint that generically covers the
       // unconfirmed case without confirming the account exists.
       friendly = "Email or password is incorrect.";
-      hint = "Double-check your email and password. If you signed up but never confirmed your email, check your inbox and spam for the link — otherwise use 'Forgot password' to reset access, or 'Sign up' if you're new.";
+      hint = "Double-check your email and password. Signed up more than once? Your password is the one from your FIRST try. If you never confirmed your email, tap the link in the newest email from iKratom (check spam). Otherwise use 'Forgot password' to reset access, or 'Sign up' if you're new.";
     } else if (msg.includes("rate limit") || msg.includes("too many")) {
       friendly = "Too many attempts. Try again in a few minutes.";
     } else if (msg.includes("captcha")) {
@@ -560,6 +570,41 @@ export async function signUpInline(formData: FormData): Promise<AuthResult & { n
     return { success: true, needsConfirmation: true };
   }
   return result;
+}
+
+/**
+ * Send a fresh signup confirmation link. The answer is the same whether or not
+ * the address has an account waiting, so it can't be used to probe addresses.
+ */
+export async function resendSignupLink(formData: FormData): Promise<AuthResult> {
+  const email = ((formData.get("email") as string) ?? "").trim().slice(0, 254);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "Enter the email address you signed up with." };
+  }
+  const ip = await getClientIp();
+  if (!(await checkRateLimit(`resend-link:ip:${ip}`, 5, 3600))) {
+    return { error: "Too many requests from this network. Try again in an hour." };
+  }
+  if (!(await checkRateLimit(`resend-link:email:${email.toLowerCase()}`, 3, 3600))) {
+    return { error: "We've sent this address several links in the last hour. Use the newest email, and check spam." };
+  }
+
+  const supabase = await createClient();
+  const appUrl = process.env.APP_URL ?? "https://www.ikratom.org";
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: { emailRedirectTo: `${appUrl}/auth/callback` },
+  });
+  await recordAuthEvent({
+    kind: "signup", provider: "password",
+    status: error ? "fail" : "ok",
+    errorCode: error ? error.code ?? "resend_error" : null,
+    errorMessage: error?.message,
+    email, ip: ip ?? null,
+    context: { outcome: "resend_link" },
+  });
+  return { success: true };
 }
 
 /** Sign out and return to home. */

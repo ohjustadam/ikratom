@@ -541,6 +541,17 @@ the owner's yes.
     `fetch()` refuses it in a header, which is how the weekly RLS pentest
     crashed every run from #1088 to #1106. Any script that reads a repo secret
     into a header strips `﻿` and trims first, as `db-snapshot-api.mjs` does.
+13. **Auth emails are our templates, and they link to `/auth/confirm`.** Since
+    2026-11-10 the signup, reset and magic-link emails send a `token_hash` to
+    `/auth/confirm` (`scripts/lib/auth-email-templates.mjs`), which signs the
+    person in from any browser or mail app. Supabase's default link is a PKCE
+    `?code=` that only the browser that asked can redeem, and signup sent no
+    redirect, so for months confirm links landed on the homepage signed out.
+    Templates are editable only while Auth SMTP is custom (Resend). Check
+    drift with `node --env-file=.env.local scripts/auth-email-templates.mjs --check`;
+    `--rollback` restores Supabase's defaults. A second signup never changes
+    the password (Supabase keeps the first), and the username a new member
+    types is stamped with the service role, because they have no session yet.
 
 ---
 
