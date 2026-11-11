@@ -49,10 +49,14 @@ describe("one report system", () => {
   it("no other migration after 0288 creates a *_reports table for member content", () => {
     const dir = "supabase/migrations";
     const later = readdirSync(dir).filter((f) => /^\d{4}_/.test(f) && Number(f.slice(0, 4)) > 288 && statSync(join(dir, f)).isFile());
+    // Matches the NAME of the created table, so a table that only references a
+    // *_reports table (feedback_replies → feedback_reports, 0320) isn't one.
+    const createsReports = /create table\s+(?:if not exists\s+)?(?:public\.)?\w*_reports\b/i;
     // The pattern must catch a real one, or this canary passes vacuously.
-    expect(sql).toMatch(/create table[^;]*_reports\b/i);
+    expect(sql).toMatch(createsReports);
+    expect("create table if not exists public.x (id uuid references public.feedback_reports(id));").not.toMatch(createsReports);
     for (const f of later) {
-      expect(readFileSync(join(dir, f), "utf8"), `${f} should extend content_reports instead`).not.toMatch(/create table[^;]*_reports\b/i);
+      expect(readFileSync(join(dir, f), "utf8"), `${f} should extend content_reports instead`).not.toMatch(createsReports);
     }
   });
 });

@@ -83,6 +83,7 @@ usable from any device — and the desktop app wraps it natively for free.
 | A bill shows the wrong status | AI editor: "look up <bill> — is its status right?" → confirm the fix. Or `/admin/master-edit` → Bills → edit `status`. |
 | Wrong contact info on an official | `/admin/master-edit` → Officials, or ask the AI editor. |
 | A user reports something broken | `/admin/user-errors` — most user-side issues auto-classify; real bugs need a coding session (see §6). |
+| You want to answer a feedback report | `/admin/feedback` → type under the report → Send reply ("Mark resolved" is ticked for open ones). A signed-in member reads it in their notifications and on `/feedback`; an anonymous sender gets one email from the team, and their reply lands at support@. Each report shows its reply thread and whether each reply was delivered. A report sent without signing in and without an email address can't be answered. |
 | A cron source shows ERROR for days | AI editor: "show recent errors" — if it's an external site being down, it self-retries; if it persists >3 days, note it for a coding session. |
 | Site is being abused / emergency | `/admin` → emergency controls (read-only mode / kill switches gate the automation too). |
 

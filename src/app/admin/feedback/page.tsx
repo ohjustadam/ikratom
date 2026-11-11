@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
 import { listFeedback } from "@/modules/feedback/actions";
-import { FeedbackActions } from "./FeedbackActions";
+import { FeedbackItem } from "./FeedbackItem";
 
 export const metadata = { title: "Feedback queue · Admin" };
 export const dynamic = "force-dynamic";
@@ -27,7 +27,8 @@ export default async function AdminFeedbackPage({
     <div className="mx-auto max-w-3xl px-4 py-8 text-zinc-100">
       <h1 className="text-2xl font-bold">Feedback reports</h1>
       <p className="mt-1 text-sm text-zinc-400">
-        User-submitted feedback + bug reports from the floating widget.
+        User-submitted feedback + bug reports from the floating widget. Reply under any report:
+        members read it in their notifications, anonymous senders get it by email from the team.
       </p>
 
       <div className="mt-4 flex gap-2 text-sm">
@@ -51,33 +52,7 @@ export default async function AdminFeedbackPage({
       ) : (
         <ul className="mt-6 space-y-4">
           {rows.map((row) => (
-            <li key={row.id} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <p className="whitespace-pre-wrap text-sm text-zinc-100">{row.message}</p>
-                <FeedbackActions id={row.id} status={row.status} />
-              </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500">
-                <span>{new Date(row.created_at).toLocaleString()}</span>
-                <span>{row.user_id ? "registered user" : "anonymous"}</span>
-                {row.status === "resolved" && <span className="text-emerald-400">resolved</span>}
-                {row.page_url && <span className="max-w-full break-all">📄 {row.page_url}</span>}
-              </div>
-              {row.screenshotUrl && (
-                <a
-                  href={row.screenshotUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 inline-block"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={row.screenshotUrl}
-                    alt="feedback screenshot"
-                    className="max-h-48 rounded border border-zinc-800"
-                  />
-                </a>
-              )}
-            </li>
+            <FeedbackItem key={row.id} row={row} />
           ))}
         </ul>
       )}

@@ -138,6 +138,7 @@
     {"route":"/donate","dynamic":false,"forceDynamic":false,"revalidate":300,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/embed","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":true,"loginGated":false,"redirectOnly":false},
     {"route":"/ethics","dynamic":false,"forceDynamic":false,"revalidate":3600,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
+    {"route":"/feedback","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":true,"redirectOnly":false},
     {"route":"/forgot","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/forum","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/forum/[state]","dynamic":true,"forceDynamic":false,"revalidate":null,"usesSearchParams":true,"loginGated":false,"redirectOnly":false},

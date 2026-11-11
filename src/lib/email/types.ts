@@ -13,6 +13,8 @@ export type EmailMessage = {
   html?: string;
   fromName?: string;
   fromEmail?: string;
+  /** Where the recipient's "Reply" goes. Must be an address that forwards (support@). */
+  replyTo?: string;
   tag?: string;
 };
 
