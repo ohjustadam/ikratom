@@ -404,6 +404,44 @@ A member's report in November led to four changes.
 
 ---
 
+## Reused bill numbers (2026-11-08)
+
+Every session reuses bill numbers, and LegiScan search matches the number
+alone. So a row from an old session could pick up a newer, unrelated bill's
+actions, sponsors, votes and text. NE LB 972 (108th, indefinitely postponed in
+2024) read as an enacted kratom ban using a 2026 motor-vehicle bill, and Nebraska's
+derived 7-OH status said "banned" because of it.
+
+- **The sync's guard** is `sessionMismatch()` in `scripts/lib/bill-session.mjs`.
+  It reads a session label three ways: as a LegiScan session id, as an assembly
+  number ("101st", "89R", "136"), or as years. The old guard read years only,
+  so a third of the labels had no reading and passed, and it let the next
+  biennium through. A one-year label may still be a year off: Oklahoma's
+  OpenStates labels use the end year, and Virginia relabels continued bills.
+  `sync-bills-via-legiscan.mjs` saves a searched LegiScan id only once the
+  guard accepts it.
+- **The repair** is `audit-bill-session-drift.mjs --restore <ids> [--apply]`.
+  It reads each row's own bill from the session its label names, holds any row
+  it can't confirm, and clears the text and AI summaries built from the other
+  bill. `active` is only changed for a live row whose own bill died with its
+  session. The OpenStates sweep (`sync-bills.mjs`) also rewrites an old row's
+  status and last action from its own session, so another bill can survive
+  only in the LegiScan id, actions or sponsors. The restore counts those as
+  evidence too. It keeps the row's own last action when that is newer than
+  LegiScan's, and keeps a terminal status the row already has unless a
+  stronger one is proven.
+- **Done 2026-11-10 (owner's yes):** 23 rows, read back clean. They were 12
+  Illinois rows, GA SR 832, SR 783, HR 1159 and HR 1160, ID H 168 and H 567,
+  LA HB 14, MD HB 1229, MN SF 2578, NE LB 972 and TN HB 861. NE LB 972 and
+  TN HB 861 now read dead; MD HB 1229 and MN SF 2578 now read enacted.
+  ID H 168, ID H 567, IL HB 622 and TN HB 861 have no LegiScan id, because
+  a twin row of the same bill holds it.
+- **Still to check:** 20 inactive rows whose label doesn't fit their last action
+  (FL, IN, KS, LA, ME, MI, MN, MS and GA HB 181, which may just be an effective
+  date). Several read "enacted". Also merge the four twin pairs.
+
+---
+
 ## Forum roles, spam limits and member posts (2026-11-06)
 
 **Who can do what** lives in one place: `forumRights()` in

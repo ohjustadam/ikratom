@@ -322,3 +322,13 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 **Decision:** bill threads are never deleted automatically. No action in 180 days puts a banner on the thread. A bill thread with member replies that's been quiet for 90 days is listed at `/admin/forum` for a moderator. 374 old bot threads with no replies stay in the table, off the forum lists, because bill pages still link to them.
 
 **Why:** PJ asked for a cutoff, with threads that drew real conversation going to manual review. Deleting needs the owner's yes, and nothing is lost by hiding them.
+
+## A session label must fit the bill the sync fetched (2026-11-08)
+
+**Decision:** the LegiScan sync merges a fetched bill only when some reading of the row's session label fits that bill's session: its LegiScan session id, its assembly number, or its years. A two-year reading is exact. A one-year reading may be a year off. A label with no reading never blocks.
+
+- **Exact for a biennium.** Bills die when the biennium ends, so the 103rd GA (2023-24) is never the 104th (2025-26). The old guard allowed a year either side and let them through.
+- **Loose for one year.** OpenStates names Oklahoma's legislature by its end year (HB 1784, enacted 2021, is "2022"). Virginia relabels a continued bill with the next year, and an annual LegiScan session can hold a carried-over bill. All three are the same bill.
+- **An assembly number is exact,** even for its one-year special session. Widening "108th Legislature 1st Special Session" (2024) would let the 109th's 2025 bills through.
+
+**Why:** 12 Illinois rows, NE LB 972 and TN HB 861 showed unrelated newer bills. Run on today's 120 live rows, the rule blocks exactly the two live ones and nothing else.
