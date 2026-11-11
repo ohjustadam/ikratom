@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ChromeMe } from "@/app/api/me/route";
+import { hasSupabaseAuthCookie, localeFromCookie } from "@/lib/chrome-cookies";
 
 /**
  * ChromeProvider — the client-side replacement for the root layout's
@@ -12,6 +13,11 @@ import type { ChromeMe } from "@/app/api/me/route";
  * app out of static generation (see `private/STATIC_CHROME_PLAN.md`). Now the
  * layout renders statically and this provider fetches `/api/me` once per real
  * browser session. Crawlers don't run JS, so they never trigger it.
+ *
+ * Some bots DO run page JS (an old-Chrome fleet, 2026-11), and so does every
+ * first-time reader. A browser with no Supabase auth cookie skips the fetch
+ * and gets the anonymous shape locally: the server could not have said
+ * anything else (`src/lib/chrome-cookies.ts`).
  *
  * `loading` is exposed so chrome can render a fixed-size skeleton instead of
  * collapsing — otherwise the header would visibly reflow on every page load.
@@ -96,6 +102,14 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let alive = true;
+    // No Supabase auth cookie = the server would answer "signed out", so skip
+    // the paid function call and build that answer here (see chrome-cookies).
+    let cookie: string | null = null;
+    try { cookie = document.cookie; } catch { /* sandboxed: fall through to the fetch */ }
+    if (cookie !== null && !hasSupabaseAuthCookie(cookie)) {
+      setState({ me: { ...ANON, locale: localeFromCookie(cookie) }, loading: false });
+      return;
+    }
     (async () => {
       try {
         const res = await fetch("/api/me", {

@@ -146,6 +146,18 @@ fixed by a better estimate:
   visitors bounds a replay to one render per URL per TTL
   (`scripts/cloudflare-cache-setup.mjs`, `LONG_TTL_PATTERNS`).
 
+**2026-11-10: crawls hit each URL once, so cache can't save them; only a
+cheaper render can.** 839 of 840 `/legislators/*` URLs crawled in a day were
+fetched exactly once, each a ~4 s cold ISR render. A timing probe on a draft
+deploy (`console.log` lines are readable through Netlify's request logs)
+found the cost. `generateMetadata` and the page each ran the snapshot chain,
+and each chain waited on an R2 PUT of 1.1–1.6 s. React `cache()` around the
+getter plus a background R2 write took a cold render from 3.7 s to 1.0 s
+(#1149). Two traps for the next measurement. Netlify's runtime
+sends no `x-nextjs-cache`: read `Cache-Status: "Netlify Durable"`
+(`uri-miss; stored`, then `hit`) instead. And TTFB on a dynamic page measures
+only the streamed `loading.tsx` shell, so time the full response.
+
 ---
 
 ## State intel: every state watched like Oklahoma (2026-10-23/24)
