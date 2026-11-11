@@ -70,6 +70,34 @@ describe("snapshotThroughStore", () => {
     expect(await snapshotThroughStore(junk, "k", 3600, async () => ({ data: { ok: 2 }, cacheable: true }))).toEqual({ ok: 2 });
   });
 
+  it("returns the loaded data without waiting for the write", async () => {
+    // An R2 PUT took 1.1-1.6 s and the page waited on it (2026-11-10).
+    let finish: () => void = () => {};
+    const slow: SnapshotStore = {
+      get: async () => null,
+      put: vi.fn(() => new Promise<void>((r) => { finish = r; })),
+    };
+    const out = await snapshotThroughStore(slow, "k", 3600, async () => ({ data: { fast: 1 }, cacheable: true }), () => T0);
+    expect(out).toEqual({ fast: 1 });
+    expect(slow.put).toHaveBeenCalledTimes(1); // started, still pending
+    finish();
+  });
+
+  it("swallows a background write that rejects or throws synchronously", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const rejects: SnapshotStore = { get: async () => null, put: () => Promise.reject(new Error("r2 down")) };
+      const throws: SnapshotStore = { get: async () => null, put: () => { throw new Error("sync"); } };
+      expect(await snapshotThroughStore(rejects, "k", 3600, async () => ({ data: 1, cacheable: true }))).toBe(1);
+      expect(await snapshotThroughStore(throws, "k", 3600, async () => ({ data: 2, cacheable: true }))).toBe(2);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
   it("with no store (switched off) just runs the loader", async () => {
     const load = vi.fn(async () => ({ data: { off: true }, cacheable: true }));
     expect(await snapshotThroughStore(null, "k", 3600, load)).toEqual({ off: true });

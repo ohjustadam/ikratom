@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { attributionToCapture } from "@/lib/attribution-landing";
 
 /**
  * Captures attribution params from the landing URL and asks the server to
@@ -25,13 +26,11 @@ export function AttributionCapture() {
   useEffect(() => {
     let cancelled = false;
     try {
-      const p = new URLSearchParams(window.location.search);
-      const ref = p.get("ref");
-      const host = p.get("host");
-      const state = p.get("state");
-      const via = p.get("via");
-      // Nothing to attribute — the common case. Don't touch the network.
-      if (!via && !state && !(ref === "embed" && host)) return;
+      // Nothing to attribute, or a `?state=` filter link clicked on our own
+      // site: the common cases. Don't touch the network (attribution-landing).
+      const params = attributionToCapture(window.location.search, document.referrer, window.location.origin);
+      if (!params) return;
+      const { ref, host, state, via } = params;
 
       // Once per landing. Without this guard a client-side navigation that
       // preserves the query string would re-POST and keep refreshing the TTL.

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { publicSnapshot } from "@/lib/public-snapshots";
 import { PressureIndexPill, MemberVotingRecord } from "./MemberGates";
@@ -158,11 +159,16 @@ async function loadLegislatorPublic(id: string) {
  * over Supabase. Bump the version if loadLegislatorPublic's shape changes
  * (v2, 2026-10-23: added `seat` for the turnover banner).
  */
-const getLegislatorPublicSnapshot = unstable_cache(
+const getLegislatorPublicSnapshot = cache(unstable_cache(
   (id: string) => publicSnapshot("legislator-public", "v2", id, 12 * 3600, () => loadLegislatorPublic(id)),
   ["legislator-public"],
   { revalidate: 900, tags: ["legislator-detail"] },
-);
+));
+// React cache() (2026-11-10): generateMetadata and the page both ask for the
+// snapshot, and unstable_cache does not share an in-flight miss, so every cold
+// render ran the R2 read, the Supabase load and the R2 write TWICE, with the
+// two same-key writes queued behind each other (seen in a draft deploy's
+// function logs). Now one request runs one.
 
 export default async function LegislatorDetailPage({
   params,

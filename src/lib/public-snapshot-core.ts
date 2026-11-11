@@ -12,6 +12,8 @@
  *   preferred over it.
  * - A store that fails (timeout, network) is treated as a miss / skipped write;
  *   it never breaks the page.
+ * - The write runs in the background: the caller gets its data as soon as the
+ *   loader returns, never after the store's PUT.
  */
 
 export type SnapshotStore = {
@@ -57,10 +59,17 @@ export async function snapshotThroughStore<T>(
   if (res.data !== null && res.data !== undefined) {
     if (res.cacheable) {
       const env: Envelope<T> = { v: 1, generated_at: new Date(now()).toISOString(), data: res.data };
+      // Not awaited (2026-11-10): an R2 PUT takes 1.1-1.6 s, measured from
+      // Netlify and from the owner's PC, and the page was waiting on it, about
+      // 40% of every cold render. The reader already has the data. A write
+      // that the platform drops after the response only means the next miss
+      // reloads, the same as a failed one.
       try {
-        await store.put(key, JSON.stringify(env));
+        void store.put(key, JSON.stringify(env)).catch(() => {
+          /* a failed write only means the next miss reloads */
+        });
       } catch {
-        /* a failed write only means the next miss reloads */
+        /* a store that throws synchronously is a failed write too */
       }
     } else if (hit) {
       return hit.data;
