@@ -57,7 +57,7 @@ async function doh(name, type) {
 }
 
 /** true = accepts mail, false = cannot, null = lookup failed (never act on it). */
-async function acceptsMail(domain) {
+export async function acceptsMail(domain) {
   try {
     const mx = await doh(domain, "MX");
     if (mx.n > 0) return true;

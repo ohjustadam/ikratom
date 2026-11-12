@@ -107,6 +107,9 @@ export const REGISTRY = [
       // departed legislators and add new ones. Silence here means stale rosters.
       "state_roster_diff",
       "congress_roster_diff",
+      // Contact fields of sitting state legislators (2026-11-11). Silent =
+      // emails go stale again and letters bounce.
+      "state_legislator_contacts",
       // BoP pipeline layers + intel scrapers given writers 2026-07-16 (were
       // cron-registry phantoms writing nothing).
       "parse_bop_pdfs",
