@@ -1,6 +1,7 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { jsonLdSafe } from "@/lib/jsonld";
 import { SignUpNudge } from "@/components/SignUpNudge";
@@ -19,7 +20,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // egress pattern). RLS parity: only moderation_status='approved' meetings are
 // public, so that filter is baked into the query — the fn returns null for any
 // non-approved or missing id, and callers notFound()/fall back to a bare title.
-const getMeeting = unstable_cache(
+// React cache(): generateMetadata and the page share ONE read per request.
+// unstable_cache does not share an in-flight miss, so without it a cold
+// render ran this chain twice (see #1149).
+const getMeeting = cache(unstable_cache(
   async (id: string) => {
     const sb = createServiceRoleClient();
     const { data } = await sb
@@ -34,7 +38,7 @@ const getMeeting = unstable_cache(
   },
   ["meeting-detail"],
   { revalidate: 600, tags: ["meeting-detail"] },
-);
+));
 
 // Per-meeting metadata so the page has rich Open Graph + Twitter
 // cards for Facebook Messenger / iMessage / SMS / Slack / Twitter
