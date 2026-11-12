@@ -309,9 +309,11 @@ Where the facts come from, all free and keyless:
 **Contacts were never refreshed until 2026-11-11.** Every state legislator row
 was last written by the one-off API seed on 2026-05-04 (7,294 of 7,337 active
 rows), so letters bounced off typos openstates/people had already fixed
-(MI Reps. DeBoyer and Neyer, PJ 11-11). The first nationwide diff is 389 rows:
-116 emails, 199 phones, 196 addresses, most of them filling empty fields. It
-waits on the owner's yes. openstates/people can be wrong too: MI Rep.
+(MI Reps. DeBoyer and Neyer, PJ 11-11). The first nationwide pass ran 11-11
+with the owner's yes: 389 rows changed (116 emails, 199 phones, 196 addresses,
+most of them filling empty fields), 6,946 confirmed unchanged, 0 failed. Only
+MO Sen. Travis Fitzwater is still unmatched: his openstates id is not in the
+current roster. openstates/people can be wrong too: MI Rep.
 Fairbairn's `parker.fairbairn@` is not on house.mi.gov's own roster
 (`ParkerFairbairn@`), and only that page caught it.
 
