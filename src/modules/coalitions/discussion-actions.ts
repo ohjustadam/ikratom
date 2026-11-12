@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { sellingIssue } from "@/lib/selling";
+import { GROUP_POST_MAX, GROUP_TITLE_MAX } from "./limits";
 
 /**
  * Coalition discussion board (migration 0273). Owner ask 2026-10-21, after a
@@ -19,8 +20,10 @@ import { sellingIssue } from "@/lib/selling";
  */
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
-const MAX_TITLE = 140;
-const MAX_BODY = 5000;
+// The forms and the database (migration 0321) hold the same limits.
+const MAX_TITLE = GROUP_TITLE_MAX;
+const MAX_BODY = GROUP_POST_MAX;
+const fmt = (n: number) => n.toLocaleString("en-US");
 
 type Result = { ok: true; id: string } | { ok: false; error: string };
 
@@ -74,9 +77,8 @@ export async function createCoalitionThread(
   const t = String(title ?? "").trim();
   const b = String(body ?? "").trim();
   if (t.length < 3 || t.length > MAX_TITLE) return { ok: false, error: `Give it a title of 3–${MAX_TITLE} characters.` };
-  if ((!b && !opts.photoId) || b.length > MAX_BODY) {
-    return { ok: false, error: `Write something or add an image (up to ${MAX_BODY} characters).` };
-  }
+  if (b.length > MAX_BODY) return { ok: false, error: `Keep it under ${fmt(MAX_BODY)} characters.` };
+  if (!b && !opts.photoId) return { ok: false, error: "Write something or add an image." };
   const selling = sellingIssue(`${t}\n\n${b}`);
   if (selling) return { ok: false, error: selling };
 
@@ -126,9 +128,8 @@ export async function replyCoalitionThread(
   if (ro) return { ok: false, error: ro };
   if (!UUID_RE.test(threadId)) return { ok: false, error: "Discussion not found." };
   const b = String(body ?? "").trim();
-  if ((!b && !opts.photoId) || b.length > MAX_BODY) {
-    return { ok: false, error: `Write something or add an image (up to ${MAX_BODY} characters).` };
-  }
+  if (b.length > MAX_BODY) return { ok: false, error: `Keep it under ${fmt(MAX_BODY)} characters.` };
+  if (!b && !opts.photoId) return { ok: false, error: "Write something or add an image." };
   const selling = sellingIssue(b);
   if (selling) return { ok: false, error: selling };
 
@@ -180,7 +181,7 @@ export async function editCoalitionPost(
   if (!UUID_RE.test(id)) return { ok: false, error: "Not found." };
   const b = String(input.body ?? "").trim();
   const t = String(input.title ?? "").trim();
-  if (b.length > MAX_BODY) return { ok: false, error: `Keep it under ${MAX_BODY} characters.` };
+  if (b.length > MAX_BODY) return { ok: false, error: `Keep it under ${fmt(MAX_BODY)} characters.` };
   if (kind === "thread" && (t.length < 3 || t.length > MAX_TITLE)) {
     return { ok: false, error: `Give it a title of 3–${MAX_TITLE} characters.` };
   }

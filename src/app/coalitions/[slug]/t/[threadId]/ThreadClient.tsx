@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { editCoalitionPost, removeCoalitionPost, replyCoalitionThread } from "@/modules/coalitions/discussion-actions";
 import { pinThread } from "@/modules/coalitions/home-actions";
 import { GroupImagePicker } from "../../GroupImage";
+import { PostLengthNote } from "../../PostLengthNote";
+import { GROUP_POST_MAX, GROUP_TITLE_MAX } from "@/modules/coalitions/limits";
 
 /** Reply box under a coalition discussion. */
 export function ReplyForm({ slug, threadId }: { slug: string; threadId: string }) {
@@ -31,17 +33,17 @@ export function ReplyForm({ slug, threadId }: { slug: string; threadId: string }
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        maxLength={5000}
         rows={3}
         placeholder="Write a reply…"
         aria-label="Reply"
         className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
       />
+      <PostLengthNote length={body.trim().length} />
       <GroupImagePicker photoId={photoId} onChange={setPhotoId} />
       {error && <p className="text-xs text-red-300">{error}</p>}
       <button
         type="submit"
-        disabled={pending || (!body.trim() && !photoId)}
+        disabled={pending || (!body.trim() && !photoId) || body.trim().length > GROUP_POST_MAX}
         className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"
       >
         {pending ? "Posting…" : "Reply"}
@@ -99,7 +101,7 @@ export function PostText({ slug, kind, id, title, body, canEdit }: {
         <input
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
-          maxLength={140}
+          maxLength={GROUP_TITLE_MAX}
           aria-label="Discussion title"
           className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
         />
@@ -107,17 +109,17 @@ export function PostText({ slug, kind, id, title, body, canEdit }: {
       <textarea
         value={newBody}
         onChange={(e) => setNewBody(e.target.value)}
-        maxLength={5000}
         rows={4}
         aria-label="Your post"
         className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
       />
+      <PostLengthNote length={newBody.trim().length} />
       {error && <p className="text-xs text-red-300">{error}</p>}
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={save}
-          disabled={pending}
+          disabled={pending || newBody.trim().length > GROUP_POST_MAX}
           className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"
         >
           {pending ? "Saving…" : "Save"}

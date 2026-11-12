@@ -1,5 +1,6 @@
 import Link from "@/components/Link";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
+import { ConnectHeroActions } from "./ConnectHeroActions";
 
 export const metadata = {
   title: "Connect: groups, friends and your profile · iKratom",
@@ -11,7 +12,9 @@ export const metadata = {
  * /connect — the one page that explains iKratom's social side (owner, 10-27:
  * "an exclusive groups and social explanation page ... easy social connection,
  * easy to become members"). Static on purpose: the same words for every visitor,
- * no cookie reads, so it prerenders and costs nothing per view.
+ * no cookie reads, so it prerenders and costs nothing per view. The one part
+ * that differs for a signed-in member, the hero buttons, is decided in the
+ * browser by ConnectHeroActions.
  */
 type Feature = { icon: string; title: string; body: string };
 type Section = { id: string; kicker: string; title: string; intro: string; features: Feature[]; links: { href: string; label: string }[] };
@@ -87,17 +90,10 @@ export default function ConnectPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">◉ Connect</p>
         <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Advocacy is easier together</h1>
         <p className="mt-3 text-zinc-400">
-          Join free, find the people near you, and act as a group. Everything here is free, nonpartisan, and
+          Find the people near you and act as a group. Everything here is free, nonpartisan, and
           @username only.
         </p>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link href="/signup" className="rounded-md bg-emerald-500 px-5 py-2.5 font-semibold text-zinc-950 hover:bg-emerald-400">
-            Join free (1 minute)
-          </Link>
-          <Link href="/coalitions" className="rounded-md border border-zinc-700 px-5 py-2.5 font-semibold hover:border-emerald-500 hover:text-emerald-400">
-            Find a group
-          </Link>
-        </div>
+        <ConnectHeroActions />
         <nav className="mt-5 flex flex-wrap gap-2 text-xs">
           {SECTIONS.map((s) => (
             <a key={s.id} href={`#${s.id}`} className="rounded-full border border-zinc-800 px-3 py-1 text-zinc-400 hover:border-emerald-500 hover:text-emerald-400">
