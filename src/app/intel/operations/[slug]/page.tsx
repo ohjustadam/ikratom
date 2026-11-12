@@ -1,6 +1,7 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { computeBillMomentum, MOMENTUM_LABEL, MOMENTUM_TONE } from "@/lib/bill-momentum";
@@ -21,7 +22,10 @@ type Params = Promise<{ slug: string }>;
 // exactly. Maps aren't JSON-serializable, so the render's momentumByBillId is
 // returned as a plain Record and rebuilt in the page. generateMetadata shares
 // this snapshot.
-const getOperationSnapshot = unstable_cache(
+// React cache(): generateMetadata and the page share ONE read per request.
+// unstable_cache does not share an in-flight miss, so without it a cold
+// render ran this chain twice (see #1149).
+const getOperationSnapshot = cache(unstable_cache(
   async (slug: string) => {
     const sb = createServiceRoleClient();
 
@@ -304,7 +308,7 @@ const getOperationSnapshot = unstable_cache(
   },
   ["intel-operation"],
   { revalidate: 900, tags: ["intel-operation"] },
-);
+));
 
 export async function generateMetadata({ params }: { params: Params }) {
   const { slug } = await params;

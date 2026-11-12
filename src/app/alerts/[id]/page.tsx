@@ -1,6 +1,7 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { publicSnapshot } from "@/lib/public-snapshots";
 import { jsonLdSafe } from "@/lib/jsonld";
@@ -111,11 +112,14 @@ type AlertSnapshot = NonNullable<Awaited<ReturnType<typeof loadAlertPublic>>["da
 // maxAge 0: alerts are the emergency surface (/api/revalidate exists so a
 // flush publishes AT ONCE), so the R2 copy never stands in for a fresh read.
 // It is only served when Supabase is failing.
-const getAlertData = unstable_cache(
+// React cache(): generateMetadata and the page share ONE read per request.
+// unstable_cache does not share an in-flight miss, so without it a cold
+// render ran this chain twice (see #1149).
+const getAlertData = cache(unstable_cache(
   (id: string) => publicSnapshot<AlertSnapshot>("alert-public", "v1", id, 0, () => loadAlertPublic(id)),
   ["alert-detail"],
   { revalidate: 600, tags: ["alert-detail"] },
-);
+));
 
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;

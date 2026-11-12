@@ -8,7 +8,7 @@
  *   built with the anonymous client, and only caches real state codes.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 vi.mock("server-only", () => ({}));
@@ -46,16 +46,35 @@ vi.mock("@/lib/supabase/anon", () => ({ createAnonClient: () => fakeClient() }))
 const src = (p: string) => readFileSync(path.join(process.cwd(), "src/app", p), "utf8");
 
 describe("one snapshot chain per request", () => {
-  it.each([
-    ["legislators/[id]/page.tsx", "getLegislatorPublicSnapshot"],
-    ["legislators/[id]/briefing/page.tsx", "getBriefingPublic"],
-  ])("%s wraps %s in React cache()", (file, getter) => {
-    const s = src(file);
-    expect(s).toContain(`const ${getter} = cache(unstable_cache(`);
-    expect(s).toMatch(/import \{ cache \} from "react";/);
-    // Both readers go through the deduped getter.
-    const meta = s.slice(s.indexOf("export async function generateMetadata"), s.indexOf("export default"));
-    expect(meta).toContain(`${getter}(id)`);
+  // Scan, don't list: every page whose generateMetadata reads an unstable_cache
+  // getter that the page also reads. unstable_cache does not share an
+  // in-flight miss, so without React cache() a cold render runs it twice.
+  const pages = (readdirSync(path.join(process.cwd(), "src/app"), { recursive: true }) as string[])
+    .filter((p) => /(^|[\\/])page\.tsx$/.test(p))
+    .map((p) => p.replace(/\\/g, "/"));
+  const shared = pages.flatMap((file) => {
+    const s = src(file).replace(/\r\n/g, "\n");
+    const start = s.indexOf("export async function generateMetadata");
+    if (start < 0) return [];
+    // Only generateMetadata's own body, up to its closing brace at column 0:
+    // helpers declared between it and the page are not metadata reads.
+    const meta = s.slice(start, s.indexOf("\n}\n", start));
+    return [...s.matchAll(/const (\w+) = (cache\()?unstable_cache\(/g)]
+      .filter((m) => meta.includes(`${m[1]}(`))
+      .map((m) => ({ file, getter: m[1], wrapped: Boolean(m[2]), reactImport: /import \{ cache \} from "react";/.test(s) }));
+  });
+
+  it("finds the pages it guards", () => {
+    const files = shared.map((x) => x.file);
+    expect(files).toEqual(expect.arrayContaining([
+      "legislators/[id]/page.tsx", "legislators/[id]/briefing/page.tsx", "news/[id]/page.tsx",
+      "alerts/[id]/page.tsx", "meetings/[id]/page.tsx", "intel/operations/[slug]/page.tsx",
+      "bills/[id]/page.tsx",
+    ]));
+  });
+
+  it("wraps every metadata-shared getter in React cache()", () => {
+    expect(shared.filter((x) => !x.wrapped || !x.reactImport)).toEqual([]);
   });
 });
 
