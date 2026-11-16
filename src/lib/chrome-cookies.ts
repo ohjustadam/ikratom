@@ -16,6 +16,10 @@ import { isValidLocale, type Locale } from "@/i18n/messages";
  * No cookie here means the route would answer the anonymous shape, so the
  * browser can build that shape itself. A cookie of any kind still calls the
  * server, so signed-in behaviour is unchanged.
+ *
+ * `/api/me` runs the same two checks on the request's Cookie header
+ * (2026-11-16), so bots that call the route directly without a session get
+ * the anonymous shape with no database work.
  */
 
 /**
