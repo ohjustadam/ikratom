@@ -75,7 +75,7 @@ jobs:
   # work never runs twice. Only scheduled runs are checked.
   clock:
     if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
       actions: write
@@ -112,7 +112,7 @@ jobs:
   # silences itself under load is worse than no monitor) and the two reminder
   # sends that real users are waiting on.
   budget:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.gate.outputs.run }}
@@ -134,7 +134,7 @@ jobs:
     # election results, the dated swap) shed at the normal tier (92%), not
     # with the bulk backfills at 80%: a lost day here can mean a member
     # writing to someone who has left office.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.gate.outputs.run }}
@@ -175,7 +175,7 @@ jobs:
     # continue-on-error so a slow endpoint can't take down the daily fan-out —
     # the route writes its own scraper_runs telemetry, so genuine failures
     # surface through the staleness watchdog, not a red workflow badge.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Hit /api/cron/reverify-local-officials
@@ -229,7 +229,7 @@ jobs:
     #
     # Free — inserts notifications rows; the hourly fanout turns them into web
     # pushes with our existing VAPID keys.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -257,7 +257,7 @@ jobs:
     # (optional BREVO_API_KEY adds 300/day). Without them it fails loudly.
     needs: national-news-digest
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -283,7 +283,7 @@ jobs:
     # hearing with a date on it — an alert that load-sheds goes quiet exactly
     # when the platform is busiest, and a missed ban hearing cannot be caught up
     # later. Same reasoning as the watchdog job below.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
@@ -314,7 +314,7 @@ jobs:
     # The "never restricted again" failsafe (2026-07-16 incident): reads the
     # project's Prometheus metrics endpoint and pages the owner at 50/75/90%
     # of the 5GB/mo free-tier egress budget — weeks before a restriction.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
@@ -366,7 +366,7 @@ jobs:
     #
     # Quota cost: ~50 Gemini-grounded calls/day = well within 1500/day
     # free tier.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -410,7 +410,7 @@ jobs:
     # donor-industries.mjs). Runs in-job so new donor rows get their
     # industry breakdown the same tick they're synced. Cheap — pure
     # pattern matching, no AI, no external API.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -447,7 +447,7 @@ jobs:
     # Polite at 1.2s/call → ~7 minutes for the full sweep at current
     # corpus size (~357 active bills). Idempotent via UNIQUE
     # (bill_id, legislator_id, classification).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -486,7 +486,7 @@ jobs:
     # AbbVie / Pfizer / Merck / etc.). House data path was 403 at
     # probe time but the script attempts and skips gracefully when
     # the source is down.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -509,7 +509,7 @@ jobs:
     # is overkill but cheap (~25s wall time, no auth required) and
     # ensures we catch the day a new disclosure hits the public
     # record. ~131 filings as of May 2026.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -534,7 +534,7 @@ jobs:
     #
     # bop-html-scrape handles every other source. The two together =
     # full BoP coverage.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -562,7 +562,7 @@ jobs:
     # are added, sourced. Daily so the post-election swearing-in wave is caught
     # within a day. First run 2026-10-21: 63 departed state legislators and
     # 1 departed U.S. senator were still active; 32 + 4 members were missing.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -627,7 +627,7 @@ jobs:
     # walked only by /api/cron/daily-sync, which was dropped from the
     # schedule ~2026-07-21; they then went unscraped for three months
     # with no alert. Telemetry: scraper_runs source "bop_html_scrape".
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -655,7 +655,7 @@ jobs:
     needs: [bop-browser-scrape, bop-html-scrape]
     # Run even if one scrape failed: the other's findings still need parsing.
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -680,7 +680,7 @@ jobs:
     # = well under. Runs AFTER parse-bop-pdfs so PDF-upgraded candidates
     # are eligible (regex re-classified them based on PDF text).
     needs: parse-bop-pdfs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -706,7 +706,7 @@ jobs:
     #
     # Caches resolutions in news_items.resolved_url so we only resolve once per
     # article. Runs BEFORE verify-news-body so the body fetcher has fresh URLs.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -746,7 +746,7 @@ jobs:
     # /pulse + /news display layers hide body_has_kratom_keyword=FALSE;
     # NULL passes through so fresh items don't get blacked out.
     needs: resolve-news-urls
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -847,7 +847,7 @@ jobs:
     # — FDA contracts for human abuse potential studies, NIH grants
     # for academic kratom pharmacology, etc. As of first live run
     # (2026-05-14): 39 awards totaling $27.97M. Free API, no key.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -873,7 +873,7 @@ jobs:
     # (62 docs as of 2026-05-14) so daily sync is more than enough.
     # The high-leverage rows are open_for_comment=true — surfaced
     # in every state briefing as a "submit comment NOW" CTA.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -895,7 +895,7 @@ jobs:
     # /videos: newest uploads + upcoming lives from the kratom orgs' and
     # creators' YouTube channels (external_communities, category youtube).
     # Keyless RSS, ~1 request per channel; video bytes never touch us.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -922,7 +922,7 @@ jobs:
     # opinions in their index today; this script caps at 5 pages per
     # search (~100 results each) per run, so re-runs catch the
     # freshest cases. Idempotent UPSERT on cl_cluster_id / cl_docket_id.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -945,7 +945,7 @@ jobs:
     # (~16 today) upsert idempotently. Quick — runs in under 10s.
     # State briefing generator depends on this for fresh Utah intel,
     # but doesn't block: this job needs no upstream data.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
@@ -977,7 +977,7 @@ jobs:
     # intel and the cleanup steps are idempotent, so run regardless (matches the
     # legiscan-wide-pass dependents' `if: !cancelled()` hardening).
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -1028,7 +1028,7 @@ jobs:
     # countries) 53 days stale. It now goes through the free router first and
     # keeps Ollama only as a local fallback, so it runs unattended here.
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -1073,7 +1073,7 @@ jobs:
     # and have nothing to do with AI generation.
     needs: [classify-bop-ai, scrape-utah-lobbying, sync-courtlistener-kratom, sync-regulations-gov, sync-usaspending-kratom, budget]
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -1188,7 +1188,7 @@ jobs:
     # Sequencing only (protects the shared OpenStates quota) — committees
     # don't consume legiscan output, so run even if the sweep failed/timed out.
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
@@ -1223,7 +1223,7 @@ jobs:
     # Run even if the committee sync failed — stance drafting degrades
     # gracefully with yesterday's committee data.
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
@@ -1260,7 +1260,7 @@ jobs:
     # human click, so a fabricated meeting carrying a high confidence number
     # would have gone live by itself. Gemini survives only as a lead
     # generator: its URLs go through the same verification as SearXNG's.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     # Job-level so both scripts in this job see the same providers. The router
     # tries every provider whose key is set, so the whole free set is listed
@@ -1346,7 +1346,7 @@ jobs:
     # "LIVE NOW" broadcast it's skipped here.
     #
     # Free — uses our existing VAPID keys for web push.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -1372,7 +1372,7 @@ jobs:
     # via reminder_Nd_sent_at; DND/quiet-hours respected by the push gate.
     #
     # Free — uses our existing VAPID keys for web push.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -1403,7 +1403,7 @@ jobs:
     # Free — structured JSON, ~4 req/sec. Rows go in as legistar_scan, which
     # auto-approve-meetings may publish; a bare "7-OH" match is held for a
     # human. Self-limits with --max-minutes 30 (default) under this timeout.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -1430,7 +1430,7 @@ jobs:
     #
     # Free — just static HTTP fetches. Rate-limited at ~1 req/sec per
     # tenant to stay polite. Hits land in pending_review.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -1450,7 +1450,7 @@ jobs:
     if: needs.budget.outputs.run == 'true'
     # Ingest newest kratom + 7-OH research from PubMed (NCBI E-utils,
     # free + no key). Then run AI evaluation on anything new.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -1481,7 +1481,7 @@ jobs:
     # Daily sweep of every active anti/pro bill via LegiScan. The hourly
     # cron only hits the 30 most-stale; this catches everything else
     # at least once a day even if hourly never gets to it.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
@@ -1556,7 +1556,7 @@ jobs:
     needs: [legiscan-wide-pass, budget]
     # Best on fresh data, still correct on yesterday's — never skip.
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -1585,7 +1585,7 @@ jobs:
     # Surfaces on /legislators/[id]/briefing under "📰 News mentions".
     # Cheap — pure DB regex scan, no AI calls. Daily is plenty since
     # news_items come in hourly but per-legislator mention rate is low.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -1615,7 +1615,7 @@ jobs:
     # the AI pass doesn't re-evaluate rows it has already scored.
     # Pre-migration deploys see the column missing and the script
     # exits gracefully via the Supabase error.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -1645,7 +1645,7 @@ jobs:
     # When legiscan-wide-pass timed out on 2026-07-05, this was skipped
     # and users got no brief. Clustering on day-old data beats no brief.
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -1707,7 +1707,7 @@ jobs:
     needs: [legiscan-wide-pass, budget]
     # Journeys enrich yesterday's text fine — never cascade-skip.
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
@@ -1744,7 +1744,7 @@ jobs:
     # Run even if the journey pass failed or timed out — independent enough
     # that the substance classify + downstream derive should still recompute.
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
@@ -1773,7 +1773,7 @@ jobs:
     needs: [classify-bill-substance, budget]
     # Always recompute even if upstream enrich/classify failed or timed out.
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -1800,7 +1800,7 @@ jobs:
     # rewrites needs_review nightly). Does NOT auto-publish — the owner confirms.
     needs: [derive-state-status, budget]
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -1825,7 +1825,7 @@ jobs:
     # closes matching local_rep_requests. Tenants whose Legistar lacks a
     # membership roster are skipped (the SearXNG+Ollama batch covers those).
     # Auto-discovers new tenants first (keyless probe) to widen coverage.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5

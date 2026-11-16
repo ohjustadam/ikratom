@@ -39,7 +39,7 @@ concurrency:
 
 jobs:
   rescue:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Generous vs the ~4s the diagnose actually takes: every probe has its own
     # 25s timeout, so this only trips if the runner itself is wedged.
     timeout-minutes: 6

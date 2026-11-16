@@ -110,7 +110,7 @@ jobs:
   # work never runs twice. Only scheduled runs are checked.
   clock:
     if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
       actions: write
@@ -150,7 +150,7 @@ jobs:
   # people are waiting on) and watchdog (a monitor that silences itself under
   # load is worse than no monitor). See scripts/lib/egress-budget.mjs.
   budget:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.gate.outputs.run }}
@@ -169,7 +169,7 @@ jobs:
         run: node --import=./scripts/lib/egress-meter.mjs scripts/egress-gate.mjs --tier normal
 
   fire-waves:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Hit /api/cron/fire-waves
@@ -255,7 +255,7 @@ jobs:
     # Self-heal: render TODAY's brief audio if it's missing. --if-missing is a
     # cheap no-op once today's file exists, so it's safe every hour and
     # guarantees same-day audio regardless of the daily cron.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -277,7 +277,7 @@ jobs:
     # states, then classify newly-ingested items into policy_alerts. These are
     # the heaviest steps (sync ~16 min, classify ~8 min) so they get their own
     # job + budget; everything else depends on them having run.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 28
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -317,7 +317,7 @@ jobs:
     # continue-on-error so a transient provider/robots wall can't fail the leg.
     needs: [news-intake, budget]
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 28
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -389,7 +389,7 @@ jobs:
     # no-ops in a quiet hour.
     needs: [news-intake, budget]
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 28
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -488,7 +488,7 @@ jobs:
     # Zoom / sign-up-to-speak / agenda / who-decides links. Independent job and
     # not budget-gated: a hearing has a date on it and cannot be caught up later.
     # Runs in Actions, not Netlify, so it works while the site is down.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v5
@@ -516,7 +516,7 @@ jobs:
     # 24h. Same module as the site (loaded via jiti), so no duplicated rules; a
     # delivered row is stamped pushed_at, so running both paths is safe.
     # Full `npm ci`: jiti comes with the build toolchain, not the runtime deps.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v5
@@ -542,7 +542,7 @@ jobs:
     # starved by an upstream timeout (the 2026-06-16→18 incident this split fixes).
     needs: [news-enrich, news-actions]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v5
@@ -641,7 +641,7 @@ jobs:
     # Hits the Netlify ORIGIN, not www: Cloudflare Bot Fight Mode challenges
     # GitHub's datacenter IPs and would 403 every call (the 24-day fire-waves
     # outage). netlify.toml serves /api/cron/* at the origin with status 200.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - name: Drain queued campaign sends

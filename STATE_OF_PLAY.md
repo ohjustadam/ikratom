@@ -618,6 +618,13 @@ the owner's yes.
     migration 0310 that ERRORS ("permission denied for function is_owner").
     From Nov 5 to Nov 10 every signup showed that error after the account
     had been created.
+14. **Every GitHub job is pinned to `ubuntu-24.04`, not `ubuntu-latest`.**
+    On 2026-11-16 around 13:00 UTC, `ubuntu-latest` became Ubuntu 26.04.
+    `playwright-chromium`'s install step refuses that OS, so `npm ci` failed
+    in every job: CI, the hourly and daily crons, the send drain and backups.
+    `tests/workflow-runner-pin.test.ts` fails if a workflow goes back to
+    `ubuntu-latest`. Unpin only once Playwright supports the new image and a
+    draft run proves it.
 
 ---
 
