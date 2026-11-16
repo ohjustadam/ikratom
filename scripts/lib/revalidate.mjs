@@ -13,6 +13,7 @@
  * it. The worst case without this is the old behaviour — content appears when
  * the TTL lapses.
  */
+import { browserUA } from "./browser-ua.mjs";
 
 /**
  * @param {string[]} tags  Tags to flush (must be allowlisted server-side).
@@ -36,11 +37,10 @@ export async function revalidateTags(tags, opts = {}) {
       method: "POST",
       headers: {
         Authorization: `Bearer ${secret}`,
-        // Browser-shaped UA: Cloudflare Bot Fight Mode challenges datacenter
-        // IPs on the www host, and it matches on the UA PREFIX — the honest
-        // identifier goes last. Same shape as check-vercel-usage.mjs:167.
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 iKratom-Cron/1.0 (+https://www.ikratom.org)",
+        // Browser-shaped and CURRENT: Bot Fight Mode challenges datacenter IPs
+        // on the www host (it matches on the UA PREFIX, so the honest identifier
+        // goes last), and a WAF rule challenges stale Chrome versions.
+        "User-Agent": browserUA(),
       },
       signal: AbortSignal.timeout(15_000),
     });
