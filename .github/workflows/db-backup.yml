@@ -50,7 +50,7 @@ jobs:
   # full dump asks the gate again at the BULK tier inside db-backup.mjs and
   # defers itself when the month is tight.
   budget:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.gate.outputs.run }}
@@ -71,7 +71,7 @@ jobs:
   backup:
     needs: budget
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
@@ -113,7 +113,7 @@ jobs:
   snapshot:
     needs: budget
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5

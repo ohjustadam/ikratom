@@ -36,7 +36,7 @@ concurrency:
 
 jobs:
   draft-weekly-digest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Read-only: no branch, no pull request.
     permissions:

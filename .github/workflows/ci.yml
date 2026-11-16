@@ -8,7 +8,7 @@ name: CI
 #   - Logic-layer coverage falling below tests/coverage-baseline.json
 #
 # Runs on every PR + on pushes to main (to catch the rare squash-merge
-# that introduced a regression). Uses ubuntu-latest + Node 22 to match
+# that introduced a regression). Uses ubuntu-24.04 (pinned, see tests/workflow-runner-pin.test.ts) + Node 22 to match
 # Vercel's runtime. ~2 minutes per run.
 #
 # Free on public repos (unlimited Actions minutes).
@@ -25,7 +25,7 @@ concurrency:
 jobs:
   verify:
     name: Typecheck + tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v5
@@ -66,7 +66,7 @@ jobs:
 
   build:
     name: Next.js build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -99,7 +99,7 @@ jobs:
 
   responsive:
     name: Responsive guard
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v5
@@ -142,7 +142,7 @@ jobs:
 
   audit:
     name: npm audit (high+)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
@@ -160,7 +160,7 @@ jobs:
 
   credits:
     name: Netlify credit budget
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     # THE BRAKE. On 2026-07-30 the site was disabled for credit exhaustion:
     # 15 production deploys x 15 credits = 225 of a 300-credit monthly budget.
