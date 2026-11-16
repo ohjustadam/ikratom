@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { normalizeLocality } from "@/lib/locality";
 import { isValidCountyName } from "@/lib/county-name";
@@ -267,6 +268,8 @@ export async function rejectCoverageRequest(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const stateRaw = input.state.trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(stateRaw)) return { error: "Invalid state." };
 
@@ -310,6 +313,8 @@ export async function triggerCloudResolution(): Promise<
 > {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const token = process.env.GITHUB_DISPATCH_TOKEN;
   const repo = process.env.GITHUB_DISPATCH_REPO || "ohjustadam/ikratom";

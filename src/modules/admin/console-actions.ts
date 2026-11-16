@@ -3,6 +3,7 @@
 import { updateTag, revalidatePath } from "next/cache";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { DISPATCHABLE_WORKFLOW_FILES } from "@/lib/dispatchable-workflows";
@@ -75,6 +76,8 @@ export async function runSqlQuery(input: {
 }): Promise<SqlResult> {
   const ctx = await getAdminContext({ require: "run_sql" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
   // Break-glass OWNER tool: admin_exec_sql is SECURITY DEFINER and bypasses RLS,
   // so a non-owner admin could otherwise read auth.users (emails + bcrypt
   // hashes) or any user's private profile columns via raw SELECT. Reads AND
@@ -190,6 +193,8 @@ export async function triggerCron(endpoint: CronEndpoint): Promise<CronTriggerRe
         : "Admin required.",
     };
   }
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   const secret = process.env.CRON_SECRET;
   if (!secret) return { ok: false, error: "CRON_SECRET not configured." };
@@ -238,6 +243,8 @@ export async function dispatchWorkflow(
 ): Promise<WorkflowDispatchResult> {
   const ctx = await getAdminContext({ require: "dispatch_workflows" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
   // Owner-only: a dispatched run executes repo code on a runner carrying
   // SUPABASE_SERVICE_ROLE_KEY and the other pipeline secrets, and several
   // workflows write production data. The allowlist bounds WHICH workflows,
@@ -325,6 +332,8 @@ export type CacheResult =
 export async function flushCacheTag(tag: CacheTag): Promise<CacheResult> {
   const ctx = await getAdminContext({ require: "view_ops_console" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   if (!KNOWN_TAGS.includes(tag)) {
     return { ok: false, error: `Unknown tag. Allowed: ${KNOWN_TAGS.join(", ")}` };
@@ -345,6 +354,8 @@ export async function flushCacheTag(tag: CacheTag): Promise<CacheResult> {
 export async function revalidateAdminPath(path: string): Promise<CacheResult> {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   // Bounded path syntax — refuse arbitrary URLs.
   if (!/^\/[a-zA-Z0-9_/[\]:-]{0,200}$/.test(path)) {

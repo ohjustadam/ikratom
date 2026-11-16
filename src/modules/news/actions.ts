@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { newsAboutState } from "@/lib/news-state-filter";
 
 // All public listings filter to canonicals (duplicate_of IS NULL) so each
@@ -149,6 +150,8 @@ export async function flagNewsItem(input: { id: string; reason: string }) {
 export async function deactivateNewsItem(id: string) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const supabase = await createClient();
   const { error } = await supabase.from("news_items").update({ active: false }).eq("id", id);
   if (error) return { error: error.message };

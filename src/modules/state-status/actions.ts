@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 /**
@@ -89,6 +90,8 @@ export async function confirmStateStatus(input: {
 }): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[A-Z]{2}$/.test(input.state)) return { error: "Invalid state." };
   if (input.leaf && !LEAF_VALUES.includes(input.leaf)) return { error: "Invalid leaf status." };
   if (input.sevenoh && !OH_VALUES.includes(input.sevenoh)) return { error: "Invalid 7-OH status." };

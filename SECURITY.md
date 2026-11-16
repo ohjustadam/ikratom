@@ -93,11 +93,13 @@ Out of scope:
 ### Authorization
 - Row Level Security on every public-schema table
 - `getAdminContext()` / `getCreatorContext()` guards on every admin mutation
-- `requireMfaForMutation()` blocks sensitive writes from any aal1 session
-  whose user has a factor; the signed backup-code cookie still bypasses
-  for an hour. Blocking an admin or owner with NO verified factor
-  ("enroll at /account/security") is built but off until
-  `ADMIN_MFA_ENFORCED` flips: members were told it starts Mon 2026-11-23
+- `requireMfaForMutation()` blocks every admin write (reads are listed in
+  `tests/admin-mfa-coverage.test.ts`, which fails CI on an ungated admin
+  action) from any aal1 session whose user has a factor; the signed
+  backup-code cookie still bypasses for an hour. Blocking an admin or
+  owner with NO verified factor ("enroll at /account/security") is built
+  but off until `ADMIN_MFA_ENFORCED` flips: members were told it starts
+  Mon 2026-11-23
 - `_ikratom_migrations` ledger has RLS-with-no-policies (locked to
   service role only — see migration 0021)
 
@@ -172,7 +174,9 @@ Out of scope:
 6. **ALWAYS** explicitly project fields from `FormData` — never spread
    `Object.fromEntries(fd)` into a DB write.
 7. **ALWAYS** call `getAdminContext()` (or `getCreatorContext()`) +
-   `requireMfaForMutation()` at the top of any sensitive admin server action.
+   `requireMfaForMutation()` at the top of any admin server action that
+   writes. A read-only one goes in `READ_ONLY` in
+   `tests/admin-mfa-coverage.test.ts` instead; that test fails otherwise.
 8. **ALWAYS** add an `enable row level security` clause to every new public-
    schema table, even if it's just metadata. Run
    `mcp__supabase__get_advisors` after migrations to verify.
