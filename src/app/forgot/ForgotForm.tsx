@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { requestPasswordReset } from "@/modules/auth/actions";
 import { isStaleDeployError, reloadOnceForNewVersion } from "@/lib/stale-deploy";
+import { useTurnstile } from "@/components/auth/useTurnstile";
+import { CAPTCHA_FIELD } from "@/lib/captcha";
 
 // A request that hit a page from before a deploy is resent once after the
 // reload, so the member still only clicks once (src/lib/stale-deploy.ts).
@@ -13,6 +15,7 @@ export function ForgotForm() {
   const [sent, setSent] = useState(false);
   const [pending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
+  const { slot: captchaSlot, ...captcha } = useTurnstile("reset");
 
   useEffect(() => {
     let email: string | null = null;
@@ -29,7 +32,11 @@ export function ForgotForm() {
     const fd = new FormData(e.currentTarget);
     startTransition(async () => {
       try {
+        // Waits for the bot check, so the resend after a reload works too.
+        const token = await captcha.getToken();
+        if (token) fd.set(CAPTCHA_FIELD, token);
         const result = await requestPasswordReset(fd);
+        captcha.reset();
         if (result?.error) setError(result.error);
         else setSent(true);
       } catch (err) {
@@ -81,6 +88,7 @@ export function ForgotForm() {
           {error}
         </p>
       )}
+      <div ref={captchaSlot} />
       <button
         type="submit"
         disabled={pending}

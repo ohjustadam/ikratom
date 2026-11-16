@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { changePassword } from "../actions-password";
+import { useTurnstile } from "@/components/auth/useTurnstile";
+import { CAPTCHA_FIELD } from "@/lib/captcha";
 
 /**
  * Force-change variant of the password form. Used by /account/security/
@@ -14,6 +16,7 @@ import { changePassword } from "../actions-password";
 export function ForceChangePasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const { slot: captchaSlot, ...captcha } = useTurnstile("reauth");
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -21,7 +24,10 @@ export function ForceChangePasswordForm() {
     const formEl = e.currentTarget;
     const fd = new FormData(formEl);
     startTransition(async () => {
+      const token = await captcha.getToken();
+      if (token) fd.set(CAPTCHA_FIELD, token);
       const r = await changePassword(fd);
+      captcha.reset();
       if ("error" in r) {
         setError(r.error);
       } else {
@@ -65,6 +71,8 @@ export function ForceChangePasswordForm() {
           {error}
         </p>
       )}
+
+      <div ref={captchaSlot} />
 
       <button
         type="submit"

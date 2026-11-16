@@ -5,6 +5,7 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { recordAdminAction } from "@/lib/audit";
 import { isPasswordPwned } from "@/lib/pwned-passwords";
 import { sendTransactionalEmail, brandedHtml } from "@/lib/email/transactional";
+import { CAPTCHA_FAILED_HINT, CAPTCHA_FAILED_MESSAGE, captchaTokenFrom, isCaptchaError } from "@/lib/captcha";
 
 export type ChangePasswordResult = { ok: true } | { error: string };
 
@@ -63,7 +64,11 @@ export async function changePassword(formData: FormData): Promise<ChangePassword
   const { error: verifyErr } = await supabase.auth.signInWithPassword({
     email: user.email,
     password: current,
+    options: { captchaToken: captchaTokenFrom(formData) },
   });
+  if (verifyErr && isCaptchaError(verifyErr.message)) {
+    return { error: `${CAPTCHA_FAILED_MESSAGE} ${CAPTCHA_FAILED_HINT}` };
+  }
   if (verifyErr) {
     return { error: "Current password is incorrect." };
   }

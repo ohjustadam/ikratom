@@ -13,6 +13,10 @@ import { recordAuthEvent } from "@/lib/auth-events";
 import type { AuthResult } from "./types";
 import { PENDING_JOIN_COOKIE, joinCodeFromPath, pendingJoinCookieOptions, pendingJoinPath } from "@/lib/pending-join";
 import { classifySignUp } from "./signup-outcome";
+import { CAPTCHA_FAILED_HINT, CAPTCHA_FAILED_MESSAGE, captchaTokenFrom, isCaptchaError } from "@/lib/captcha";
+
+/** Same answer everywhere the Turnstile check fails (src/lib/captcha.ts). */
+const CAPTCHA_FAILED = { error: CAPTCHA_FAILED_MESSAGE, hint: CAPTCHA_FAILED_HINT, errorCode: "captcha_failed" } as const;
 
 /**
  * Look up the most recent active campaign for a state and return its slug.
@@ -206,7 +210,7 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
     password,
     // Without this Supabase sends the link to the Site URL: the homepage,
     // which ignores ?code= and leaves the person signed out with no message.
-    options: { emailRedirectTo: `${appUrl}/auth/callback` },
+    options: { emailRedirectTo: `${appUrl}/auth/callback`, captchaToken: captchaTokenFrom(formData) },
   });
   const kind = classifySignUp({ error, user: data?.user });
   // A real account id only when Supabase made or found an unconfirmed account;
@@ -224,6 +228,7 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   });
 
   if (kind === "error") {
+    if (isCaptchaError(error?.message)) return CAPTCHA_FAILED;
     return { error: error?.message || "We couldn't create the account. Try again in a minute." };
   }
 
@@ -362,7 +367,11 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   }
 
   const supabase = await createClient();
-  const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+  const { error, data } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+    options: { captchaToken: captchaTokenFrom(formData) },
+  });
   if (error) {
     await recordAuthEvent({
       kind: "login", provider: "password", status: "fail",
@@ -395,9 +404,9 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
       hint = "Double-check your email and password. Signed up more than once? Your password is the one from your FIRST try. If you never confirmed your email, tap the link in the newest email from iKratom (check spam). Otherwise use 'Forgot password' to reset access, or 'Sign up' if you're new.";
     } else if (msg.includes("rate limit") || msg.includes("too many")) {
       friendly = "Too many attempts. Try again in a few minutes.";
-    } else if (msg.includes("captcha")) {
-      friendly = "Sign-in is temporarily blocked.";
-      hint = "Refresh the page and try again. If it persists, contact support.";
+    } else if (isCaptchaError(msg)) {
+      friendly = CAPTCHA_FAILED_MESSAGE;
+      hint = CAPTCHA_FAILED_HINT;
     } else if (msg.includes("banned") || msg.includes("blocked")) {
       friendly = "This account has been suspended.";
       hint = "Contact support if you think this is a mistake.";
@@ -506,7 +515,11 @@ export async function signInInline(formData: FormData): Promise<AuthResult & { m
   }
 
   const supabase = await createClient();
-  const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+  const { error, data } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+    options: { captchaToken: captchaTokenFrom(formData) },
+  });
   if (error) {
     await recordAuthEvent({
       kind: "login", provider: "password", status: "fail",
@@ -530,6 +543,7 @@ export async function signInInline(formData: FormData): Promise<AuthResult & { m
         errorCode: "invalid_credentials",
       };
     }
+    if (isCaptchaError(msg)) return CAPTCHA_FAILED;
     return { error: error.message, errorCode: error.code ?? null };
   }
 
@@ -596,7 +610,7 @@ export async function resendSignupLink(formData: FormData): Promise<AuthResult> 
   const { error } = await supabase.auth.resend({
     type: "signup",
     email,
-    options: { emailRedirectTo: `${appUrl}/auth/callback` },
+    options: { emailRedirectTo: `${appUrl}/auth/callback`, captchaToken: captchaTokenFrom(formData) },
   });
   await recordAuthEvent({
     kind: "signup", provider: "password",
@@ -606,6 +620,8 @@ export async function resendSignupLink(formData: FormData): Promise<AuthResult> 
     email, ip: ip ?? null,
     context: { outcome: "resend_link" },
   });
+  // A failed bot check says nothing about the address, so it can be shown.
+  if (isCaptchaError(error?.message)) return CAPTCHA_FAILED;
   return { success: true };
 }
 
@@ -635,7 +651,11 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
   const appUrl = process.env.APP_URL ?? "http://localhost:3001";
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${appUrl}/auth/callback?next=/reset-password`,
+    captchaToken: captchaTokenFrom(formData),
   });
+  // A failed bot check says nothing about the address, so it can be shown;
+  // otherwise the member waits for an email that was never sent.
+  if (isCaptchaError(error?.message)) return CAPTCHA_FAILED;
 
   // We always return success to prevent email enumeration. The user will get
   // the email if their account exists; otherwise nothing happens.
