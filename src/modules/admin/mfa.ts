@@ -5,19 +5,30 @@ export const ADMIN_MFA_ENROLL_MESSAGE =
   "Two-factor authentication is required for admin changes. Enroll at /account/security, then try again.";
 
 /**
+ * Whether an admin or owner with NO verified factor is blocked from mutating.
+ * Off for now: flipped by the admin 2FA sweep after the Nov 23 go/no-go;
+ * members were told Nov 23 (email + bell note, 2026-11-16).
+ */
+export const ADMIN_MFA_ENFORCED = false;
+
+/**
  * MFA gate for sensitive admin mutations.
  *
  * Returns `null` if the caller is allowed to mutate, or a string error
  * message if they should be blocked. Rules:
  *
  *   - Backup-code bypass cookie (signed, 1 hour): allowed.
- *   - Admin or owner with NO verified factor (`aalNext !== "aal2"`): blocked,
- *     told to enroll at /account/security (2026-11-11: the grace period ended;
- *     one admin had no 2FA). The owner has a factor, so this cannot lock him out.
+ *   - Admin or owner with NO verified factor (`aalNext !== "aal2"`): blocked
+ *     and told to enroll at /account/security, but only once
+ *     ADMIN_MFA_ENFORCED is on (owner deadline Mon 2026-11-23). Until then
+ *     they keep the grace rule. The owner has a factor, so this cannot lock
+ *     him out.
  *   - Anyone WITH a factor whose session is still aal1: blocked until they
  *     enter their code (/login/mfa or the inline prompt).
  *   - Otherwise allowed. A plain leader acting on a granted permission keeps
  *     the old grace rule; campaign/wave authoring uses requireMfaEnrolled.
+ *
+ * `enforce` overrides ADMIN_MFA_ENFORCED (tests only).
  *
  * NOTE: kept in a non-"use server" file because server-actions files can
  * only export async functions; this is a plain sync helper.
@@ -28,10 +39,12 @@ export function requireMfaForMutation(ctx: {
   mfaBypass?: boolean;
   isAdmin: boolean;
   isOwner: boolean;
+  enforce?: boolean;
 }): string | null {
   // Backup-code redemption grants a 1-hour bypass for the current session.
   if (ctx.mfaBypass) return null;
-  if ((ctx.isAdmin || ctx.isOwner) && ctx.aalNext !== "aal2") {
+  const enforced = ctx.enforce ?? ADMIN_MFA_ENFORCED;
+  if (enforced && (ctx.isAdmin || ctx.isOwner) && ctx.aalNext !== "aal2") {
     return ADMIN_MFA_ENROLL_MESSAGE;
   }
   if (ctx.aalNext === "aal2" && ctx.aal !== "aal2") {

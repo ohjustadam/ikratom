@@ -26,8 +26,9 @@ threats, ranked:
 4. **Privilege escalation** — addressed by RLS on every table,
    service-role isolation in audit/backup-code helpers,
    `getAdminContext()` guard on all admin mutations,
-   `requireMfaForMutation()`: admins and the owner need an enrolled
-   factor and an aal2 session to mutate.
+   `requireMfaForMutation()`: an aal2 session to mutate once a factor is
+   enrolled; from the Nov 23 go/no-go (`ADMIN_MFA_ENFORCED`), admins and
+   the owner need an enrolled factor at all.
 5. **Mass assignment** — every server action explicitly projects fields
    from FormData; no bulk inserts. Role flags (`is_admin`, `is_owner`,
    `is_advocate_leader`) are only writeable via the dedicated
@@ -92,10 +93,11 @@ Out of scope:
 ### Authorization
 - Row Level Security on every public-schema table
 - `getAdminContext()` / `getCreatorContext()` guards on every admin mutation
-- `requireMfaForMutation()` blocks sensitive writes from an admin or owner
-  with no verified factor ("enroll at /account/security"), and from any
-  aal1 session whose user has a factor; the signed backup-code cookie
-  still bypasses for an hour
+- `requireMfaForMutation()` blocks sensitive writes from any aal1 session
+  whose user has a factor; the signed backup-code cookie still bypasses
+  for an hour. Blocking an admin or owner with NO verified factor
+  ("enroll at /account/security") is built but off until
+  `ADMIN_MFA_ENFORCED` flips: members were told it starts Mon 2026-11-23
 - `_ikratom_migrations` ledger has RLS-with-no-policies (locked to
   service role only — see migration 0021)
 
