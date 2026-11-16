@@ -23,12 +23,14 @@ export async function ActivityRadarWidget() {
       .from("forum_threads")
       .select("id, state, title, created_at")
       .eq("moderation_status", "approved")
+      .eq("system_generated", false)
       .order("created_at", { ascending: false })
       .limit(4),
     supabase
       .from("forum_posts")
       .select("id, thread_id, created_at, moderation_status")
       .eq("moderation_status", "approved")
+      .not("author_id", "is", null)
       .order("created_at", { ascending: false })
       .limit(4),
     supabase

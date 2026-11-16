@@ -46,6 +46,9 @@ export default async function NewsPage() {
             Daily AI-curated news on kratom legislation, science, business, and enforcement.
             Federal coverage + per-state. Last 30 days.
           </p>
+          <a href="/media" className="mt-2 inline-block text-sm font-semibold text-emerald-400 hover:underline">
+            ✉ Reply to the people writing these stories
+          </a>
         </div>
         <PageShareWithAttribution
           path="/news"

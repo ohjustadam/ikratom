@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
-import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { ModerationActions } from "./ModerationActions";
+import { RecentEdits } from "./RecentEdits";
+import { StaleBillThreads } from "./StaleBillThreads";
 import { BulkBar } from "./BulkBar";
 
 export const metadata = { title: "Forum moderation" };
@@ -11,6 +12,7 @@ const FLAG_LABEL: Record<string, { label: string; cls: string }> = {
   pending: { label: "Pending review", cls: "bg-amber-950/40 text-amber-300" },
   auto_flagged: { label: "Auto-flagged", cls: "bg-red-950/40 text-red-300" },
   user_flagged: { label: "User-reported", cls: "bg-orange-950/40 text-orange-300" },
+  approved: { label: "Reported, still visible", cls: "bg-orange-950/40 text-orange-300" },
 };
 
 type FlaggedThread = {
@@ -50,7 +52,9 @@ export default async function ForumModerationPage() {
   const ctx = await getCreatorContext({ require: "moderate_forum" });
   if (!ctx.ok) redirect("/dashboard");
 
-  const supabase = await createClient();
+  // Service role: a leader moderates this queue, and RLS would hide every flagged
+  // item from anyone but an admin.
+  const supabase = createServiceRoleClient();
   const FLAGGED = ["pending", "auto_flagged", "user_flagged"];
 
   const [
@@ -81,6 +85,28 @@ export default async function ForumModerationPage() {
   const threads = (threadsRaw ?? []) as unknown as FlaggedThread[];
   const posts = (postsRaw ?? []) as unknown as FlaggedPost[];
   const reports = (reportsRaw ?? []) as unknown as Report[];
+
+  // A report doesn't hide a post by itself, so reported posts that are still up
+  // have to be pulled in here or no moderator would ever see them.
+  const reportedPostIds = [...new Set(reports.map((r) => r.post_id).filter((id): id is string => !!id))]
+    .filter((id) => !posts.some((p) => p.id === id));
+  const reportedThreadIds = [...new Set(reports.map((r) => r.thread_id).filter((id): id is string => !!id))]
+    .filter((id) => !threads.some((t) => t.id === id));
+  const [{ data: reportedPosts }, { data: reportedThreads }] = await Promise.all([
+    supabase
+      .from("forum_posts")
+      .select("id, thread_id, author_id, body, moderation_status, flag_reason, auto_flag_signals, created_at")
+      .in("id", reportedPostIds)
+      .eq("moderation_status", "approved")
+      .is("deleted_at", null),
+    supabase
+      .from("forum_threads")
+      .select("id, state, title, body, author_id, moderation_status, flag_reason, auto_flag_signals, created_at")
+      .in("id", reportedThreadIds)
+      .eq("moderation_status", "approved"),
+  ]);
+  posts.push(...((reportedPosts ?? []) as unknown as FlaggedPost[]));
+  threads.push(...((reportedThreads ?? []) as unknown as FlaggedThread[]));
 
   // Group reports by target id
   const reportsByPost = new Map<string, Report[]>();
@@ -232,6 +258,9 @@ export default async function ForumModerationPage() {
           </ul>
         </section>
       )}
+
+      <StaleBillThreads />
+      <RecentEdits />
     </div>
   );
 }

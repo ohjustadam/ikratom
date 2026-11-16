@@ -95,7 +95,10 @@ export default async function ResearchIndex({ searchParams }: { searchParams?: P
           gets a special badge — that distinction often matters more than the headline finding.
         </p>
         <p className="mt-2 text-xs text-zinc-500">
-          {all.length} papers ingested · {totalEvaluated} AI-evaluated.
+          {all.length} papers ingested · {totalEvaluated} AI-evaluated.{" "}
+          <Link href="/media" className="font-semibold text-emerald-400 hover:underline">
+            Write to the researchers
+          </Link>
         </p>
         <ResearchSubmitCta />
       </header>

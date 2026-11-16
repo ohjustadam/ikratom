@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { BillsView } from "./BillsView";
+import { collapseBillTwins } from "@/lib/bill-status";
 import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 
 export const metadata = { title: "Bill tracker" };
@@ -20,6 +21,7 @@ type BillRow = {
   summary_ai: string | null;
   advocacy_callout: string | null;
   status: string | null;
+  session_sine_die: boolean | null;
   kratom_relevance: string | null;
   relevance_confidence: number | null;
   last_action: string | null;
@@ -49,7 +51,7 @@ const getBillsSnapshot = unstable_cache(
       .select(
         "id, state, bill_number, title, summary, summary_ai, advocacy_callout, " +
         "status, kratom_relevance, relevance_confidence, last_action, last_action_at, " +
-        "source_url, official_url, session_id, scope, locality, active"
+        "source_url, official_url, session_id, scope, locality, active, session_sine_die"
       )
       .order("active", { ascending: false })
       .order("last_action_at", { ascending: false, nullsFirst: false })
@@ -61,7 +63,7 @@ const getBillsSnapshot = unstable_cache(
 );
 
 export default async function BillsPage() {
-  const allBills = await getBillsSnapshot();
+  const allBills = collapseBillTwins(await getBillsSnapshot());
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">

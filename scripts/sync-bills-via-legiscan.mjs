@@ -41,6 +41,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { terminalStatusFromAction } from "./lib/bill-status.mjs";
+import { sessionMismatch } from "./lib/bill-session.mjs";
 import {
   createLegiscanClient, legiscanCallsThisMonth, remainingFor, changeHashesFromMasterList, planBill,
 } from "./lib/legiscan-budget.mjs";
@@ -124,28 +125,18 @@ async function legiscanFetch(op, params) {
   return client.call(op, params ?? {});
 }
 
-/** Pull 4-digit years out of a stored session label ("2019-2020", "2023",
- *  "2017 Regular Session", even garbage like "1841"). */
-function sessionYearsFromLabel(s) {
-  const m = String(s ?? "").match(/(?:19|20)\d{2}/g);
-  return m ? m.map(Number) : null;
-}
-
-/**
- * True when the LegiScan-resolved bill clearly belongs to a DIFFERENT
- * legislative session than the stored row. LegiScan search matches by
- * bill_number only, so "SB 433" can resolve to the CURRENT session's bill even
- * when this row is an old session — the Frankenstein-record bug (MI SB 433: a
- * 2019-2020 kratom row got 2025-2026 THC school-bill text + actions stapled on).
- * Precision over recall: when either side is unparseable we return false (don't
- * block a legitimate update).
- */
-function isSessionMismatch(storedSessionId, detailSession) {
-  const stored = sessionYearsFromLabel(storedSessionId);
-  const dy = Number(detailSession?.year_start ?? detailSession?.year_end ?? 0);
-  if (!stored || !dy) return false;
-  if (stored.includes(dy)) return false;
-  return Math.abs(dy - Math.max(...stored)) > 1;
+// The state's legislative sessions, which the session guard reads labels
+// against ("101st" is Illinois's 2019-2020 Assembly). Loaded once, in pages.
+const sessionsByState = new Map();
+async function loadSessions(states) {
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb.from("legislative_sessions")
+      .select("id, state, legiscan_session_id, session_name, year_start, year_end, special")
+      .in("state", states).order("id").range(from, from + 999);
+    if (error) { console.log(`  ⚠ legislative_sessions read failed: ${error.message?.slice(0, 100)} — the guard reads label years only`); return; }
+    for (const r of data ?? []) sessionsByState.set(r.state, [...(sessionsByState.get(r.state) ?? []), r]);
+    if (!data || data.length < 1000) return;
+  }
 }
 
 async function findLegiScanId(bill) {
@@ -172,8 +163,11 @@ async function findLegiScanId(bill) {
 async function syncOne(bill) {
   console.log(`\n=== ${bill.state} ${bill.bill_number} (${bill.id.slice(0, 8)}) | rel:${bill.kratom_relevance ?? '?'} ===`);
 
-  // Resolve LegiScan ID
+  // Resolve LegiScan ID. A searched id is saved only once the session guard
+  // below accepts it: search matches the number alone, and a saved id from the
+  // wrong session sticks to the row and is fetched on every later run.
   let legiscanId = bill.legiscan_bill_id;
+  const searched = !legiscanId;
   if (!legiscanId) {
     try {
       legiscanId = await findLegiScanId(bill);
@@ -185,9 +179,6 @@ async function syncOne(bill) {
         return "skip";
       }
       console.log(`  ↳ resolved LegiScan ID: ${legiscanId}`);
-      if (!DRY) {
-        await sb.from("bills").update({ legiscan_bill_id: legiscanId }).eq("id", bill.id);
-      }
     } catch (e) {
       console.log(`  ✗ search failed: ${e.message?.slice(0, 100)}`);
       return "fail";
@@ -209,19 +200,23 @@ async function syncOne(bill) {
   }
 
   // GUARD: never staple a DIFFERENT session's actions/text onto this row.
-  // (See isSessionMismatch — this is the fix for the MI SB 433 Frankenstein
-  // record.) If the resolved bill is a different biennium than the stored
-  // session_id, skip the merge entirely rather than corrupt the record.
-  if (isSessionMismatch(bill.session_id, detail.session)) {
+  // (See sessionMismatch — the fix for the MI SB 433 and Illinois Frankenstein
+  // records.) If the resolved bill's session can't be the one the stored
+  // session_id names, skip the merge entirely rather than corrupt the record.
+  if (sessionMismatch(bill.session_id, detail.session, sessionsByState.get(bill.state))) {
     console.log(
       `  ⚠ SESSION MISMATCH — stored '${bill.session_id}' vs LegiScan ` +
       `${detail.session?.year_start}-${detail.session?.year_end} (${detail.session?.session_name ?? "?"}); ` +
       `skipping merge to avoid a Frankenstein record`,
     );
-    // Still remember the hash, or this bill is re-fetched (and re-skipped)
-    // on every run until LegiScan's copy changes.
-    if (!DRY && detail.change_hash) await sb.from("bills").update({ legiscan_change_hash: detail.change_hash }).eq("id", bill.id);
+    // A stored id keeps its hash, or the bill is re-fetched (and re-skipped)
+    // on every run until LegiScan's copy changes. A searched one isn't kept.
+    if (!searched && !DRY && detail.change_hash) await sb.from("bills").update({ legiscan_change_hash: detail.change_hash }).eq("id", bill.id);
     return "skip";
+  }
+  if (searched && !DRY) {
+    const { error } = await sb.from("bills").update({ legiscan_bill_id: legiscanId }).eq("id", bill.id);
+    if (error) console.log(`  ⚠ couldn't save LegiScan ID ${legiscanId}: ${error.message?.slice(0, 120)}`);
   }
 
   // Action history → bill_actions (the trigger handles the rest)
@@ -546,6 +541,7 @@ if (SPECIFIC) {
 }
 
 if (bills.length === 0) { console.log("Nothing to sync."); await record("empty", "nothing to sync · legiscan_calls=0"); process.exit(0); }
+await loadSessions([...new Set(bills.map((b) => b.state))]);
 console.log(`Checking ${bills.length} bill(s) via LegiScan${DRY ? " (DRY RUN)" : ""} · month so far ${usedThisMonth} calls, this run may use ${allowance}…`);
 
 // One master list per state (current session) → which bills changed.

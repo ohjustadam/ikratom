@@ -11,8 +11,9 @@ import {
   markEmailIntegrationRevoked,
 } from "@/lib/email/user-send";
 import { renderTemplate, buildVars } from "./templates";
+import { RESEND_COOLDOWN_HOURS, coolingTargets, emailChangeTimes, type CooldownSend } from "./resend-cooldown";
 import { withLetterFooter } from "./letter-extras";
-import { screenMemberLetter } from "./screen-content";
+import { screenLetterFrom } from "./letter-blocks";
 import type { Legislator } from "@/lib/legislators";
 import { isMailbox } from "@/lib/mailbox";
 import {
@@ -45,9 +46,8 @@ async function getEmbedRef(): Promise<string | null> {
  * even if the email client send isn't 100% confirmable. The platform value
  * is in the activation, not the deliverability — that's the user's job.
  */
-// Spam prevention thresholds
-const RESEND_COOLDOWN_HOURS = 24 * 7; // 1 week — same campaign + same legislator
-const DAILY_SEND_CAP = 100;            // total actions per user per 24h
+// Spam prevention thresholds (the 7-day resend lock lives in ./resend-cooldown)
+const DAILY_SEND_CAP = 100;           // total actions per user per 24h
 const PER_CAMPAIGN_DAILY_CAP = 1;      // max one send per campaign per user per day (prevents accidental re-sends)
 
 /**
@@ -62,11 +62,13 @@ async function getRecentlySentTargets(
   const since = new Date(Date.now() - RESEND_COOLDOWN_HOURS * 3600 * 1000).toISOString();
   const { data } = await supabase
     .from("campaign_actions")
-    .select("legislator_id")
+    .select("legislator_id, sent_at")
     .eq("user_id", userId)
     .eq("campaign_id", campaignId)
     .gte("sent_at", since);
-  return new Set((data ?? []).map((r) => r.legislator_id));
+  const sends = (data ?? []) as CooldownSend[];
+  const changed = await emailChangeTimes(supabase, sends.map((s) => s.legislator_id ?? ""));
+  return coolingTargets(sends, changed);
 }
 
 async function getDailyActionCount(
@@ -103,8 +105,12 @@ export async function getMyCampaignProgress(campaignId: string) {
     .gte("sent_at", since)
     .order("sent_at", { ascending: false });
 
-  const lastSentAt = data?.[0]?.sent_at ?? null;
-  const sentLegislatorIds = Array.from(new Set((data ?? []).map((r) => r.legislator_id)));
+  // An official whose email was fixed after the send is open again.
+  const sends = (data ?? []) as CooldownSend[];
+  const changed = await emailChangeTimes(supabase, sends.map((s) => s.legislator_id ?? ""));
+  const cooling = coolingTargets(sends, changed);
+  const lastSentAt = sends.find((s) => s.legislator_id && cooling.has(s.legislator_id))?.sent_at ?? null;
+  const sentLegislatorIds = Array.from(cooling);
   return { sentLegislatorIds, lastSentAt };
 }
 
@@ -265,7 +271,7 @@ export async function sendCampaignViaGmail(input: {
 
   // The letter comes from the browser, so it gets the queue's screen
   // (screen-content.ts). Nothing calls this today; that is not a guard.
-  const screen = await screenMemberLetter({ subject: String(subject ?? "").slice(0, 300), body: String(bodyTemplate ?? "").slice(0, 12_000) });
+  const screen = await screenLetterFrom(user.id, { subject: String(subject ?? "").slice(0, 300), body: String(bodyTemplate ?? "").slice(0, 12_000) });
   if (screen.block) return { error: screen.message };
 
   // Membership guard (defense-in-depth): re-derive this campaign's allowed

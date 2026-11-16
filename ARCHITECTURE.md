@@ -91,7 +91,7 @@ ikratom/
 | **campaigns** | Action templates, sends, scope matching, auto-create | `actions.ts`, `auto-create.ts` |
 | **waves** | Scheduled batch sends (from the member's own connected mailbox), reminders | `fire.ts`, `reminders.ts` |
 | **forum** | Threads, posts, reactions, moderation, reports | `actions.ts`, `types.ts` |
-| **chat** | Lounge realtime room | `actions.ts`, `Lounge.tsx`, `RecentActivity.tsx` |
+| **chat** | Lounge realtime room | `actions.ts`, `Lounge.tsx`, `use-lounge-seen.ts` |
 | **notifications** | In-app preferences, push fan-out | `actions.ts`, `push-fanout.ts` |
 | **partners** | Partner shops, slug generation, QR rendering | `actions.ts`, `qr.ts` |
 | **dm** | E2E encrypted direct messages, blocking | `actions.ts`, `block-actions.ts` |

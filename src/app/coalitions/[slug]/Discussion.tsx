@@ -15,7 +15,7 @@ export async function Discussion({ coalitionId, slug, prefill }: {
   const sb = await createClient();
   const { data } = await sb
     .from("coalition_threads")
-    .select("id, title, author_id, reply_count, last_post_at, pinned_at")
+    .select("id, title, author_id, reply_count, last_post_at, pinned_at, photo_id")
     .eq("coalition_id", coalitionId)
     .is("deleted_at", null)
     .order("pinned_at", { ascending: false, nullsFirst: false })
@@ -23,6 +23,7 @@ export async function Discussion({ coalitionId, slug, prefill }: {
     .limit(50);
   const threads = (data ?? []) as {
     id: string; title: string; author_id: string; reply_count: number; last_post_at: string; pinned_at: string | null;
+    photo_id: string | null;
   }[];
 
   const authorIds = [...new Set(threads.map((t) => t.author_id))];
@@ -53,7 +54,8 @@ export async function Discussion({ coalitionId, slug, prefill }: {
                   t.pinned_at ? "border-amber-600/50 bg-amber-950/10" : "border-zinc-800 bg-zinc-950/40"}`}
               >
                 <span className="font-semibold text-zinc-100">
-                  {t.pinned_at && <span className="mr-1 text-amber-300" title="Pinned">📌</span>}{t.title}
+                  {t.pinned_at && <span className="mr-1 text-amber-300" title="Pinned">📌</span>}
+                  {t.photo_id && <span className="mr-1" title="Has an image">🖼</span>}{t.title}
                 </span>
                 <span className="text-[11px] text-zinc-500">{handles.get(t.author_id) ?? "@member"}</span>
                 <span className="ml-auto text-[11px] text-zinc-500">

@@ -10,6 +10,8 @@
 // Recalls, company lawsuits / enforcement, arrests, court rulings, and general
 // news stay as ALERTS (informational), never auto-campaigns.
 
+import { explicitBanAsk } from "./letter-stance.mjs";
+
 // rule_filed (0278): an agency filed or proposed a rule (state register notice,
 // emergency rule, BoP rule proposal). A filed rule opens a comment period, so it
 // is a real trigger; the campaign still lands in pending_review.
@@ -167,4 +169,11 @@ export function eligibilityVetoSafe(kind, title) {
 // Exported so tests/campaign-autoapprove.test.ts can assert the patterns
 // behave AND — critically — that they contain no org names or party terms
 // (the CLAUDE.md nonpartisan hard rule, encoded as CI).
+// True when the letter itself asks officials to ban natural kratom. Auto-created
+// templates are AI-written from news text, and nothing else reads them before an
+// auto-approve publishes them to every matched advocate.
+export function templateAsksForBan({ title, subject_template, body_template }) {
+  return explicitBanAsk(`${title ?? ""}\n${subject_template ?? ""}\n${body_template ?? ""}`);
+}
+
 export const ELIGIBILITY_PATTERNS = { NOISE_RE, BAN_RE, CONCLUDED_RE, NATIONAL_SYNDICATION_RE, CONCLUDED_BILL_ACTION_RE };

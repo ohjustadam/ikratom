@@ -93,7 +93,7 @@ describe("wiring", () => {
 
   it("the direct one-click send screens the browser's text before sending", () => {
     const fn = direct.slice(direct.indexOf("export async function sendCampaignViaGmail"));
-    const check = fn.indexOf("await screenMemberLetter(");
+    const check = fn.indexOf("await screenLetterFrom(");
     expect(check).toBeGreaterThan(-1);
     expect(check).toBeLessThan(fn.indexOf("await sendOnUserBehalf("));
   });

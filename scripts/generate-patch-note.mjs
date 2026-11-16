@@ -27,7 +27,7 @@
 import { execSync } from "node:child_process";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { classifyCommit } from "./lib/changelog-safety.mjs";
+import { classifyCommit, cleanSubject } from "./lib/changelog-safety.mjs";
 
 const args = process.argv.slice(2);
 const sinceIdx = args.indexOf("--since");
@@ -69,26 +69,42 @@ if (commits.length === 0) {
 // never shipped raw: two past leaks (PR #691) came from publishing it verbatim.
 const feats = [];
 const fixes = [];
-const docs = [];
-const held = [];        // sensitive — written to a gitignored sidecar + console, never published
-let behindCount = 0;    // safe chore/refactor/ci/non-conventional → collapse to a generic line
-let securityCount = 0;  // security-scoped → collapse to the same generic line, never itemized
+const held = []; // sensitive: written to a gitignored sidecar + console, never published
 
 for (const c of commits) {
   const klass = classifyCommit(c.subject);
-  if (klass === "security") { securityCount++; held.push({ ...c, reason: "security (collapsed)" }); continue; }
+  if (klass === "security") { held.push({ ...c, reason: "security" }); continue; }
   if (klass === "held") { held.push({ ...c, reason: "sensitive term" }); continue; }
-  // Public — itemize only user-facing prefixes; everything else collapses.
-  const m = c.subject.match(/^(feat|fix|docs)(?:\([^)]+\))?:\s*(.*)/i);
-  if (m) {
-    const entry = { hash: c.hash, text: m[2] };
-    const kind = m[1].toLowerCase();
-    if (kind === "feat") feats.push(entry);
-    else if (kind === "fix") fixes.push(entry);
-    else docs.push(entry);
-  } else {
-    behindCount++; // chore / refactor / ci / non-conventional — not itemized publicly
+  // Only feat: and fix: can be something a member sees. Everything else stays
+  // out and is not mentioned either: What's New is for changes members can see
+  // (owner, 2026-11-06).
+  const m = cleanSubject(c.subject).match(/^(feat|fix)(?:\([^)]+\))?:\s*(.*)/i);
+  if (!m) continue;
+  (m[1].toLowerCase() === "feat" ? feats : fixes).push({ text: m[2] });
+}
+
+if (feats.length + fixes.length === 0) {
+  console.log(`Nothing member-facing since "${since}" (${held.length} held). Nothing to draft.`);
+  // A quiet day is not a stopped job. Without this row the self-pager would
+  // read an internal-only stretch as the draft job going silent.
+  if (args.includes("--db") && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false },
+      });
+      const now = new Date().toISOString();
+      await sb.from("scraper_runs").insert({
+        source: "patch_note_draft",
+        started_at: now,
+        finished_at: now,
+        status: "empty",
+        rows_updated: 0,
+        notes: `${commits.length} commits · ${held.length} held · nothing member-facing`,
+      });
+    } catch { /* best-effort */ }
   }
+  process.exit(0);
 }
 
 // Anchor the date to Eastern, and use ONE source for all three of slug,
@@ -112,19 +128,15 @@ const slug = `${ymd}-update`;
 const path = join(dir, `${slug}.md`);
 const title = `Platform update — ${today.toLocaleDateString("en-US", { timeZone: ET, month: "long", day: "numeric", year: "numeric" })}`;
 
-const link = (h) => `([${h.slice(0, 7)}](https://github.com/ohjustadam/ikratom/commit/${h}))`;
 const sections = [];
-if (feats.length > 0) sections.push(`## ✨ New features\n\n${feats.map((c) => `- ${c.text} ${link(c.hash)}`).join("\n")}`);
-if (fixes.length > 0) sections.push(`## 🐛 Fixes\n\n${fixes.map((c) => `- ${c.text} ${link(c.hash)}`).join("\n")}`);
-if (docs.length > 0) sections.push(`## 📚 Docs\n\n${docs.map((c) => `- ${c.text} ${link(c.hash)}`).join("\n")}`);
-// Catch-all: security + maintenance are ACKNOWLEDGED generically, never itemized.
-if (securityCount > 0 || behindCount > 0) {
-  sections.push(`## 🛠 Under the hood\n\nReliability and security improvements plus behind-the-scenes maintenance landed this period. Nothing you need to do — the toolbelt just gets sturdier.`);
-}
+if (feats.length > 0) sections.push(`## ✨ New features\n\n${feats.map((c) => `- ${c.text}`).join("\n")}`);
+if (fixes.length > 0) sections.push(`## 🐛 Fixes\n\n${fixes.map((c) => `- ${c.text}`).join("\n")}`);
 
-const featureCount = feats.length;
-const fixCount = fixes.length;
-const summary = `${featureCount} new feature${featureCount === 1 ? "" : "s"}${fixCount ? `, ${fixCount} fix${fixCount === 1 ? "" : "es"}` : ""}, plus reliability and behind-the-scenes work.`;
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const summary = `${[
+  feats.length > 0 && plural(feats.length, "new feature", "new features"),
+  fixes.length > 0 && plural(fixes.length, "fix", "fixes"),
+].filter(Boolean).join(", ")}.`;
 
 const frontMatter = `---
 title: "${title}"
@@ -237,6 +249,6 @@ if (held.length > 0) {
 
 console.log(`\n✓ Draft written: ${path}`);
 if (dbNote) console.log(dbNote.replace(/^\n/, ""));
-console.log(`  ${feats.length} feat · ${fixes.length} fix · ${docs.length} docs published · ${held.length} held · ${behindCount} behind-the-scenes (collapsed)`);
+console.log(`  ${feats.length} feat · ${fixes.length} fix · ${held.length} held out`);
 if (heldNote) console.log(heldNote);
 console.log(`\nThis draft is a STARTING POINT — never publish raw commit subjects. Security, intel, and infra lines are held automatically; review the rest for user impact before committing.`);

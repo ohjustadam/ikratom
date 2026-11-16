@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { getCreatorContext } from "@/modules/admin/actions";
+import { forumRights, forumRoleOf, isNewForumAccount, isSamePost } from "@/lib/forum-permissions";
 import { moderateNewContent } from "@/lib/moderation";
 import { sellingIssue } from "@/lib/selling";
 import { recordAdminAction } from "@/lib/audit";
@@ -11,6 +14,52 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 const VALID_TAGS = ["general", "legislation", "news", "event", "meetup", "market"] as const;
 
 const cap = (s: string, n: number) => s.slice(0, n).trim();
+
+/**
+ * The spam checks every new thread and reply goes through: a locked account
+ * can't post, an account under three days old gets a small allowance, and
+ * nobody can post the same words twice in ten minutes. Returns why it's refused.
+ */
+async function postingBlock(input: {
+  userId: string;
+  kind: "thread" | "post";
+  text: string;
+  profile: { created_at?: string | null; account_locked_at?: string | null } | null;
+  isPrivileged: boolean;
+}): Promise<string | null> {
+  const { userId, kind, text, profile, isPrivileged } = input;
+  if (profile?.account_locked_at) return "This account is locked.";
+  if (isPrivileged) return null;
+
+  if (isNewForumAccount(profile?.created_at)) {
+    const allowed =
+      kind === "thread"
+        ? await checkRateLimit(`forum:new:thread:${userId}`, 3, 86_400)
+        : await checkRateLimit(`forum:new:post:${userId}`, 10, 3600);
+    if (!allowed) return "New accounts can only post a little at first. Try again later.";
+  }
+
+  const sr = createServiceRoleClient();
+  const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data: recent } =
+    kind === "thread"
+      ? await sr
+          .from("forum_threads")
+          .select("title, body")
+          .eq("author_id", userId)
+          .gte("created_at", since)
+          .limit(10)
+      : await sr
+          .from("forum_posts")
+          .select("body")
+          .eq("author_id", userId)
+          .gte("created_at", since)
+          .limit(20);
+  const repeat = ((recent ?? []) as { title?: string; body: string | null }[]).some((r) =>
+    isSamePost(kind === "thread" ? `${r.title}\n\n${r.body ?? ""}` : (r.body ?? ""), text),
+  );
+  return repeat ? "You just posted that. Give it a few minutes." : null;
+}
 
 /** Create a new thread. */
 export async function createThread(formData: FormData) {
@@ -63,12 +112,21 @@ ${body ?? ""}`);
   // Pull author's state + privileges + post count for moderation decision
   const { data: profile } = await supabase
     .from("profiles")
-    .select("state, is_admin, is_owner, is_advocate_leader, forum_post_count")
+    .select("state, is_admin, is_owner, is_advocate_leader, forum_post_count, created_at, account_locked_at")
     .eq("id", user.id)
     .single();
 
   const isPrivileged =
     !!profile?.is_admin || !!profile?.is_owner || !!profile?.is_advocate_leader;
+
+  const blocked = await postingBlock({
+    userId: user.id,
+    kind: "thread",
+    text: `${title}\n\n${body ?? ""}`,
+    profile,
+    isPrivileged,
+  });
+  if (blocked) return { error: blocked };
 
   // Moderate the title + body together
   const decision = moderateNewContent({
@@ -206,7 +264,7 @@ export async function createPost(formData: FormData) {
   // Load author profile + role + post count
   const { data: profile } = await supabase
     .from("profiles")
-    .select("state, is_admin, is_owner, is_advocate_leader, is_shop_owner, is_medical_professional, forum_post_count")
+    .select("state, is_admin, is_owner, is_advocate_leader, is_shop_owner, is_medical_professional, forum_post_count, created_at, account_locked_at")
     .eq("id", user.id)
     .single();
 
@@ -227,6 +285,9 @@ export async function createPost(formData: FormData) {
 
   const isPrivileged =
     !!profile?.is_admin || !!profile?.is_owner || !!profile?.is_advocate_leader;
+
+  const blocked = await postingBlock({ userId: user.id, kind: "post", text: body, profile, isPrivileged });
+  if (blocked) return { error: blocked };
 
   const decision = moderateNewContent({
     body,
@@ -295,39 +356,6 @@ export async function toggleReaction(input: {
   return { ok: true, removed: false };
 }
 
-/** Soft-delete the user's own post (or any post if admin/leader). */
-export async function softDeletePost(postId: string) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
-
-  // Look up the post's author so we can tell whether this is a self-delete
-  // or moderation action (logged for accountability if so).
-  const { data: post } = await supabase
-    .from("forum_posts")
-    .select("author_id")
-    .eq("id", postId)
-    .single();
-
-  const { error } = await supabase
-    .from("forum_posts")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", postId);
-  if (error) return { error: error.message };
-
-  // Audit-log only when an admin/leader removes someone else's post.
-  if (post && post.author_id !== user.id) {
-    await recordAdminAction({
-      action: "post_deleted",
-      targetType: "post",
-      targetId: postId,
-      details: { author_id: post.author_id },
-    });
-  }
-
-  return { ok: true };
-}
-
 // ============================================================
 // Moderation actions (admin/leader only)
 // ============================================================
@@ -336,8 +364,12 @@ const VALID_REPORT_CATEGORIES = [
   "spam", "commercial", "harassment", "off_topic", "misinformation", "other",
 ] as const;
 
-/** User-submitted report. Sets target moderation_status to user_flagged
- *  (unless it's already in a stronger flag state). */
+/**
+ * A member's report. It always reaches the moderators. The post itself hides
+ * only at three reports from accounts at least a week old, or staff, the same
+ * rule as photos and wall posts (0307), so one member or a burst of new
+ * accounts can't silence someone.
+ */
 export async function reportContent(input: {
   targetType: "post" | "thread";
   targetId: string;
@@ -358,6 +390,27 @@ export async function reportContent(input: {
   if (!VALID_REPORT_CATEGORIES.includes(input.reasonCategory)) return { error: "Invalid category." };
   const reason = (input.reason || "").trim().slice(0, 500);
 
+  const table = input.targetType === "post" ? "forum_posts" : "forum_threads";
+  const filter = input.targetType === "post" ? "post_id" : "thread_id";
+  const sr = createServiceRoleClient();
+
+  const { data: target } = await sr
+    .from(table)
+    .select("author_id, moderation_status")
+    .eq("id", input.targetId)
+    .maybeSingle();
+  if (!target) return { error: "That's already gone." };
+  if (target.author_id === user.id) return { error: "You can't report your own post." };
+
+  const { data: already } = await sr
+    .from("forum_post_reports")
+    .select("id")
+    .eq(filter, input.targetId)
+    .eq("reporter_id", user.id)
+    .is("resolved_at", null)
+    .limit(1);
+  if (already && already.length > 0) return { ok: true };
+
   // Insert the report
   const insert: Record<string, unknown> = {
     reporter_id: user.id,
@@ -370,23 +423,70 @@ export async function reportContent(input: {
   const { error: reportErr } = await supabase.from("forum_post_reports").insert(insert);
   if (reportErr) return { error: reportErr.message };
 
-  // Promote target to user_flagged unless already in a flag state.
-  // (Don't downgrade auto_flagged → user_flagged.)
-  const table = input.targetType === "post" ? "forum_posts" : "forum_threads";
-  const { data: current } = await supabase
-    .from(table)
-    .select("moderation_status")
-    .eq("id", input.targetId)
-    .single();
+  if (target.moderation_status !== "approved") return { ok: true };
 
-  if (current && current.moderation_status === "approved") {
-    await supabase
-      .from(table)
-      .update({ moderation_status: "user_flagged" })
-      .eq("id", input.targetId);
+  const { data: open } = await sr
+    .from("forum_post_reports")
+    .select("reporter_id")
+    .eq(filter, input.targetId)
+    .is("resolved_at", null);
+  const reporters = [...new Set((open ?? []).map((r) => r.reporter_id as string))];
+  if (reporters.length < 3) return { ok: true };
+
+  const { data: rows } = await sr
+    .from("profiles")
+    .select("created_at, is_admin, is_owner, is_advocate_leader")
+    .in("id", reporters);
+  const weekAgo = Date.now() - 7 * 86_400_000;
+  const established = (rows ?? []).filter(
+    (p) =>
+      p.is_admin || p.is_owner || p.is_advocate_leader ||
+      (p.created_at && new Date(p.created_at).getTime() <= weekAgo),
+  );
+  if (established.length >= 3) {
+    await sr.from(table).update({ moderation_status: "user_flagged" }).eq("id", input.targetId);
   }
-
   return { ok: true };
+}
+
+/** Of these items, the ones this moderator outranks the author of. */
+async function removableIds(
+  sr: ReturnType<typeof createServiceRoleClient>,
+  moderator: { userId: string; isOwner: boolean; isAdmin: boolean; isLeader: boolean },
+  targetType: "post" | "thread",
+  ids: string[],
+): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const { data: rows } = await sr
+    .from(targetType === "post" ? "forum_posts" : "forum_threads")
+    .select(targetType === "post" ? "id, author_id" : "id, author_id, system_generated")
+    .in("id", ids);
+  const items = (rows ?? []) as unknown as { id: string; author_id: string | null; system_generated?: boolean }[];
+  const authorIds = [...new Set(items.map((r) => r.author_id).filter((x): x is string => !!x))];
+  const { data: authors } = authorIds.length
+    ? await sr.from("profiles").select("id, is_owner, is_admin, is_advocate_leader").in("id", authorIds)
+    : { data: [] };
+  const roles = new Map((authors ?? []).map((a) => [a.id as string, forumRoleOf(a)]));
+  const viewer = {
+    id: moderator.userId,
+    canModerate: true,
+    role: forumRoleOf({
+      is_owner: moderator.isOwner,
+      is_admin: moderator.isAdmin,
+      is_advocate_leader: moderator.isLeader,
+    }),
+  };
+  return items
+    .filter(
+      (r) =>
+        forumRights(viewer, {
+          authorId: r.author_id,
+          authorRole: (r.author_id && roles.get(r.author_id)) || "member",
+          isBot: targetType === "thread" ? !!r.system_generated : !r.author_id,
+          threadLocked: false,
+        }).remove,
+    )
+    .map((r) => r.id);
 }
 
 /** Approve a flagged post or thread. Admin/leader only. */
@@ -394,20 +494,12 @@ export async function approveContent(input: {
   targetType: "post" | "thread";
   targetId: string;
 }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader")
-    .eq("id", user.id)
-    .single();
-  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) {
-    return { error: "Moderators only." };
-  }
+  const moderator = await getCreatorContext({ require: "moderate_forum" });
+  if (!moderator.ok) return { error: "Moderators only." };
+  const sr = createServiceRoleClient();
 
   const table = input.targetType === "post" ? "forum_posts" : "forum_threads";
-  const { error } = await supabase
+  const { error } = await sr
     .from(table)
     .update({
       moderation_status: "approved",
@@ -419,9 +511,9 @@ export async function approveContent(input: {
 
   // Resolve any open reports
   const reportFilter = input.targetType === "post" ? "post_id" : "thread_id";
-  await supabase
+  await sr
     .from("forum_post_reports")
-    .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "approved" })
+    .update({ resolved_at: new Date().toISOString(), resolved_by: moderator.userId, resolution: "approved" })
     .eq(reportFilter, input.targetId)
     .is("resolved_at", null);
 
@@ -441,21 +533,16 @@ export async function removeContent(input: {
   targetId: string;
   reason?: string;
 }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader")
-    .eq("id", user.id)
-    .single();
-  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) {
-    return { error: "Moderators only." };
-  }
+  const moderator = await getCreatorContext({ require: "moderate_forum" });
+  if (!moderator.ok) return { error: "Moderators only." };
+  const sr = createServiceRoleClient();
+
+  const allowed = await removableIds(sr, moderator, input.targetType, [input.targetId]);
+  if (allowed.length === 0) return { error: "That's for someone above you to decide." };
 
   const table = input.targetType === "post" ? "forum_posts" : "forum_threads";
   const reason = (input.reason || "Removed by moderator").slice(0, 500);
-  const { error } = await supabase
+  const { error } = await sr
     .from(table)
     .update({
       moderation_status: "removed",
@@ -466,9 +553,9 @@ export async function removeContent(input: {
 
   // Resolve any open reports
   const reportFilter = input.targetType === "post" ? "post_id" : "thread_id";
-  await supabase
+  await sr
     .from("forum_post_reports")
-    .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "removed" })
+    .update({ resolved_at: new Date().toISOString(), resolved_by: moderator.userId, resolution: "removed" })
     .eq(reportFilter, input.targetId)
     .is("resolved_at", null);
 
@@ -480,6 +567,7 @@ export async function removeContent(input: {
   });
 
   revalidatePath("/admin/forum");
+  revalidatePath("/forum");
   return { ok: true };
 }
 
@@ -488,43 +576,35 @@ export async function bulkApproveContent(input: {
   posts?: string[];
   threads?: string[];
 }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader")
-    .eq("id", user.id)
-    .single();
-  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) {
-    return { error: "Moderators only." };
-  }
+  const moderator = await getCreatorContext({ require: "moderate_forum" });
+  if (!moderator.ok) return { error: "Moderators only." };
+  const sr = createServiceRoleClient();
 
   const postIds = (input.posts ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
   const threadIds = (input.threads ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
 
   let approved = 0;
   if (postIds.length > 0) {
-    const { error } = await supabase
+    const { error } = await sr
       .from("forum_posts")
       .update({ moderation_status: "approved", flag_reason: null, auto_flag_signals: null })
       .in("id", postIds);
     if (!error) approved += postIds.length;
-    await supabase
+    await sr
       .from("forum_post_reports")
-      .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "approved" })
+      .update({ resolved_at: new Date().toISOString(), resolved_by: moderator.userId, resolution: "approved" })
       .in("post_id", postIds)
       .is("resolved_at", null);
   }
   if (threadIds.length > 0) {
-    const { error } = await supabase
+    const { error } = await sr
       .from("forum_threads")
       .update({ moderation_status: "approved", flag_reason: null, auto_flag_signals: null })
       .in("id", threadIds);
     if (!error) approved += threadIds.length;
-    await supabase
+    await sr
       .from("forum_post_reports")
-      .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "approved" })
+      .update({ resolved_at: new Date().toISOString(), resolved_by: moderator.userId, resolution: "approved" })
       .in("thread_id", threadIds)
       .is("resolved_at", null);
   }
@@ -545,44 +625,46 @@ export async function bulkRemoveContent(input: {
   threads?: string[];
   reason?: string;
 }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader")
-    .eq("id", user.id)
-    .single();
-  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) {
-    return { error: "Moderators only." };
-  }
+  const moderator = await getCreatorContext({ require: "moderate_forum" });
+  if (!moderator.ok) return { error: "Moderators only." };
+  const sr = createServiceRoleClient();
 
-  const postIds = (input.posts ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
-  const threadIds = (input.threads ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
+  const postIds = await removableIds(
+    sr,
+    moderator,
+    "post",
+    (input.posts ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200),
+  );
+  const threadIds = await removableIds(
+    sr,
+    moderator,
+    "thread",
+    (input.threads ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200),
+  );
   const reason = (input.reason || "Bulk removal").slice(0, 500);
 
   let removed = 0;
   if (postIds.length > 0) {
-    const { error } = await supabase
+    const { error } = await sr
       .from("forum_posts")
       .update({ moderation_status: "removed", flag_reason: reason })
       .in("id", postIds);
     if (!error) removed += postIds.length;
-    await supabase
+    await sr
       .from("forum_post_reports")
-      .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "removed" })
+      .update({ resolved_at: new Date().toISOString(), resolved_by: moderator.userId, resolution: "removed" })
       .in("post_id", postIds)
       .is("resolved_at", null);
   }
   if (threadIds.length > 0) {
-    const { error } = await supabase
+    const { error } = await sr
       .from("forum_threads")
       .update({ moderation_status: "removed", flag_reason: reason })
       .in("id", threadIds);
     if (!error) removed += threadIds.length;
-    await supabase
+    await sr
       .from("forum_post_reports")
-      .update({ resolved_at: new Date().toISOString(), resolved_by: user.id, resolution: "removed" })
+      .update({ resolved_at: new Date().toISOString(), resolved_by: moderator.userId, resolution: "removed" })
       .in("thread_id", threadIds)
       .is("resolved_at", null);
   }
@@ -599,20 +681,14 @@ export async function bulkRemoveContent(input: {
 
 /** Count of items needing review. Admin/leader only. */
 export async function moderationQueueCount(): Promise<number> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return 0;
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner, is_advocate_leader")
-    .eq("id", user.id)
-    .single();
-  if (!profile?.is_admin && !profile?.is_owner && !profile?.is_advocate_leader) return 0;
+  const moderator = await getCreatorContext({ require: "moderate_forum" });
+  if (!moderator.ok) return 0;
 
+  const sr = createServiceRoleClient();
   const flagged = ["pending", "auto_flagged", "user_flagged"];
   const [posts, threads] = await Promise.all([
-    supabase.from("forum_posts").select("id", { count: "exact", head: true }).in("moderation_status", flagged),
-    supabase.from("forum_threads").select("id", { count: "exact", head: true }).in("moderation_status", flagged),
+    sr.from("forum_posts").select("id", { count: "exact", head: true }).in("moderation_status", flagged),
+    sr.from("forum_threads").select("id", { count: "exact", head: true }).in("moderation_status", flagged),
   ]);
   return (posts.count ?? 0) + (threads.count ?? 0);
 }

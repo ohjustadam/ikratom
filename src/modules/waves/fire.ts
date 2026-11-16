@@ -36,6 +36,7 @@ import { safeModeOn } from "@/modules/campaigns/safe-mode";
 import { hidesHomeFrom, waveLetter } from "./safe-mode";
 import type { Legislator } from "@/lib/legislators";
 import { isMailbox } from "@/lib/mailbox";
+import { memberSubject } from "@/lib/letter-subject";
 
 const MAX_USERS_PER_TICK = 30; // ≈ 60s budget at 2s/send
 const MAX_WAVES_PER_TICK = 10;
@@ -89,7 +90,7 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
     // Load campaign + targets once per wave
     const { data: campaign } = await supabase
       .from("campaigns")
-      .select("id, slug, state, target_locality, target_roles, target_legislator_ids, subject_template, body_template, active")
+      .select("id, slug, state, bill_id, target_locality, target_roles, target_legislator_ids, subject_template, body_template, active")
       .eq("id", wave.campaign_id)
       .maybeSingle();
     if (!campaign || !campaign.active) {
@@ -112,6 +113,9 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
     // snapshot columns are null. A post-signup template/target swap can no
     // longer change what joiners send.
     const effSubject = wave.subject_template_snapshot ?? campaign.subject_template;
+    const { data: waveBill } = campaign.bill_id
+      ? await supabase.from("bills").select("bill_number").eq("id", campaign.bill_id).maybeSingle()
+      : { data: null };
     const effBody = wave.body_template_snapshot ?? campaign.body_template;
     const effLegislatorIds = wave.target_legislator_ids_snapshot ?? campaign.target_legislator_ids;
     const effRoles = wave.target_roles_snapshot ?? campaign.target_roles;
@@ -217,7 +221,14 @@ export async function fireDueWaves(supabase: SupabaseClient): Promise<FireResult
         // this member's copy before anything leaves their mailbox.
         const letterFor = (target: Legislator) =>
           waveLetter(
-            { subject: effSubject, body: effBody },
+            {
+              subject: memberSubject({
+                template: effSubject,
+                billNumber: waveBill?.bill_number,
+                seed: `${signup.user_id}:${campaign.id}`,
+              }),
+              body: effBody,
+            },
             {
               safeMode,
               hideHome: !!profile && hidesHomeFrom({

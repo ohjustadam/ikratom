@@ -149,6 +149,21 @@ export function detectModerationSignals(text: string): ModerationSignals {
   return out;
 }
 
+// Crude link detector: http(s)://, www., and bare domains on common TLDs. Not
+// exhaustive; it only has to catch what a brand-new account would drop in chat.
+const LINK_LIKE_RE = /\b(?:https?:\/\/|www\.|[a-z0-9-]+\.(?:com|net|org|io|co|gg|xyz|info|biz|tv|me|app|link|tk|ml|ga|cf|live|shop|store|site)\b)/i;
+
+/** True when the text holds anything that looks like a link, trusted or not. */
+export function looksLikeLink(text: string): boolean {
+  return LINK_LIKE_RE.test(text);
+}
+
+/** Links in the text that aren't on the trusted list. */
+export function unapprovedLinks(text: string): string[] {
+  const { urls, bareDomains } = detectModerationSignals(text);
+  return [...urls, ...bareDomains];
+}
+
 export type ModerationDecision = {
   status: "approved" | "pending" | "auto_flagged";
   signals: ModerationSignals | null;
@@ -207,4 +222,25 @@ export function moderateNewContent(input: {
   }
 
   return { status: "approved", signals: null, reason: null };
+}
+
+/**
+ * Screen an author's edit, so a post can't pass review and then turn into spam.
+ *
+ *   the new text has a link or contact details   → auto_flagged
+ *   the post was already waiting for a moderator → it keeps waiting
+ *   otherwise the same rules as a new post, so an account with under three
+ *   approved posts goes back to review
+ */
+export function moderateEdit(input: {
+  currentStatus: string | null | undefined;
+  body: string;
+  authorPostCount: number;
+  isPrivileged: boolean;
+}): { status: string; reason: string | null; signals: ModerationSignals | null } {
+  const decision = moderateNewContent(input);
+  if (decision.status === "auto_flagged") return decision;
+  const current = input.currentStatus ?? "approved";
+  if (current !== "approved") return { status: current, reason: "Edited while in review", signals: null };
+  return decision;
 }

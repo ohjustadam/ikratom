@@ -22,6 +22,7 @@
  *
  * Exits non-zero on failure so it can gate a deploy step or fail CI.
  */
+import { browserUA } from "./lib/browser-ua.mjs";
 
 const arg = (n) => { const i = process.argv.indexOf(n); return i > -1 ? process.argv[i + 1] : null; };
 const SITE = (arg("--url") || "https://www.ikratom.org").replace(/\/+$/, "");
@@ -67,13 +68,15 @@ const ATTEMPTS = 3;
 const RETRY_MS = 4000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Browser-shaped and CURRENT (see scripts/lib/browser-ua.mjs): Bot Fight Mode
+// 403s honest bot UAs, and a WAF rule challenges stale Chrome versions.
+const SMOKE_UA = browserUA("ikratom-smoke/1.0");
+
 async function probe(check) {
   const url = `${SITE}${check.path}`;
   const res = await fetch(url, {
     redirect: "follow",
-    // Browser-shaped UA: Cloudflare Bot Fight Mode 403s honest bot UAs, which
-    // would make this cry wolf on a perfectly healthy site.
-    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 ikratom-smoke/1.0" },
+    headers: { "User-Agent": SMOKE_UA },
     signal: AbortSignal.timeout(30000),
   });
   const body = await res.text();

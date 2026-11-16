@@ -38,7 +38,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { normalizedTitleKey, strongTopicKey, billKey, federalTopicKey } from "./lib/topic-key.mjs";
-import { alertStaleReason, isCampaignWorthyAlert, isBillConcluded, fpGateDecision, eligibilityVetoSafe } from "./lib/campaign-eligibility.mjs";
+import { alertStaleReason, isCampaignWorthyAlert, isBillConcluded, fpGateDecision, eligibilityVetoSafe, templateAsksForBan } from "./lib/campaign-eligibility.mjs";
 import { reconcileLocality } from "./lib/geo-resolver.mjs";
 import { APPROVE_COLUMNS, REJECT_COLUMNS, SUPERSEDE_COLUMNS } from "./lib/campaign-review-columns.mjs";
 
@@ -99,7 +99,7 @@ let candidates = [];
 for (let from = 0; from < 3000; from += 1000) {
   const { data, error } = await sb
     .from("campaigns")
-    .select("id, slug, title, state, bill_id, created_at, target_legislator_ids")
+    .select("id, slug, title, state, bill_id, created_at, target_legislator_ids, subject_template, body_template")
     .eq("review_state", "pending_review")
     .eq("auto_generated", true)
     .order("created_at", { ascending: true })
@@ -441,6 +441,10 @@ function decide(c) {
     if (!fresh) return { decision: "escalate", score: conf, reason: "bill from a closed/stale session — escalate", signals: { ...sig, stale: true }, key };
     if (conf < P.minConf || !deepOk) return { decision: "escalate", score: conf, reason: `bill confidence ${conf} < ${P.minConf} or deep-analysis ambiguous — escalate`, signals: sig, key };
   }
+
+  // STANCE: never publish a letter that asks for a ban, whatever the news said.
+  // Not a safe reject: a human reads it, because a wrong hit must not bury a real CTA.
+  if (templateAsksForBan(c)) return veto(c, key, { ...sig, banAsk: true }, "template asks officials to ban or schedule natural kratom");
 
   // PASSED every gate.
   return { decision: "approve", score: linkedBill?.relevance_confidence ?? null, reason: `eligible ${alert.kind}/${alert.severity}, sourced, targeted, non-duplicate, mature (${sig.ageHours}h)`, signals: sig, key };

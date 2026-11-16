@@ -1,3 +1,7 @@
+import { TERMINAL_STATUSES, companionMovedOn } from "../../scripts/lib/bill-status.mjs";
+
+export { companionMovedOn };
+
 // Canonical bill-status display labels + filter grouping.
 //
 // Two sync sources write the "in committee" stage under different strings:
@@ -18,6 +22,7 @@ export const BILL_STATUS_LABELS: Record<string, string> = {
   vetoed: "Vetoed",
   dead: "Dead",
   failed: "Failed",
+  session_ended: "Session ended",
 };
 
 // Stable display order for the filter dropdown.
@@ -27,6 +32,7 @@ const STATUS_ORDER = [
   "in_committee",
   "in_chamber",
   "passed_chamber",
+  "session_ended",
   "enacted",
   "vetoed",
   "dead",
@@ -36,6 +42,24 @@ const STATUS_ORDER = [
 export function billStatusLabel(status: string | null | undefined): string | null {
   if (!status) return null;
   return BILL_STATUS_LABELS[status] ?? status;
+}
+
+type SessionFields = { status?: string | null; session_sine_die?: boolean | null };
+
+// A bill whose session adjourned while it was still open must not read as alive.
+// A terminal status always wins: a law stays a law, and "dead" is never inferred
+// from a calendar (#1129). scripts/lib/review-dates.mjs decides who gets the flag.
+export function billSessionEnded(b: SessionFields): boolean {
+  return b.session_sine_die === true && !TERMINAL_STATUSES.has(b.status ?? "");
+}
+
+// The status a reader sees and filters on. The stored status stays as synced.
+export function effectiveBillStatus(b: SessionFields): string | null {
+  return billSessionEnded(b) ? "session_ended" : (b.status ?? null);
+}
+
+export function billDisplayStatus(b: SessionFields): string | null {
+  return billStatusLabel(effectiveBillStatus(b));
 }
 
 // Build deduped filter options from the statuses actually present, collapsing
@@ -70,4 +94,32 @@ export function billStatusMatches(
   const want = BILL_STATUS_LABELS[filterValue] ?? filterValue;
   const have = billStatus ? BILL_STATUS_LABELS[billStatus] ?? billStatus : null;
   return have === want;
+}
+
+// Both sync sources can write a row for one bill, and a reader shouldn't see it
+// twice with two statuses. Same rule as billTwinKey in scripts/lib/bill-status.mjs.
+const TWIN_RANK: Record<string, number> = { enacted: 3, vetoed: 2, dead: 1 };
+
+type TwinFields = {
+  state: string | null;
+  bill_number: string | null;
+  status: string | null;
+  last_action_at: string | null;
+};
+
+export function collapseBillTwins<T extends TwinFields>(bills: T[]): T[] {
+  const best = new Map<string, T>();
+  const rank = (b: T) => TWIN_RANK[b.status ?? ""] ?? 0;
+  const undated: T[] = [];
+  for (const b of bills) {
+    if (!b.last_action_at) {
+      undated.push(b);
+      continue;
+    }
+    const number = (b.bill_number ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().replace(/^([A-Z]+)0+/, "$1");
+    const key = `${b.state}|${number}|${b.last_action_at.slice(0, 10)}`;
+    const seen = best.get(key);
+    if (!seen || rank(b) > rank(seen)) best.set(key, b);
+  }
+  return [...best.values(), ...undated];
 }

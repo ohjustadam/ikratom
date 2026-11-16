@@ -78,6 +78,8 @@ const startedAt = new Date().toISOString();
 // not listed (admin queues, security notices, internal tooling) never emails.
 const SECTIONS = [
   { title: "Mentioned you", kinds: ["mention"] },
+  // The team answered their feedback (/admin/feedback reply, 2026-11-10).
+  { title: "Replies to your feedback", kinds: ["feedback_reply"] },
   { title: "Action needed", kinds: ["policy_alert", "new_campaign", "voting_reminder"] },
   { title: "Your state", kinds: ["state_news"] },
   { title: "Around the country", kinds: ["national_news"] },

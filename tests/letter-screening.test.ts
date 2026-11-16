@@ -50,7 +50,7 @@ describe("the AI rule", () => {
 describe("wiring", () => {
   it("the queue screens a member's own letter before anything is stored", () => {
     const body = queue.slice(queue.indexOf("export async function enqueueCampaignSend"));
-    const check = body.indexOf("await screenMemberLetter(");
+    const check = body.indexOf("await screenLetterFrom(");
     expect(check).toBeGreaterThan(-1);
     expect(check).toBeLessThan(body.indexOf('.from("campaign_send_batches")'));
   });
