@@ -8,6 +8,10 @@ export default defineConfig({
     include: ["tests/**/*.test.ts", "src/**/__tests__/*.test.ts"],
     globals: false,
     pool: "forks",            // server actions touch fetch / process.env
+    // Local runs share the owner's PC with other sessions (2026-11-16: parallel
+    // suites pinned all 12 cores), so they get 4 forks; VITEST_MAX_WORKERS
+    // overrides. CI keeps vitest's default. See scripts/run-heavy.mjs.
+    maxWorkers: process.env.CI ? undefined : Number(process.env.VITEST_MAX_WORKERS) || 4,
     testTimeout: 15000,
     setupFiles: ["./tests/setup.ts"],
     coverage: {

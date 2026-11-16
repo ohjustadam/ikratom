@@ -128,6 +128,8 @@ npm run verify:full     # +eslint, ~25s
 npm run build           # full Next.js build, ~33s  ← only when checking deploy-readiness
 ```
 
+**This runs on the owner's own PC, alongside other sessions.** `verify` and `verify:full` go through `scripts/run-heavy.mjs`. It runs at below-normal priority and allows ONE heavy job per machine: a second session waits for the first. Local vitest is also capped at 4 forks (owner, 2026-11-16: parallel suites pinned all 12 cores). Don't call `vitest run`, `tsc` or `eslint` directly in parallel, and run `npm run build` locally only when you must.
+
 `verify` excludes `tests/rls.test.ts` because that test creates real Supabase users via service role — works in CI with a dedicated test project, fails locally because dev `.env.local` points at prod which rate-limits user creation. Run it explicitly when needed: `npx vitest run tests/rls.test.ts`.
 
 ### Coverage is a number now, not a claim
