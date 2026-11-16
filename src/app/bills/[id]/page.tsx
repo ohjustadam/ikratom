@@ -1,6 +1,7 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { TranslatedText } from "@/components/TranslatedText";
 import { ActionsTakenLine, FederalEmailOfficials, CommitteeLeverage } from "./BillViewerSections";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -566,11 +567,14 @@ type BillSnapshot = NonNullable<Awaited<ReturnType<typeof loadBillPublic>>["data
 // Snapshot layers: this deploy's unstable_cache, then R2 (survives deploys,
 // serves the last good copy if Supabase fails), then Supabase. Same 15-min
 // window as before. Bump "v1" if loadBillPublic's shape changes.
-const getBillPublicSnapshot = unstable_cache(
+// React cache(): generateMetadata and the page share ONE read per request.
+// unstable_cache does not share an in-flight miss, so without it a cold
+// render ran this chain twice (see #1149).
+const getBillPublicSnapshot = cache(unstable_cache(
   (id: string) => publicSnapshot<BillSnapshot>("bill-public", "v1", id, 900, () => loadBillPublic(id)),
   ["bill-detail"],
   { revalidate: 900, tags: ["bill-detail"] },
-);
+));
 
 export async function generateMetadata({
   params,
