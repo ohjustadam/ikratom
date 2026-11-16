@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { getCachedAuthProfile } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { readLocale } from "@/modules/auth/actions-locale";
+import { hasSupabaseAuthCookie, localeFromCookie } from "@/lib/chrome-cookies";
 
 /**
  * /api/me — the ONE per-user read the site chrome needs.
@@ -78,6 +80,24 @@ const ANON: ChromeMe = {
 
 export async function GET() {
   try {
+    // Cookie-less fast path (2026-11-16 credit cut). No Supabase auth cookie
+    // means the answer is the anonymous shape whatever else runs, so answer it
+    // without touching the database. Before this, every signed-out call first
+    // wrote a rate-limit row over the network. The daily residential-proxy
+    // crawler (~1,000 IPs at ~13:00 UTC, 11-05..11-16) calls this route
+    // directly, and on 11-11 it took 3,228 of the burst's 5,086 origin-seconds
+    // at ~6.6 s a call. Real browsers without the cookie never get here
+    // (ChromeProvider builds this shape itself, #1149). The rate limit protects
+    // the DB reads below, and this path does none. A request carrying any auth
+    // cookie, even a forged one, still takes the full rate-limited path.
+    // Same rule as the browser: src/lib/chrome-cookies.ts.
+    const cookie = (await headers()).get("cookie");
+    if (!hasSupabaseAuthCookie(cookie)) {
+      return NextResponse.json({ ...ANON, locale: localeFromCookie(cookie) }, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
     // This is the one endpoint every real browser hits on every page load, and
     // it does a profile read plus three counts. The cap is deliberately high —
     // normal browsing never approaches 300/min, and shared NAT egress means a
