@@ -3,7 +3,8 @@
  *
  *   node --env-file=.env.local scripts/auth-captcha.mjs            # status (read-only)
  *   node --env-file=.env.local scripts/auth-captcha.mjs setup-keys # fill empty keys from the "iKratom sign-in" widget
- *                                                                  # (made only if none exists), save both to Netlify
+ *                                                                  # (made only if none exists); adds either key to
+ *                                                                  # Netlify only if missing there (--overwrite replaces)
  *   node --env-file=.env.local scripts/auth-captcha.mjs enable     # ONLY after the deploy carrying the widget code
  *   node --env-file=.env.local scripts/auth-captcha.mjs disable    # rollback: captcha off
  *   node --env-file=.env.local scripts/auth-captcha.mjs passwords  # 12-char minimum + reauth (owner yes first)
@@ -91,6 +92,12 @@ async function saveToNetlify(vars) {
   for (const [key, value] of Object.entries(vars)) {
     const values = [{ value, context: "all" }];
     const exists = (await netlify(`${base}/${key}${q}`)).ok;
+    // An existing var may be set up on purpose (the secret is is_secret and
+    // limited to some deploy contexts), so it is left alone unless asked.
+    if (exists && !process.argv.includes("--overwrite")) {
+      console.log(`  - Netlify ${key} already set, left as is (--overwrite replaces it)`);
+      continue;
+    }
     const r = exists
       ? await netlify(`${base}/${key}${q}`, { method: "PUT", body: JSON.stringify({ key, scopes, values }) })
       : await netlify(`${base}${q}`, { method: "POST", body: JSON.stringify([{ key, scopes, values }]) });
