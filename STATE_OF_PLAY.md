@@ -628,7 +628,7 @@ the owner's yes.
 
 ---
 
-14. **Sign-in captcha: code first, switch second (2026-11-16).** Every
+15. **Sign-in captcha: code first, switch second (2026-11-16).** Every
    Supabase Auth call forwards a Cloudflare Turnstile token (`src/lib/captcha.ts`,
    `src/components/auth/useTurnstile.ts`), but Supabase only checks it once its
    captcha setting is on, and then it rejects every call WITHOUT a token. The
