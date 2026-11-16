@@ -184,3 +184,39 @@ describe("term-calendar: same person", () => {
     expect(samePerson("Doc Rhett", "Michael Rhett")).toBe(false);
   });
 });
+
+describe("samePerson: nicknames and short forms", () => {
+  it("knows common nicknames and clipped names", async () => {
+    const { samePerson } = await import("../scripts/lib/term-calendar.mjs");
+    expect(samePerson("Bill Example", "William Example")).toBe(true);
+    expect(samePerson("Bobby Scott", "Robert Scott")).toBe(true);
+    expect(samePerson("Becky Jo Alexander", "Rebecca Alexander")).toBe(true);
+    expect(samePerson("Van Smith", "Ivan Smith")).toBe(true);
+    expect(samePerson("Mando Martinez", "Armando Martinez")).toBe(true);
+    expect(samePerson("Nissa Jones", "Anissa Jones")).toBe(true);
+  });
+
+  it("still tells relatives and successors apart", async () => {
+    const { samePerson } = await import("../scripts/lib/term-calendar.mjs");
+    expect(samePerson("Lindsey Graham", "Darline Graham")).toBe(false);
+    expect(samePerson("Jesús García", "Patty García")).toBe(false);
+    expect(samePerson("David Clark", "Josh Clark")).toBe(false);
+    expect(samePerson("Tyson Running Wolf", "Lona Running Wolf")).toBe(false);
+  });
+});
+
+describe("nearlySamePerson: a typo is not a new winner", () => {
+  it("catches a one-letter surname slip on the same first name", async () => {
+    const { nearlySamePerson } = await import("../scripts/lib/term-calendar.mjs");
+    expect(nearlySamePerson("John Burkel", "John Burkey")).toBe(true);
+    expect(nearlySamePerson("Isaac Schultz", "Isaac Shultz")).toBe(true);
+  });
+
+  it("leaves different people alone", async () => {
+    const { nearlySamePerson } = await import("../scripts/lib/term-calendar.mjs");
+    expect(nearlySamePerson("John Burkel", "John Burkel")).toBe(false);
+    expect(nearlySamePerson("John Burkel", "Jane Burkey")).toBe(false);
+    expect(nearlySamePerson("John Smith", "John Jones")).toBe(false);
+    expect(nearlySamePerson("Ann Lee", "Ann Lea")).toBe(false);
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseWikiResults, parseInfoboxResult, rowKey } from "../scripts/lib/election-results.mjs";
+import { parseWikiResults, parseInfoboxResult, parseFloridaResults, rowKey } from "../scripts/lib/election-results.mjs";
 
 /**
  * Winner extraction from Wikipedia election tables (officials turnover, part c).
@@ -103,5 +103,94 @@ describe("election results: single-race infobox (statewide offices)", () => {
   it("an unlinked winner is not guessed from the party link", () => {
     const html = box(`<b>Governor before election</b><p><a href="/wiki/A">Ann Example</a></p><b>Elected Governor</b><p>New Person<br><a href="/wiki/R">Republican</a></p>`);
     expect(parseInfoboxResult(html)?.winners).toEqual([]);
+  });
+});
+
+describe("election results: Minnesota's split district column", () => {
+  it("joins the number and the letter into one district", () => {
+    const html = wrap(
+      `<tr><th colspan="2">District</th><th>Incumbent</th><th>Party</th><th>Elected Representative</th><th>Party</th></tr>`,
+      `<tr><td>1</td><td>A</td><td>Rep. John Burkel</td><td>Rep</td><td>John Burkey</td><td>Rep</td></tr>
+       <tr><td>1</td><td>B</td><td>Steve Gander</td><td>Rep</td><td>Steve Gander</td><td>Rep</td></tr>`,
+    );
+    const m = parseWikiResults(html);
+    expect(m.get("1a")?.[0]).toEqual({ incumbent: "John Burkel", winners: ["John Burkey"] });
+    expect(m.get("1b")?.[0].winners).toEqual(["Steve Gander"]);
+  });
+});
+
+describe("election results: pages with a vote box per district", () => {
+  const voteBox = (caption: string, rows: string, close = "<tr><td colspan='6'>Republican hold</td></tr>") =>
+    `<table class="wikitable"><caption>${caption}</caption><tr><th colspan="2">Party</th><th>Candidate</th><th>Votes</th><th>%</th><th>±%</th></tr>${rows}${close}</table>`;
+  const won = "<tr><td></td><td>Republican</td><td><b><a>Doug Miller</a> (incumbent)</b></td><td><b>9,000</b></td><td>60</td><td>+1</td></tr>";
+  const lost = "<tr><td></td><td>Democratic</td><td><a>Ann Example</a></td><td>6,000</td><td>40</td><td>-1</td></tr>";
+
+  it("the bold row wins a closed box, even with a change column", () => {
+    const m = parseWikiResults(`<h3>District 48</h3>${voteBox("Indiana House, District 48, 2026", won + lost)}`);
+    expect(m.get("48")).toEqual([{ incumbent: "Doug Miller", incumbents: ["Doug Miller"], winners: ["Doug Miller"], box: true }]);
+  });
+
+  it("a box with no hold or gain line is still being counted", () => {
+    expect(parseWikiResults(`<h3>District 48</h3>${voteBox("General", won + lost, "")}`).get("48")).toBeUndefined();
+  });
+
+  it("a primary winner is never read as elected", () => {
+    const m = parseWikiResults(`<h3>District 48</h3><h4>Republican primary</h4>${voteBox("Republican primary", won)}`);
+    expect(m.get("48")).toBeUndefined();
+    const n = parseWikiResults(`<h3>District 48</h3>${voteBox("2026 Republican primary election", won)}`);
+    expect(n.get("48")).toBeUndefined();
+  });
+
+  it("a table row beats a box for the same district", () => {
+    const table = wrap(
+      "<tr><th>District</th><th>Incumbent</th><th>Party</th><th>Elected Representative</th><th>Party</th></tr>",
+      "<tr><td>48</td><td>Doug Miller</td><td>Rep</td><td>Table Winner</td><td>Rep</td></tr>",
+    );
+    expect(parseWikiResults(`${table}<h3>District 48</h3>${voteBox("General", won + lost)}`).get("48")?.[0].winners).toEqual(["Table Winner"]);
+  });
+});
+
+describe("election results: Florida's results file", () => {
+  const head = "ElectionDate\tPartyCode\tPartyName\tRaceCode\tRaceName\tCountyCode\tCountyName\tJuris1num\tJuris2num\tPrecincts\tPrecinctsReporting\tCanNameLast\tCanNameFirst\tCanNameMiddle\tCanVotes";
+  const row = (race: string, name: string, county: string, last: string, first: string, votes: number, reporting = 10) =>
+    `2026-11-03\tREP\tRepublican\t${race}\t${name}\t${county}\t${county}\t\t\t10\t${reporting}\t${last}\t${first}\t\t${votes}`;
+  const file = (...rows: string[]) => [head, ...rows].join("\n");
+
+  it("adds up the counties and names the leader", () => {
+    const m = parseFloridaResults(file(
+      row("STR", "State Representative, District 62", "HIL", "Lee", "Ann", 500),
+      row("STR", "State Representative, District 62", "HIL", "Cruz", "Bo", 600),
+      row("STR", "State Representative, District 62", "PIN", "Lee", "Ann", 900),
+      row("STR", "State Representative, District 62", "PIN", "Cruz", "Bo", 100),
+    ));
+    expect(m.get("state_house-62")?.[0].winners).toEqual(["Ann Lee"]);
+  });
+
+  it("the statewide Senate race has no district", () => {
+    const m = parseFloridaResults(file(
+      row("USS", "United States Senator", "HIL", "Moody", "Ashley", 900),
+      row("USS", "United States Senator", "HIL", "Other", "Sam", 100),
+    ));
+    expect(m.get("us_senate-")?.[0].winners).toEqual(["Ashley Moody"]);
+  });
+
+  it("names nobody until every county has finished", () => {
+    const m = parseFloridaResults(file(
+      row("STS", "State Senator, District 8", "VOL", "Lee", "Ann", 900),
+      row("STS", "State Senator, District 8", "VOL", "Cruz", "Bo", 100, 9),
+    ));
+    expect(m.get("state_senate-8")?.[0].winners).toEqual([]);
+  });
+
+  it("leaves a recount-margin race alone", () => {
+    const m = parseFloridaResults(file(
+      row("USR", "United States Representative, District 13", "PIN", "Lee", "Ann", 10010),
+      row("USR", "United States Representative, District 13", "PIN", "Cruz", "Bo", 9990),
+    ));
+    expect(m.get("us_house-13")?.[0].winners).toEqual([]);
+  });
+
+  it("ignores offices we don't track", () => {
+    expect(parseFloridaResults(file(row("CFO", "Chief Financial Officer", "HIL", "Lee", "Ann", 5))).size).toBe(0);
   });
 });
