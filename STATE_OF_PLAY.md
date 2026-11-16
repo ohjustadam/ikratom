@@ -293,6 +293,7 @@ order:
 | Step | Script | Rule |
 |---|---|---|
 | Roster diffs | `sync-state-roster-diff.mjs`, `sync-congress-roster-diff.mjs` | exact openstates / bioguide ids |
+| State contacts | `sync-state-legislator-contacts.mjs` | email / phone / office address of sitting members from openstates/people; never clears, never steps an official email down to a personal one; **over 25 changed rows it holds** for the owner's yes (`--allow-bulk`) |
 | Swap on the handover day | `turnover-swap.mjs` | retires the incumbent only when openstates/people or congress-legislators shows the successor **in office**; the record is kept |
 | Election results | `ingest-election-results.mjs` | Election Day +1 to +60; a winner lands only when a **later day's** reading names the same person |
 | Seat watch | `sync-seat-watch.mjs` (every 3 days) | `term_calendar` + `seat_elections` (migration 0277) |
@@ -304,6 +305,17 @@ Where the facts come from, all free and keyless:
   start dates of the two latest cycles.
 - **State `term_end_date`** is set from the SEAT's handover day, never from
   start date + term length, which is wrong for every appointee.
+
+**Contacts were never refreshed until 2026-11-11.** Every state legislator row
+was last written by the one-off API seed on 2026-05-04 (7,294 of 7,337 active
+rows), so letters bounced off typos openstates/people had already fixed
+(MI Reps. DeBoyer and Neyer, PJ 11-11). The first nationwide pass ran 11-11
+with the owner's yes: 389 rows changed (116 emails, 199 phones, 196 addresses,
+most of them filling empty fields), 6,946 confirmed unchanged, 0 failed. Only
+MO Sen. Travis Fitzwater is still unmatched: his openstates id is not in the
+current roster. openstates/people can be wrong too: MI Rep.
+Fairbairn's `parker.fairbairn@` is not on house.mi.gov's own roster
+(`ParkerFairbairn@`), and only that page caught it.
 
 First run (10-23): 6,616 seats flagged on the Nov 3 ballot. Active officials
 with a term end went from 1,170 to 6,675 of 13,112.

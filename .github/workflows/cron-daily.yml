@@ -577,6 +577,16 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-state-roster-diff.mjs
+      # Email, phone and office address of the members who stayed. Nothing
+      # refreshed these after the May seed, so letters bounced off typos the
+      # source had already fixed (PJ, 11-11). Over 25 changed rows in one run
+      # it holds and reports instead of writing (bulk needs the owner's yes).
+      - name: State legislator contacts vs openstates/people
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-state-legislator-contacts.mjs --apply
       - name: Congress vs unitedstates/congress-legislators
         continue-on-error: true
         env:
