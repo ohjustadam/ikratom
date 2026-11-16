@@ -42,7 +42,17 @@ import { isRetryableGroundingError } from "@/lib/ai/grounding-errors";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 300; // 5 min — plenty for ~15 localities at ~5s each
+export const maxDuration = 300; // honoured on a long-timeout host only
+
+/**
+ * Netlify kills a synchronous function at 30 s and answers 504, whatever
+ * maxDuration says. From 2026-10-31 this route ran past that every day, so it
+ * was killed before its telemetry insert and the staleness watchdog went
+ * silent on it for 17 days. Each pass now stops starting new localities once
+ * this budget is spent (one call can still be in flight), and the run is
+ * recorded as "partial" with what it skipped. The rest waits for tomorrow.
+ */
+const TIME_BUDGET_MS = 18_000;
 
 const REVERIFY_AGE_DAYS = 90;
 const MAX_TERM_EXPIRED_PER_RUN = 5; // daily, was 15 weekly
@@ -70,6 +80,8 @@ export async function GET(request: NextRequest) {
   );
 
   const startedAt = Date.now();
+  const overBudget = () => Date.now() - startedAt > TIME_BUDGET_MS;
+  let budgetCut = "";
   const stats = {
     termExpiredRetired: 0,
     staleLocalitiesReVerified: 0,
@@ -94,6 +106,7 @@ export async function GET(request: NextRequest) {
   }
 
   for (const [, pair] of [...expiredPairs.entries()].slice(0, MAX_TERM_EXPIRED_PER_RUN)) {
+    if (overBudget()) { budgetCut ||= "term-expired"; break; }
     try {
       const r = await reVerifyLocality(pair);
       stats.termExpiredRetired += r.retired.length;
@@ -123,6 +136,7 @@ export async function GET(request: NextRequest) {
     stalePairs.set(`${row.state}|${row.locality}|${row.level}`, { locality: row.locality, state: row.state, level: row.level });
   }
   for (const [, pair] of [...stalePairs.entries()].slice(0, MAX_STALE_PER_RUN)) {
+    if (overBudget()) { budgetCut ||= "stale"; break; }
     try {
       const r = await reVerifyLocality(pair);
       if (r.error) {
@@ -151,6 +165,7 @@ export async function GET(request: NextRequest) {
   let pendingProcessed = 0;
   for (const [, pair] of pendingPairs) {
     if (pendingProcessed >= MAX_PENDING_PER_RUN) break;
+    if (overBudget()) { budgetCut ||= "pending"; break; }
     pendingProcessed++;
     try {
       const r = await autoFulfillLocality(pair);
@@ -176,15 +191,16 @@ export async function GET(request: NextRequest) {
       source: "reverify_local_officials",
       started_at: new Date(startedAt).toISOString(),
       finished_at: new Date().toISOString(),
-      status: "success",
+      status: budgetCut ? "partial" : "success",
       rows_updated: stats.termExpiredRetired + stats.staleLocalitiesReVerified + stats.pendingFulfilled,
-      notes: `retired ${stats.termExpiredRetired} · reverified ${stats.staleLocalitiesReVerified} · pending +${stats.pendingFulfilled}/-${stats.pendingFailed} · ${stats.errors.length} soft-err`.slice(0, 300),
+      notes: `retired ${stats.termExpiredRetired} · reverified ${stats.staleLocalitiesReVerified} · pending +${stats.pendingFulfilled}/-${stats.pendingFailed} · ${stats.errors.length} soft-err${budgetCut ? ` · stopped at ${budgetCut} (time budget)` : ""}`.slice(0, 300),
     });
   } catch { /* best-effort telemetry */ }
 
   return NextResponse.json({
     ok: true,
     ranAt: new Date().toISOString(),
+    stoppedAt: budgetCut || null,
     stats,
   });
 }
