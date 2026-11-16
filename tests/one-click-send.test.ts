@@ -121,11 +121,14 @@ describe("wiring", () => {
     expect(panel).toMatch(/continueMySend\(campaignSlug, batchId\)/);
     // One mailbox, one queue (Paul, 10-30: an NJ send stalled for 45 minutes
     // while he sent from the ND page). Oldest unfinished batch first, then the
-    // page's own if the head made no progress.
+    // page's own if the head made no progress. Since 11-11 that logic lives in
+    // drive-queue.ts, shared with the app-shell driver on every other page.
+    const drive = readFileSync(new URL("../src/modules/campaigns/drive-queue.ts", import.meta.url), "utf8");
     const slice = enqueue.slice(enqueue.indexOf("export async function continueMySend"));
-    expect(slice).toMatch(/\.order\("created_at", \{ ascending: true \}\)/);
-    expect(slice).toMatch(/drainBatch\(serviceClient\(\), head, deadline\)/);
-    expect(slice).toMatch(/drainBatch\(serviceClient\(\), mine, deadline\)/);
+    expect(slice).toMatch(/driveMemberQueue\(serviceClient\(\), user\.id, \{[^}]*prefer: mine \}\)/);
+    expect(drive).toMatch(/\.order\("created_at", \{ ascending: true \}\)/);
+    expect(drive).toMatch(/drainBatch\(admin, batch, opts\.deadline\)/);
+    expect(drive).toMatch(/if \(r\.sent \+ r\.failed > 0\) break;/);
     expect(route).toMatch(/drainBatch\(supabase, batch, deadline\)/);
   });
 

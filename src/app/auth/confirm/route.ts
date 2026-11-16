@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { PENDING_JOIN_COOKIE, pendingJoinPath } from "@/lib/pending-join";
+import { authLinkFailurePath } from "@/modules/auth/signup-outcome";
 
 /**
- * Token-hash confirmation route for SERVER-GENERATED auth links
- * (admin.generateLink) — e.g. the field-signup magic-link invite.
+ * Token-hash confirmation route. Every auth email lands here: the links we
+ * build for admin.generateLink (field-signup invite, admin magic link and
+ * reset), and since 2026-11-10 Supabase's own signup, reset and magic-link
+ * emails too (templates in scripts/lib/auth-email-templates.mjs). It works in
+ * any browser or mail app, because nothing depends on a cookie from the
+ * browser that asked for the email.
  *
  * Why this exists separately from /auth/callback:
  *   /auth/callback uses exchangeCodeForSession(code), which is the PKCE
@@ -38,17 +43,22 @@ export async function GET(request: NextRequest) {
       ? next
       : "/dashboard";
 
-  if (!tokenHash || !type) {
-    return NextResponse.redirect(new URL("/login?error=missing_token", request.url));
-  }
+  // A failed link lands on a page that explains it: /forgot for a password
+  // reset, otherwise /login with a notice and a "send a new link" form. It used
+  // to be /login?error=…, which the login form never reads.
+  const isRecovery = safeNext === "/reset-password" || type === "recovery";
+  const failTo = (reason: string) => {
+    console.warn("[auth/confirm] link failed", { reason, type });
+    return NextResponse.redirect(
+      new URL(authLinkFailurePath({ isRecovery, hadCode: false }), request.url),
+    );
+  };
+
+  if (!tokenHash || !type) return failTo("missing_token");
 
   const supabase = await createClient();
   const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
-  if (error) {
-    return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(error.message)}`, request.url),
-    );
-  }
+  if (error) return failTo(error.code ?? error.message);
 
   // A group invite remembered at signup (src/lib/pending-join.ts): land in the
   // group, not the default page. Never on a password reset.

@@ -81,7 +81,7 @@ jobs:
   # widest work we run (term backfills touch 7.5k rows, committees 33k), so it
   # defers first. See scripts/lib/egress-budget.mjs.
   budget:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.gate.outputs.run }}
@@ -109,7 +109,7 @@ jobs:
     #   state   -> openstates/people, joined on openstates_id (ocd-person uuid)
     # Local terms are still uncovered; they are mostly not published in any
     # machine-readable feed and will come through the locality pipeline.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 25, not 10: the state step touches 7.5k rows. Steady-state it writes
     # almost nothing (everything is already correct), but a cold or largely
     # re-seeded roster is a real batch of work and a cancelled job would skip
@@ -197,7 +197,7 @@ jobs:
     # OpenStates v3 API. Idempotent — upsert on
     # (legislator_id, committee_name, session_id) so non-priority
     # state runs upsert existing rows in place.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
@@ -219,7 +219,7 @@ jobs:
     # Weekly refresh of ProPublica Form 990 data for kratom-policy-
     # aligned orgs (AKA, GKC, etc.). 990 filings update annually
     # by definition; weekly is plenty.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -242,6 +242,15 @@ jobs:
   # tests/patch-notes-publishing.test.ts fails if a workflow sends one again.
 
   weekly-self-review:
+    # PAUSED 2026-11-06 at the owner's request. This repo is public, so the issue
+    # comment, the run summary and the log are all public, and --dry-run does not
+    # help because it still prints the report in the log. The report is for
+    # internal use: run it on the owner's machine instead, with
+    #   node --env-file=.env.local scripts/weekly-self-review.mjs --dry-run
+    # Give it a private destination before turning this back on.
+    # tests/self-review-stays-private.test.ts holds this.
+    if: false
+    #
     # The PROPOSE arm. Reads a week of scraper_runs, a week of admin_audit_log
     # (action names only) and this repo's merge history, then asks the free AI
     # pool for "what moved, what decayed, what I would do next" and posts it as
@@ -261,7 +270,7 @@ jobs:
     # issues: write is the only extra permission, and it is scoped to this job
     # alone rather than the workflow, so nothing else here can write to the
     # repo. GITHUB_TOKEN is the built-in one — no PAT, no secret to rotate.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -292,7 +301,7 @@ jobs:
     # this workflow's only weekly catch-up for the 41 non-priority states and
     # degrades fine on last week's committee data. Matches the daily-cron pattern.
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5

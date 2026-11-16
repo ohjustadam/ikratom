@@ -10,7 +10,7 @@ Every state on iKratom now has its own **daily field-work briefing** — a plain
 ## 🎧 Now you can listen
 Don't feel like reading? Open any state briefing and tap **🔊 Listen**. It reads the whole briefing aloud in a natural, on-device voice — the same neural voice as the daily brief — so you can catch up on your state while you're driving, cooking, or doing anything else. It's free, runs right in your browser, and nothing leaves your device.
 
-(The same one-tap Listen is now on bill pages too — on the "who pushed this ban / how to repeal it" takeback intel and the bill-journey story.)
+(The same one-tap Listen is now on bill pages too.)
 
 ## 🔔 Get a heads-up when yours refreshes
 We added a new **"State daily briefings"** notification setting — it's **on by default**. Leave it on to get a heads-up when your state's briefing updates; switch it off anytime in [your notification settings](/account). Quiet hours are always respected.

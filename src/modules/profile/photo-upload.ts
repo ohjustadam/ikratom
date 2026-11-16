@@ -14,7 +14,8 @@ import { isAudience, type Audience } from "./audience";
  */
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 export const MAX_ALBUM_PHOTOS = 60;
-export type PhotoKind = "avatar" | "cover" | "album" | "wall";
+export const MAX_GROUP_PHOTOS = 100;
+export type PhotoKind = "avatar" | "cover" | "album" | "wall" | "group";
 
 const EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" } as const;
 const AUDIENCE_KEYS = ["profile_audience", "bio_audience", "story_audience", "links_audience", "interests_audience",
@@ -35,15 +36,21 @@ export async function storeMemberPhoto(input: {
   const { data: mineRows } = await input.userClient.rpc("get_my_profile_social");
   const mine = ((mineRows ?? []) as Record<string, unknown>[])[0] ?? {};
   const fallback: Audience = input.kind === "album" && isAudience(mine.photos_default_audience) ? mine.photos_default_audience : input.kind === "album" ? "friends" : "members";
-  // A wall photo is stored as only_me: the media route serves it to whoever can
-  // see its post (0292), so it can never be wider than the post itself.
-  const audience: Audience = input.kind === "wall" ? "only_me" : isAudience(input.audience) ? input.audience : fallback;
+  // A wall or group photo is stored as only_me: the media route serves it to
+  // whoever can see its post (0292, 0318), so it can never be wider than the post.
+  const audience: Audience =
+    input.kind === "wall" || input.kind === "group" ? "only_me" : isAudience(input.audience) ? input.audience : fallback;
 
   const svc = createServiceRoleClient();
   if (input.kind === "album") {
     const { count } = await svc.from("member_photos").select("id", { count: "exact", head: true })
       .eq("owner_id", input.userId).eq("kind", "album");
     if ((count ?? 0) >= MAX_ALBUM_PHOTOS) return { error: `Your album is full (${MAX_ALBUM_PHOTOS} photos). Delete one to add another.`, status: 400 };
+  }
+  if (input.kind === "group") {
+    const { count } = await svc.from("member_photos").select("id", { count: "exact", head: true })
+      .eq("owner_id", input.userId).eq("kind", "group");
+    if ((count ?? 0) >= MAX_GROUP_PHOTOS) return { error: `You've posted ${MAX_GROUP_PHOTOS} group images, which is the limit for now.`, status: 400 };
   }
 
   const id = crypto.randomUUID();

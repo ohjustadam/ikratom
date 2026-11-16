@@ -71,10 +71,8 @@ export default async function PatchNotePage({ params }: { params: Promise<{ slug
           Patch note
         </p>
         <h1 className="mt-2 text-3xl font-bold sm:text-4xl">{note.title}</h1>
-        {(note.published || note.totalCommits != null) && (
-          <p className="mt-2 font-mono text-xs text-zinc-500">
-            {note.published}{note.totalCommits != null && ` · ${note.totalCommits} commits`}
-          </p>
+        {note.published && (
+          <p className="mt-2 font-mono text-xs text-zinc-500">{note.published}</p>
         )}
         {note.summary && <p className="mt-3 text-sm text-zinc-300">{note.summary}</p>}
       </header>

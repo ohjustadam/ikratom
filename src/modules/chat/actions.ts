@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { moderateChatMessage } from "./moderate";
+import { looksLikeLink, unapprovedLinks } from "@/lib/moderation";
 import { sellingIssue } from "@/lib/selling";
 import { notifyLoungeMentions } from "./mentions";
 
@@ -29,10 +30,6 @@ export type ChatMessage = {
 
 const MAX_BODY = 500;
 const ROOM_RE = /^[a-z0-9:_-]{1,32}$/;
-// Crude URL detector — covers http(s)://, bare domains with TLD, and
-// shortener-y patterns. Does not try to be exhaustive; brand new accounts
-// with anything that looks like a link get bounced.
-const URL_RE = /\b(?:https?:\/\/|www\.|[a-z0-9-]+\.(?:com|net|org|io|co|gg|xyz|info|biz|tv|me|app|link|tk|ml|ga|cf|live|shop|store|site)\b)/i;
 // Repeated-character flood (10+ same char) — "aaaaaaaaaa", "!!!!!!!!!!!"
 const FLOOD_RE = /(.)\1{9,}/;
 
@@ -89,7 +86,7 @@ export async function postChatMessage(input: { body: string; room?: string }) {
   // URL gate: accounts < 24h cannot post anything resembling a URL. Stops
   // the most common spam vector (signup → drop link). Privileged users
   // bypass.
-  if (!isPrivileged && accountHours < NEW_ACCOUNT_HOURS_SOFT && URL_RE.test(body)) {
+  if (!isPrivileged && accountHours < NEW_ACCOUNT_HOURS_SOFT && looksLikeLink(body)) {
     return {
       error:
         "Brand new accounts can't post links yet. Wait 24 hours, or post your link in a forum thread.",
@@ -119,6 +116,28 @@ export async function postChatMessage(input: { body: string; room?: string }) {
     .limit(1);
   if ((dupes ?? []).length > 0) {
     return { error: "You just sent that — wait a minute before repeating." };
+  }
+
+  // A link outside the trusted list waits for a moderator, as it does on the
+  // forum, because the Lounge is where a shop would drop one. After the rate
+  // limit, so a spammer can't fill the queue. Unlike the abuse hold below this
+  // fails closed: an unreviewed link is the one thing this exists to stop.
+  if (!isPrivileged) {
+    const links = unapprovedLinks(body);
+    if (links.length > 0) {
+      const { error: holdErr } = await createServiceRoleClient().from("chat_moderation_queue").insert({
+        user_id: user.id,
+        room,
+        body,
+        category: "link",
+        reason: `Link to ${links[0]}`.slice(0, 200),
+      });
+      if (holdErr) {
+        console.error("chat link hold failed:", holdErr.message);
+        return { error: "That link couldn't be sent. Try again in a moment." };
+      }
+      return { ok: true as const, held: true as const };
+    }
   }
 
   // AI abuse moderation (D4) — non-privileged users only. Screen BEFORE insert

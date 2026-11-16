@@ -11,6 +11,7 @@ import { postChatMessage, deleteChatMessage, loadInitialChat, type ChatMessage }
 import { useChromeMe } from "@/components/chrome/ChromeProvider";
 import { mentionAtCaret, completeMention } from "@/lib/mentions";
 import { LoungeLauncher } from "./LoungeLauncher";
+import { LOUNGE_SEEN_EVENT, useLoungeSeen } from "./use-lounge-seen";
 import { MentionText } from "./MentionText";
 import { MentionSuggest } from "./MentionSuggest";
 
@@ -99,12 +100,14 @@ export function ChatPopup() {
     return () => window.removeEventListener("ikratom:open-lounge", onOpen);
   }, []);
 
-  // Opening the Lounge clears the new-message badge (0298).
+  // Seeing the Lounge clears the new-message badge (0298), here or on /forum,
+  // and new messages stay cleared for as long as the chat is open.
+  useLoungeSeen(open && !!user, messages.length);
   useEffect(() => {
-    if (!open || !user || badgeCleared) return;
-    setBadgeCleared(true);
-    void createClient().rpc("mark_lounge_seen");
-  }, [open, user, badgeCleared]);
+    const clear = () => setBadgeCleared(true);
+    window.addEventListener(LOUNGE_SEEN_EVENT, clear);
+    return () => window.removeEventListener(LOUNGE_SEEN_EVENT, clear);
+  }, []);
 
   // Scroll a linked message into view once it has loaded.
   useEffect(() => {

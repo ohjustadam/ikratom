@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
 import { recordAdminAction } from "@/lib/audit";
+import { publishBlocklistMatches } from "../../../scripts/lib/changelog-safety.mjs";
 
 /**
  * Curate the public changelog (`patch_notes`, migration 0250).
@@ -49,6 +50,21 @@ export async function listPatchNotesForAdmin(): Promise<
   return { ok: true, rows: (data ?? []) as AdminPatchNote[] };
 }
 
+/**
+ * Why a note can't be public, or null if it can. What's New carries only
+ * changes a member can see (owner, 2026-11-06); the words live in
+ * scripts/lib/changelog-safety.mjs, where CI holds the file notes to them too.
+ */
+function publishBlockReason(note: {
+  title: string;
+  summary: string | null;
+  body_md: string;
+}): string | null {
+  const words = publishBlocklistMatches([note.title, note.summary ?? "", note.body_md].join("\n"));
+  if (words.length === 0) return null;
+  return `What's New is only for changes members can see. Reword or remove: ${words.join(", ")}.`;
+}
+
 /** Save curated copy. Allowed in any status — a published typo is still a typo. */
 export async function savePatchNote(input: {
   slug: string;
@@ -67,14 +83,23 @@ export async function savePatchNote(input: {
   const body = input.bodyMd.slice(0, MAX_BODY);
   if (!body.trim()) return { error: "A note needs a body." };
 
+  const summary = input.summary.trim().slice(0, MAX_SUMMARY) || null;
+
   const supabase = await createClient();
+  // A draft may hold anything while it is being curated. Live copy may not.
+  const { data: current } = await supabase
+    .from("patch_notes")
+    .select("status")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (current?.status === "published") {
+    const blocked = publishBlockReason({ title, summary, body_md: body });
+    if (blocked) return { error: blocked };
+  }
+
   const { error } = await supabase
     .from("patch_notes")
-    .update({
-      title,
-      summary: input.summary.trim().slice(0, MAX_SUMMARY) || null,
-      body_md: body,
-    })
+    .update({ title, summary, body_md: body })
     .eq("slug", slug);
   if (error) return { error: error.message };
 
@@ -108,6 +133,18 @@ export async function setPatchNoteStatus(input: {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  if (input.publish) {
+    const { data: note, error: readError } = await supabase
+      .from("patch_notes")
+      .select("title, summary, body_md")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (readError) return { error: readError.message };
+    if (!note) return { error: "Note not found." };
+    const blocked = publishBlockReason(note);
+    if (blocked) return { error: blocked };
+  }
 
   const { error } = await supabase
     .from("patch_notes")

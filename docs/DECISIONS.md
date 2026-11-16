@@ -280,3 +280,55 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 - **New members get no back-issue.** Someone who joins after a note went out sees it at `/whats-new`, not as a push.
 
 **Why:** the Sunday job read only files, so after notes moved to the database it kept sending the 2026-10-08 note to each new member, while the weekly workflow said pushes were never automated. A merged weekly file also cost a 15-credit build.
+## What's New is user-facing only (2026-11-06)
+
+**Decision:** `/whats-new` carries only changes a member can see. Internal, infrastructure and security work never goes on it, not even as a generic "security improvements" line.
+
+- **The back-catalogue was cleaned.** 23 notes with nothing a member could see were removed, and their URLs now return 404. 19 notes of raw commit subjects were rewritten in plain words, and 11 were trimmed. Commit links, PR numbers, commit counts and "Under the hood" sections are gone, and so is the page's promise to link every change to its commit.
+- **Publish checks the words.** `/admin/whats-new` refuses a note with a blocked term, and refuses an edit that would put one into a live note. A draft can hold anything while it is being curated. CI holds the file notes to the same list in `scripts/lib/changelog-safety.mjs`.
+- **Drafts start closer.** The generator lists only `feat:` and `fix:` commits that pass the list, with no links and no catch-all line. A day with nothing member-facing gets no draft.
+- **Corrections stay.** The 2026-08-28 correction is still up: it tells readers what we got wrong, so it is user-facing.
+
+**Why:** the owner's call, 2026-11-06. The generated notes put raw commit subjects in front of the public.
+
+**Limits:** this cleans the site, not GitHub. The repository is public, so commit subjects stay visible there. A direct database write skips the check, so run the list over anything written that way.
+
+## "Session ended" is a label over the status, not a new status (2026-11-06)
+
+**Decision:** `bills.status` stays as synced. `session_sine_die` is shown as "Session ended" over an open status only, and it never touches a terminal one. `status` keeps the last real stage the bill reached, and "dead" is still never inferred from a calendar (#1129).
+
+- **Who gets the flag.** `sessionFlag()` in `scripts/lib/review-dates.mjs`. City and county rows get none. A bill waiting on the governor gets none, and isn't retired. A row whose last action falls outside its matched session gets none, because that means it carries another bill's data. An open bill whose last action is its outcome, or an adopted one-chamber resolution, gets none.
+- **Illinois is named in code.** LegiScan marks the General Assembly adjourned after spring, but it passes bills in veto and lame-duck sessions until January, and LegiScan's own history shows Senate action on 2026-07-02. One named state is cheaper than a calendar feed, and it is the only state where we have seen this. New York's term also runs to December 31, but the last floor action in our data is June, so its flag stands. The owner can overrule that.
+- **Congress is worked out from its number.** LegiScan's session list has no federal rows.
+- **Companions keep the flag.** Their session did end, and #1129 already chose not to count one law twice. The bill page says the companion moved ahead, so nobody reads it as a defeat.
+- **The cron writes both directions, on inactive rows too.** It used to set the flag only on active rows and never clear it, so a wrong flag stayed forever and a bill retired another way never got one. Terminal rows are left alone, except city and county rows.
+
+**Why:** PJ noticed Georgia HB 968 still reading "introduced" after its term ended. The audit that followed found the flag wrong on 33 of the 216 open rows, including a New York bill both chambers had passed.
+
+
+## Who can change a forum post (2026-11-06)
+
+**Decision:** members edit or delete their own posts. Leaders hide posts but never rewrite them. Only an admin or the owner can change someone else's words, and the post then reads "edited by a moderator". Two admins can't act on each other. The rules live in `forumRights()` (`src/lib/forum-permissions.ts`).
+
+- **Hiding is reversible, rewriting isn't obvious.** Putting words in a member's mouth is the worst thing a moderator can do, so the power sits high and it shows on the post.
+- **Every change keeps the old wording.** `forum_edits` holds it, and the database refuses forum text changes from anything but the service role, moderators included. A moderator can't quietly skip the log.
+- **A member can delete in a locked thread but not edit.** Taking your own words down is a privacy right. Rewriting a thread someone locked isn't.
+- **Reports hide at three, from accounts a week old.** Same rule as 0307, so a burst of new accounts can't silence anyone.
+
+**Why:** the owner, 2026-11-06: "acknowledge the different permissions and roles", after PJ found no edit or delete button and warned about false posts and spam.
+
+## Old bot threads are hidden, not deleted (2026-11-06)
+
+**Decision:** bill threads are never deleted automatically. No action in 180 days puts a banner on the thread. A bill thread with member replies that's been quiet for 90 days is listed at `/admin/forum` for a moderator. 374 old bot threads with no replies stay in the table, off the forum lists, because bill pages still link to them.
+
+**Why:** PJ asked for a cutoff, with threads that drew real conversation going to manual review. Deleting needs the owner's yes, and nothing is lost by hiding them.
+
+## A session label must fit the bill the sync fetched (2026-11-08)
+
+**Decision:** the LegiScan sync merges a fetched bill only when some reading of the row's session label fits that bill's session: its LegiScan session id, its assembly number, or its years. A two-year reading is exact. A one-year reading may be a year off. A label with no reading never blocks.
+
+- **Exact for a biennium.** Bills die when the biennium ends, so the 103rd GA (2023-24) is never the 104th (2025-26). The old guard allowed a year either side and let them through.
+- **Loose for one year.** OpenStates names Oklahoma's legislature by its end year (HB 1784, enacted 2021, is "2022"). Virginia relabels a continued bill with the next year, and an annual LegiScan session can hold a carried-over bill. All three are the same bill.
+- **An assembly number is exact,** even for its one-year special session. Widening "108th Legislature 1st Special Session" (2024) would let the 109th's 2025 bills through.
+
+**Why:** 12 Illinois rows, NE LB 972 and TN HB 861 showed unrelated newer bills. Run on today's 120 live rows, the rule blocks exactly the two live ones and nothing else.

@@ -72,7 +72,12 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
 
   // Members (RLS returns rows to members only). @handle via get_public_profiles, never a real name.
   let members: MemberView[] = [];
-  if (viewerRole) {
+  // On a non-public privacy setting you see your own handle, but everyone else
+  // sees "Member". The list says so beside your own row, so it doesn't look broken.
+  let selfHidden = false;
+  if (viewerRole && user) {
+    const { data: me } = await sb.from("profiles").select("profile_visibility").eq("id", user.id).maybeSingle();
+    selfHidden = !!me && (me as { profile_visibility: string | null }).profile_visibility !== "public";
     const { data: rows } = await sb.from("coalition_members").select("user_id, role, joined_at")
       .eq("coalition_id", c.id).order("joined_at", { ascending: true });
     const list = (rows ?? []) as { user_id: string; role: string; joined_at: string }[];
@@ -164,7 +169,7 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
       {viewerRole && tab === "members" && (
         <>
           {invite}
-          <Members members={members} />
+          <Members members={members} selfId={user?.id ?? null} selfHidden={selfHidden} />
           {user && (
             <Coverage coalitionId={c.id} slug={c.slug} state={c.state} isOrganizer={isOrganizer} userId={user.id}
               chamber={typeof sp.chamber === "string" ? sp.chamber : undefined}

@@ -23,7 +23,8 @@ import { legislatorInCampaignScope } from "./scope";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { adaptForHiddenHome, adaptForNonResident, buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
 import { getSafeMode } from "./safe-mode";
-import { drainBatch } from "./drain-batch";
+import { driveMemberQueue } from "./drive-queue";
+import { ensureDrainLeaseRow } from "./drain-lease";
 import { screenLetterFrom } from "./letter-blocks";
 import { isMailbox } from "@/lib/mailbox";
 
@@ -239,6 +240,9 @@ export async function enqueueCampaignSend(input: {
     }
   }
 
+  // Before anything can drain it: one slice per mailbox from the very first.
+  await ensureDrainLeaseRow(user.id);
+
   return {
     ok: true,
     batchId: batch.id,
@@ -364,10 +368,11 @@ export async function getBatchProgress(campaignSlug: string): Promise<BatchProgr
 /**
  * Push the user's own batch forward for one short slice (~15s, under the
  * host's ~30s request budget) and report progress. The campaign page calls
- * this every few seconds while it is open, so a send finishes in minutes; if
- * the page closes, the scheduled worker finishes the rest. Ownership is
- * proven by reading the batch through the USER's client (RLS), not by a
- * where-clause.
+ * this every few seconds while it is open, so a send finishes in minutes. On
+ * any other page the app-shell driver (SendQueueDriver → /api/campaigns/
+ * send-queue) carries on, and the scheduled worker finishes whatever is left
+ * once every tab is closed. Ownership is proven by reading the batch through
+ * the USER's client (RLS), not by a where-clause.
  */
 export async function continueMySend(campaignSlug: string, batchId: string): Promise<BatchProgress> {
   const supabase = await createClient();
@@ -381,29 +386,11 @@ export async function continueMySend(campaignSlug: string, batchId: string): Pro
     .maybeSingle();
   if (!mine || mine.user_id !== user.id) return null;
 
-  // One slice at a time per user; a second tab just reads progress.
-  if (ACTIVE.includes(mine.status) &&
-      (await checkRateLimit(`campaign:drain:${user.id}`, 1, 4))) {
-    // One mailbox, one queue: sends go out in the order the member started
-    // them, whichever campaign page is open. Draining only THIS page's batch
-    // stalled an earlier send on another campaign until its page was reopened
-    // (Paul, 10-30: 120 NJ letters sat for 45 minutes behind 138 ND ones).
-    const deadline = Date.now() + 15_000;
-    const { data: first } = await supabase
-      .from("campaign_send_batches")
-      .select("id, user_id, campaign_id, subject_template, body_template, status, total_count, sent_count, failed_count")
-      .eq("user_id", user.id)
-      .in("status", ACTIVE)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    const head = first && first.user_id === user.id ? first : mine;
-    const r = await drainBatch(serviceClient(), head, deadline);
-    // Every pause reason today is mailbox-wide, but if the head ever stalls on
-    // its own, it must not hold this page's send hostage.
-    if (head.id !== mine.id && r.sent + r.failed === 0 && Date.now() < deadline - 2_000) {
-      await drainBatch(serviceClient(), mine, deadline);
-    }
+  // One slice at a time per mailbox (the drain lease); a second tab, or the
+  // app-shell driver on another page, just reads progress. Oldest send first,
+  // then this page's own if the head makes no progress (drive-queue.ts).
+  if (ACTIVE.includes(mine.status)) {
+    await driveMemberQueue(serviceClient(), user.id, { deadline: Date.now() + 15_000, prefer: mine });
   }
   return getBatchProgress(campaignSlug);
 }

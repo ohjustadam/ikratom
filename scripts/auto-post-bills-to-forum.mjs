@@ -1,25 +1,38 @@
 #!/usr/bin/env node
 /**
- * Auto-post bills to their state forum as system threads.
+ * Keep each state's one "bill updates" thread current.
  *
- * Goal: when an anti- or pro-kratom bill goes active, members opening
- * /forum/<state> should see a system-posted thread with the bill summary,
- * status, sponsors, and a deep-link to /bills/<id>. This drives discovery
- * of bill detail pages and seeds discussion in the right state forum.
+ * Every state forum used to get a thread per bill, and 376 of 378 threads were
+ * the bot's, so a member's thread disappeared among them (reported 2026-11-04).
+ * Now a state has ONE running thread, and a new bill or a status change is a
+ * comment in it. The old threads stay reachable from their bill pages, and
+ * /forum/<state> only lists one again if a person replies to it.
  *
- * Eligibility (each tick):
+ * Eligibility:
  *   - bills.active = true
- *   - bills.kratom_relevance in ('anti', 'pro')   (skip neutral)
- *   - bills.forum_thread_id IS NULL                (idempotent)
+ *   - bills.kratom_relevance in ('anti', 'pro')
  *   - bills.scope in ('state', 'federal')          (municipal handled by /pulse)
- *   - bills.relevance_confidence >= 0.6 OR explicitly active
+ *   - bills.relevance_confidence >= 0.6
+ *   - bills.forum_update_key differs from its status + last action date
  *
  * Run:
  *   node --env-file=.env.local scripts/auto-post-bills-to-forum.mjs
  *   node --env-file=.env.local scripts/auto-post-bills-to-forum.mjs --dry-run
- *   node --env-file=.env.local scripts/auto-post-bills-to-forum.mjs --bill <id>
+ *   node --env-file=.env.local scripts/auto-post-bills-to-forum.mjs --seed
+ *
+ * --seed opens a state's thread with one list of what's live and stamps every
+ * bill as announced. Run it once, so the first hourly run isn't a comment per bill.
  */
 import { createClient } from "@supabase/supabase-js";
+import {
+  billUpdateComment,
+  billUpdateKey,
+  billWatchList,
+  digestThreadBody,
+  digestThreadTitle,
+  forumKey,
+  planBillPosts,
+} from "./lib/forum-bill-updates.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -27,200 +40,139 @@ const sb = createClient(
   { auth: { persistSession: false } },
 );
 
-const args = process.argv.slice(2);
-const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
-const SPECIFIC = arg("--bill");
-const DRY = args.includes("--dry-run");
-
+const DRY = process.argv.includes("--dry-run");
+const SEED = process.argv.includes("--seed");
+const MAX_COMMENTS_PER_RUN = 25;
 const APP_URL = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://www.ikratom.org";
 
-// Map kratom_relevance + scope to a forum tag
-function tagFor(bill) {
-  return "legislation";
-}
+const { data: stateRows } = await sb.from("states").select("abbr, name");
+const stateNames = new Map((stateRows ?? []).map((s) => [s.abbr, s.name]));
+const nameOf = (key) => (key === "US" ? "Federal" : stateNames.get(key) ?? key);
 
-function relevanceBadge(bill) {
-  if (bill.kratom_relevance === "anti") return "🚫 Restrictive";
-  if (bill.kratom_relevance === "pro") return "✅ Supportive";
-  return "📋 Tracked";
-}
+const threadIds = new Map();
 
-function statusBadge(status) {
-  if (!status) return "introduced";
-  return status;
-}
-
-function buildThreadTitle(bill) {
-  const scope = bill.scope === "federal" ? "Federal" : (bill.state ?? "");
-  // Prefix lets state forum threads scan-read at a glance.
-  return [
-    `[${relevanceBadge(bill)}]`,
-    `${scope} ${bill.bill_number}`,
-    "—",
-    (bill.title ?? "").slice(0, 140),
-  ].join(" ").slice(0, 240);
-}
-
-function buildThreadBody(bill) {
-  const lines = [];
-  lines.push(`> 🤖 Auto-posted by iKratom bot. This thread tracks **${bill.state ?? "FED"} ${bill.bill_number}**. Reply with on-the-ground updates, hearing audio, lobbyist sightings, anything that helps the rest of us understand what's actually happening.`);
-  lines.push("");
-  lines.push(`**Status:** ${statusBadge(bill.status)}`);
-  if (bill.last_action) lines.push(`**Last action:** ${bill.last_action}${bill.last_action_at ? ` (${new Date(bill.last_action_at).toLocaleDateString()})` : ""}`);
-  if (bill.kratom_relevance) lines.push(`**Stance:** ${relevanceBadge(bill)}`);
-  if (typeof bill.relevance_confidence === "number") {
-    lines.push(`**Confidence:** ${(bill.relevance_confidence * 100).toFixed(0)}%`);
+/** The state's running thread, opened the first time it has something to say. */
+async function digestThread(key) {
+  if (threadIds.has(key)) return { id: threadIds.get(key), created: false };
+  const { data: found } = await sb
+    .from("forum_threads")
+    .select("id")
+    .eq("is_state_digest", true)
+    .eq("state", key)
+    .maybeSingle();
+  if (found) {
+    threadIds.set(key, found.id);
+    return { id: found.id, created: false };
   }
-  lines.push("");
-
-  // Prefer the AI-distilled summary if present (shorter, more advocate-readable);
-  // fall back to the official summary otherwise.
-  const summary = bill.summary_ai || bill.summary;
-  if (summary) {
-    lines.push("**Summary**");
-    lines.push(String(summary).slice(0, 1500));
-    lines.push("");
-  }
-
-  if (bill.advocacy_callout) {
-    lines.push("**Why it matters**");
-    lines.push(String(bill.advocacy_callout).slice(0, 800));
-    lines.push("");
-  }
-
-  lines.push(`**One-click action:** [bill page](${APP_URL}/bills/${bill.id}) → has the full text, sponsor contact buttons, and any active campaigns.`);
-  if (bill.source_url) {
-    lines.push(`**Official source:** [${bill.source_url}](${bill.source_url})`);
-  }
-  lines.push("");
-  lines.push("---");
-  lines.push("_Threads like this auto-post when an active anti- or pro-kratom bill is detected by the platform. Subscribe to /bills/<id> to get push notifications when status changes._");
-  return lines.join("\n");
-}
-
-async function postBill(bill) {
-  console.log(`\n=== ${bill.id.slice(0, 8)} | ${bill.state ?? "FED"} ${bill.bill_number} | ${bill.kratom_relevance} ===`);
-
-  if (bill.forum_thread_id) {
-    console.log(`  ⏭  already posted: thread ${bill.forum_thread_id.slice(0, 8)}`);
-    return false;
-  }
-
-  const title = buildThreadTitle(bill);
-  const body = buildThreadBody(bill);
-  const tag = tagFor(bill);
-
-  if (DRY) {
-    console.log(`  DRY RUN — would post:`);
-    console.log(`    state: ${bill.state ?? "(federal — null state)"}`);
-    console.log(`    title: ${title}`);
-    console.log(`    body length: ${body.length}`);
-    return true;
-  }
-
-  // Federal bills need a state value to anchor a forum (forum is state-anchored).
-  // Convention: federal threads get state=null; the existing forum index handles
-  // null-state threads as "Federal / multistate".
-  const threadState = bill.scope === "federal" ? null : bill.state;
-
+  const name = nameOf(key);
   const { data: thread, error } = await sb
     .from("forum_threads")
     .insert({
-      state: threadState,
-      author_id: null,                    // system-generated; NULL on delete set null
-      author_state: bill.state ?? null,
-      title,
-      body,
-      tag,
+      state: key,
+      author_id: null,
+      author_state: key,
+      title: digestThreadTitle(name),
+      body: digestThreadBody(name),
+      tag: "legislation",
       system_generated: true,
-      moderation_status: "approved",      // bypasses queue (default is also 'approved' but explicit)
+      is_state_digest: true,
+      moderation_status: "approved",
     })
     .select("id")
     .single();
+  if (error) throw new Error(`thread for ${key}: ${error.message}`);
+  threadIds.set(key, thread.id);
+  return { id: thread.id, created: true };
+}
 
-  if (error) {
-    console.log(`  ✗ thread insert failed: ${error.message}`);
-    return false;
-  }
-  console.log(`  ✓ thread created: ${thread.id.slice(0, 8)}`);
+async function postComment(threadId, key, body) {
+  const { error } = await sb.from("forum_posts").insert({
+    thread_id: threadId,
+    author_id: null,
+    author_state: key,
+    body,
+    moderation_status: "approved",
+  });
+  if (error) throw new Error(`comment for ${key}: ${error.message}`);
+}
 
-  // Link bill back so we never repost
-  const { error: linkErr } = await sb
+const stamp = (bill, threadId) =>
+  sb
     .from("bills")
-    .update({ forum_thread_id: thread.id, forum_posted_at: new Date().toISOString() })
+    .update({
+      forum_update_key: billUpdateKey(bill),
+      forum_thread_id: bill.forum_thread_id ?? threadId ?? null,
+      forum_posted_at: new Date().toISOString(),
+    })
     .eq("id", bill.id);
-  if (linkErr) {
-    console.log(`  ⚠ link back failed: ${linkErr.message}`);
-  }
-  return true;
-}
 
-let bills;
-if (SPECIFIC) {
-  const { data } = await sb
-    .from("bills")
-    .select("id, state, bill_number, scope, status, last_action, last_action_at, title, summary, summary_ai, kratom_relevance, relevance_confidence, source_url, active, forum_thread_id, advocacy_callout, journey_narrative")
-    .eq("id", SPECIFIC)
-    .single();
-  bills = data ? [data] : [];
+const { data, error } = await sb
+  .from("bills")
+  .select("id, state, bill_number, scope, status, last_action, last_action_at, title, kratom_relevance, forum_thread_id, forum_update_key")
+  .eq("active", true)
+  .in("kratom_relevance", ["anti", "pro"])
+  .in("scope", ["state", "federal"])
+  .gte("relevance_confidence", 0.6)
+  .order("last_action_at", { ascending: false, nullsFirst: false })
+  .limit(1000);
+if (error) {
+  console.error("Query error:", error.message);
+  process.exit(1);
+}
+const bills = data ?? [];
+
+let posted = 0;
+let failed = 0;
+
+if (SEED) {
+  const byKey = new Map();
+  for (const b of bills) byKey.set(forumKey(b), [...(byKey.get(forumKey(b)) ?? []), b]);
+  for (const [key, group] of byKey) {
+    console.log(`${key}: ${group.length} bill(s)`);
+    if (DRY) continue;
+    try {
+      const { id, created } = await digestThread(key);
+      if (created) {
+        await postComment(id, key, billWatchList(nameOf(key), group, APP_URL));
+        posted++;
+      }
+      for (const b of group) await stamp(b, id);
+    } catch (e) {
+      failed++;
+      console.log(`  ✗ ${e.message}`);
+    }
+  }
 } else {
-  // Eligible bills — active anti/pro bills not yet posted, oldest unposted first
-  // so a long backlog doesn't preempt newer urgent ones.
-  const { data, error } = await sb
-    .from("bills")
-    .select("id, state, bill_number, scope, status, last_action, last_action_at, title, summary, summary_ai, kratom_relevance, relevance_confidence, source_url, active, forum_thread_id, advocacy_callout, journey_narrative")
-    .eq("active", true)
-    .in("kratom_relevance", ["anti", "pro"])
-    .in("scope", ["state", "federal"])
-    .is("forum_thread_id", null)
-    .gte("relevance_confidence", 0.6)
-    .order("last_action_at", { ascending: false, nullsFirst: false })
-    .limit(25);   // cap per run so we don't dump 100 threads at once on first activation
-  if (error) {
-    console.error("Query error:", error.message);
-    process.exit(1);
+  const { comment, silent } = planBillPosts(bills);
+  console.log(`${comment.length} to post, ${silent.length} already announced${DRY ? " (DRY RUN)" : ""}`);
+  if (!DRY) {
+    for (const b of silent) await stamp(b);
+    for (const b of comment.slice(0, MAX_COMMENTS_PER_RUN)) {
+      try {
+        const key = forumKey(b);
+        const { id } = await digestThread(key);
+        await postComment(id, key, billUpdateComment(b, APP_URL));
+        await stamp(b, id);
+        posted++;
+      } catch (e) {
+        failed++;
+        console.log(`  ✗ ${b.state} ${b.bill_number}: ${e.message}`);
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
   }
-  bills = data ?? [];
 }
+console.log(`Done. posted=${posted}, failed=${failed}`);
 
-// "Nothing to post" is a SUCCESSFUL run and has to be recorded as one. This
-// used to `process.exit(0)` straight out, skipping the scraper_runs write ~40
-// lines below — so in the steady state (every bill already posted) the job ran
-// green hourly while check-cron-staleness saw the source as 10+ days old and
-// paged about it. Same defect as reject-wrongstate-pending-alerts and
-// extract-local-vote-outcomes, just via an early exit instead of an enclosing
-// `if`. An alarm that fires on a healthy system teaches you to ignore alarms.
-if (bills.length === 0) {
-  console.log("Nothing to post.");
-  try {
-    await sb.from("scraper_runs").insert({
-      source: "auto_post_bills_to_forum",
-      started_at: new Date().toISOString(),
-      finished_at: new Date().toISOString(),
-      status: "empty",
-      rows_added: 0,
-      notes: "no unposted bills — every eligible bill already has a forum thread",
-    });
-  } catch { /* best-effort */ }
-  process.exit(0);
-}
-console.log(`Auto-posting ${bills.length} bill(s) to state forums${DRY ? " (DRY RUN)" : ""}…`);
-
-let ok = 0, fail = 0;
-for (const b of bills) {
-  if (await postBill(b)) ok++; else fail++;
-  await new Promise((r) => setTimeout(r, 250));
-}
-console.log(`\nDone. posted=${ok}, skipped/failed=${fail}`);
-
+// A run with nothing to post is still a run: check-cron-staleness pages on silence.
 try {
   await sb.from("scraper_runs").insert({
     source: "auto_post_bills_to_forum",
     started_at: new Date().toISOString(),
     finished_at: new Date().toISOString(),
-    status: ok === 0 && fail === 0 ? "empty" : (fail > ok ? "error" : "success"),
-    rows_added: ok,
-    notes: `${ok} threads posted, ${fail} skipped/failed`,
+    status: posted === 0 && failed === 0 ? "empty" : failed > posted ? "error" : "success",
+    rows_added: posted,
+    notes: `${posted} comments posted, ${failed} failed`,
   });
 } catch { /* best-effort */ }
 

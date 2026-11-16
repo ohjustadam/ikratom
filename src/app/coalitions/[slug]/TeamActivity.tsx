@@ -12,13 +12,15 @@ type TopLegRow = {
 
 export async function TeamActivity({ coalitionId }: { coalitionId: string }) {
   const sb = await createClient();
-  const { data } = await sb.rpc("coalition_top_legislators", { p_coalition_id: coalitionId, p_days: 14, p_limit: 8 });
+  const { data } = await sb.rpc("coalition_top_legislators", { p_coalition_id: coalitionId, p_days: 14, p_limit: 12 });
   const rows = (data as TopLegRow[] | null) ?? [];
   if (rows.length === 0) return null;
   return (
     <section className="mb-6">
       <h2 className="mb-1 text-sm font-bold uppercase tracking-wider text-zinc-300">Officials the group wrote to · 14 days</h2>
-      <p className="mb-2 text-[11px] text-zinc-500">Counts only. Nobody sees which member sent what.</p>
+      <p className="mb-2 text-[11px] text-zinc-500">
+        Busiest first, from letters sent after each member joined. Counts only: nobody sees who sent what.
+      </p>
       <ul className="space-y-1.5 text-sm">
         {rows.map((l) => (
           <li key={l.legislator_id} className="flex flex-wrap items-baseline gap-x-2 rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2">

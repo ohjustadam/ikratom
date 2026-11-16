@@ -36,6 +36,7 @@ A nonpartisan civic-action toolbelt for the kratom advocacy community. The missi
 - Free-tier only. No paid APIs. Members send letters from their OWN mailbox: one-click through their connected Gmail or SMTP account, or a `mailto:` link. Platform mail (signup, resets, notices) runs on the free tiers of Resend and Brevo. (Owner, 2026-10-23: this replaces the v1 "mailto only, no Resend" rule.)
 - Real data only. Bill status, legislator info, news must be scraped/synced — never manually curated past initial seed.
 - Recruitment angle: shop owners + medical pros are first-class users.
+- What's New is user-facing only. `/whats-new` carries changes a member can see. Internal, infrastructure and security work never goes there, not even as a generic line. Publish refuses it, and CI holds the file notes to the same list (`scripts/lib/changelog-safety.mjs`). (Owner, 2026-11-06.)
 
 **You are not the product owner.** The owner (single person, non-developer) sets direction. Your job is to be skilled hands. Surface tradeoffs, propose options, ship cleanly.
 

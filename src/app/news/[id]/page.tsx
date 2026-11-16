@@ -13,8 +13,10 @@
  * is the surface for it.
  */
 import Link from "@/components/Link";
+import { PressReplyButton } from "@/modules/press/PressReplyButton";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { publicSnapshot } from "@/lib/public-snapshots";
 import { NewsVideo } from "./NewsVideo";
@@ -92,7 +94,7 @@ type TriggeredAlert = { id: string; severity: string; title: string; locality: s
 // ~12k news items). generateMetadata shares the exact same snapshot.
 async function loadNewsArticle(id: string) {
   const sb = createServiceRoleClient();
-  const [articleRes, siblingsRes] = await Promise.all([
+  const [articleRes, siblingsRes, writerRes] = await Promise.all([
     sb
       .from("news_items")
       .select(
@@ -111,6 +113,8 @@ async function loadNewsArticle(id: string) {
       .eq("active", true)
       .order("state", { ascending: true })
       .limit(20),
+    // The id and name only. The address goes out through getPressContact.
+    sb.from("press_contacts").select("id, name").eq("news_item_id", id).maybeSingle(),
   ]);
   // Throw on a failing database so the last good snapshot serves; a missing
   // or deactivated article is a real "not found" and is never stored.
@@ -132,7 +136,12 @@ async function loadNewsArticle(id: string) {
     alertOk = !error;
   }
   return {
-    data: { article, siblings: (siblingsRes.data ?? []) as Sibling[], triggeredAlert },
+    data: {
+      article,
+      siblings: (siblingsRes.data ?? []) as Sibling[],
+      triggeredAlert,
+      writer: writerRes.data as { id: string; name: string | null } | null,
+    },
     cacheable: !siblingsRes.error && alertOk,
   };
 }
@@ -141,11 +150,14 @@ type NewsSnapshot = NonNullable<Awaited<ReturnType<typeof loadNewsArticle>>["dat
 
 // R2 under unstable_cache: survives deploys and serves the last good copy if
 // Supabase fails. Same 15-min window. Bump "v1" if the shape changes.
-const getNewsArticle = unstable_cache(
+// React cache(): generateMetadata and the page share ONE read per request.
+// unstable_cache does not share an in-flight miss, so without it a cold
+// render ran this chain twice (see #1149).
+const getNewsArticle = cache(unstable_cache(
   (id: string) => publicSnapshot<NewsSnapshot>("news-article", "v1", id, 900, () => loadNewsArticle(id)),
   ["news-detail"],
   { revalidate: 900, tags: ["news-detail"] },
-);
+));
 
 export async function generateMetadata({ params }: { params: Promise<Params> }) {
   const { id } = await params;
@@ -174,7 +186,7 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
   if (!UUID_RE.test(id)) notFound();
   const snap = await getNewsArticle(id);
   if (!snap) notFound();
-  const { article, siblings, triggeredAlert } = snap;
+  const { article, siblings, triggeredAlert, writer } = snap;
 
   const bill = Array.isArray(article.bills) ? article.bills[0] : article.bills;
   const publishedAt = article.published_at ? new Date(article.published_at) : null;
@@ -306,6 +318,16 @@ export default async function NewsArticlePage({ params }: { params: Promise<Para
             🧠 iKratom summary
           </p>
           <p className="text-sm leading-relaxed text-zinc-200">{article.summary}</p>
+        </section>
+      )}
+
+      {writer && (
+        <section className="mb-6 rounded-lg border border-zinc-800 p-4">
+          <p className="mb-3 text-sm text-zinc-300">
+            {writer.name ?? "The writer"} printed an address on this story. Say what you know, and
+            please be kind.
+          </p>
+          <PressReplyButton contactId={writer.id} source="news_writer" />
         </section>
       )}
 

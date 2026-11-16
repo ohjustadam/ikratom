@@ -7,9 +7,11 @@ import { approveContent, removeContent } from "@/modules/forum/actions";
 export function ModerationActions({
   targetType,
   targetId,
+  removeOnly = false,
 }: {
   targetType: "post" | "thread";
   targetId: string;
+  removeOnly?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -38,6 +40,7 @@ export function ModerationActions({
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
       <button
+        hidden={removeOnly}
         onClick={approve}
         disabled={pending}
         className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"

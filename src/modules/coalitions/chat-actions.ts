@@ -3,7 +3,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { looksLikeLink } from "@/lib/moderation";
 import { sellingIssue } from "@/lib/selling";
+import { accountAgeHours } from "@/modules/auth/trust-tier";
 
 /**
  * Live group chat (migration 0291, B4 e). Writes go through the USER's
@@ -20,6 +22,7 @@ export type GroupChatMessage = { id: string; coalition_id: string; user_id: stri
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const MAX_BODY = 500;
 const FLOOD_RE = /(.)\1{9,}/;
+const NO_LINKS_HOURS = 24;
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -37,6 +40,13 @@ export async function postGroupChat(coalitionId: string, text: string): Promise<
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Sign in to chat." };
+
+  // The Lounge's first-day rule. After that a group's links stay open, because
+  // a meeting link is half of what a group chat is for: organizers can delete a
+  // line and members can report one.
+  if (accountAgeHours(user.created_at) < NO_LINKS_HOURS && looksLikeLink(body)) {
+    return { ok: false, error: "Brand new accounts can't post links yet. Wait 24 hours." };
+  }
 
   if (!(await checkRateLimit(`coalition:chat:${user.id}`, 10, 60))) {
     return { ok: false, error: "Slow down: 10 messages a minute." };

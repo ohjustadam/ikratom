@@ -7,6 +7,8 @@ import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { sendEmail } from "@/lib/email/router";
+import { publicHandle } from "@/lib/public-handle";
+import { normalizeContactEmail, replyRoute, type ReplyRoute } from "./reply";
 
 /**
  * Feedback / error-report widget server actions.
@@ -38,6 +40,8 @@ export async function submitFeedback(input: {
   pageUrl?: string;
   userAgent?: string;
   screenshotMime?: string | null;
+  /** Anonymous visitors only: where the team can answer them. */
+  contactEmail?: string | null;
 }): Promise<
   | { ok: true; signedUpload?: { path: string; token: string; bucket: string } }
   | { error: string }
@@ -45,6 +49,8 @@ export async function submitFeedback(input: {
   const message = (input.message ?? "").trim();
   if (message.length < 1) return { error: "Please enter a message." };
   if (message.length > 5000) return { error: "Message is too long (5000 character max)." };
+  const contact = normalizeContactEmail(input.contactEmail);
+  if (contact === "invalid") return { error: "That email address doesn't look right." };
 
   const supabase = await createClient();
   const {
@@ -77,6 +83,8 @@ export async function submitFeedback(input: {
     user_agent: userAgent,
     screenshot_path: screenshotPath,
     status: "open",
+    // Signed-in members are answered on the site, so only anonymous rows keep one.
+    ...(contact && !user ? { contact_email: contact } : {}),
   });
   if (error) return { error: error.message };
 
@@ -146,6 +154,21 @@ export type FeedbackRow = {
   status: string;
   created_at: string;
   resolved_at: string | null;
+  contact_email: string | null;
+  /** Who a reply reaches and how (site / email / nobody). */
+  route: ReplyRoute;
+  replies: FeedbackReply[];
+};
+
+export type FeedbackReply = {
+  id: string;
+  body: string;
+  created_at: string;
+  channel: string;
+  status: string;
+  detail: string | null;
+  sent_to: string | null;
+  author: string;
 };
 
 export async function listFeedback(
@@ -157,17 +180,20 @@ export async function listFeedback(
   const supabase = await createClient();
   let q = supabase
     .from("feedback_reports")
-    .select("id,user_id,message,page_url,user_agent,screenshot_path,status,created_at,resolved_at")
+    .select("id,user_id,message,page_url,user_agent,screenshot_path,status,created_at,resolved_at,contact_email")
     .order("created_at", { ascending: false })
     .limit(200);
   if (status !== "all") q = q.eq("status", status);
   const { data, error } = await q;
   if (error) return { error: error.message };
+  const reports = (data ?? []) as Omit<FeedbackRow, "screenshotUrl" | "route" | "replies">[];
+
+  const replies = await loadReplies(supabase, reports.map((r) => r.id));
 
   // Mint short-lived signed read URLs for screenshots (service-role).
   const sr = createServiceRoleClient();
   const rows: FeedbackRow[] = [];
-  for (const r of (data ?? []) as Omit<FeedbackRow, "screenshotUrl">[]) {
+  for (const r of reports) {
     let screenshotUrl: string | null = null;
     if (r.screenshot_path) {
       const { data: signed } = await sr.storage
@@ -175,9 +201,37 @@ export async function listFeedback(
         .createSignedUrl(r.screenshot_path, 3600);
       screenshotUrl = signed?.signedUrl ?? null;
     }
-    rows.push({ ...r, screenshotUrl });
+    rows.push({ ...r, screenshotUrl, route: replyRoute(r), replies: replies.get(r.id) ?? [] });
   }
   return { ok: true, rows };
+}
+
+/** Reply threads for these reports, oldest first, with each author's @handle. */
+async function loadReplies(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  reportIds: string[],
+): Promise<Map<string, FeedbackReply[]>> {
+  const out = new Map<string, FeedbackReply[]>();
+  if (reportIds.length === 0) return out;
+  const { data } = await supabase
+    .from("feedback_replies")
+    .select("id,report_id,author_id,body,created_at,channel,status,detail,sent_to")
+    .in("report_id", reportIds)
+    .order("created_at", { ascending: true });
+  const rows = (data ?? []) as (Omit<FeedbackReply, "author"> & { report_id: string; author_id: string | null })[];
+  const authorIds = [...new Set(rows.map((r) => r.author_id).filter((x): x is string => !!x))];
+  const handles = new Map<string, string>();
+  if (authorIds.length > 0) {
+    const { data: profs } = await supabase.from("profiles").select("id,username").in("id", authorIds);
+    for (const p of (profs ?? []) as { id: string; username: string | null }[]) {
+      handles.set(p.id, publicHandle(p));
+    }
+  }
+  for (const { report_id, author_id, ...r } of rows) {
+    if (!out.has(report_id)) out.set(report_id, []);
+    out.get(report_id)!.push({ ...r, author: (author_id && handles.get(author_id)) || "Team" });
+  }
+  return out;
 }
 
 export async function setFeedbackStatus(

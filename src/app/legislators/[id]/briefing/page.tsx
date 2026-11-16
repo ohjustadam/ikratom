@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { publicSnapshot } from "@/lib/public-snapshots";
 import { getUserLegislators } from "@/lib/legislators";
 import { committeesMatch } from "@/lib/bill-committee";
@@ -257,14 +258,16 @@ async function loadBriefingPublic(id: string) {
  * (12 h, survives deploys and instances) over Supabase. Bump "v1" if
  * loadBriefingPublic's shape changes.
  */
-const getBriefingPublic = unstable_cache(
+const getBriefingPublic = cache(unstable_cache(
   (id: string) => publicSnapshot("briefing-public", "v1", id, 12 * 3600, () => loadBriefingPublic(id)),
   ["legislator-briefing-public"],
   // 6 hours: sponsorships, votes, committees and news mentions sync daily, and
   // the CDN cannot cache this page (it reads cookies). The legislator-detail
   // tag refreshes it on demand through /api/revalidate.
   { revalidate: 21600, tags: ["legislator-detail"] },
-);
+));
+// React cache(): generateMetadata and the page share one snapshot per request
+// instead of each running a cold miss (see ../page.tsx).
 
 /**
  * /legislators/[id]/briefing

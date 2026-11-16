@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { groupRemoval } from "@/modules/reports/types";
 
 /**
  * Report buttons on group content (trunk decision 2026-10-24): the ONE
@@ -10,6 +11,20 @@ const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "u
 const thread = read("src/app/coalitions/[slug]/t/[threadId]/page.tsx");
 const event = read("src/app/coalitions/[slug]/events/[eventId]/page.tsx");
 const sql = read("supabase/migrations/0273_coalition_discussions.sql") + read("supabase/migrations/0283_coalition_events.sql");
+
+describe("a moderator can take down reported group content", () => {
+  it("maps each soft-deletable group item to its table", () => {
+    expect(groupRemoval("group_post")).toEqual({ table: "coalition_posts", column: "deleted_at" });
+    expect(groupRemoval("group_thread")).toEqual({ table: "coalition_threads", column: "deleted_at" });
+    expect(groupRemoval("group_event")).toEqual({ table: "coalition_events", column: "cancelled_at" });
+  });
+
+  it("leaves everything else to its own tool", () => {
+    expect(groupRemoval("group_chat_message")).toBeNull();
+    expect(groupRemoval("group_resource")).toBeNull();
+    expect(groupRemoval("member_photo")).toBeNull();
+  });
+});
 
 describe("group content can be reported", () => {
   it("uses the shared ReportButton, not a second report system", () => {
