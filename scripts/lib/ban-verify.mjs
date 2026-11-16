@@ -28,6 +28,7 @@ import { searxngConfigured, searxngSearch } from "./searxng.mjs";
 import { fetchPageText } from "./page-text.mjs";
 import { reconcileLocality } from "./geo-resolver.mjs";
 import { aiRouter } from "./ai-router.mjs";
+import { isLocalMeasure } from "./local-measure.mjs";
 
 // Source tiering, matched on HOSTNAME only (a path like /municode on a random
 // domain must not mint authority): distrust SEO/vendor aggregators (they copy
@@ -142,12 +143,13 @@ Return STRICT JSON only (no prose, no markdown fences):
   "repeal_date": "YYYY-MM-DD"|null,
   "ordinance_citation": "Ordinance 2019-04 / Code § 13-58 / similar"|null,
   "evidence": "ONE short quote or tight paraphrase from the page supporting kratom_status"|null,
-  "pending_measure": "if a kratom measure is PENDING in this locality (proposed / scheduled for hearing or vote / passed but not yet effective): one line with sponsor and hearing/effective date when stated"|null
+  "pending_measure": "if a LOCAL kratom measure of this locality's own council, board or commission is PENDING (proposed / scheduled for hearing or vote / passed but not yet effective): one line with sponsor and hearing/effective date when stated"|null
 }
 
 Rules:
 - kratom_status reflects what THIS PAGE shows about a LOCAL ordinance in the named locality: "banned" = a local prohibition is currently in force; "repealed" = a local ban was rescinded/overturned/lifted (set repeal_date if stated); "pending" = proposed or not yet effective; "none" = the page does not establish any of those.
 - A STATE law is NOT a local ordinance. If the page only discusses state-level law, kratom_status is "none".
+- A state or federal bill is NEVER a pending_measure, even on a local news site or when a local legislator sponsors it. Use null.
 - If the page is about a DIFFERENT locality (a same-named place in another state, a neighboring town, the county when asked about the city) report that page_jurisdiction faithfully — code rejects mismatches.
 - Dates as YYYY-MM-DD only when the page states them. Never invent dates, citations, or quotes.
 - Output ONLY the JSON object.`;
@@ -323,7 +325,9 @@ export async function verifyLocalBan({ sb, state, locality, caller = "ban-verify
     if (!checkClaimedJurisdiction({ claimed: p.page_jurisdiction, locality, state })) continue;
     pagesChecked++;
     if (!p.mentions_kratom) continue;
-    if (p.pending_measure && typeof p.pending_measure === "string") {
+    // A page the model read as "none" established no local action, so a note it
+    // still wrote is a state item. isLocalMeasure catches the ones it mislabels.
+    if (typeof p.pending_measure === "string" && p.kratom_status !== "none" && isLocalMeasure(p.pending_measure, stateName)) {
       pending.push({ url, note: p.pending_measure.slice(0, 300) });
     }
     if (!["banned", "repealed"].includes(p.kratom_status)) continue;
