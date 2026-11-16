@@ -9,6 +9,7 @@ import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { MobileNav } from "@/components/MobileNav";
 import { HeaderAuth } from "@/modules/auth/components/HeaderAuth";
 import { PresenceHeartbeat } from "@/components/PresenceHeartbeat";
+import { SendQueueDriver } from "@/modules/campaigns/components/SendQueueDriver";
 
 /**
  * Thin client gates that supply what the root layout used to pass down from
@@ -112,6 +113,17 @@ export function LocaleSwitcherGate() {
   }, []);
 
   return <LocaleSwitcher current={locale} />;
+}
+
+/**
+ * Keeps a started one-click send going on every page (PJ, 2026-11-11). Only a
+ * signed-in member with a connected mailbox can have one, and even then the
+ * driver makes no request unless this browser has a send in flight.
+ */
+export function SendQueueDriverGate() {
+  const { me } = useChrome();
+  if (!me?.userId || !me.emailConnected) return null;
+  return <SendQueueDriver />;
 }
 
 /**
