@@ -17,8 +17,11 @@
 // silence the alarm (guards must guard themselves).
 export const STEP_MS = 5 * 60_000;
 export const DEFAULTS = {
-  bucketK: 5, bucketPct: 0.99, bucketFloor: 600, bucketCeil: 1500,
-  hourK: 3, hourPct: 0.9, hourFloor: 1500, hourCeil: 3000,
+  // Ceilings ~2.5-3x the worst normal bucket (363s) and hour (774s). A 1,500
+  // ceiling let the baseline that held the 11-03 crawl lift the bar to 1,500
+  // and nearly hide the 11-07 (1,531s) burst.
+  bucketK: 5, bucketPct: 0.99, bucketFloor: 600, bucketCeil: 900,
+  hourK: 3, hourPct: 0.9, hourFloor: 1500, hourCeil: 2400,
 };
 
 export const floor5 = (ms) => Math.floor(ms / STEP_MS) * STEP_MS;
@@ -63,7 +66,10 @@ export function detect(grid, scanFromMs, o = DEFAULTS) {
   grid.forEach((b, i) => {
     if (b.t < scanFromMs) return;
     const bucketHit = b.sec > th.bucket;
-    const hourHit = roll[i] != null && roll[i] > th.hour;
+    // A bucket joins an hour-rule burst only if it carries its share of the
+    // hourly limit; otherwise the quiet buckets after a spike stay "in" the
+    // rolling hour for 55 minutes and stretch the reported window.
+    const hourHit = roll[i] != null && roll[i] > th.hour && b.sec > th.hour / 12;
     if (bucketHit || hourHit) hits.push({ t: b.t, sec: b.sec, hour: roll[i], bucketHit, hourHit });
   });
   // Merge adjacent firing buckets into bursts.
@@ -74,7 +80,8 @@ export function detect(grid, scanFromMs, o = DEFAULTS) {
     else bursts.push({ start: h.t, end: h.t + STEP_MS, sec: h.sec, peak: h.sec, peakHour: h.hour ?? 0 });
   }
   const scanned = grid.filter((b) => b.t >= scanFromMs);
-  return { thresholds: th, bursts, scanSec: scanned.reduce((s, b) => s + b.sec, 0), maxBucket: Math.max(0, ...scanned.map((b) => b.sec)) };
+  const avgDaySec = baseline.length ? (baseline.reduce((s, b) => s + b.sec, 0) * 288) / baseline.length : 0;
+  return { thresholds: th, bursts, avgDaySec, scanSec: scanned.reduce((s, b) => s + b.sec, 0), maxBucket: Math.max(0, ...scanned.map((b) => b.sec)) };
 }
 
 /** Self-healing scan window: everything since the last scan, at least 1h, at most 24h. */
@@ -103,6 +110,16 @@ export function rollupPaths(rows, top = 5) {
     m.set(f, e);
   }
   return [...m.values()].sort((a, b) => b.sec - a.sec || b.n - a.n).slice(0, top);
+}
+
+/** "Mozilla/5.0 (Windows NT 10.0; ...) ... Firefox/121.0" -> "Firefox/121 Windows" */
+export function shortUA(ua) {
+  const s = String(ua || "");
+  const b = s.match(/(Edg|OPR|Firefox|Chrome|Version)\/(\d+)/);
+  const os = (s.match(/Windows|Mac OS X|Android|iPhone|iPad|CrOS|Linux/) || ["?"])[0].replace("Mac OS X", "Mac");
+  if (!b) return s.slice(0, 60) || "(none)";
+  const name = b[1] === "Version" ? "Safari" : b[1] === "Edg" ? "Edge" : b[1] === "OPR" ? "Opera" : b[1];
+  return `${name}/${b[2]} ${os}`;
 }
 
 // securityAction "unknown" = no rule acted. Anything that challenged or blocked counts.

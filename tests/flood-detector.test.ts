@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  STEP_MS, densify, detect, thresholds, planScan, pathFamily, rollupPaths, challengedShare,
+  STEP_MS, densify, detect, thresholds, planScan, pathFamily, rollupPaths, challengedShare, shortUA,
 } from "../scripts/lib/flood-detector.mjs";
 
 // Deterministic "normal week" shaped like the real 11-04..11-11 data:
@@ -32,8 +32,10 @@ describe("flood detector", () => {
     expect(r.bursts.length).toBe(1);
     expect(r.bursts[0].start).toBe(FLOOD_START);
     expect(r.bursts[0].peak).toBe(5086);
+    // The quiet buckets after the spike do not stretch the window.
+    expect(r.bursts[0].end - r.bursts[0].start).toBe(STEP_MS);
     // The baseline floods did not lift the bar out of reach.
-    expect(r.thresholds.bucket).toBeLessThanOrEqual(1500);
+    expect(r.thresholds.bucket).toBeLessThanOrEqual(900);
   });
 
   it("also fires on the brief's 15,400 figure", () => {
@@ -65,8 +67,8 @@ describe("flood detector", () => {
   it("a week of floods cannot raise the bar past the ceiling", () => {
     const grid = Array.from({ length: 2016 }, (_, i) => ({ t: i * STEP_MS, sec: 4000 }));
     const th = thresholds(grid);
-    expect(th.bucket).toBe(1500);
-    expect(th.hour).toBe(3000);
+    expect(th.bucket).toBe(900);
+    expect(th.hour).toBe(2400);
   });
 
   it("an empty baseline falls back to the floors", () => {
@@ -96,6 +98,11 @@ describe("alert detail", () => {
       { path: "/bills/ok-1", n: 3, sec: 30 }, { path: "/bills/ok-2", n: 2, sec: 20 }, { path: "/api/me", n: 50, sec: 5 },
     ]);
     expect(top[0]).toMatchObject({ family: "/bills/*", n: 5, sec: 50, distinct: 2 });
+  });
+  it("shortens user agents to browser/version + OS", () => {
+    expect(shortUA("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0")).toBe("Firefox/121 Windows");
+    expect(shortUA("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")).toBe("Chrome/120 Mac");
+    expect(shortUA("")).toBe("(none)");
   });
   it("computes the share the Cloudflare rules challenged (11-11: 1,215 of 6,446)", () => {
     const s = challengedShare([{ action: "unknown", n: 5231 }, { action: "managed_challenge", n: 1215 }]);
