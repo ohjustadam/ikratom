@@ -5,6 +5,7 @@
  * the review cron applies when it lapses. Keeping it pure + shared so the sync
  * (which stamps review_by) and the review engine (which acts on it) agree.
  */
+import { awaitingGovernor, isOneChamberResolution, terminalStatusFromAction } from "./bill-status.mjs";
 
 /** Statuses meaning the bill BECAME LAW → keep it active for repeal tracking
  *  even after its session ends. Everything else dies when the session closes. */
@@ -37,20 +38,81 @@ export function computeBillReviewBy(sessionId) {
  * ("114"). Reading years out of it matched only the middle kind, so on
  * 2026-11-03 about 130 bills from adjourned sessions still counted as live
  * (TN SB 1656 was an "imminent" ban six months after its companion became
- * law). Match the LegiScan id first, then a year in the label, then the year
- * of the last action. A regular session wins over a special one.
+ * law). Match the LegiScan id first, then a numbered assembly ("101st" against
+ * "101st General Assembly"), then a year in the label, then the year of the last
+ * action. A regular session wins over a special one.
  */
 export function matchSession(bill, rows) {
   if (!rows?.length) return null;
   const sid = String(bill.session_id ?? "").trim();
   const byId = sid ? rows.find((r) => r.legiscan_session_id != null && String(r.legiscan_session_id) === sid) : null;
   if (byId) return byId;
+  const ordinal = sid.match(/^(\d{1,3})(?:st|nd|rd|th)?$/)?.[1];
+  const named = ordinal ? rows.filter((r) => new RegExp(`\\b${ordinal}(?:st|nd|rd|th)\\b`, "i").test(r.session_name ?? "")) : [];
+  if (named.length) return named.find((r) => !r.special) ?? named[0];
   const ys = sessionYears(sid);
   const year = ys.length ? Math.max(...ys)
     : bill.last_action_at ? new Date(bill.last_action_at).getUTCFullYear() : null;
   if (!year) return null;
   const spans = rows.filter((r) => (r.year_start ?? 0) <= year && year <= (r.year_end ?? 0));
   return spans.find((r) => !r.special) ?? spans[0] ?? null;
+}
+
+// LegiScan marks Illinois's General Assembly adjourned after the spring session,
+// but it keeps passing bills in veto and lame-duck sessions until the next
+// Assembly is seated in January.
+const SITS_UNTIL_TERM_ENDS = new Set(["IL"]);
+
+// City and county rows carry the state's code, so a "2026" news-intel row used to
+// match the statehouse calendar and inherit its adjournment.
+const SESSION_SCOPES = new Set(["state", "federal"]);
+
+export function inLegislativeSession(bill) {
+  return SESSION_SCOPES.has(bill.scope ?? "state");
+}
+
+/** Congress n sits for two years from 1789 + 2(n - 1). LegiScan's session list
+ *  has no federal rows, so this is worked out from the number. */
+function congressEnded(sessionId, year) {
+  const n = Number(sessionId);
+  return n > 0 && year >= 1789 + 2 * n;
+}
+
+/** A bill can act the year before its session (prefiled, carried over) but not
+ *  after it. An action outside that means the row wears another bill's data: all
+ *  12 Illinois rows labelled with an old Assembly hold unrelated 104th GA bills
+ *  (IL SB 3357 is a 2020 kratom bill showing a Chicago cultural district's
+ *  actions), because bill numbers are reused. No date proves nothing either way. */
+function actionFitsSession(bill, session) {
+  const year = new Date(bill.last_action_at ?? NaN).getUTCFullYear();
+  return year >= session.year_start - 1 && year <= session.year_end;
+}
+
+/**
+ * Is this bill's session over? The retire and revive rules run on this, so it
+ * answers no whenever the session can't be pinned to the bill or the bill still
+ * has a step left.
+ */
+export function sessionEnded(bill, rows, { now = Date.now() } = {}) {
+  if (!inLegislativeSession(bill) || awaitingGovernor(bill)) return false;
+  const year = new Date(now).getUTCFullYear();
+  if (bill.state === "US") return congressEnded(bill.session_id, year);
+  const session = matchSession(bill, rows);
+  if (!session?.sine_die || !actionFitsSession(bill, session)) return false;
+  return !(SITS_UNTIL_TERM_ENDS.has(bill.state) && session.year_end >= year);
+}
+
+/** The bill's own record gives its outcome, so it didn't lapse with the session,
+ *  whatever the status column says (ND HB 1628 read "introduced" with "Filed with
+ *  Secretary Of State" as its last action). */
+function outcomeOnRecord(bill) {
+  if (terminalStatusFromAction(bill.last_action)) return true;
+  return bill.status === "passed_chamber" && isOneChamberResolution(bill.bill_number);
+}
+
+/** What bills.session_sine_die should hold for a bill that is still open. */
+export function sessionFlag(bill, rows, opts) {
+  return sessionEnded(bill, rows, opts) && !outcomeOnRecord(bill);
 }
 
 /** review_by from the matched session's last year, else from the label. */

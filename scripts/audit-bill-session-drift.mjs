@@ -18,10 +18,25 @@
  * De-conflation sets active=false + writes a verification_note + retracts any
  * auto-generated alerts on the row (they describe the wrong bill). Dry-run
  * unless --apply. The systemic sync guard lives in sync-bills-via-legiscan.mjs
- * (isSessionMismatch); this script cleans up rows already corrupted.
+ * (sessionMismatch); this script cleans up rows already corrupted.
+ *
+ * De-conflating hides a row but leaves the other bill's data on it. To put the
+ * row's OWN bill back, from LegiScan:
+ *   node --env-file=.env.local scripts/audit-bill-session-drift.mjs \
+ *     --restore <billId>[,<billId>...] [--plan-out plan.json] [--apply]
+ * It finds the bill in the session its label names (one getMasterList per
+ * session, one getBill per row), and holds any row it can't confirm. A
+ * confirmed row gets its own status, last action, LegiScan id, history,
+ * sponsors and roll calls. The other bill's text versions and the AI summaries
+ * written from them are cleared. `active` is left as it is.
  */
+import { writeFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { createLegiscanClient } from "./lib/legiscan-budget.mjs";
+import { deriveStatusFromAction, terminalStatusFromAction } from "./lib/bill-status.mjs";
+import {
+  actionInSession, normBillNumber, sessionsForLabel, sortedHistory, statusFromOwnLegiscanBill,
+} from "./lib/bill-session.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -34,6 +49,10 @@ const APPLY = args.includes("--apply");
 const VERIFY = args.includes("--verify");
 const deconflateIdx = args.indexOf("--deconflate");
 const DECONFLATE_ID = deconflateIdx >= 0 ? args[deconflateIdx + 1] : null;
+const restoreIdx = args.indexOf("--restore");
+const RESTORE_IDS = restoreIdx >= 0 ? String(args[restoreIdx + 1] ?? "").split(",").map((s) => s.trim()).filter(Boolean) : [];
+const planIdx = args.indexOf("--plan-out");
+const PLAN_OUT = planIdx >= 0 ? args[planIdx + 1] : null;
 const NOW_YEAR = new Date().getFullYear();
 const LEGISCAN_KEY = process.env.LEGISCAN_API_KEY;
 
@@ -199,6 +218,250 @@ async function verifyAndRepair(apply) {
   console.log(`\n✓ ${fixedLabels} session labels corrected · ${dupDeact} duplicates deactivated · ${deact} dead-session bills deactivated (+ alerts retracted) · ${heldGarbage} garbage-session held for review`);
 }
 
+// ── Restore a row's own bill ──────────────────────────────────────────────
+// Fields written from the other bill's text or timeline. They go, rather than
+// stay wrong: the AI enrichers only rerun on active rows.
+const BORROWED_FIELDS = [
+  "bill_text_versions", "text_synced_at", "summary_ai", "advocacy_callout", "summary_long",
+  "journey_narrative", "journey_analyzed_at", "amendments_count", "substance_targeting",
+  "substance_targeting_analyzed_at", "substance_targeting_source", "deep_analyzed_at", "enriched_at",
+  "opposition_summary_md", "repeal_plan_md", "sunset_date", "current_committee_name",
+  "current_committee_chamber", "current_committee_updated_at",
+];
+const RESTORE_COLS = `id, state, bill_number, session_id, title, summary, status, last_action, last_action_at, legiscan_bill_id, legiscan_change_hash, active, signed_at, ${BORROWED_FIELDS.join(", ")}`;
+
+const sessionsByState = new Map();
+async function stateSessions(state) {
+  if (!sessionsByState.has(state)) {
+    const { data } = await sb.from("legislative_sessions")
+      .select("legiscan_session_id, session_name, year_start, year_end, special, sine_die").eq("state", state);
+    sessionsByState.set(state, data ?? []);
+  }
+  return sessionsByState.get(state);
+}
+const masterLists = new Map();
+async function masterList(sessionId) {
+  if (!masterLists.has(sessionId)) {
+    const ml = (await legiscan.call("getMasterList", { id: sessionId })).masterlist ?? {};
+    const byNumber = new Map();
+    for (const [k, v] of Object.entries(ml)) if (k !== "session" && v?.number) byNumber.set(normBillNumber(v.number), v);
+    masterLists.set(sessionId, byNumber);
+  }
+  return masterLists.get(sessionId);
+}
+const KRATOM_RE = /kratom|mitragyn/i;
+const RANK = { enacted: 3, vetoed: 2, dead: 1 };
+const actionKey = (date, text) => `${date}|${String(text ?? "").slice(0, 800)}`;
+
+/** Work out the repair for one row, writing nothing. */
+async function planRestore(row) {
+  const tag = `${row.state} ${row.bill_number}`;
+  const candidates = sessionsForLabel(row.session_id, await stateSessions(row.state)).slice(0, 3);
+  let own = null;
+  for (const s of candidates) {
+    own = (await masterList(s.legiscan_session_id)).get(normBillNumber(row.bill_number)) ?? null;
+    if (own) break;
+  }
+  if (!own) return { row, tag, hold: `LegiScan has no ${row.bill_number} in ${candidates.map((c) => c.session_name).join(", ") || `a session matching "${row.session_id}"`}` };
+  const detail = (await legiscan.call("getBill", { id: own.bill_id })).bill;
+  const session = detail?.session ?? {};
+  const history = sortedHistory(detail);
+  const last = history[history.length - 1] ?? null;
+
+  const ownKeys = new Set(history.map((h) => actionKey(h.date, h.action)));
+  const wide = { year_start: session.year_start, year_end: Number(session.year_end) + 1 };
+  const { data: acts } = await sb.from("bill_actions").select("id, action_date, description, source").eq("bill_id", row.id);
+  const { data: oldSponsors } = await sb.from("bill_sponsors").select("id, name, classification").eq("bill_id", row.id);
+  const stapled = new Set((acts ?? []).filter((a) => a.source === "legiscan" && !ownKeys.has(actionKey(a.action_date, a.description)))
+    .map((a) => actionKey(a.action_date, a.description)));
+
+  // Proof the stored data is another bill's, and that LegiScan's is this one.
+  // The OpenStates sweep rewrites a row's own last action, so the other bill
+  // can still be in its LegiScan id, its actions or its sponsors after that.
+  const foreignId = row.legiscan_bill_id && Number(row.legiscan_bill_id) !== Number(own.bill_id) ? row.legiscan_bill_id : null;
+  const lastOutside = Boolean(row.last_action_at) && !actionInSession(row.last_action_at, session);
+  // A person matches by surname ("Rep. Joe Smith" is "Smith"), a committee
+  // by its whole name.
+  const surname = (n) => {
+    const s = String(n ?? "").toLowerCase().replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+    return /committee/.test(s) ? s : s.split(" ").pop();
+  };
+  const ownSurnames = new Set((detail?.sponsors ?? []).map((s) => surname(s.name)));
+  const foreignSponsors = (oldSponsors ?? []).length > 0 && ownSurnames.size > 0 && !(oldSponsors ?? []).some((s) => ownSurnames.has(surname(s.name)));
+  const ownText = `${detail?.title ?? ""} ${detail?.description ?? ""}`;
+  const overlap = titleOverlap(`${row.title ?? ""} ${row.summary ?? ""}`, ownText);
+  const base = { row, tag, own: { bill_id: Number(own.bill_id), session: session.session_name, years: `${session.year_start}-${session.year_end}`, title: detail?.title, description: detail?.description }, overlap, foreignId, lastOutside, foreignSponsors, stapledActions: stapled.size };
+  if (!foreignId && !lastOutside && !foreignSponsors && stapled.size === 0) return { ...base, hold: "nothing on it belongs to another bill" };
+  if (!KRATOM_RE.test(ownText) && overlap < 0.3) return { ...base, hold: `LegiScan's ${row.bill_number} doesn't match this row (title overlap ${overlap.toFixed(2)})` };
+
+  const { data: holders } = await sb.from("bills").select("id, bill_number, session_id")
+    .eq("legiscan_bill_id", Number(own.bill_id)).neq("id", row.id);
+  const twin = holders?.[0] ?? null;
+
+  // The row's current last action is its own when it falls in its session (an
+  // Illinois "Session Sine Die" lands the January after) and the other bill
+  // didn't bring it. Then it stays if newer than LegiScan's, and so does a
+  // terminal status set on it, since LegiScan's record can stop short. The
+  // strongest terminal wins, so dead never beats enacted.
+  const curDate = String(row.last_action_at ?? "").slice(0, 10);
+  const curOwn = Boolean(curDate && row.last_action)
+    && (actionInSession(curDate, session) || (/sine die/i.test(row.last_action) && actionInSession(curDate, wide)))
+    && !stapled.has(actionKey(curDate, row.last_action));
+  const keepCurrent = curOwn && curDate > String(last?.date ?? "");
+  const ownStatus = statusFromOwnLegiscanBill(detail, row.bill_number);
+  const rowTerminal = curOwn ? (RANK[row.status] ? row.status : terminalStatusFromAction(row.last_action)) : null;
+  const terminal = [RANK[ownStatus] ? ownStatus : null, rowTerminal].filter(Boolean).sort((a, b) => RANK[b] - RANK[a])[0];
+  const status = terminal ?? (keepCurrent ? deriveStatusFromAction(row.last_action) ?? ownStatus : ownStatus);
+  const enactedOn = status !== "enacted" ? null
+    : [...history].reverse().find((h) => terminalStatusFromAction(h.action) === "enacted")?.date ?? row.signed_at ?? (keepCurrent ? curDate : null);
+  const today = new Date().toISOString().slice(0, 10);
+  const patch = {
+    status,
+    last_action: keepCurrent ? String(row.last_action).slice(0, 500) : last ? String(last.action).slice(0, 500) : null,
+    last_action_at: keepCurrent ? curDate : last?.date ?? null,
+    legiscan_bill_id: twin ? null : Number(own.bill_id),
+    legiscan_change_hash: twin ? null : detail?.change_hash ?? null,
+    signed_at: enactedOn,
+    last_synced_at: new Date().toISOString(),
+    verification_note:
+      `Restored ${today} from LegiScan bill ${own.bill_id} (${session.session_name}). The row carried ` +
+      `${foreignId ? `LegiScan bill ${foreignId}` : "another bill's actions"}, the same number in a later session. ` +
+      `Its text and the AI summaries written from it were cleared.${twin ? ` Twin row ${twin.id.slice(0, 8)} holds the LegiScan id.` : ""}` +
+      (keepCurrent ? ` Its last action (${curDate}) is its own, newer than LegiScan's.` : ""),
+  };
+  for (const k of BORROWED_FIELDS) if (row[k] != null) patch[k] = null;
+  if (!String(row.summary ?? "").trim() && detail?.description) patch.summary = String(detail.description).slice(0, 4000);
+  // A live row whose own bill died with its session retires, by the nightly
+  // review cron's rule (review-lapsed-items.mjs): session over, not enacted.
+  const ownSession = (await stateSessions(row.state)).find((s) => Number(s.legiscan_session_id) === Number(session.session_id));
+  if (row.active && ownSession?.sine_die && status !== "enacted") {
+    patch.active = false;
+    patch.verification_note += ` Retired: its ${session.session_name} is over and it did not pass.`;
+  }
+
+  // Child rows. History the other bill brought goes; the row's own stays.
+  const dropActions = (acts ?? []).filter((a) => !ownKeys.has(actionKey(a.action_date, a.description))
+    && (a.source === "legiscan" || !actionInSession(a.action_date, wide)));
+  const haveKeys = new Set((acts ?? []).filter((a) => !dropActions.includes(a)).map((a) => actionKey(a.action_date, a.description)));
+  const addActions = history.filter((h) => !haveKeys.has(actionKey(h.date, h.action))).map((h) => ({
+    bill_id: row.id, action_date: h.date, description: String(h.action).slice(0, 800),
+    chamber: h.chamber === "S" ? "Senate" : h.chamber === "H" ? "House" : h.chamber ?? null,
+    source: "legiscan", raw_json: h,
+  }));
+
+  const peopleIds = (detail?.sponsors ?? []).map((s) => s.people_id).filter(Boolean);
+  const { data: people } = peopleIds.length
+    ? await sb.from("legislators").select("id, legiscan_people_id").in("legiscan_people_id", peopleIds)
+    : { data: [] };
+  const legislatorByPeople = new Map((people ?? []).map((p) => [p.legiscan_people_id, p.id]));
+  const seen = new Set();
+  const sponsors = [];
+  for (const s of detail?.sponsors ?? []) {
+    const classification = Number(s.sponsor_type_id) === 1 ? "primary" : "cosponsor";
+    if (!s.name || seen.has(`${s.name}|${classification}`)) continue;
+    seen.add(`${s.name}|${classification}`);
+    sponsors.push({ bill_id: row.id, name: String(s.name).slice(0, 200), classification, party: s.party || null, district: s.district || null, legislator_id: legislatorByPeople.get(s.people_id) ?? null });
+  }
+
+  const { data: oldVotes } = await sb.from("bill_votes").select("id, legiscan_roll_call_id, vote_date, motion").eq("bill_id", row.id);
+  const ownRollCalls = new Set((detail?.votes ?? []).map((v) => Number(v.roll_call_id)));
+  const dropVotes = (oldVotes ?? []).filter((v) => !ownRollCalls.has(Number(v.legiscan_roll_call_id)));
+  const votes = (detail?.votes ?? []).map((v) => ({
+    bill_id: row.id, legiscan_roll_call_id: v.roll_call_id, vote_date: v.date ?? null,
+    chamber: v.chamber === "S" ? "Senate" : v.chamber === "H" ? "House" : v.chamber ?? null,
+    motion: String(v.desc ?? "").slice(0, 500), motion_id: v.motion_id ?? null,
+    yea_count: Number(v.yea ?? 0), nay_count: Number(v.nay ?? 0), nv_count: Number(v.nv ?? 0),
+    absent_count: Number(v.absent ?? 0), total_count: Number(v.total ?? 0),
+    passed: v.passed === 1 || v.passed === true, source: "legiscan", raw_json: v, synced_at: new Date().toISOString(),
+  }));
+
+  return { ...base, twin, patch, dropActions, keptActions: (acts?.length ?? 0) - dropActions.length, addActions, oldSponsors: oldSponsors ?? [], sponsors, dropVotes, votes };
+}
+
+function printPlan(p) {
+  const r = p.row;
+  console.log(`\n${p.tag} (${r.id.slice(0, 8)}) · label ${r.session_id}`);
+  if (p.own) console.log(`  own bill   LegiScan ${p.own.bill_id}, ${p.own.session}: "${String(p.own.title ?? "").slice(0, 70)}" (title overlap ${p.overlap.toFixed(2)})`);
+  if (p.hold) { console.log(`  HELD: ${p.hold}`); return; }
+  console.log(`  evidence   ${[
+    p.foreignId && `stored LegiScan id ${p.foreignId}`,
+    p.lastOutside && `last action ${r.last_action_at} is outside ${p.own.years}`,
+    p.stapledActions && `${p.stapledActions} LegiScan action(s) not in its own history`,
+    p.foreignSponsors && "none of its sponsors are its own bill's",
+  ].filter(Boolean).join("; ")}`);
+  console.log(`  status     ${r.status} → ${p.patch.status}`);
+  console.log(`  last act.  ${r.last_action_at} ${String(r.last_action ?? "").slice(0, 60)}`);
+  console.log(`          →  ${p.patch.last_action_at} ${String(p.patch.last_action ?? "").slice(0, 60)}`);
+  console.log(`  LegiScan   ${r.legiscan_bill_id ?? "none"} → ${p.patch.legiscan_bill_id ?? `none (twin ${p.twin?.id.slice(0, 8)} ${p.twin?.bill_number} holds it)`}`);
+  console.log(`  actions    drop ${p.dropActions.length} · keep ${p.keptActions} · add ${p.addActions.length}`);
+  console.log(`  sponsors   ${p.oldSponsors.map((s) => s.name).join("; ") || "none"} → ${p.sponsors.map((s) => s.name).join("; ") || "none"}`);
+  console.log(`  roll calls drop ${p.dropVotes.length} · own ${p.votes.length}`);
+  const cleared = BORROWED_FIELDS.filter((k) => k in p.patch);
+  if (cleared.length) console.log(`  cleared    ${cleared.join(", ")}`);
+  if ("summary" in p.patch) console.log(`  summary    (empty) → LegiScan description`);
+  if (p.patch.active === false) console.log(`  active     true → false (its session is over and it did not pass)`);
+}
+
+async function applyRestore(p) {
+  const fail = (what, e) => { throw new Error(`${p.tag}: ${what} failed: ${e.message}`); };
+  let patch = p.patch;
+  let { data, error } = await sb.from("bills").update(patch).eq("id", p.row.id).select("id");
+  if (error && /legiscan_bill_id/.test(error.message)) {
+    // Another row took the id since the plan was made.
+    patch = { ...patch, legiscan_bill_id: null, legiscan_change_hash: null };
+    ({ data, error } = await sb.from("bills").update(patch).eq("id", p.row.id).select("id"));
+  }
+  if (error) fail("bills update", error);
+  if (data?.length !== 1) throw new Error(`${p.tag}: bills update matched ${data?.length ?? 0} rows`);
+  if (p.dropActions.length) {
+    const { error: e } = await sb.from("bill_actions").delete().in("id", p.dropActions.map((a) => a.id));
+    if (e) fail("bill_actions delete", e);
+  }
+  if (p.addActions.length) {
+    const { error: e } = await sb.from("bill_actions").upsert(p.addActions, { onConflict: "bill_id,action_date,description", ignoreDuplicates: true });
+    if (e) fail("bill_actions insert", e);
+  }
+  if (p.oldSponsors.length) {
+    const { error: e } = await sb.from("bill_sponsors").delete().eq("bill_id", p.row.id);
+    if (e) fail("bill_sponsors delete", e);
+  }
+  if (p.sponsors.length) {
+    const { error: e } = await sb.from("bill_sponsors").insert(p.sponsors);
+    if (e) fail("bill_sponsors insert", e);
+  }
+  if (p.dropVotes.length) {
+    const { error: e } = await sb.from("bill_votes").delete().in("id", p.dropVotes.map((v) => v.id));
+    if (e) fail("bill_votes delete", e);
+  }
+  if (p.votes.length) {
+    const { error: e } = await sb.from("bill_votes").upsert(p.votes, { onConflict: "bill_id,legiscan_roll_call_id" });
+    if (e) fail("bill_votes insert", e);
+  }
+}
+
+async function restore(ids, apply) {
+  const { data: rows, error } = await sb.from("bills").select(RESTORE_COLS).in("id", ids);
+  if (error) throw new Error(error.message);
+  console.log(`\n=== Restore ${rows.length} of ${ids.length} rows from their own LegiScan bill (${apply ? "APPLY" : "dry-run"}) ===`);
+  const plans = [];
+  for (const row of rows) {
+    try { plans.push(await planRestore(row)); }
+    catch (e) { plans.push({ row, tag: `${row.state} ${row.bill_number}`, hold: `LegiScan: ${e.message.slice(0, 80)}` }); }
+    printPlan(plans[plans.length - 1]);
+  }
+  if (PLAN_OUT) writeFileSync(PLAN_OUT, JSON.stringify(plans, null, 1));
+  const ready = plans.filter((p) => !p.hold);
+  console.log(`\n${ready.length} ready · ${plans.length - ready.length} held · ${legiscan.calls} LegiScan calls`);
+  if (!apply) { console.log("(dry-run: pass --apply to write)"); return { ready: ready.length, written: 0 }; }
+  let written = 0;
+  for (const p of ready) {
+    try { await applyRestore(p); written++; console.log(`  ✓ ${p.tag}`); }
+    catch (e) { console.log(`  ✗ ${e.message.slice(0, 160)}`); }
+  }
+  console.log(`\n✓ ${written} of ${ready.length} rows restored`);
+  return { ready: ready.length, written };
+}
+
 async function report() {
   const { data: bills } = await sb
     .from("bills")
@@ -224,7 +487,20 @@ async function report() {
 }
 
 const startedAt = new Date().toISOString();
-if (DECONFLATE_ID) await deconflate(DECONFLATE_ID, APPLY);
+if (RESTORE_IDS.length) {
+  // Every run spends LegiScan calls, dry-run or not, so every run is recorded
+  // for the month's meter (lib/legiscan-budget.mjs).
+  let result = null, failure = null;
+  try { result = await restore(RESTORE_IDS, APPLY); } catch (e) { failure = e; }
+  await sb.from("scraper_runs").insert({
+    source: "audit_bill_session_drift",
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    status: failure ? "error" : "success",
+    notes: `restore ${RESTORE_IDS.length} row(s)${APPLY ? ` --apply: ${result?.written ?? 0} written` : ` dry-run: ${result?.ready ?? 0} ready`} · legiscan_calls=${legiscan.calls}${failure ? ` · ${failure.message.slice(0, 120)}` : ""}`,
+  }).then(() => undefined, () => undefined);
+  if (failure) throw failure;
+} else if (DECONFLATE_ID) await deconflate(DECONFLATE_ID, APPLY);
 else if (VERIFY) await verifyAndRepair(APPLY);
 else await report();
 // The nightly job runs --verify: one row a run, so the staleness pager sees it

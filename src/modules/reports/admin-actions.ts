@@ -4,13 +4,14 @@ import { revalidatePath } from "next/cache";
 import { getAdminContext } from "@/modules/admin/actions";
 import { recordAdminAction } from "@/lib/audit";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { isReportTarget, isTargetId } from "./types";
+import { groupRemoval, isReportTarget, isTargetId } from "./types";
 
 /**
  * Close every open report on one target (/admin/moderation/reports).
  *   dismissed — nothing wrong
  *   actioned  — the moderator dealt with it (in that surface's own tool;
- *               for wall posts and comments, this removes the item)
+ *               for wall posts, comments, and group posts, threads and events,
+ *               this removes the item)
  * Member photos are resolved on /admin/moderation/photos instead, because
  * there the decision also restores or removes the photo itself.
  */
@@ -40,6 +41,17 @@ export async function resolveContentReports(
   if (wallTable) {
     const q = svc.from(wallTable).update({ status: decision === "actioned" ? "removed" : "active" }).eq("id", targetId);
     await (decision === "actioned" ? q.neq("status", "removed") : q.eq("status", "hidden"));
+  }
+
+  // A removed group post also stops serving its image (get_media_object).
+  const removal = decision === "actioned" ? groupRemoval(targetType) : null;
+  if (removal) {
+    const { error: removeError } = await svc
+      .from(removal.table)
+      .update({ [removal.column]: new Date().toISOString() })
+      .eq("id", targetId)
+      .is(removal.column, null);
+    if (removeError) return { error: "The reports closed, but the item is still up. Try again." };
   }
 
   await recordAdminAction({

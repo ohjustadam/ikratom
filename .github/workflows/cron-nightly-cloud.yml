@@ -85,7 +85,7 @@ jobs:
   # billing for it — hitting it takes the SITE down. Background work defers so
   # page traffic keeps the remaining headroom. See scripts/lib/egress-budget.mjs.
   budget:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.gate.outputs.run }}
@@ -105,7 +105,7 @@ jobs:
   nightly-cloud:
     needs: budget
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -207,6 +207,16 @@ jobs:
         continue-on-error: true
         run: node --import=./scripts/lib/egress-meter.mjs scripts/review-lapsed-items.mjs --apply
 
+      # Media Persuasion: the addresses writers and researchers printed themselves.
+      - name: Find press contacts
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/find-press-contacts.mjs --limit 300 --max-minutes 8
+      # A bill whose last action says it became law reads Enacted, and two rows
+      # for one bill agree. Never marks anything dead for being old.
+      - name: Correct bill statuses from their last action
+        continue-on-error: true
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/backfill-bill-status.mjs --apply --actions-only
+
       # Self-heal the Frankenstein/session-drift residue (LegiScan-verified).
       - name: Bill session-drift self-heal (LegiScan-verified)
         continue-on-error: true
@@ -233,7 +243,7 @@ jobs:
   dossier-research:
     needs: budget
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -259,7 +269,7 @@ jobs:
   auto-brief-campaigns:
     needs: budget
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

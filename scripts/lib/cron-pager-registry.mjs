@@ -79,6 +79,8 @@ export const REGISTRY = [
       "expire_rotating_campaigns",
       "locality_state_audit",
       "review_lapsed_items",
+      "find_press_contacts",
+      "backfill_bill_status",
       // /videos (mig 0260): orgs' + creators' YouTube uploads and upcoming lives.
       "sync_community_videos",
       // Fact-integrity watchdog (added after the 2026-08-28 false-ban incident):
@@ -105,6 +107,9 @@ export const REGISTRY = [
       // departed legislators and add new ones. Silence here means stale rosters.
       "state_roster_diff",
       "congress_roster_diff",
+      // Contact fields of sitting state legislators (2026-11-11). Silent =
+      // emails go stale again and letters bounce.
+      "state_legislator_contacts",
       // BoP pipeline layers + intel scrapers given writers 2026-07-16 (were
       // cron-registry phantoms writing nothing).
       "parse_bop_pdfs",

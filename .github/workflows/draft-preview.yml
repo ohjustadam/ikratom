@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   draft:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
       # Same site id as scripts/netlify-credit-gate.mjs (not a secret).

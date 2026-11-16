@@ -17,8 +17,20 @@ export default function FeedbackWidget() {
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  // null until checked. Signed-in members get replies on the site; anyone
+  // else may leave an email so the team can answer.
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open || signedIn !== null) return;
+    createClient()
+      .auth.getSession()
+      .then(({ data }) => setSignedIn(!!data.session))
+      .catch(() => setSignedIn(false));
+  }, [open, signedIn]);
 
   // Accessibility: while open, Escape closes, focus moves into the panel
   // and is trapped (Tab cycles within), and focus returns to the trigger on
@@ -73,6 +85,7 @@ export default function FeedbackWidget() {
         pageUrl: typeof window !== "undefined" ? window.location.href : undefined,
         userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
         screenshotMime: file?.type ?? null,
+        contactEmail: signedIn ? null : email.trim() || null,
       });
       if ("error" in res) {
         setError(res.error);
@@ -90,6 +103,7 @@ export default function FeedbackWidget() {
       setDone(true);
       setMessage("");
       setFile(null);
+      setEmail("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -144,6 +158,11 @@ export default function FeedbackWidget() {
             {done ? (
               <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-4 text-sm text-emerald-200">
                 Thanks! Your feedback was sent to the team.
+                {signedIn && (
+                  <a href="/feedback" className="mt-2 block text-xs text-emerald-400 hover:underline">
+                    Replies show in your notifications and on Your feedback →
+                  </a>
+                )}
                 <button
                   type="button"
                   onClick={() => setDone(false)}
@@ -174,6 +193,20 @@ export default function FeedbackWidget() {
                     className="mt-1 block w-full text-xs text-zinc-400 file:mr-3 file:rounded file:border-0 file:bg-zinc-800 file:px-3 file:py-1.5 file:text-zinc-200"
                   />
                 </label>
+                {signedIn === false && (
+                  <label className="text-xs text-zinc-400">
+                    Your email (optional, so we can reply)
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      maxLength={254}
+                      autoComplete="email"
+                      placeholder="you@example.com"
+                      className="mt-1 block w-full rounded-lg border border-zinc-800 bg-zinc-900 p-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600 focus:outline-none"
+                    />
+                  </label>
+                )}
                 {error && <p className="text-sm text-red-400">{error}</p>}
                 <button
                   type="button"

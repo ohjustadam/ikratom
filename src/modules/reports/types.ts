@@ -51,6 +51,21 @@ export const TARGET_LABEL: Record<ReportTarget, string> = {
 
 export const NOTE_MAX = 1000;
 
+/**
+ * Where "handled" takes a reported group item down: the table and the column it
+ * stamps. A moderator outside the group only gets a read-only view, so the
+ * reports queue is their one tool. Chat lines and resources are deleted by the
+ * group's organizers instead, because those rows have no soft delete.
+ */
+export function groupRemoval(type: ReportTarget): { table: string; column: string } | null {
+  switch (type) {
+    case "group_post": return { table: "coalition_posts", column: "deleted_at" };
+    case "group_thread": return { table: "coalition_threads", column: "deleted_at" };
+    case "group_event": return { table: "coalition_events", column: "cancelled_at" };
+    default: return null;
+  }
+}
+
 export function isReportTarget(v: unknown): v is ReportTarget {
   return typeof v === "string" && (REPORT_TARGETS as readonly string[]).includes(v);
 }

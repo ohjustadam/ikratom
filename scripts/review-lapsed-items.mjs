@@ -15,6 +15,10 @@
  *      standing campaign).
  *   4. REVIVE: a cron-retired bill whose session is actually current + has a
  *      fresh action comes back (revolving-bill guard).
+ *   5. FLAG: bills.session_sine_die follows sessionFlag() on every open bill,
+ *      active or not, in both directions, because the site shows it as
+ *      "Session ended". A terminal status outranks the label (#1129), so those
+ *      rows are left alone unless they are city or county rows.
  *
  * All actions are reversible (active flags + notes) and logged. READ-ONLY unless
  * --apply.
@@ -22,7 +26,16 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { runWithLogging } from "./lib/scraper-run.mjs";
-import { matchSession, sessionReviewBy, shouldRetire, shouldRevive } from "./lib/review-dates.mjs";
+import { TERMINAL_STATUSES } from "./lib/bill-status.mjs";
+import {
+  inLegislativeSession,
+  matchSession,
+  sessionEnded,
+  sessionFlag,
+  sessionReviewBy,
+  shouldRetire,
+  shouldRevive,
+} from "./lib/review-dates.mjs";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -37,7 +50,7 @@ const today = new Date().toISOString().slice(0, 10);
 async function loadSessions() {
   const { data } = await supabase
     .from("legislative_sessions")
-    .select("state, legiscan_session_id, year_start, year_end, special, sine_die");
+    .select("state, legiscan_session_id, session_name, year_start, year_end, special, sine_die");
   const byState = new Map();
   for (const s of data ?? []) {
     if (!byState.has(s.state)) byState.set(s.state, []);
@@ -46,10 +59,38 @@ async function loadSessions() {
   return byState;
 }
 
-/** Is the bill's session adjourned sine die? See matchSession for how a bill
- *  finds its legislative_sessions row. */
-function sessionSineDie(bill, byState) {
-  return !!matchSession(bill, byState.get(bill.state))?.sine_die;
+/** Every bill, paged: .limit() stops at PostgREST's 1,000-row cap. */
+async function loadAllBills() {
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("bills")
+      .select("id, state, bill_number, session_id, scope, status, last_action, last_action_at, session_sine_die")
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw new Error(`bills read failed: ${error.message}`);
+    rows.push(...data);
+    if (data.length < 1000) return rows;
+  }
+}
+
+/** Bring session_sine_die in line with sessionFlag(). Returns the rows it moved. */
+async function syncSessionFlags(byState) {
+  const moved = [];
+  for (const b of await loadAllBills()) {
+    if (TERMINAL_STATUSES.has(b.status) && inLegislativeSession(b)) continue;
+    const want = sessionFlag(b, byState.get(b.state));
+    if (want !== b.session_sine_die) moved.push({ ...b, want });
+  }
+  if (APPLY) {
+    for (const want of [true, false]) {
+      const ids = moved.filter((m) => m.want === want).map((m) => m.id);
+      if (!ids.length) continue;
+      const { error } = await supabase.from("bills").update({ session_sine_die: want }).in("id", ids);
+      if (error) throw new Error(`session flag write failed: ${error.message}`);
+    }
+  }
+  return moved;
 }
 
 async function cascade(billId, dry) {
@@ -98,7 +139,7 @@ await runWithLogging({ source: "review_lapsed_items", supabase }, async () => {
   // ── 1+2+3: active bills → backfill review_by, retire lapsed, cascade ──
   const { data: active } = await supabase
     .from("bills")
-    .select("id, state, bill_number, session_id, status, active, last_action_at, review_by, kratom_relevance")
+    .select("id, state, bill_number, session_id, scope, status, active, last_action, last_action_at, review_by, kratom_relevance")
     .eq("active", true)
     .limit(10_000);
 
@@ -116,9 +157,7 @@ await runWithLogging({ source: "review_lapsed_items", supabase }, async () => {
         if (APPLY) await supabase.from("bills").update({ review_by: rb }).eq("id", b.id);
       }
     }
-    const sineDie = sessionSineDie(b, byState);
-    // Persist sine_die flag when known (cheap, keeps the row honest).
-    if (sineDie && APPLY) await supabase.from("bills").update({ session_sine_die: true }).eq("id", b.id);
+    const sineDie = sessionEnded(b, byState.get(b.state));
 
     // 2. Retire?
     if (shouldRetire(b, { sineDie, now })) {
@@ -127,7 +166,6 @@ await runWithLogging({ source: "review_lapsed_items", supabase }, async () => {
       if (APPLY) {
         await supabase.from("bills").update({
           active: false,
-          session_sine_die: sineDie,
           verification_note: `${NOTE_PREFIX} ${today}: session ${b.session_id} is over (sine_die=${sineDie}), bill did not pass (status=${b.status}). Reversible.`,
         }).eq("id", b.id);
       }
@@ -142,13 +180,13 @@ await runWithLogging({ source: "review_lapsed_items", supabase }, async () => {
   // ── 4: revive cron-retired bills whose session is actually current ──
   const { data: retiredBills } = await supabase
     .from("bills")
-    .select("id, state, bill_number, session_id, status, last_action_at, review_by, verification_note")
+    .select("id, state, bill_number, session_id, scope, status, last_action, last_action_at, review_by, verification_note")
     .eq("active", false)
     .like("verification_note", `${NOTE_PREFIX}%`)
     .limit(10_000);
   let revived = 0;
   for (const b of retiredBills ?? []) {
-    const sineDie = sessionSineDie(b, byState);
+    const sineDie = sessionEnded(b, byState.get(b.state));
     const retiredOn = b.verification_note?.match(/^Auto-retired by review cron (\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
     if (shouldRevive(b, { sineDie, now, retiredOn })) {
       revived++;
@@ -159,16 +197,22 @@ await runWithLogging({ source: "review_lapsed_items", supabase }, async () => {
     }
   }
 
+  // ── 5: session_sine_die, on every row the label can reach ──
+  const flagged = await syncSessionFlags(byState);
+  const flagsOn = flagged.filter((f) => f.want).length;
+
   console.log(`\n${APPLY ? "APPLIED" : "DRY-RUN"} — reviewed ${(active ?? []).length} active bills`);
   console.log(`  review_by stamped: ${stamped}`);
   console.log(`  bills retired: ${retired}`);
   console.log(`  ↳ campaigns retired: ${cascadeTotals.campRetired} · flagged: ${cascadeTotals.campFlagged} · alerts retracted: ${cascadeTotals.alertsRetracted}`);
   console.log(`  bills revived: ${revived}`);
+  console.log(`  session flags: ${flagsOn} set, ${flagged.length - flagsOn} cleared`);
+  for (const f of flagged) console.log(`    ${f.want ? "+" : "-"} ${f.state} ${f.bill_number} [${f.status}] session=${f.session_id}`);
   if (sample.length) { console.log(`\n  sample retirements:`); for (const s of sample) console.log(`    ${s}`); }
   if (!APPLY) console.log(`\n  (dry-run — pass --apply to write)`);
 
   return {
-    rowsUpdated: APPLY ? retired + revived + stamped : 0,
-    notes: `stamped ${stamped}, retired ${retired} (camps ${cascadeTotals.campRetired}/${cascadeTotals.campFlagged}, alerts ${cascadeTotals.alertsRetracted}), revived ${revived}${APPLY ? "" : " [dry-run]"}`,
+    rowsUpdated: APPLY ? retired + revived + stamped + flagged.length : 0,
+    notes: `stamped ${stamped}, retired ${retired} (camps ${cascadeTotals.campRetired}/${cascadeTotals.campFlagged}, alerts ${cascadeTotals.alertsRetracted}), revived ${revived}, session flags +${flagsOn}/-${flagged.length - flagsOn}${APPLY ? "" : " [dry-run]"}`,
   };
 });

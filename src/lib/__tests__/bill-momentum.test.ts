@@ -141,3 +141,44 @@ describe("computeBillMomentum", () => {
     expect(m.score).toBeLessThanOrEqual(100);
   });
 });
+
+describe("computeBillMomentum recency caps (PJ 2026-11-14)", () => {
+  // NY S 8925A: passed one chamber 2026-06-05, 7 sponsors, part of a detected
+  // operation, 10 news mentions, nothing since. It read "Advancing fast 78/100".
+  const nyLike = (lastAction: string) => ({
+    last_action_at: lastAction,
+    status: "passed_chamber",
+    current_committee_name: null,
+    sponsor_count: 7,
+    cluster_count: 2,
+    recent_news_mentions: 10,
+    active: true,
+  });
+
+  it("a bill quiet for 163 days in November reads likely-stalled", () => {
+    const m = computeBillMomentum(nyLike("2026-06-05T00:00:00Z"), new Date("2026-11-15T17:00:00Z"));
+    expect(m.label).toBe("likely-stalled");
+    expect(m.score).toBeLessThanOrEqual(34);
+  });
+
+  it("a quarter of silence in spring caps at watch, never advancing-fast", () => {
+    const m = computeBillMomentum(nyLike("2026-01-05T00:00:00Z"), new Date("2026-04-20T16:00:00Z"));
+    expect(m.score).toBeLessThanOrEqual(54);
+    expect(m.label).not.toBe("advancing-fast");
+  });
+
+  it("a month without action rules out advancing-fast", () => {
+    const m = computeBillMomentum(nyLike("2026-03-01T00:00:00Z"), new Date("2026-04-05T16:00:00Z"));
+    expect(m.label).not.toBe("advancing-fast");
+  });
+
+  it("fresh action still reads advancing-fast", () => {
+    const m = computeBillMomentum(nyLike("2026-04-03T00:00:00Z"), new Date("2026-04-05T16:00:00Z"));
+    expect(m.label).toBe("advancing-fast");
+  });
+
+  it("an enacted bill is not capped as stalled", () => {
+    const m = computeBillMomentum({ ...nyLike("2026-03-01T00:00:00Z"), status: "enacted" }, new Date("2026-11-15T17:00:00Z"));
+    expect(m.label).not.toBe("likely-stalled");
+  });
+});

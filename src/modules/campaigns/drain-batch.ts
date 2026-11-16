@@ -5,7 +5,7 @@ import {
   markEmailIntegrationRevoked,
   EmailTokenRevokedError,
 } from "@/lib/email/user-send";
-import { resolveLimits } from "@/lib/email/provider-limits";
+import { capForNewAccount, resolveLimits } from "@/lib/email/provider-limits";
 import { buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
 import { withLetterFooter } from "./letter-extras";
 
@@ -65,14 +65,13 @@ export async function drainBatch(
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, username, street, city, county, state, zip, email_provider_tier")
+    .select("full_name, username, street, city, county, state, zip, email_provider_tier, created_at")
     .eq("id", batch.user_id)
     .maybeSingle();
 
-  const limits = resolveLimits(
-    integration.provider,
-    integration.account_email,
-    (profile?.email_provider_tier as never) ?? null,
+  const limits = capForNewAccount(
+    resolveLimits(integration.provider, integration.account_email, (profile?.email_provider_tier as never) ?? null),
+    profile?.created_at,
   );
 
   // How many has this user already sent TODAY, across every batch? The cap
@@ -91,7 +90,7 @@ export async function drainBatch(
     await supabase.from("campaign_send_batches")
       .update({
         status: "paused",
-        pause_reason: `Daily limit reached for ${limits.label} (${limits.effectiveDaily}/day). Resumes automatically tomorrow.`,
+        pause_reason: `Daily limit reached for ${limits.newAccount ? "new accounts" : limits.label} (${limits.effectiveDaily}/day). Resumes automatically tomorrow.`,
       })
       .eq("id", batch.id);
     return { sent, failed, more };

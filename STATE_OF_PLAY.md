@@ -146,6 +146,18 @@ fixed by a better estimate:
   visitors bounds a replay to one render per URL per TTL
   (`scripts/cloudflare-cache-setup.mjs`, `LONG_TTL_PATTERNS`).
 
+**2026-11-10: crawls hit each URL once, so cache can't save them; only a
+cheaper render can.** 839 of 840 `/legislators/*` URLs crawled in a day were
+fetched exactly once, each a ~4 s cold ISR render. A timing probe on a draft
+deploy (`console.log` lines are readable through Netlify's request logs)
+found the cost. `generateMetadata` and the page each ran the snapshot chain,
+and each chain waited on an R2 PUT of 1.1–1.6 s. React `cache()` around the
+getter plus a background R2 write took a cold render from 3.7 s to 1.0 s
+(#1149). Two traps for the next measurement. Netlify's runtime
+sends no `x-nextjs-cache`: read `Cache-Status: "Netlify Durable"`
+(`uri-miss; stored`, then `hit`) instead. And TTFB on a dynamic page measures
+only the streamed `loading.tsx` shell, so time the full response.
+
 ---
 
 ## State intel: every state watched like Oklahoma (2026-10-23/24)
@@ -199,6 +211,9 @@ fixed by a better estimate:
   feed lists only rows that have it. Clearing `body_paragraphs` is enough.
   Since 2026-11-05 a 403 or timeout also counts toward the retry cap once a
   story is a day old, so paywalled Reuters and NYT stories reach the feeds.
+  Since 2026-11-06 a story with no text shows its headline as its summary,
+  because AI summaries of a headline alone invented facts. `summarize-news`
+  waits for extraction to finish, and `enrich-news` only scores stories.
 - **Legal status re-check, 2026-10-29/30.** The 43 rows without a recent
   confirmation were checked against primary sources and stamped, so all 51
   are confirmed. Four were wrong:
@@ -261,11 +276,11 @@ real writer, and every writer must be registered.
 Four budget and uptime guards sit alongside it: egress, Netlify credits, a
 live-URL watchdog, and the staleness pager itself.
 
-**It also reflects, weekly.** Every Sunday `scripts/weekly-self-review.mjs`
-posts what moved, what decayed and what it would do next as a comment on
-GitHub issue #929 (running since 2026-09-20). It catches what the pager
-cannot: a job that runs on time and writes nothing. Nothing acts on its
-proposals automatically — read them before starting a session.
+**It can also reflect, on request.** `scripts/weekly-self-review.mjs --dry-run`
+prints what moved, what decayed and what it would do next. It catches what the
+pager cannot: a job that runs on time and writes nothing. Its Sunday job is
+paused (2026-11-06) because CI output on this repo is public, so run it on the
+owner's machine. Nothing acts on its proposals automatically.
 
 ---
 
@@ -278,6 +293,7 @@ order:
 | Step | Script | Rule |
 |---|---|---|
 | Roster diffs | `sync-state-roster-diff.mjs`, `sync-congress-roster-diff.mjs` | exact openstates / bioguide ids |
+| State contacts | `sync-state-legislator-contacts.mjs` | email / phone / office address of sitting members from openstates/people; never clears, never steps an official email down to a personal one; **over 25 changed rows it holds** for the owner's yes (`--allow-bulk`) |
 | Swap on the handover day | `turnover-swap.mjs` | retires the incumbent only when openstates/people or congress-legislators shows the successor **in office**; the record is kept |
 | Election results | `ingest-election-results.mjs` | Election Day +1 to +60; a winner lands only when a **later day's** reading names the same person |
 | Seat watch | `sync-seat-watch.mjs` (every 3 days) | `term_calendar` + `seat_elections` (migration 0277) |
@@ -289,6 +305,17 @@ Where the facts come from, all free and keyless:
   start dates of the two latest cycles.
 - **State `term_end_date`** is set from the SEAT's handover day, never from
   start date + term length, which is wrong for every appointee.
+
+**Contacts were never refreshed until 2026-11-11.** Every state legislator row
+was last written by the one-off API seed on 2026-05-04 (7,294 of 7,337 active
+rows), so letters bounced off typos openstates/people had already fixed
+(MI Reps. DeBoyer and Neyer, PJ 11-11). The first nationwide pass ran 11-11
+with the owner's yes: 389 rows changed (116 emails, 199 phones, 196 addresses,
+most of them filling empty fields), 6,946 confirmed unchanged, 0 failed. Only
+MO Sen. Travis Fitzwater is still unmatched: his openstates id is not in the
+current roster. openstates/people can be wrong too: MI Rep.
+Fairbairn's `parker.fairbairn@` is not on house.mi.gov's own roster
+(`ParkerFairbairn@`), and only that page caught it.
 
 First run (10-23): 6,616 seats flagged on the Nov 3 ballot. Active officials
 with a term end went from 1,170 to 6,675 of 13,112.
@@ -344,8 +371,147 @@ The first real community is "Rein In Chaos Coalition" (MI, private).
 Privacy, everywhere: `@handle` only. A private group 404s for outsiders. RSVPs
 are own-row-only, and everyone else sees counts.
 
-Not built yet: reporting group content (waits on B4b's shared report system),
-editing an event's time (cancel and re-post), and a real cover photo.
+Images (2026-11-06): a group post can carry one image, a `member_photos` row of
+kind `group`, stored on R2. `get_media_object` serves it only to members of the
+group whose post holds it, and only while that post stands. The post's author
+must own the photo, so nobody can attach another member's image to read it. Each
+member gets 100. Nothing screens the picture itself.
+
+"Officials the group wrote to" counts letters sent after a member joined
+(`coalition_top_legislators`). A member who just joined and has a batch still
+draining will see those letters land in the group's count, which is right.
+
+Members report group content with the shared report button. A site moderator
+outside the group gets a read-only view, and Handled in
+`/admin/moderation/reports` takes down a group post, thread or event
+(`groupRemoval()`). Chat lines and resources have no soft delete, so organizers
+remove those.
+
+Not built yet: editing an event's time (cancel and re-post), and a real cover
+photo.
+
+---
+
+## Forum bot, letter subjects, Media Persuasion (2026-11-06)
+
+A member's report in November led to four changes.
+
+- **One bot thread per state.** `forum_threads.is_state_digest` marks it, and
+  federal bills go in state `US`. `scripts/auto-post-bills-to-forum.mjs` adds a
+  comment when `bills.forum_update_key` (status plus last-action date) changes,
+  25 per run. Old per-bill bot threads stay in the table, and the state page
+  lists one only if someone replied to it.
+- **Bill statuses.** A LegiScan code counts only through `legiscanSessionFits`,
+  because reused ids can point at another session's bill. `dead` never overrides
+  a terminal status. `backfill-bill-status.mjs --actions-only` runs nightly; the
+  `--legiscan` pass spends API quota, so it runs by hand.
+- **Session ended.** A bill whose session adjourned while it was still open reads
+  "Session ended" on its page, on `/bills` and on state hubs, through
+  `billDisplayStatus()`. A terminal status always beats the label.
+  `sessionFlag()` (`scripts/lib/review-dates.mjs`) decides `session_sine_die`, and
+  `review-lapsed-items.mjs` applies it nightly to every open bill, in both
+  directions. Three things it refuses on purpose: city and county rows have no
+  session; a bill waiting on the governor hasn't lapsed; and a last action outside
+  the matched session means the row carries another bill's data. LegiScan calls
+  Illinois's General Assembly adjourned in spring, but it sits until January, so
+  Illinois is held open until its term ends.
+- **Subjects.** `memberSubject()` (`src/lib/letter-subject.ts`) picks a short
+  subject from a hash of member and campaign, so one office doesn't get a hundred
+  identical lines. A stored subject of 40 characters or fewer joins the rotation.
+- **Media Persuasion.** `/media`, plus reply buttons on `/news/[id]` and
+  `/research/[id]`, let a member answer a writer or researcher from their own
+  mailbox through the shared composer. `scripts/find-press-contacts.mjs` fills
+  `press_contacts` nightly with printed addresses only, never guessed ones.
+  That table has no member policy: `getPressContact` is the only way to an
+  address, at 10 a day, so the list can't be read out in bulk. Don't aim a
+  campaign or wave at it.
+
+---
+
+## Reused bill numbers (2026-11-08)
+
+Every session reuses bill numbers, and LegiScan search matches the number
+alone. So a row from an old session could pick up a newer, unrelated bill's
+actions, sponsors, votes and text. NE LB 972 (108th, indefinitely postponed in
+2024) read as an enacted kratom ban using a 2026 motor-vehicle bill, and Nebraska's
+derived 7-OH status said "banned" because of it.
+
+- **The sync's guard** is `sessionMismatch()` in `scripts/lib/bill-session.mjs`.
+  It reads a session label three ways: as a LegiScan session id, as an assembly
+  number ("101st", "89R", "136"), or as years. The old guard read years only,
+  so a third of the labels had no reading and passed, and it let the next
+  biennium through. A one-year label may still be a year off: Oklahoma's
+  OpenStates labels use the end year, and Virginia relabels continued bills.
+  `sync-bills-via-legiscan.mjs` saves a searched LegiScan id only once the
+  guard accepts it.
+- **The repair** is `audit-bill-session-drift.mjs --restore <ids> [--apply]`.
+  It reads each row's own bill from the session its label names, holds any row
+  it can't confirm, and clears the text and AI summaries built from the other
+  bill. `active` is only changed for a live row whose own bill died with its
+  session. The OpenStates sweep (`sync-bills.mjs`) also rewrites an old row's
+  status and last action from its own session, so another bill can survive
+  only in the LegiScan id, actions or sponsors. The restore counts those as
+  evidence too. It keeps the row's own last action when that is newer than
+  LegiScan's, and keeps a terminal status the row already has unless a
+  stronger one is proven.
+- **Done 2026-11-10 (owner's yes):** 23 rows, read back clean. They were 12
+  Illinois rows, GA SR 832, SR 783, HR 1159 and HR 1160, ID H 168 and H 567,
+  LA HB 14, MD HB 1229, MN SF 2578, NE LB 972 and TN HB 861. NE LB 972 and
+  TN HB 861 now read dead; MD HB 1229 and MN SF 2578 now read enacted.
+  ID H 168, ID H 567, IL HB 622 and TN HB 861 have no LegiScan id, because
+  a twin row of the same bill holds it.
+- **Still to check:** 20 inactive rows whose label doesn't fit their last action
+  (FL, IN, KS, LA, ME, MI, MN, MS and GA HB 181, which may just be an effective
+  date). Several read "enacted". Also merge the four twin pairs.
+
+---
+
+## Forum roles, spam limits and member posts (2026-11-06)
+
+**Who can do what** lives in one place: `forumRights()` in
+`src/lib/forum-permissions.ts`. Change it there, not in a page. Ranks are member,
+leader, admin, owner.
+
+- A member edits or deletes their own post. A removed post can't be edited, and
+  neither can anything in a locked thread, though a member can still delete there.
+- Anyone with `moderate_forum` can hide a post by someone below their rank. Leaders
+  hide but never rewrite. Only an admin or the owner can change someone else's
+  words, and the post then reads "edited by a moderator".
+- Two admins can't act on each other. That goes to the owner.
+- The bill bot counts as a leader, so only an admin or the owner can touch it.
+
+**The database refuses forum body and title changes from anything but the service
+role**, moderators included (migration 0317). Every edit goes through
+`src/modules/forum/edit-actions.ts`, which writes the old text to `forum_edits`
+first. A new write path must do the same, or it will fail silently as zero rows.
+
+**Spam limits** (`postingBlock()` in `src/modules/forum/actions.ts`): under 72
+hours old, 3 threads a day and 10 posts an hour. The same words within 10 minutes
+are refused. Locked accounts can't post. 30 edits an hour. Author edits run the
+same screens as a new post.
+
+**Reports** always reach a moderator. A post hides only at three different
+reporters who are a week old or staff. `/admin/forum` reads through the service
+role, because the old RLS read showed leaders an empty queue, and it now lists
+reported posts that are still visible, plus recent edits and old bill threads.
+
+**Member posts come first.** `memberFeedItems()` drops bot posts, and the forum
+home shows "New from members" and "New in your groups", the second one limited to
+groups the viewer belongs to, because admins can read them all. The state page
+puts the bot's thread in a card above member threads. A bill thread with no action
+in 180 days (`isStaleBill`) gets a banner. Separately, `/admin/forum` lists bill
+threads with member replies that have been quiet for 90 days. Nothing deletes
+one automatically.
+
+**The Lounge counter** clears through `useLoungeSeen`. It marks the chat as seen
+while it's on screen, at most every 2 seconds, skips hidden tabs, and tells the
+chat bubble through the `ikratom:lounge-seen` event.
+
+**January.** A campaign's targets come from the live roster, and sends cool down
+after 7 days, so new officials show as not yet written with no reset needed.
+`scripts/remind-new-officials.mjs --since YYYY-MM-DD` tells members about them. It
+dry-runs by default, isn't on a schedule, and `--apply` is a mass notice that needs
+the owner's yes.
 
 ---
 
@@ -353,11 +519,13 @@ editing an event's time (cancel and re-post), and a real cover photo.
 
 1. **The changelog no longer lives in the repo.** As of 2026-09-18, patch
    notes are rows in `patch_notes` (migration 0250), drafted by the daily and
-   Sunday jobs and published from `/admin/whats-new`. The 40 markdown files
+   Sunday jobs and published from `/admin/whats-new`. The 33 markdown files
    under `src/content/patch-notes/` are the back-catalogue and still render. Do
    not add a new `.md` note — it would cost a build, which is the whole reason
    this moved. Publishing sends nothing, and no job pushes a note: a push is
    `scripts/broadcast-whats-new.mjs`, run by hand after the owner says yes.
+   The page carries only changes a member can see: Publish refuses internal or
+   security wording, and CI holds the files to the same list.
 2. **A branch that looks unlanded may already be merged by content.** Release
    PRs squash several branches at once, so GitHub never marks the sources
    merged and they stay permanently "ahead". Test-merge into `origin/main` and
@@ -435,6 +603,28 @@ editing an event's time (cancel and re-post), and a real cover photo.
     `fetch()` refuses it in a header, which is how the weekly RLS pentest
     crashed every run from #1088 to #1106. Any script that reads a repo secret
     into a header strips `﻿` and trims first, as `db-snapshot-api.mjs` does.
+13. **Auth emails are our templates, and they link to `/auth/confirm`.** Since
+    2026-11-10 the signup, reset and magic-link emails send a `token_hash` to
+    `/auth/confirm` (`scripts/lib/auth-email-templates.mjs`), which signs the
+    person in from any browser or mail app. Supabase's default link is a PKCE
+    `?code=` that only the browser that asked can redeem, and signup sent no
+    redirect, so for months confirm links landed on the homepage signed out.
+    Templates are editable only while Auth SMTP is custom (Resend). Check
+    drift with `node --env-file=.env.local scripts/auth-email-templates.mjs --check`;
+    `--rollback` restores Supabase's defaults. A second signup never changes
+    the password (Supabase keeps the first), and the username a new member
+    types is stamped with the service role, because they have no session yet:
+    as `anon`, any profiles query trips the owner policies, and since
+    migration 0310 that ERRORS ("permission denied for function is_owner").
+    From Nov 5 to Nov 10 every signup showed that error after the account
+    had been created.
+14. **Every GitHub job is pinned to `ubuntu-24.04`, not `ubuntu-latest`.**
+    On 2026-11-16 around 13:00 UTC, `ubuntu-latest` became Ubuntu 26.04.
+    `playwright-chromium`'s install step refuses that OS, so `npm ci` failed
+    in every job: CI, the hourly and daily crons, the send drain and backups.
+    `tests/workflow-runner-pin.test.ts` fails if a workflow goes back to
+    `ubuntu-latest`. Unpin only once Playwright supports the new image and a
+    draft run proves it.
 
 ---
 

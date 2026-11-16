@@ -1,5 +1,6 @@
 import Link from "@/components/Link";
 import { createAnonClient } from "@/lib/supabase/anon";
+import { sortBillActions } from "@/lib/bill-actions-order";
 
 type BillAction = {
   id: string;
@@ -8,6 +9,7 @@ type BillAction = {
   description: string;
   chamber: string | null;
   source: string;
+  seq: number | string | null;
 };
 
 const STAGES = [
@@ -47,15 +49,19 @@ export async function BillTimeline({
   // Anonymous client on purpose (2026-10-05): bill_actions is public, and a
   // cookie read here made production refuse to render the cached bill page
   // (DYNAMIC_SERVER_USAGE -> every /bills/:id returned 500).
+  // Newest 50 first, then put back in time order: ascending + limit showed the
+  // OLDEST 50, so a long-running bill lost its latest actions and the
+  // "days since last action" count. seq = OpenStates' own order within a day.
   const sb = createAnonClient();
   const { data: actions } = await sb
     .from("bill_actions")
-    .select("id, bill_id, action_date, description, chamber, source")
+    .select("id, bill_id, action_date, description, chamber, source, seq:raw_json->order")
     .eq("bill_id", billId)
-    .order("action_date", { ascending: true })
+    .order("action_date", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(50);
 
-  const rows = (actions ?? []) as BillAction[];
+  const rows = sortBillActions(((actions ?? []) as BillAction[]).slice().reverse());
   if (rows.length === 0) return null;
 
   // Normalize current status to stage key
