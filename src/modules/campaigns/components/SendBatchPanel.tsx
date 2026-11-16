@@ -10,6 +10,7 @@ import {
   type BatchProgress,
   type SendAllowance,
 } from "../send-batch-actions";
+import { markSendQueueActive, registerPageDriver } from "../send-queue-client";
 
 /**
  * SendBatchPanel — queue a campaign send that outlives the browser tab.
@@ -69,22 +70,29 @@ export function SendBatchPanel({
   // While a batch is live and this page is open, DRIVE it: each call sends a
   // ~15s slice and returns real progress, then we wait 3s and go again (a
   // chain, never overlapping). Without this a one-click send waited for the
-  // scheduled worker, which GitHub runs only a few times a day. Closing the
-  // page just stops the driving; the worker finishes the rest.
+  // scheduled worker, which GitHub runs only a few times a day.
+  // Leaving the page hands the driving to SendQueueDriver in the app shell,
+  // which carries on from whatever page the member opens next (PJ, 11-11: the
+  // send used to stop until they came back). The hint tells it a send is in
+  // flight; registering tells it to stay out of the way while we drive.
   const batchId = progress?.id ?? null;
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const release = active && batchId ? registerPageDriver() : null;
     async function tick() {
       const p = active && batchId
         ? await continueMySend(campaignSlug, batchId).catch(() => getBatchProgress(campaignSlug))
         : await getBatchProgress(campaignSlug);
       if (cancelled) return;
       setProgress(p);
-      if (p && ["queued", "sending"].includes(p.status)) timer = setTimeout(tick, 3000);
+      if (p && ["queued", "sending"].includes(p.status)) {
+        markSendQueueActive();
+        timer = setTimeout(tick, 3000);
+      }
     }
     tick();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    return () => { cancelled = true; if (timer) clearTimeout(timer); release?.(); };
   }, [campaignSlug, active, batchId]);
 
   function queue() {
@@ -199,7 +207,7 @@ export function SendBatchPanel({
           {active && progress.ahead > 0 && (
             <p className="mt-2 text-xs text-zinc-400">
               Your earlier send goes first ({progress.ahead} letter{progress.ahead === 1 ? "" : "s"} left), then this one
-              starts. Both keep going from any campaign page.
+              starts. Both keep going while you browse the site.
             </p>
           )}
 

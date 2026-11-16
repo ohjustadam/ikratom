@@ -1,6 +1,7 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { TranslatedText } from "@/components/TranslatedText";
 import { ActionsTakenLine, FederalEmailOfficials, CommitteeLeverage } from "./BillViewerSections";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -24,7 +25,7 @@ import { BillLocalActionCard, type LocalMeta, type LocalOfficial } from "./BillL
 import { findSimilarBillsCached } from "@/lib/bill-similarity";
 import { IntelTipForm } from "./IntelTipForm";
 import { Markdown } from "@/components/Markdown";
-import { briefingDeniesKratom, isUnverifiedStub } from "@/lib/bill-guards";
+import { briefingDeniesKratom, calloutContradictsBriefing, isUnverifiedStub } from "@/lib/bill-guards";
 import { mdToPlainText } from "@/lib/markdown";
 import { AudioReader } from "@/components/AudioReader";
 import { dedupNews, type NewsItem } from "@/lib/news-dedup";
@@ -566,11 +567,14 @@ type BillSnapshot = NonNullable<Awaited<ReturnType<typeof loadBillPublic>>["data
 // Snapshot layers: this deploy's unstable_cache, then R2 (survives deploys,
 // serves the last good copy if Supabase fails), then Supabase. Same 15-min
 // window as before. Bump "v1" if loadBillPublic's shape changes.
-const getBillPublicSnapshot = unstable_cache(
+// React cache(): generateMetadata and the page share ONE read per request.
+// unstable_cache does not share an in-flight miss, so without it a cold
+// render ran this chain twice (see #1149).
+const getBillPublicSnapshot = cache(unstable_cache(
   (id: string) => publicSnapshot<BillSnapshot>("bill-public", "v1", id, 900, () => loadBillPublic(id)),
   ["bill-detail"],
   { revalidate: 900, tags: ["bill-detail"] },
-);
+));
 
 export async function generateMetadata({
   params,
@@ -699,8 +703,10 @@ export default async function BillDetailPage({
   };
 
   // Never show a "For advocates" call to action that the bill's own
-  // text-based briefing contradicts (MN HF 4223, Paul 10-28).
-  const showCallout = !!bill.advocacy_callout && !briefingDeniesKratom(bill.summary_long);
+  // text-based briefing contradicts (MN HF 4223, Paul 10-28; NY S 8925A, PJ 11-14).
+  const showCallout = !!bill.advocacy_callout
+    && !briefingDeniesKratom(bill.summary_long)
+    && !calloutContradictsBriefing(bill.advocacy_callout, bill.summary_long);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">

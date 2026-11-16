@@ -16,6 +16,7 @@ import Link from "@/components/Link";
 import { PressReplyButton } from "@/modules/press/PressReplyButton";
 import { notFound } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { publicSnapshot } from "@/lib/public-snapshots";
 import { NewsVideo } from "./NewsVideo";
@@ -149,11 +150,14 @@ type NewsSnapshot = NonNullable<Awaited<ReturnType<typeof loadNewsArticle>>["dat
 
 // R2 under unstable_cache: survives deploys and serves the last good copy if
 // Supabase fails. Same 15-min window. Bump "v1" if the shape changes.
-const getNewsArticle = unstable_cache(
+// React cache(): generateMetadata and the page share ONE read per request.
+// unstable_cache does not share an in-flight miss, so without it a cold
+// render ran this chain twice (see #1149).
+const getNewsArticle = cache(unstable_cache(
   (id: string) => publicSnapshot<NewsSnapshot>("news-article", "v1", id, 900, () => loadNewsArticle(id)),
   ["news-detail"],
   { revalidate: 900, tags: ["news-detail"] },
-);
+));
 
 export async function generateMetadata({ params }: { params: Promise<Params> }) {
   const { id } = await params;

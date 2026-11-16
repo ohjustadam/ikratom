@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
   );
 
   const { drainBatch } = await import("@/modules/campaigns/drain-batch");
+  const { acquireDrainLease } = await import("@/modules/campaigns/drain-lease");
 
   let sent = 0;
   let failed = 0;
@@ -73,11 +74,20 @@ export async function GET(request: NextRequest) {
     // with continueMySend() so an open campaign page can drive its own send.
     for (const batch of batches ?? []) {
       if (Date.now() > deadline) { more = true; break; }
-      batchesTouched++;
-      const r = await drainBatch(supabase, batch, deadline);
-      sent += r.sent;
-      failed += r.failed;
-      if (r.more) more = true;
+      // The member's open tab may be driving this mailbox right now. One slice
+      // per mailbox at a time keeps the pacing and the daily cap honest
+      // (drain-lease.ts); their tab finishes it, or the next run does.
+      const lease = await acquireDrainLease(batch.user_id);
+      if (!lease) { more = true; continue; }
+      try {
+        batchesTouched++;
+        const r = await drainBatch(supabase, batch, deadline);
+        sent += r.sent;
+        failed += r.failed;
+        if (r.more) more = true;
+      } finally {
+        await lease.release();
+      }
     }
   } catch (e) {
     await supabase.from("scraper_runs").insert({

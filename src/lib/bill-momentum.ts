@@ -48,13 +48,20 @@ const STATUS_BOOST: Record<string, number> = {
   vetoed: -30,
 };
 
-export function computeBillMomentum(input: BillMomentumInput): BillMomentum {
+/** Month (1-12) in Eastern time: civic dates anchor to America/New_York. */
+function easternMonth(now: Date): number {
+  return Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "numeric" }).format(now));
+}
+
+export function computeBillMomentum(input: BillMomentumInput, now: Date = new Date()): BillMomentum {
   const signals: string[] = [];
   let score = 40; // neutral baseline
+  let ageDays: number | null = null;
 
-  // 1. Recency of last action (decay)
+  // 1. Recency of last action (decay). Stall weighs more than it used to:
+  // PJ (2026-11-14) saw a bill untouched for 163 days read "Advancing fast 78/100".
   if (input.last_action_at) {
-    const ageDays = (Date.now() - new Date(input.last_action_at).getTime()) / 86400000;
+    ageDays = (now.getTime() - new Date(input.last_action_at).getTime()) / 86400000;
     if (ageDays < 7) {
       score += 25;
       signals.push("acted on within last week");
@@ -62,13 +69,13 @@ export function computeBillMomentum(input: BillMomentumInput): BillMomentum {
       score += 10;
       signals.push("acted on this month");
     } else if (ageDays < 90) {
-      score -= 5;
+      score -= 10;
       signals.push("no action in 30+ days");
     } else if (ageDays < 180) {
-      score -= 20;
+      score -= 25;
       signals.push("stale 90+ days");
     } else {
-      score -= 35;
+      score -= 40;
       signals.push("stale 180+ days");
     }
   } else {
@@ -128,6 +135,19 @@ export function computeBillMomentum(input: BillMomentumInput): BillMomentum {
   if (!input.active) {
     score = Math.min(score, 5);
     signals.push("marked inactive");
+  }
+
+  // 8. Recency caps: sponsors, news and clusters can't make a quiet bill look
+  // fast. A month without action rules out "advancing fast", a quarter caps it
+  // at "watch", and from August on a quarter of silence usually means the
+  // legislature adjourned for the year. An enacted bill is done, not stalled.
+  if (ageDays !== null && !statusKey.includes("enacted")) {
+    if (ageDays >= 30) score = Math.min(score, 74);
+    if (ageDays >= 90) score = Math.min(score, 54);
+    if (ageDays >= 90 && easternMonth(now) >= 8) {
+      score = Math.min(score, 34);
+      signals.push("no action since the legislature's spring session");
+    }
   }
 
   // Clamp + label
