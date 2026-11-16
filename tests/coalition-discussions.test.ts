@@ -46,8 +46,8 @@ describe("server actions", () => {
   it("are rate-limited and length-capped", () => {
     expect(actions).toMatch(/checkRateLimit\(`coalition:thread:/);
     expect(actions).toMatch(/checkRateLimit\(`coalition:reply:/);
-    expect(actions).toMatch(/MAX_TITLE = 140/);
-    expect(actions).toMatch(/MAX_BODY = 5000/);
+    expect(actions).toMatch(/MAX_TITLE = GROUP_TITLE_MAX/);
+    expect(actions).toMatch(/MAX_BODY = GROUP_POST_MAX/);
   });
 
   it("a removal that RLS refused is reported, not silently 'done'", () => {

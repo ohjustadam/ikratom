@@ -37,7 +37,7 @@ concurrency:
 
 jobs:
   draft-patch-note:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Read-only now. The job no longer pushes a branch or opens a PR, so it
     # does not need contents:write or pull-requests:write.
     permissions:

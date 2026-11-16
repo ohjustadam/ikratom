@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createCoalitionThread } from "@/modules/coalitions/discussion-actions";
 import { GroupImagePicker } from "./GroupImage";
+import { PostLengthNote } from "./PostLengthNote";
+import { GROUP_POST_MAX, GROUP_TITLE_MAX } from "@/modules/coalitions/limits";
 
 /**
  * "Start a discussion" for a coalition's private board. The welcome checklist
@@ -48,7 +50,7 @@ export function NewThreadForm({ slug, prefill }: {
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        maxLength={140}
+        maxLength={GROUP_TITLE_MAX}
         placeholder="Topic, e.g. Hearing on HB 123 next Tuesday"
         aria-label="Discussion title"
         className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
@@ -56,18 +58,18 @@ export function NewThreadForm({ slug, prefill }: {
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        maxLength={5000}
         rows={4}
         placeholder="What do you want the group to know or do?"
         aria-label="Discussion message"
         className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
       />
+      <PostLengthNote length={body.trim().length} />
       <GroupImagePicker photoId={photoId} onChange={setPhotoId} />
       {error && <p className="text-xs text-red-300">{error}</p>}
       <div className="flex gap-2">
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || body.trim().length > GROUP_POST_MAX}
           className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40"
         >
           {pending ? "Posting…" : prefill?.pin ? "Post and pin" : "Post"}

@@ -31,6 +31,21 @@ export function hasSupabaseAuthCookie(cookie: string | null | undefined): boolea
 }
 
 /**
+ * Should a page treat this viewer as signed in? Once `/api/me` has answered,
+ * its answer wins (an expired cookie reads as signed out there). Until then the
+ * session cookie is the best guess, so a member doesn't see "Join free" for the
+ * second `/api/me` takes (PJ, 2026-11-11: he signed in twice because a
+ * signed-in page still offered it). Static pages call this from the browser,
+ * so they never read a cookie on the server.
+ */
+export function viewerLooksSignedIn(
+  chrome: { loading: boolean; userId: string | null | undefined },
+  hasAuthCookie: boolean,
+): boolean {
+  return chrome.loading ? hasAuthCookie : !!chrome.userId;
+}
+
+/**
  * The `locale` cookie set by `setLocale()` (not httpOnly), if it names a
  * supported language. This is the same answer `/api/me` gives an anonymous
  * visitor: its `readLocale()` checks the cookie, then a profile they don't have.
