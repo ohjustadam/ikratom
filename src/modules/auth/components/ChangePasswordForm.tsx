@@ -2,12 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { changePassword } from "../actions-password";
+import { useTurnstile } from "@/components/auth/useTurnstile";
+import { CAPTCHA_FIELD } from "@/lib/captcha";
 
 export function ChangePasswordForm() {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [pending, startTransition] = useTransition();
+  const { slot: captchaSlot, ...captcha } = useTurnstile("reauth");
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -20,7 +23,10 @@ export function ChangePasswordForm() {
     const formEl = e.currentTarget;
     const fd = new FormData(formEl);
     startTransition(async () => {
+      const token = await captcha.getToken();
+      if (token) fd.set(CAPTCHA_FIELD, token);
       const r = await changePassword(fd);
+      captcha.reset();
       if ("error" in r) {
         setError(r.error);
       } else {
@@ -91,6 +97,8 @@ export function ChangePasswordForm() {
           Password updated.
         </p>
       )}
+
+      <div ref={captchaSlot} />
 
       <div className="flex gap-2">
         <button

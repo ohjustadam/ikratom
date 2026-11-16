@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { CAPTCHA_FAILED_HINT, CAPTCHA_FAILED_MESSAGE, captchaTokenFrom, isCaptchaError } from "@/lib/captcha";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 /**
@@ -82,7 +83,7 @@ export async function exportMyData(): Promise<{ json: string } | { error: string
  * Uses service role since we need to delete from auth.users (RLS doesn't apply
  * to user-side; the cascade fires on profile deletion).
  */
-export async function deleteMyAccount(input: { confirmation: string; password: string }) {
+export async function deleteMyAccount(input: { confirmation: string; password: string; captchaToken?: string | null }) {
   if (input.confirmation !== "DELETE MY ACCOUNT") {
     return { error: "Confirmation phrase didn't match." };
   }
@@ -111,7 +112,9 @@ export async function deleteMyAccount(input: { confirmation: string; password: s
   const { error: pwErr } = await verifier.auth.signInWithPassword({
     email: user.email,
     password: input.password,
+    options: { captchaToken: captchaTokenFrom(input.captchaToken) },
   });
+  if (pwErr && isCaptchaError(pwErr.message)) return { error: `${CAPTCHA_FAILED_MESSAGE} ${CAPTCHA_FAILED_HINT}` };
   if (pwErr) return { error: "Password is incorrect." };
 
   // Use service role to delete the auth.users row — cascades to profile + all

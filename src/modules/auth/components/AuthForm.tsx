@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { signIn, signUp } from "../actions";
 import { SIGNUP_SENT_HINT, SIGNUP_SENT_MESSAGE } from "../signup-outcome";
+import { useTurnstile } from "@/components/auth/useTurnstile";
+import { CAPTCHA_FIELD } from "@/lib/captcha";
 import { AuthNotice } from "./AuthNotice";
 import { ResendLinkForm } from "./ResendLinkForm";
 
@@ -25,6 +27,7 @@ export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) 
   const [success, setSuccess] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState("");
   const [pending, startTransition] = useTransition();
+  const { slot: captchaSlot, ...captcha } = useTurnstile("auth");
 
   // Anti-bot: capture how long the form was visible before submit.
   // Bots typically POST instantly; humans take >2s.
@@ -41,8 +44,11 @@ export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) 
     const formData = new FormData(e.currentTarget);
     formData.set("form_elapsed_ms", String(Date.now() - mountedAt.current));
     startTransition(async () => {
+      const token = await captcha.getToken();
+      if (token) formData.set(CAPTCHA_FIELD, token);
       const result =
         mode === "signin" ? await signIn(formData) : await signUp(formData);
+      captcha.reset(); // tokens are single-use
       if (result?.error) {
         setError(result.error);
         if ("hint" in result && result.hint) setErrorHint(result.hint);
@@ -130,6 +136,9 @@ export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) 
           <ResendLinkForm defaultEmail={sentTo} />
         </div>
       )}
+
+      {/* Bot check (Cloudflare Turnstile). Usually invisible. */}
+      <div ref={captchaSlot} />
 
       <button
         type="submit"
