@@ -313,7 +313,9 @@ export function sameSurname(a, b) {
  * same first initial. congress-legislators lists Sen. Darline Graham Nordone
  * as "Darline Graham", whose surname alone matches "Lindsey Graham", the
  * senator she replaced. Use this wherever a match retires or announces
- * someone; a nickname mismatch (Bill / William) fails safe into review.
+ * someone. Common nicknames count (Bill / William, Bob / Robert, and clipped
+ * names like Van / Ivan or Mando / Armando); anything else fails safe into
+ * review.
  *
  * A leading initial is skipped, and one name's first name may be the other's
  * middle name: "N. Scott Phillips", "C. Anthony Muse" and "Michael Sarge
@@ -328,7 +330,35 @@ export function samePerson(a, b) {
   const given = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\(.*?\)/g, " ")
     .replace(/[^a-z\s'-]/g, " ").replace(/\b(jr|sr|ii|iii|iv)\b/g, " ").split(/\s+/).filter((t) => t.length > 1).slice(0, -1);
   const x = given(a), y = given(b);
-  return !!x.length && !!y.length && (x[0][0] === y[0][0] || y.includes(x[0]) || x.includes(y[0]));
+  if (!x.length || !y.length) return false;
+  return x[0][0] === y[0][0] || y.includes(x[0]) || x.includes(y[0]) || sameGivenName(x[0], y[0]);
+}
+
+/** Given names and short forms that don't start with the same letter. */
+const NICKNAMES = [
+  ["william", "bill", "billy"], ["robert", "bob", "bobby"], ["richard", "rick", "dick"], ["edward", "ted", "ned"],
+  ["theodore", "ted"], ["charles", "chuck"], ["margaret", "peggy"], ["rebecca", "becky"],
+  ["elizabeth", "liz", "beth", "betsy", "betty"], ["anthony", "tony"], ["henry", "hank"], ["gerald", "jerry"],
+  ["andrew", "drew"], ["catherine", "kathy", "kate"], ["patricia", "tricia", "trish"],
+];
+const sameGivenName = (p, q) => NICKNAMES.some((set) => set.includes(p) && set.includes(q))
+  || (p.length >= 3 && q.endsWith(p)) || (q.length >= 3 && p.endsWith(q));
+
+/**
+ * The same first name and a surname one letter apart: "John Burkey" on the 2026
+ * Minnesota House page is our John Burkel. A typo must not announce a
+ * departure, so callers send this to review instead of reading a new winner.
+ */
+export function nearlySamePerson(a, b) {
+  const words = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\(.*?\)/g, " ")
+    .replace(/[^a-z\s'-]/g, " ").replace(/\b(jr|sr|ii|iii|iv)\b/g, " ").split(/\s+/).filter((t) => t.length > 1);
+  const x = words(a), y = words(b);
+  if (x.length < 2 || y.length < 2 || x[0] !== y[0]) return false;
+  const p = x.at(-1), q = y.at(-1);
+  if (p === q || Math.min(p.length, q.length) < 4 || Math.abs(p.length - q.length) > 1) return false;
+  let i = 0;
+  while (i < p.length && p[i] === q[i]) i++;
+  return p.slice(i + 1) === q.slice(i + 1) || p.slice(i + 1) === q.slice(i) || p.slice(i) === q.slice(i + 1);
 }
 
 /** Does our official's surname appear anywhere in a listed table row? */
