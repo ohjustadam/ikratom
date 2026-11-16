@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
@@ -115,6 +116,8 @@ export async function moderateStory(input: {
 }) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Admin or leader only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const supabase = await createClient();
 
   const update: Record<string, unknown> = {

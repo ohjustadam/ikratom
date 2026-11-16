@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 /**
@@ -18,6 +19,8 @@ import { recordAdminAction } from "@/lib/audit";
 export async function resolveDiscrepancy(input: { alertId: string; note: string }) {
   const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!input.alertId) return { error: "Missing alert id." };
 
   const note = input.note.slice(0, 500).trim();
@@ -49,6 +52,8 @@ export async function resolveDiscrepancy(input: { alertId: string; note: string 
 export async function forceResyncBill(input: { billId: string }) {
   const ctx = await getAdminContext({ require: "moderate_intel_queue" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!input.billId) return { error: "Missing bill id." };
 
   const supabase = await createClient();

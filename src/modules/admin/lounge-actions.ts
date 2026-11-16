@@ -1,9 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { wasMfaRequired } from "@/lib/mfa-error";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 /**
@@ -83,6 +86,8 @@ export async function listRecentChatMessages(opts: {
 export async function bulkDeleteChatMessages(ids: string[]) {
   const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!Array.isArray(ids) || ids.length === 0) return { error: "Nothing selected." };
   if (ids.length > MAX_BULK) return { error: `Bulk delete capped at ${MAX_BULK} per call.` };
   // UUID hygiene — refuse anything that isn't a UUID
@@ -113,6 +118,8 @@ export async function muteUserFromChat(input: {
 }) {
   const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const userId = (input.userId ?? "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(userId)) return { error: "Invalid user id." };
@@ -177,6 +184,8 @@ export async function unmuteUserFromChat(userId: string) {
 export async function clearOldLoungeMessages(hoursOld = 24, room = "lounge") {
   const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const supabase = await createClient();
   const cutoff = hoursOld > 0
@@ -263,6 +272,8 @@ export async function listBanReviewQueue() {
 export async function clearMuteHistory(userId: string) {
   const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(userId)) return { error: "Invalid user id." };
 
   const supabase = await createClient();
@@ -327,6 +338,9 @@ export async function listHeldChatMessages(): Promise<
 export async function releaseHeldMessage(formData: FormData): Promise<void> {
   const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return;
+  // A form action has no error channel, so send the admin where the gate points.
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) redirect(wasMfaRequired(mfaErr) ? "/login/mfa?redirect=/admin/lounge" : "/account/security");
   const id = String(formData.get("id") ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(id)) return;
 
@@ -359,6 +373,9 @@ export async function releaseHeldMessage(formData: FormData): Promise<void> {
 export async function dismissHeldMessage(formData: FormData): Promise<void> {
   const ctx = await getAdminContext({ require: "moderate_lounge" });
   if (!ctx.ok) return;
+  // A form action has no error channel, so send the admin where the gate points.
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) redirect(wasMfaRequired(mfaErr) ? "/login/mfa?redirect=/admin/lounge" : "/account/security");
   const id = String(formData.get("id") ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(id)) return;
 

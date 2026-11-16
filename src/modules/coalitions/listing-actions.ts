@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -18,6 +19,8 @@ export async function decideGroupListing(coalitionId: string, approve: boolean):
   if (ro) return { ok: false, error: ro };
   const ctx = await getAdminContext({ require: "moderate_forum" });
   if (!ctx.ok) return { ok: false, error: "Moderators only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
   if (!UUID_RE.test(coalitionId)) return { ok: false, error: "Not found." };
 
   const admin = createServiceRoleClient();

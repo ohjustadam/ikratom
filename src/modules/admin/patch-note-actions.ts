@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { publishBlocklistMatches } from "../../../scripts/lib/changelog-safety.mjs";
 
@@ -74,6 +75,8 @@ export async function savePatchNote(input: {
 }): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const slug = input.slug.trim();
   if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return { error: "Bad slug." };
@@ -125,6 +128,8 @@ export async function setPatchNoteStatus(input: {
 }): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const slug = input.slug.trim();
   if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return { error: "Bad slug." };

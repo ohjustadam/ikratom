@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { sanitizeLibraryEmbedHtml } from "@/lib/embed-safety";
 
 const VALID_TYPES = ["video", "audio", "book", "article", "document"] as const;
@@ -54,6 +55,8 @@ function readForm(formData: FormData) {
 export async function createLibraryItem(formData: FormData) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const data = readForm(formData);
   if (!data.title) return { error: "Title is required." };
@@ -77,6 +80,8 @@ export async function createLibraryItem(formData: FormData) {
 export async function updateLibraryItem(id: string, formData: FormData) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!id) return { error: "Missing id." };
 
   const data = readForm(formData);
@@ -100,6 +105,8 @@ export async function updateLibraryItem(id: string, formData: FormData) {
 export async function deleteLibraryItem(id: string) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const supabase = await createClient();
   const { error } = await supabase.from("library_items").delete().eq("id", id);
   if (error) return { error: error.message };
