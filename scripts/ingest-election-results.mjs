@@ -4,13 +4,15 @@
  *
  * For every open seat_elections row (on_ballot / needs_review) of the cycle's
  * general election, reads the winner from the Wikipedia election article for
- * that chamber (state legislatures), or the national U.S. House / Senate /
- * statewide-office articles (scripts/lib/election-results.mjs), matched on
- * the district AND the incumbent's surname, so a row about an earlier special
- * election for the same district never stands in for this one.
+ * that chamber (state legislatures), the U.S. House page, or the single-race
+ * articles for U.S. Senate and statewide offices
+ * (scripts/lib/election-results.mjs), matched on the district AND the
+ * incumbent's surname, so a row about an earlier special election for the same
+ * district never stands in for this one. Florida seats read the state's own
+ * results file first.
  *
  * A reading changes nothing on the day it is first seen. It is stored as a
- * sighting (winner_name + "wikipedia:<day>") and the seat's status moves only
+ * sighting (winner_name + "<source>:<day>") and the seat's status moves only
  * when a LATER day's reading names the same winner: a vandalised or premature
  * call has to survive a day to land. Then:
  *   - the incumbent won         → incumbent_reelected
@@ -28,8 +30,8 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { STATE_NAMES } from "./lib/us-states.mjs";
-import { electionDay, normalizeDistrict, wikiTitles, sameSurname, samePerson } from "./lib/term-calendar.mjs";
-import { parseWikiResults, parseInfoboxResult } from "./lib/election-results.mjs";
+import { electionDay, normalizeDistrict, wikiTitles, sameSurname, samePerson, nearlySamePerson } from "./lib/term-calendar.mjs";
+import { parseWikiResults, parseInfoboxResult, parseFloridaResults } from "./lib/election-results.mjs";
 
 const args = process.argv.slice(2);
 const DRY = args.includes("--dry-run");
@@ -53,12 +55,19 @@ const STATEWIDE_PAGE = {
 // national pages above give statewide offices only "Stitt 55.4% R" (0 of 36
 // governors read on the 2022 page), so these come first.
 const STATE_RACE_PAGE = {
+  us_senate: (s) => `${CYCLE} United States Senate election in ${s}`,
   governor: (s) => `${CYCLE} ${s} gubernatorial election`,
   lt_governor: (s) => `${CYCLE} ${s} lieutenant gubernatorial election`,
   attorney_general: (s) => `${CYCLE} ${s} Attorney General election`,
   secretary_of_state: (s) => `${CYCLE} ${s} Secretary of State election`,
 };
-const wikiDays = (sources) => new Set((sources ?? []).filter((s) => s.startsWith("wikipedia:")).map((s) => s.slice("wikipedia:".length)));
+// Florida publishes a results file anyone can read. Other states' results sit
+// behind apps or bot walls, so they wait for Wikipedia.
+const FL_RESULTS = `https://flelectionfiles.floridados.gov/enightfilespublic/${ELECTION.replaceAll("-", "")}_ElecResultsFL.txt`;
+const FL_OFFICES = new Set(["state_house", "state_senate", "us_house", "us_senate"]);
+const READING = /^(?:wikipedia|fl-doe):/;
+const readings = (sources) => (sources ?? []).filter((s) => READING.test(s));
+const wikiDays = (sources) => new Set(readings(sources).map((s) => s.split(":")[1]));
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
@@ -101,6 +110,14 @@ async function results(titles, mode, key) {
   const k = `${mode}:${titles[0]}`;
   if (pages.has(k)) return pages.get(k);
   let found = null;
+  if (mode === "fl-official") {
+    try {
+      const r = await fetch(FL_RESULTS, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(45_000) });
+      if (r.ok) found = parseFloridaResults(await r.text());
+    } catch { /* Wikipedia still reads the seat */ }
+    pages.set(k, found);
+    return found;
+  }
   for (const title of titles) {
     try {
       const r = await fetch(`https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&prop=text&format=json&formatversion=2&redirects=1`,
@@ -120,11 +137,14 @@ async function results(titles, mode, key) {
 
 /** Where a seat's result is read, best source first. */
 function lookups(seat) {
+  const official = seat.state === "FL" && FL_OFFICES.has(seat.office)
+    ? [{ titles: ["fl-official"], mode: "fl-official", key: `${seat.office}-${seat.district ?? ""}`, source: "fl-doe" }] : [];
   if (seat.office === "state_senate" || seat.office === "state_house") {
-    return [{ titles: wikiTitles(CYCLE, STATE_NAMES[seat.state], seat.office), mode: "district", key: normalizeDistrict(seat.district) ?? seat.district.toLowerCase() }];
+    return [...official, { titles: wikiTitles(CYCLE, STATE_NAMES[seat.state], seat.office), mode: "district", key: normalizeDistrict(seat.district) ?? seat.district.toLowerCase() }];
   }
-  if (seat.office === "us_house") return [{ titles: [`${CYCLE} United States House of Representatives elections`], mode: "state-district", key: `${seat.state}-${seat.district}` }];
-  const out = [];
+  if (seat.office === "us_house") return [...official, { titles: [`${CYCLE} United States House of Representatives elections`], mode: "state-district", key: `${seat.state}-${seat.district}` }];
+  const out = [...official];
+  if (seat.office === "us_senate" && seat.kind === "special") out.push({ titles: [`${CYCLE} United States Senate special election in ${STATE_NAMES[seat.state]}`], mode: "infobox", key: seat.state });
   if (STATE_RACE_PAGE[seat.office]) out.push({ titles: [STATE_RACE_PAGE[seat.office](STATE_NAMES[seat.state])], mode: "infobox", key: seat.state });
   if (STATEWIDE_PAGE[seat.office]) out.push({ titles: [`${CYCLE} ${STATEWIDE_PAGE[seat.office]}`], mode: "state", key: seat.state });
   return out;
@@ -135,12 +155,13 @@ const errors = [];
 for (const seat of seats) {
   const where = lookups(seat);
   if (!where.length) continue;
-  let rows = [], anyPage = false;
+  let rows = [], anyPage = false, source = "wikipedia";
   for (const w of where) {
     const map = await results(w.titles, w.mode, w.key);
     if (!map) continue;
     anyPage = true;
-    rows = (map.get(w.key) ?? []).filter((r) => r.incumbent);
+    rows = (map.get(w.key) ?? []).filter((r) => r.incumbent || r.box);
+    source = w.source ?? "wikipedia";
     if (rows.some((r) => r.winners.length)) break;
   }
   if (!anyPage) { noPage++; continue; }
@@ -149,15 +170,23 @@ for (const seat of seats) {
     // Multi-member district: decided only when every row in it names a winner.
     if (rows.length && rows.every((r) => r.winners.length)) {
       const all = [...new Set(rows.flatMap((r) => r.winners))];
+      const listed = rows.flatMap((r) => r.incumbents ?? [r.incumbent]).filter(Boolean);
+      const pageName = listed.find((n) => sameSurname(n, seat.incumbent_name));
       if (all.some((w) => samePerson(w, seat.incumbent_name))) { decision = "incumbent_reelected"; winner = seat.incumbent_name; }
-      else { decision = "successor_elected"; winner = all.filter((w) => !rows.some((r) => sameSurname(w, r.incumbent))).join(", ") || all.join(", "); }
+      else if (pageName && all.some((w) => samePerson(w, pageName))) { decision = "incumbent_reelected"; winner = pageName; }
+      else if (all.some((w) => nearlySamePerson(w, seat.incumbent_name))) { decision = "ambiguous"; winner = all[0]; }
+      else { decision = "successor_elected"; winner = all.filter((w) => !listed.some((n) => sameSurname(w, n))).join(", ") || all.join(", "); }
     }
   } else {
-    const mine = rows.filter((r) => sameSurname(r.incumbent, seat.incumbent_name));
+    const mine = rows.some((r) => r.box) ? rows : rows.filter((r) => sameSurname(r.incumbent, seat.incumbent_name));
     const w = mine.length === 1 ? mine[0].winners : [];
     if (w.length) {
+      const pageName = sameSurname(mine[0].incumbent, seat.incumbent_name) ? mine[0].incumbent : "";
       if (w.some((x) => samePerson(x, seat.incumbent_name))) { decision = "incumbent_reelected"; winner = seat.incumbent_name; }
-      else if (w.some((x) => sameSurname(x, seat.incumbent_name))) { decision = "ambiguous"; winner = w[0]; }
+      // The page's own incumbent won, and our roster knows them by another name
+      // (Rick Crawford is our Eric Crawford): that is a re-election.
+      else if (pageName && w.some((x) => samePerson(x, pageName))) { decision = "incumbent_reelected"; winner = w[0]; }
+      else if (w.some((x) => sameSurname(x, seat.incumbent_name) || nearlySamePerson(x, seat.incumbent_name))) { decision = "ambiguous"; winner = w[0]; }
       else { decision = "successor_elected"; winner = w[0]; }
     }
   }
@@ -165,15 +194,16 @@ for (const seat of seats) {
   if (decision === "ambiguous") {
     // Same surname, different first initial: a relative, a successor who shares
     // the name, or a nickname. Never announce a departure on that.
+    if (DRY) console.log(`  ? ${seat.state} ${seat.office} ${seat.district}: ${seat.incumbent_name} -> ${winner}`);
     if (!DRY && seat.status !== "needs_review") await sb.from("seat_elections").update({ status: "needs_review", winner_name: winner, updated_at: new Date().toISOString(),
       review_reason: `winner ${winner} shares the incumbent's surname (${seat.incumbent_name}); confirm who won` }).eq("id", seat.id).in("status", OPEN);
     changed++;
     continue;
   }
 
-  const prior = (seat.result_sources ?? []).filter((s) => s.startsWith("wikipedia:"));
-  const priorDays = prior.map((s) => s.slice("wikipedia:".length));
-  const tag = `wikipedia:${today}`;
+  const prior = readings(seat.result_sources);
+  const priorDays = prior.map((s) => s.split(":")[1]);
+  const tag = `${source}:${today}`;
   let patch;
   if (seat.winner_name && samePerson(seat.winner_name, winner) && priorDays.some((d) => d < today)) {
     patch = { status: decision, winner_name: winner, result_sources: [...new Set([...prior, tag])], review_reason: null };
@@ -187,6 +217,7 @@ for (const seat of seats) {
     sightings++;
   } else continue;
 
+  if (DRY) console.log(`  · ${seat.state} ${seat.office} ${seat.district}: ${seat.incumbent_name} -> ${winner} [${patch.status ?? "sighting"}/${decision}/${source}]`);
   if (!DRY) {
     const { error } = await sb.from("seat_elections").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", seat.id).in("status", OPEN);
     if (error) { failed++; if (errors.length < 5) errors.push(`${seat.id}: ${error.message}`); }
