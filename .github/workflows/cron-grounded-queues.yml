@@ -100,7 +100,7 @@ jobs:
   # billing for it — hitting it takes the SITE down. Background work defers so
   # page traffic keeps the remaining headroom. See scripts/lib/egress-budget.mjs.
   budget:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.gate.outputs.run }}
@@ -125,7 +125,7 @@ jobs:
   review-queues:
     needs: budget
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -163,7 +163,7 @@ jobs:
   local-bans:
     needs: budget
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -209,7 +209,7 @@ jobs:
   locality-intel:
     needs: [local-bans, budget]
     if: ${{ !cancelled() && needs.budget.outputs.run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

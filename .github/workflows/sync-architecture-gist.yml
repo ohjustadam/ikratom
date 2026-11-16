@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       GIST_ID: ad6a0d4c0a19303878a8534c17bc9efa
