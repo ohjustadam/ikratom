@@ -266,6 +266,12 @@ export const REGISTRY = [
   // header — this narrows the window, it does not close it.
   { source: "check_cron_staleness", interval_hours: 4, system: "github-actions", cadence: "every-2h" },
 
+  // flood_alarm — the bot-flood alarm (scripts/flood-alarm.mjs, its own job in
+  // cron-hourly.yml, 2026-11-11). Writes a row EVERY run: quiet, FLOOD or
+  // BLIND. It rescans any gap itself, so silence here means the job stopped,
+  // and nothing else would notice the next flood until the credit meter did.
+  { source: "flood_alarm", interval_hours: 4, system: "gh-hourly", cadence: "every-2h" },
+
   // patch_note_draft — the changelog drafts, written into `patch_notes` by
   // generate-patch-note.mjs --db: auto-patch-notes.yml on weekdays and
   // auto-weekly-update.yml on Sundays. A 36h interval pages at 108h, which

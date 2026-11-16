@@ -140,7 +140,14 @@ fixed by a better estimate:
   burst mid-flight. Netlify's emails at 50/75/100% are not configurable.
 - **The evidence lives in Cloudflare.** `scripts/cf-origin-report.mjs` ranks
   who is spending origin time; Netlify's function logs keep 24h and will not
-  load while the site is paused.
+  load while the site is paused. Since 2026-11-16 `scripts/flood-alarm.mjs`
+  (its own job in `cron-hourly.yml`, source `flood_alarm`) reads it for every
+  5-minute bucket since its last scan and pages the owner when bots spend the
+  origin far above the last 7 days, naming the window, user agents, paths, IP
+  count, max per IP and the share Cloudflare challenged. A residential-proxy
+  crawler (~1,000-1,200 IPs, ≤30 requests each, Chrome/120 + Firefox/121)
+  hit around 12:25-13:45Z on most days of 11-05..11-16; `/api/me` was 63% of its
+  server time on 11-11.
 - **Prevention has to happen before the origin.** A per-IP rate limit at
   Cloudflare would have stopped this outright, and caching a page for anonymous
   visitors bounds a replay to one render per URL per TTL
