@@ -26,7 +26,8 @@ threats, ranked:
 4. **Privilege escalation** — addressed by RLS on every table,
    service-role isolation in audit/backup-code helpers,
    `getAdminContext()` guard on all admin mutations,
-   `requireMfaForMutation()` aal2 enforcement.
+   `requireMfaForMutation()`: admins and the owner need an enrolled
+   factor and an aal2 session to mutate.
 5. **Mass assignment** — every server action explicitly projects fields
    from FormData; no bulk inserts. Role flags (`is_admin`, `is_owner`,
    `is_advocate_leader`) are only writeable via the dedicated
@@ -82,12 +83,19 @@ Out of scope:
 - Backup-code redemption sets `mfa_bypass_until` cookie (1 hour, HTTPOnly)
   since Supabase MFA is TOTP-only and we can't mint aal2 from a non-TOTP source
 - Anti-bot on signup: hidden honeypot field + timing trap (<2s = silent drop)
+- Cloudflare Turnstile token forwarded as `captchaToken` on every Supabase
+  Auth call that takes one (sign-in, sign-up, resend, reset, password
+  re-checks), so Supabase's own captcha setting can stop scripted attacks
+  sent straight to `*.supabase.co/auth/v1`. Switched on with
+  `scripts/auth-captcha.mjs enable` only after a deploy carries the widget.
 
 ### Authorization
 - Row Level Security on every public-schema table
 - `getAdminContext()` / `getCreatorContext()` guards on every admin mutation
-- `requireMfaForMutation()` blocks sensitive writes from aal1 sessions if
-  user has factors enrolled
+- `requireMfaForMutation()` blocks sensitive writes from an admin or owner
+  with no verified factor ("enroll at /account/security"), and from any
+  aal1 session whose user has a factor; the signed backup-code cookie
+  still bypasses for an hour
 - `_ikratom_migrations` ledger has RLS-with-no-policies (locked to
   service role only — see migration 0021)
 

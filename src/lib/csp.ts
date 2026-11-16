@@ -20,6 +20,9 @@
  * 'wasm-unsafe-eval' (NOT 'unsafe-eval'), so arbitrary eval()/new Function() is
  * still denied, and all user-rendered content is sanitized — so there is no
  * inline-script XSS sink despite 'unsafe-inline'.
+ *
+ * challenges.cloudflare.com (script + frame) is the Turnstile bot check on the
+ * sign-in, sign-up, reset and re-auth forms (src/components/auth/useTurnstile.ts).
  */
 export function buildCsp(opts: { supabaseHost: string; scriptEval: string }): string {
   const { supabaseHost, scriptEval } = opts;
@@ -27,16 +30,16 @@ export function buildCsp(opts: { supabaseHost: string; scriptEval: string }): st
   const wss = supabaseHost ? `wss://${supabaseHost}` : "";
   return [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' ${scriptEval} https://va.vercel-scripts.com https://cdn.jsdelivr.net`,
+    `script-src 'self' 'unsafe-inline' ${scriptEval} https://va.vercel-scripts.com https://cdn.jsdelivr.net https://challenges.cloudflare.com`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self' data:",
     `connect-src 'self' ${https} ${wss} https://vitals.vercel-insights.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.aws.cdn.hf.co https://cdn.jsdelivr.net`.trim(),
     `media-src 'self' ${https} https: blob:`.trim(),
-    `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com https://cdn.jsdelivr.net`.trim(),
+    `script-src-elem 'self' 'unsafe-inline' https://us-assets.i.posthog.com https://cdn.jsdelivr.net https://challenges.cloudflare.com`.trim(),
     "worker-src 'self' blob:",
     "frame-ancestors 'none'",
-    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com https://w.soundcloud.com https://open.spotify.com https://embed.podcasts.apple.com",
+    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com https://w.soundcloud.com https://open.spotify.com https://embed.podcasts.apple.com https://challenges.cloudflare.com",
     "base-uri 'self'",
     "form-action 'self'",
     "object-src 'none'",

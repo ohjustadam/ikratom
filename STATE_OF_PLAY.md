@@ -628,6 +628,15 @@ the owner's yes.
 
 ---
 
+14. **Sign-in captcha: code first, switch second (2026-11-16).** Every
+   Supabase Auth call forwards a Cloudflare Turnstile token (`src/lib/captcha.ts`,
+   `src/components/auth/useTurnstile.ts`), but Supabase only checks it once its
+   captcha setting is on, and then it rejects every call WITHOUT a token. The
+   site key is baked in at build time, so the order is: keys in Netlify, a
+   production build, `node --env-file=.env.local scripts/auth-captcha.mjs status`
+   says Ready, then `... enable`. `... disable` is the rollback. Admins and the
+   owner also need an enrolled 2FA factor to mutate now (`src/modules/admin/mfa.ts`).
+
 ## Where the forward plan is declared
 
 There is no roadmap file in this repo, but the plan is not a secret — it is
