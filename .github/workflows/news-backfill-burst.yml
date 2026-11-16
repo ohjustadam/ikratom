@@ -37,7 +37,7 @@ jobs:
   # a burst at 80% of the cap has no way to know that is what they are doing. The
   # gate now declines and says why, instead of spending the rest of the month.
   budget:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.gate.outputs.run }}
@@ -56,7 +56,7 @@ jobs:
   burst:
     needs: budget
     if: needs.budget.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v5
