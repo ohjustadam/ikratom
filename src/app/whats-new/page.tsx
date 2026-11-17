@@ -1,5 +1,6 @@
 import Link from "@/components/Link";
 import { listPatchNotes } from "@/lib/patch-notes";
+import { countsLine } from "@/lib/patch-note-items";
 
 export const metadata = {
   title: "What's new — platform changelog",
@@ -52,6 +53,17 @@ export default async function WhatsNewIndex() {
                 </div>
                 <h2 className="mt-2 text-xl font-bold leading-tight">{n.title}</h2>
                 {n.summary && <p className="mt-1 text-sm text-zinc-400">{n.summary}</p>}
+                {n.counts && (
+                  <p className="mt-2 font-mono text-xs text-zinc-300">
+                    {countsLine(n.counts)}
+                    {n.counts.memberReports > 0 && (
+                      <span className="text-emerald-400">
+                        {" · "}
+                        {n.counts.memberReports} from member reports
+                      </span>
+                    )}
+                  </p>
+                )}
                 <p className="mt-2 text-xs text-emerald-400">Read all changes →</p>
               </Link>
             </li>

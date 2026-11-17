@@ -332,3 +332,14 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 - **An assembly number is exact,** even for its one-year special session. Widening "108th Legislature 1st Special Session" (2024) would let the 109th's 2025 bills through.
 
 **Why:** 12 Illinois rows, NE LB 972 and TN HB 861 showed unrelated newer bills. Run on today's 120 live rows, the rule blocks exactly the two live ones and nothing else.
+
+## A What's New note's numbers are tiles in their own table (2026-11-17)
+
+**Decision:** the scoreboard figures of a note ("votes on record", "officials added" ...) live in `patch_note_figures`, one row per tile with a key, a number, a label and a line of small print. Not as columns on `patch_notes`.
+
+- **Each note has different numbers.** Columns would fix the set forever, or grow a column for every figure anyone ever wanted, most of them empty.
+- **A row is what the owner edits.** The tile's label and small print are copy, and he changes them at `/admin/whats-new` next to the items. Still flat and CSV-exportable.
+- **Two tiles are never stored.** "Changes you can see" and "started with a member report" are counted from `patch_note_items`, so they can't disagree with the ledger under them.
+- **Internal numbers stay off.** Update-run counts and "files changed, lines written, including the ones not listed" were in the mockup and are not tiles: the owner's 2026-11-06 rule bars even a generic line about internal work.
+
+**Why:** the owner picked the scoreboard + ledger layout on 2026-11-17 after feeling the notes undersold the work.
