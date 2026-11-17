@@ -45,6 +45,7 @@ import { sessionMismatch } from "./lib/bill-session.mjs";
 import {
   createLegiscanClient, legiscanCallsThisMonth, remainingFor, changeHashesFromMasterList, planBill,
 } from "./lib/legiscan-budget.mjs";
+import { matchPerson, collisionFree, personName } from "./lib/legiscan-people.mjs";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -75,6 +76,10 @@ const args = process.argv.slice(2);
 const arg = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
 const PRIORITY = args.includes("--priority");
 const ALL_ANTI = args.includes("--all-anti");
+// Kratom bills that passed a chamber, became law or were vetoed with no roll
+// call stored: the daily pass reads active bills only, so a bill that finished
+// before votes were synced never got them. Votes only; run by hand.
+const VOTES_BACKFILL = args.includes("--votes-backfill");
 const SPECIFIC = arg("--bill");
 const DRY = args.includes("--dry-run");
 // Wall-clock budget (uninterrupted-flow hardening, 2026-07-05): the daily
@@ -87,10 +92,10 @@ const MAX_RUN_MS = MAX_MINUTES > 0 ? MAX_MINUTES * 60_000 : Infinity;
 // --priority runs from a 2-hourly cron; this makes it skip itself until N
 // hours after its last finished run (0 = always run).
 const MIN_GAP_HOURS = Number(arg("--min-gap-hours") ?? "0");
-const SOURCE = PRIORITY ? "sync_bills_legiscan_priority" : "sync_bills_legiscan_all";
+const SOURCE = PRIORITY ? "sync_bills_legiscan_priority" : VOTES_BACKFILL ? "sync_bill_votes_backfill" : "sync_bills_legiscan_all";
 
-if (!PRIORITY && !ALL_ANTI && !SPECIFIC) {
-  console.error("Usage: --priority | --all-anti | --bill <uuid>");
+if (!PRIORITY && !ALL_ANTI && !SPECIFIC && !VOTES_BACKFILL) {
+  console.error("Usage: --priority | --all-anti | --votes-backfill | --bill <uuid>");
   process.exit(1);
 }
 
@@ -158,6 +163,185 @@ async function findLegiScanId(bill) {
     }
   }
   return null;
+}
+
+// ── Roll-call votes → bill_votes + bill_vote_members (Phase 3 D1) ──
+// getBill carries per-roll-call SUMMARIES (totals + passed flag); per-member
+// votes need one getRollCall per roll call, fetched only for roll calls we hold
+// no members for. getRollCall lists each vote as a bare people_id, so the
+// session's people (one getSessionPeople per session per run) give the name,
+// and lib/legiscan-people.mjs ties the person to a legislator by name only.
+// Until 2026-11-16 votes were stored with no name and tied only by an id a
+// one-off backfill had set: half of all votes read as blank.
+const sessionPeopleCache = new Map();
+async function sessionPeople(sessionId) {
+  if (!sessionId) return new Map();
+  if (!sessionPeopleCache.has(sessionId)) {
+    let map = new Map();
+    try {
+      const sp = await legiscanFetch("getSessionPeople", { id: sessionId });
+      map = new Map((sp.sessionpeople?.people ?? []).map((p) => [p.people_id, p]));
+    } catch (e) {
+      console.log(`    ⚠ getSessionPeople ${sessionId} failed: ${e.message?.slice(0, 120)}`);
+    }
+    sessionPeopleCache.set(sessionId, map);
+  }
+  return sessionPeopleCache.get(sessionId);
+}
+
+const stateLegislatorsCache = new Map();
+async function stateLegislators(state) {
+  if (!stateLegislatorsCache.has(state)) {
+    const { data, error } = await sb.from("legislators")
+      .select("id, full_name, district, role, legiscan_people_id")
+      .eq("state", state).in("role", ["state_house", "state_senate"]);
+    if (error) console.log(`    ⚠ legislators read failed: ${error.message?.slice(0, 120)}`);
+    stateLegislatorsCache.set(state, data ?? []);
+  }
+  return stateLegislatorsCache.get(state);
+}
+
+/** One roll call's members as rows: every one named, tied to a legislator where the name says so. */
+async function memberRowsFor(bill, detail, billVoteId, members) {
+  const people = await sessionPeople(detail.session?.session_id);
+  const cands = await stateLegislators(bill.state);
+  const found = [];
+  for (const m of members) {
+    const p = people.get(m.people_id);
+    const legId = p ? matchPerson(p, cands) : (cands.find((c) => c.legiscan_people_id === m.people_id)?.id ?? null);
+    if (legId) found.push({ pid: m.people_id, legId });
+  }
+  const links = new Map(collisionFree(found).map((x) => [x.pid, x.legId]));
+  // Remember a new tie on the legislator, so later roll calls match by id.
+  for (const [pid, legId] of links) {
+    const c = cands.find((x) => x.id === legId);
+    if (c && c.legiscan_people_id == null && !DRY) {
+      const { error } = await sb.from("legislators").update({ legiscan_people_id: pid }).eq("id", legId).is("legiscan_people_id", null);
+      if (!error) c.legiscan_people_id = pid;
+    }
+  }
+  return members.map((m) => ({
+    bill_vote_id: billVoteId,
+    legislator_id: links.get(m.people_id) ?? null,
+    legiscan_people_id: m.people_id ?? null,
+    legislator_name: (personName(people.get(m.people_id)) || String(m.name ?? "")).slice(0, 200),
+    vote_text: String(m.vote_text ?? "").slice(0, 30),
+    vote_value: Number(m.vote_id ?? 0),
+  }));
+}
+
+/** Roll calls for one bill from its getBill detail. Returns how many were upserted. */
+async function syncVotes(bill, detail) {
+  // LegiScan's getBill includes a `votes` array with per-roll-call
+  // SUMMARIES (totals + passed flag). Per-member breakdowns require
+  // a separate getRollCall call per roll_call_id. We do both:
+  //   - always upsert the summary row (cheap, single parse)
+  //   - call getRollCall only when we don't already have member
+  //     data for that roll_call_id (avoids redundant API calls)
+  const votes = detail.votes ?? [];
+  let upserted = 0;
+  if (votes.length > 0 && !DRY) {
+    const voteRows = votes.map((v) => ({
+      bill_id: bill.id,
+      legiscan_roll_call_id: v.roll_call_id,
+      vote_date: v.date ?? null,
+      chamber: v.chamber === "S" ? "Senate" : v.chamber === "H" ? "House" : v.chamber ?? null,
+      motion: String(v.desc ?? "").slice(0, 500),
+      motion_id: v.motion_id ?? null,
+      yea_count: Number(v.yea ?? 0),
+      nay_count: Number(v.nay ?? 0),
+      nv_count: Number(v.nv ?? 0),
+      absent_count: Number(v.absent ?? 0),
+      total_count: Number(v.total ?? 0),
+      passed: v.passed === 1 || v.passed === true,
+      source: "legiscan",
+      raw_json: v,
+      synced_at: new Date().toISOString(),
+    }));
+    const { data: insertedVotes, error: voteErr } = await sb
+      .from("bill_votes")
+      .upsert(voteRows, { onConflict: "bill_id,legiscan_roll_call_id" })
+      .select("id, legiscan_roll_call_id");
+    if (voteErr) {
+      console.log(`  ⚠ bill_votes write failed: ${voteErr.message?.slice(0, 200)}`);
+    } else if (insertedVotes && insertedVotes.length > 0) {
+      upserted = insertedVotes.length;
+      console.log(`  ↳ ${insertedVotes.length} roll-call vote(s) upserted`);
+
+      // Fetch per-member breakdowns for any vote we don't already
+      // have members for. One extra API call per new roll_call_id.
+      for (const v of insertedVotes) {
+        // Skip if we already have member rows for this vote
+        const { count: existingMembers } = await sb
+          .from("bill_vote_members")
+          .select("id", { count: "exact", head: true })
+          .eq("bill_vote_id", v.id);
+        if ((existingMembers ?? 0) > 0) continue;
+
+        try {
+          const rcData = await legiscanFetch("getRollCall", { id: v.legiscan_roll_call_id });
+          const members = rcData?.roll_call?.votes ?? [];
+          if (members.length === 0) continue;
+
+          const memberRows = await memberRowsFor(bill, detail, v.id, members);
+          const { error: memErr } = await sb
+            .from("bill_vote_members")
+            .upsert(memberRows, { onConflict: "bill_vote_id,legiscan_people_id" });
+          if (memErr) {
+            console.log(`    ⚠ vote_members write failed (roll_call_id=${v.legiscan_roll_call_id}): ${memErr.message?.slice(0, 200)}`);
+          } else {
+            const matched = memberRows.filter((m) => m.legislator_id).length;
+            console.log(`    ↳ ${memberRows.length} member votes (${matched} matched to legislators)`);
+          }
+        } catch (e) {
+          console.log(`    ⚠ getRollCall failed (id=${v.legiscan_roll_call_id}): ${(e).message?.slice(0, 150)}`);
+        }
+        await sleep(400); // polite — extra API call per vote
+      }
+    }
+  }
+  return upserted;
+}
+
+/** LegiScan bill ids with this exact number in the state, any year, newest first. */
+async function searchAllYears(bill) {
+  const compact = bill.bill_number.replace(/\s+/g, "");
+  const data = await legiscanFetch("getSearch", { state: bill.state, query: compact, year: 1 });
+  return Object.entries(data.searchresult ?? {})
+    .filter(([k, r]) => k !== "summary" && r.bill_number?.replace(/\s+/g, "") === compact)
+    .map(([, r]) => r)
+    .sort((a, b) => String(b.last_action_date ?? "").localeCompare(String(a.last_action_date ?? "")))
+    .map((r) => r.bill_id);
+}
+
+/**
+ * --votes-backfill: roll calls for one bill that finished without them. Reads
+ * getBill for the votes only and changes nothing else on the bill row, so an
+ * old record can't be rewritten by it. The session guard still applies.
+ */
+async function backfillVotes(bill) {
+  console.log(`\n=== votes: ${bill.state} ${bill.bill_number} (${bill.id.slice(0, 8)}) ===`);
+  try {
+    // A finished bill is often from an old session, and a plain search finds
+    // only the current one, so search every year and let the session guard
+    // pick the copy that is this bill. A stored id is tried first.
+    const ids = [...new Set([bill.legiscan_bill_id, ...(await searchAllYears(bill))].filter(Boolean))].slice(0, 4);
+    if (!ids.length) { console.log("  ⏭  LegiScan didn't find a match"); return "skip"; }
+    let detail = null;
+    let id = null;
+    for (const candidate of ids) {
+      const d = (await legiscanFetch("getBill", { id: candidate })).bill;
+      if (d && !sessionMismatch(bill.session_id, d.session, sessionsByState.get(bill.state))) { detail = d; id = candidate; break; }
+    }
+    if (!detail) { console.log(`  ⚠ no LegiScan copy from session '${bill.session_id}' (${ids.length} tried); skipped`); return "skip"; }
+    if (!bill.legiscan_bill_id && !DRY) await sb.from("bills").update({ legiscan_bill_id: id }).eq("id", bill.id);
+    if (!(detail.votes ?? []).length) { console.log("  no roll calls recorded"); return "skip"; }
+    const n = await syncVotes(bill, detail);
+    return n > 0 ? "ok" : "skip";
+  } catch (e) {
+    console.log(`  ✗ ${e.message?.slice(0, 120)}`);
+    return "fail";
+  }
 }
 
 async function syncOne(bill) {
@@ -247,96 +431,7 @@ async function syncOne(bill) {
     }
   }
 
-  // ── Roll-call votes → bill_votes + bill_vote_members (Phase 3 D1) ──
-  // LegiScan's getBill includes a `votes` array with per-roll-call
-  // SUMMARIES (totals + passed flag). Per-member breakdowns require
-  // a separate getRollCall call per roll_call_id. We do both:
-  //   - always upsert the summary row (cheap, single parse)
-  //   - call getRollCall only when we don't already have member
-  //     data for that roll_call_id (avoids redundant API calls)
-  const votes = detail.votes ?? [];
-  if (votes.length > 0 && !DRY) {
-    const voteRows = votes.map((v) => ({
-      bill_id: bill.id,
-      legiscan_roll_call_id: v.roll_call_id,
-      vote_date: v.date ?? null,
-      chamber: v.chamber === "S" ? "Senate" : v.chamber === "H" ? "House" : v.chamber ?? null,
-      motion: String(v.desc ?? "").slice(0, 500),
-      motion_id: v.motion_id ?? null,
-      yea_count: Number(v.yea ?? 0),
-      nay_count: Number(v.nay ?? 0),
-      nv_count: Number(v.nv ?? 0),
-      absent_count: Number(v.absent ?? 0),
-      total_count: Number(v.total ?? 0),
-      passed: v.passed === 1 || v.passed === true,
-      source: "legiscan",
-      raw_json: v,
-      synced_at: new Date().toISOString(),
-    }));
-    const { data: insertedVotes, error: voteErr } = await sb
-      .from("bill_votes")
-      .upsert(voteRows, { onConflict: "bill_id,legiscan_roll_call_id" })
-      .select("id, legiscan_roll_call_id");
-    if (voteErr) {
-      console.log(`  ⚠ bill_votes write failed: ${voteErr.message?.slice(0, 200)}`);
-    } else if (insertedVotes && insertedVotes.length > 0) {
-      console.log(`  ↳ ${insertedVotes.length} roll-call vote(s) upserted`);
-
-      // Fetch per-member breakdowns for any vote we don't already
-      // have members for. One extra API call per new roll_call_id.
-      for (const v of insertedVotes) {
-        // Skip if we already have member rows for this vote
-        const { count: existingMembers } = await sb
-          .from("bill_vote_members")
-          .select("id", { count: "exact", head: true })
-          .eq("bill_vote_id", v.id);
-        if ((existingMembers ?? 0) > 0) continue;
-
-        try {
-          const rcData = await legiscanFetch("getRollCall", { id: v.legiscan_roll_call_id });
-          const members = rcData?.roll_call?.votes ?? [];
-          if (members.length === 0) continue;
-
-          // Resolve legislator_id by LegiScan people_id where possible.
-          // (Schema has people_id on the legislators table from
-          // sync-bill-sponsors.mjs work.) Falls back to null when no
-          // match — we still record the vote with legislator_name.
-          const peopleIds = members.map((m) => m.people_id).filter(Boolean);
-          const { data: legMatches } = peopleIds.length > 0
-            ? await sb
-                .from("legislators")
-                .select("id, legiscan_people_id")
-                .in("legiscan_people_id", peopleIds)
-            : { data: [] };
-          const idByPeopleId = new Map();
-          for (const lm of legMatches ?? []) {
-            if (lm.legiscan_people_id != null) idByPeopleId.set(lm.legiscan_people_id, lm.id);
-          }
-
-          const memberRows = members.map((m) => ({
-            bill_vote_id: v.id,
-            legislator_id: idByPeopleId.get(m.people_id) ?? null,
-            legiscan_people_id: m.people_id ?? null,
-            legislator_name: String(m.name ?? "").slice(0, 200),
-            vote_text: String(m.vote_text ?? "").slice(0, 30),
-            vote_value: Number(m.vote_id ?? 0),
-          }));
-          const { error: memErr } = await sb
-            .from("bill_vote_members")
-            .upsert(memberRows, { onConflict: "bill_vote_id,legiscan_people_id" });
-          if (memErr) {
-            console.log(`    ⚠ vote_members write failed (roll_call_id=${v.legiscan_roll_call_id}): ${memErr.message?.slice(0, 200)}`);
-          } else {
-            const matched = memberRows.filter((m) => m.legislator_id).length;
-            console.log(`    ↳ ${memberRows.length} member votes (${matched} matched to legislators)`);
-          }
-        } catch (e) {
-          console.log(`    ⚠ getRollCall failed (id=${v.legiscan_roll_call_id}): ${(e).message?.slice(0, 150)}`);
-        }
-        await sleep(400); // polite — extra API call per vote
-      }
-    }
-  }
+  await syncVotes(bill, detail);
 
   // SORT before picking "last" — LegiScan's history array is NOT guaranteed
   // chronological (AB 1088's came back out of order, leaving last_action_at a
@@ -507,7 +602,7 @@ if (PRIORITY && MIN_GAP_HOURS > 0) {
 
 // Monthly budget: the bill sync is the essential job and may run to 95%.
 const usedThisMonth = await legiscanCallsThisMonth(sb).catch(() => 0);
-const allowance = SPECIFIC ? 50 : remainingFor(usedThisMonth, "essential");
+const allowance = SPECIFIC ? 50 : remainingFor(usedThisMonth, VOTES_BACKFILL ? "nonessential" : "essential");
 if (allowance <= 0) {
   console.log(`LegiScan month budget reached (${usedThisMonth} calls recorded) — skipping.`);
   await record("empty", `budget reached · ${usedThisMonth} calls this month · legiscan_calls=0`);
@@ -538,6 +633,18 @@ if (SPECIFIC) {
     .in("kratom_relevance", ["anti", "pro"])
     .order("last_synced_at", { ascending: true, nullsFirst: true });
   bills = data ?? [];
+} else if (VOTES_BACKFILL) {
+  const { data } = await sb.from("bills").select(BILL_COLS)
+    .eq("scope", "state")
+    .in("kratom_relevance", ["anti", "pro"])
+    .in("status", ["passed_chamber", "enacted", "vetoed"]);
+  const have = new Set();
+  for (let from = 0; ; from += 1000) {
+    const { data: v } = await sb.from("bill_votes").select("bill_id").order("id").range(from, from + 999);
+    for (const r of v ?? []) have.add(r.bill_id);
+    if (!v || v.length < 1000) break;
+  }
+  bills = (data ?? []).filter((b) => !have.has(b.id));
 }
 
 if (bills.length === 0) { console.log("Nothing to sync."); await record("empty", "nothing to sync · legiscan_calls=0"); process.exit(0); }
@@ -546,7 +653,7 @@ console.log(`Checking ${bills.length} bill(s) via LegiScan${DRY ? " (DRY RUN)" :
 
 // One master list per state (current session) → which bills changed.
 const hashesByState = new Map();
-if (!SPECIFIC) {
+if (!SPECIFIC && !VOTES_BACKFILL) {
   for (const state of [...new Set(bills.filter((b) => b.legiscan_bill_id).map((b) => b.state))]) {
     try {
       const data = await legiscanFetch("getMasterListRaw", { state });
@@ -566,6 +673,13 @@ for (const b of bills) {
     stoppedEarly = true;
     console.log(`\n⏱ Reached ${MAX_MINUTES}-min wall-clock budget — stopping early so telemetry is recorded before the CI timeout. Bills are ordered most-stale-first; the next run continues here.`);
     break;
+  }
+  if (VOTES_BACKFILL) {
+    if (client.exhausted) { outOfBudget = true; break; }
+    const r = await backfillVotes(b);
+    if (r === "ok") ok++; else if (r === "fail") fail++; else skip++;
+    await sleep(300);
+    continue;
   }
   const plan = SPECIFIC ? "fetch" : planBill(b, hashesByState.get(b.state));
   if (plan === "unchanged" || plan === "final") { plan === "unchanged" ? unchanged++ : final++; quiet.push(b.id); continue; }

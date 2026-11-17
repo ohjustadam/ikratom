@@ -342,7 +342,7 @@ export const REGISTRY = [
 // in its "not in the pager registry" list, which otherwise flagged them every
 // week (2026-11-01) for something that is correct by design.
 //
-// The three run only when someone starts them, so they have no cadence to be
+// The manual ones run only when someone starts them, so they have no cadence to be
 // late against: registering one would page the owner the first quiet week.
 // egress_gate writes only when it defers work (see the note in REGISTRY).
 export const UNPAGED_SOURCES = {
@@ -350,4 +350,6 @@ export const UNPAGED_SOURCES = {
   email_announcement: "manual: send-email-notifications.mjs --mode announce, run by hand per announcement",
   send_service_notice: "manual: send-service-notice.mjs, run by hand for a service notice",
   local_reps_from_roster: "manual: fulfill-local-reps-from-roster.mjs, in no workflow",
+  backfill_legiscan_people: "manual: backfill-legiscan-people.mjs, run by hand to name and link roll-call votes",
+  sync_bill_votes_backfill: "manual: sync-bills-via-legiscan.mjs --votes-backfill, run by hand for finished bills with no roll calls",
 };
