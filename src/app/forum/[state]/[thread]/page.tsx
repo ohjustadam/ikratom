@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
-import { publicHandle } from "@/lib/public-handle";
+import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
+import { RoleTag } from "@/components/RoleTag";
 import { PowerUserBadge } from "@/components/PowerUserBadge";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -81,8 +82,13 @@ export default async function ThreadPage({
     : { data: [] as { id: string; username: string | null; state: string | null }[] };
 
   const authorNames: Record<string, string> = {};
-  for (const r of (authorRows ?? []) as { id: string; username: string | null; state: string | null }[]) {
+  // Leader / Admin tags, from the same public-safe RPC rows (never a direct
+  // profiles select of another member).
+  const authorTags: Record<string, PublicRole> = {};
+  for (const r of (authorRows ?? []) as { id: string; username: string | null; state: string | null; is_admin?: boolean | null; is_advocate_leader?: boolean | null }[]) {
     authorNames[r.id] = publicHandle(r);
+    const tag = publicRole(r);
+    if (tag) authorTags[r.id] = tag;
   }
 
   // Academy-certified authors → checkmark (one batch call for everyone in the thread).
@@ -208,6 +214,7 @@ export default async function ThreadPage({
           {thread.author_id ? (
             <a href={`/profile/${thread.author_id}`} className="inline-flex items-center gap-1 text-zinc-300 hover:text-emerald-400">
               {authorNames[thread.author_id] ?? "Member"}
+              <RoleTag role={authorTags[thread.author_id]} />
               {powerUsers.has(thread.author_id) && <PowerUserBadge />}
             </a>
           ) : (
@@ -242,6 +249,7 @@ export default async function ThreadPage({
         thread={thread}
         posts={posts ?? []}
         authorNames={authorNames}
+        authorTags={authorTags}
         threadState={state}
         currentUserId={user?.id ?? null}
         canReply={canReply}

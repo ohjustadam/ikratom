@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { promotionChecklist, type ChecklistItem } from "./promotion-checklist";
 
 /**
  * Trust tiers (anti-weaponization PR4).
@@ -124,19 +125,20 @@ export async function getTrustTier(): Promise<TrustInfo> {
  */
 export async function verifyUserForPromotion(
   userId: string,
-): Promise<{ ok: boolean; missing: string[] }> {
+): Promise<{ ok: boolean; missing: string[]; items: ChecklistItem[] }> {
   const sr = createServiceRoleClient();
   const missing: string[] = [];
 
   const { data: got, error } = await sr.auth.admin.getUserById(userId);
   const u = got?.user;
-  if (error || !u) return { ok: false, missing: ["account not found"] };
+  if (error || !u) return { ok: false, missing: ["account not found"], items: [] };
 
   if (!u.email_confirmed_at) missing.push("confirmed email");
   if (!accountAgeOk(u.created_at)) missing.push("account age ≥ 48h");
 
   const factors = (u.factors ?? []) as Array<{ status?: string }>;
-  if (!factors.some((f) => f.status === "verified")) missing.push("2FA enrolled");
+  const mfaEnrolled = factors.some((f) => f.status === "verified");
+  if (!mfaEnrolled) missing.push("2FA enrolled");
 
   const { data: profile } = await sr
     .from("profiles")
@@ -147,5 +149,13 @@ export async function verifyUserForPromotion(
     missing.push(`complete profile (${missingProfileFields(profile).join(", ")})`);
   }
 
-  return { ok: missing.length === 0, missing };
+  // The same facts, in the words the owner and the member both see.
+  const items = promotionChecklist({
+    emailConfirmed: !!u.email_confirmed_at,
+    ageHours: accountAgeHours(u.created_at),
+    mfaEnrolled,
+    profile,
+  });
+
+  return { ok: missing.length === 0, missing, items };
 }

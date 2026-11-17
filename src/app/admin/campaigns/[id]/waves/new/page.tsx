@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { canEditCampaign } from "@/modules/admin/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { findUseAdmissions } from "@/lib/use-admission";
 import { NewWaveForm } from "./NewWaveForm";
@@ -11,7 +12,7 @@ export default async function NewWavePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getCreatorContext({ require: "edit_campaigns" });
+  const ctx = await getCreatorContext({ require: "author_campaigns" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { id } = await params;
@@ -19,10 +20,12 @@ export default async function NewWavePage({
 
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, slug, title, state, active, subject_template, body_template")
+    .select("id, slug, title, state, active, subject_template, body_template, created_by")
     .eq("id", id)
     .single();
   if (!campaign) notFound();
+  // Authors manage their own campaigns; edit_campaigns holders manage any.
+  if (!canEditCampaign(ctx.permissions, ctx.userId, (campaign as { created_by?: string | null }).created_by)) redirect("/admin/campaigns");
 
   // Existing active wave?
   const { data: existing } = await supabase

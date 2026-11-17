@@ -35,12 +35,13 @@ export function TutorialReplay({ isLeader }: { isLeader: boolean }) {
           <span>▶</span> Community + DMs intro
         </a>
         {isLeader && (
-          <a
-            href="/dashboard?replay=leader"
+          <button
+            type="button"
+            onClick={startLeaderTourReplay}
             className="inline-flex items-center gap-1.5 rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-xs text-emerald-300 hover:border-emerald-500"
           >
             <span>🎖</span> Leader walkthrough
-          </a>
+          </button>
         )}
       </div>
     </section>

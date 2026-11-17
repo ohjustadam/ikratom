@@ -28,6 +28,7 @@ import { InviteWidget } from "@/modules/dashboard/widgets/InviteWidget";
 import { PolicyPulseWidget } from "@/modules/dashboard/widgets/PolicyPulseWidget";
 import { PushOptInBanner } from "@/components/PushOptInBanner";
 import { listMyPushSubscriptions } from "@/modules/auth/actions-push";
+import { LeaderInviteCard } from "@/modules/dashboard/LeaderInviteCard";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 import Link from "@/components/Link";
@@ -49,11 +50,12 @@ export const metadata = { title: "Dashboard" };
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ replay?: string }>;
+  searchParams?: Promise<{ replay?: string; leader?: string }>;
 }) {
   const { profile, email } = await getProfile();
   const layout = await getCockpitLayout();
-  const replay = (await searchParams)?.replay ?? null;
+  const sp = await searchParams;
+  const replay = sp?.replay ?? null;
 
   // For the push opt-in banner — server-side detect whether this user
   // has any push subscription. Banner hides itself when they do.
@@ -261,6 +263,9 @@ export default async function DashboardPage({
           </div>
         )}
       </header>
+
+      {/* Leader invite (mig 0324): turns the role on at the first verified visit. */}
+      {userId && <LeaderInviteCard userId={userId} welcome={sp?.leader === "welcome"} />}
 
       {/* Push opt-in nudge for existing users who never saw the new
           onboarding push step. Banner hides itself when the user has

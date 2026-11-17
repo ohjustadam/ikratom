@@ -3,6 +3,8 @@ import { getAdminContext } from "@/modules/admin/actions";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { UserRolesRow, type UserRow } from "./UserRolesRow";
 import { AccountTypesTable } from "./AccountTypesTable";
+import { verifyUserForPromotion } from "@/modules/auth/trust-tier";
+import { ownerMissingLine } from "@/modules/auth/promotion-checklist";
 
 type SB = ReturnType<typeof createServiceRoleClient>;
 
@@ -88,6 +90,25 @@ export default async function AdminUsersPage({
     ...u,
     id: u.id as string,
   }));
+  // Open leader invites among the rows shown (owner only), with what each
+  // still waits on. Capped: each line costs one auth lookup.
+  const invites = new Map<string, { line: string }>();
+  if (ctx.isOwner && users.length > 0) {
+    const { data: openRows } = await supabase
+      .from("leader_invites")
+      .select("user_id")
+      .in("user_id", users.map((u) => u.id))
+      .is("accepted_at", null)
+      .is("revoked_at", null)
+      .limit(20);
+    await Promise.all(((openRows ?? []) as { user_id: string }[]).map(async (r) => {
+      const v = await verifyUserForPromotion(r.user_id);
+      invites.set(r.user_id, {
+        line: v.ok ? "Ready: the role turns on at their next visit." : `Waiting: they ${ownerMissingLine(v.items)}.`,
+      });
+    }));
+  }
+
   const roleTabs: { key: RoleFilter; label: string; count: number }[] = [
     { key: "all", label: "All", count: stats.total },
     { key: "owner", label: "Owner", count: stats.owners },
@@ -185,6 +206,7 @@ export default async function AdminUsersPage({
                 user={u}
                 callerIsOwner={ctx.isOwner}
                 callerUserId={ctx.userId}
+                invite={invites.get(u.id) ?? null}
               />
             ))}
           </tbody>

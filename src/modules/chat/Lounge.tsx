@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { RoleTag } from "@/components/RoleTag";
 import { publicHandle } from "@/lib/public-handle";
 import { createClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -234,11 +235,7 @@ export function Lounge({
                 } hover:underline`}
               >
                 {author?.name ?? "…"}
-                {author?.isAdmin && (
-                  <span className="ml-1 rounded bg-amber-950/40 px-1 text-[9px] uppercase tracking-wider text-amber-300">
-                    admin
-                  </span>
-                )}
+                <RoleTag role={author?.isAdmin ? "admin" : null} />
               </a>
               <span className="text-zinc-600">:</span>
               <span className="min-w-0 flex-1 break-words text-zinc-200"><MentionText body={m.body} me={myUsername} /></span>

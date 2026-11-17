@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { publicHandle } from "@/lib/public-handle";
+import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
+import { RoleTag } from "@/components/RoleTag";
 import { useRouter } from "next/navigation";
 import { createPost, toggleReaction } from "@/modules/forum/actions";
 import type { PostRow, ThreadRow } from "@/modules/forum/types";
@@ -17,6 +18,7 @@ export function ThreadView({
   thread,
   posts,
   authorNames,
+  authorTags = {},
   threadState,
   currentUserId,
   canReply,
@@ -29,6 +31,8 @@ export function ThreadView({
   thread: ThreadRow;
   posts: PostRow[];
   authorNames: Record<string, string>;
+  /** Leader / Admin tags by author id, from get_public_profiles. */
+  authorTags?: Record<string, PublicRole>;
   threadState: string;
   currentUserId: string | null;
   canReply: boolean;
@@ -47,6 +51,7 @@ export function ThreadView({
   // An edit or delete comes back as new props from router.refresh().
   useEffect(() => setLivePosts(posts), [posts]);
   const [authorNamesLocal, setAuthorNamesLocal] = useState<Record<string, string>>(authorNames);
+  const [authorTagsLocal, setAuthorTagsLocal] = useState<Record<string, PublicRole>>(authorTags);
   // Authors we've already resolved — a ref (not state) so the realtime handler
   // can dedup without the effect depending on authorNamesLocal. Depending on it
   // tore down + recreated the channel on every name fetch (churn, and messages
@@ -79,6 +84,8 @@ export function ThreadView({
             const { data } = await supabase.rpc("get_public_profile", { p_id: newPost.author_id });
             const name = publicHandle(data?.[0]);
             setAuthorNamesLocal((prev) => ({ ...prev, [newPost.author_id!]: name }));
+            const tag = publicRole(data?.[0]);
+            if (tag) setAuthorTagsLocal((prev) => ({ ...prev, [newPost.author_id!]: tag }));
           }
         },
       )
@@ -245,6 +252,7 @@ export function ThreadView({
               <PostCard
                 post={p}
                 authorName={nameOf(p.author_id)}
+                authorTag={p.author_id ? authorTagsLocal[p.author_id] : undefined}
                 threadState={threadState}
                 hasUpvote={hasReaction("post", p.id, "upvote")}
                 hasHelpful={hasReaction("post", p.id, "helpful")}
@@ -261,6 +269,7 @@ export function ThreadView({
                   <PostCard
                     post={r}
                     authorName={nameOf(r.author_id)}
+                    authorTag={r.author_id ? authorTagsLocal[r.author_id] : undefined}
                     threadState={threadState}
                     hasUpvote={hasReaction("post", r.id, "upvote")}
                     hasHelpful={hasReaction("post", r.id, "helpful")}
@@ -283,6 +292,7 @@ export function ThreadView({
 function PostCard({
   post,
   authorName,
+  authorTag,
   threadState,
   hasUpvote,
   hasHelpful,
@@ -294,6 +304,7 @@ function PostCard({
 }: {
   post: PostRow;
   authorName: string;
+  authorTag?: PublicRole;
   threadState: string;
   hasUpvote: boolean;
   hasHelpful: boolean;
@@ -333,6 +344,7 @@ function PostCard({
         ) : (
           <span className="font-medium text-zinc-300">{authorName}</span>
         )}
+        <RoleTag role={authorTag} />
         {isFromOutOfState && (
           <span className="rounded bg-purple-950/40 px-1.5 py-0.5 text-purple-300">
             From {post.author_state}
