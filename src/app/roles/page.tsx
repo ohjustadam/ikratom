@@ -1,7 +1,8 @@
 import Link from "@/components/Link";
 
 export const metadata = {
-  title: "Roles & how to level up · iKratom",
+  alternates: { canonical: "/roles" },
+  title: "Roles & how to level up",
   description: "How iKratom accounts work — Member, Advocate Leader, Admin, Owner — what each can do, and how to earn more responsibility in the community.",
 };
 

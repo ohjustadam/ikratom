@@ -123,9 +123,9 @@ const getAlertData = cache(unstable_cache(
 
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;
-  if (!UUID_RE.test(id)) return { title: "Alert · iKratom" };
+  if (!UUID_RE.test(id)) return { title: "Alert" };
   const snap = await getAlertData(id);
-  if (!snap) return { title: "Alert · iKratom" };
+  if (!snap) return { title: "Alert" };
   const a = snap.a;
   const sevEmoji = a.severity === "critical" ? "🚨" : a.severity === "alert" ? "⚠️" : "👁️";
   return {

@@ -2,7 +2,7 @@ import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
-  title: "Alert archive — every policy signal | iKratom",
+  title: "Alert archive — every policy signal",
   description:
     "The full searchable archive of kratom policy alerts: bill movements, BoP hearings, FDA/DEA actions, and verified field intel.",
 };

@@ -10,6 +10,7 @@ import { getContent } from "@/lib/editable-content";
 
 import Link from "@/components/Link";
 export const metadata = {
+  alternates: { canonical: "/how-it-works" },
   title: "Getting started on iKratom",
   description: "A step-by-step guide for new members: set up, send your first letter, start a group, and stay anonymous.",
 };

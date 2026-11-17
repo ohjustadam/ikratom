@@ -4,7 +4,8 @@ import { CategoryLanding } from "@/components/CategoryLanding";
 import { categoryBySlug } from "@/config/nav-categories";
 
 export const metadata: Metadata = {
-  title: "Legislative — iKratom",
+  alternates: { canonical: "/legislative" },
+  title: "Legislative",
   description: "What to track: every bill, board, and legislator shaping kratom policy.",
 };
 

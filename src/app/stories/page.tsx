@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 import { ReportButton } from "@/modules/reports/components/ReportButton";
 
-export const metadata = { title: "Story bank" };
+export const metadata = { alternates: { canonical: "/stories" }, title: "Story bank" };
 export const dynamic = "force-dynamic";
 
 type Story = {

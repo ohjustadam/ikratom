@@ -5,7 +5,7 @@ import { BillsView } from "./BillsView";
 import { collapseBillTwins } from "@/lib/bill-status";
 import { BopWatchSummary } from "@/modules/bop/BopWatchSummary";
 
-export const metadata = { title: "Bill tracker" };
+export const metadata = { alternates: { canonical: "/bills" }, title: "Bill tracker" };
 
 export const revalidate = 900;
 

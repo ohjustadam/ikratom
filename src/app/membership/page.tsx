@@ -2,7 +2,8 @@ import Link from "@/components/Link";
 import { siteConfig } from "@/config/site.config";
 
 export const metadata = {
-  title: "Account levels — iKratom",
+  alternates: { canonical: "/membership" },
+  title: "Account levels",
   description:
     "What you get as an anonymous visitor, with a free account, and (coming soon) with iKratom Pro.",
 };

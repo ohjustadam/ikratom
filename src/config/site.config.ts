@@ -6,6 +6,18 @@ export const siteConfig = {
   links: {
     support: "support@ikratom.org",
   },
+  // Search identity (docs/SEO_BRAND.md). `url` is the canonical host, never an
+  // env value: structured data must name the real site even on a draft deploy.
+  url: "https://www.ikratom.org",
+  // What people actually type. Google's site-name system reads these from the
+  // WebSite markup on the home page.
+  alternateNames: ["ikratom", "iKratom.org"],
+  // Static, crawlable, ≥112px (Google's logo minimum). The brand-icon script
+  // keeps this path when the mark changes, so the markup never goes stale.
+  logoPath: "/ikratom-icon-512.png",
+  // Official profiles ONLY: each one tells Google which accounts are really us.
+  // Add the Facebook page, subreddit, Bluesky or YouTube here as each is made.
+  sameAs: ["https://github.com/ohjustadam/ikratom"],
   features: {
     forum: true,
     library: true,

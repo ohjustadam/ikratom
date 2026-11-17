@@ -2,6 +2,7 @@ import Link from "@/components/Link";
 import { listPatchNotes } from "@/lib/patch-notes";
 
 export const metadata = {
+  alternates: { canonical: "/whats-new" },
   title: "What's new — platform changelog",
   description: "Daily updates on what we're building. Every feature, fix, and improvement, with links to the commits.",
 };

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-export const metadata = { title: "Leader playbook" };
+export const metadata = { alternates: { canonical: "/how-it-works/for-leaders" }, title: "Leader playbook" };
 
 /**
  * Tutorial for advocate leaders — what they can do that regular users can't.

@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { LibraryBrowser } from "./LibraryBrowser";
 import { getCreatorContext } from "@/modules/admin/actions";
 
-export const metadata = { title: "Library" };
+export const metadata = { alternates: { canonical: "/library" }, title: "Library" };
 
 export default async function LibraryPage() {
   const supabase = await createClient();

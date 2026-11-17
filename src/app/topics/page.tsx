@@ -3,7 +3,7 @@ import { STANCE_TOPICS, STANCE_TOPIC_META } from "@/lib/legislator-action-plan";
 import { getTopicCounts } from "@/lib/topic-bills";
 
 export const metadata = {
-  title: "Bills by topic — iKratom",
+  title: "Bills by topic",
   description: "Substance-policy bills we track, grouped by topic: kratom, cannabis, hemp/CBD, psychedelics, dietary supplements, tobacco/vaping, alcohol.",
 };
 

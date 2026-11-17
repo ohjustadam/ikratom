@@ -7,6 +7,7 @@ import { countDirect, FindingsList, StatCard } from "./parts";
 import type { Finding, Source } from "./types";
 
 export const metadata = {
+  alternates: { canonical: "/bop-watch" },
   title: "BoP Watch · State Pharmacy Board Monitoring",
   description:
     "iKratom monitors every U.S. state Board of Pharmacy daily for kratom-related rulemaking — the administrative path to a ban that bypasses the legislature. Live coverage status + flagged findings.",

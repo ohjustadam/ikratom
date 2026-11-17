@@ -45,11 +45,11 @@ const getMeeting = cache(unstable_cache(
 // link previews. The og-image is dynamically generated at /meetings/[id]/opengraph-image.
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;
-  if (!UUID_RE.test(id)) return { title: "Meeting · iKratom" };
+  if (!UUID_RE.test(id)) return { title: "Meeting" };
   const m = await getMeeting(id);
 
   if (!m) {
-    return { title: "Meeting · iKratom" };
+    return { title: "Meeting" };
   }
 
   // Timing-aware: this title is also the social-preview headline, and it said
