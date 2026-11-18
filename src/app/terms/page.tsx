@@ -1,6 +1,6 @@
 import { siteConfig } from "@/config/site.config";
 
-export const metadata = { title: "Terms of Service" };
+export const metadata = { alternates: { canonical: "/terms" }, title: "Terms of Service" };
 
 export default function TermsPage() {
   return (

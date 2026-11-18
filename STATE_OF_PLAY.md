@@ -520,6 +520,41 @@ after 7 days, so new officials show as not yet written with no reset needed.
 dry-runs by default, isn't on a schedule, and `--apply` is a mass notice that needs
 the owner's yes.
 
+## Roles, badges and leader invites (2026-11-17)
+
+**What each role can do** is the catalog in `src/modules/admin/permissions.ts`.
+`/roles` is the public explanation, and `/how-it-works/for-leaders` describes
+the same powers. Change the catalog first, then both pages.
+
+- **Leaders could not save a campaign from #847 (2026-07-26) until this fix.**
+  The create action asked for `edit_campaigns`, which leaders don't hold. It now
+  asks for `author_campaigns`. A leader edits and schedules waves only on their
+  own campaigns (`canEditCampaign`, matching the 0204 RLS), and every campaign
+  from a non-admin goes to review with the AI screen's verdict attached.
+- **Leader invites** (migration 0324, `leader_invites`). When the owner promotes
+  someone who isn't verified yet, `/admin/users` shows what's missing and offers
+  "Invite to lead". The member gets a notice and a checklist at `/leader/invite`.
+  The role turns on by itself at their next dashboard visit once
+  `verifyUserForPromotion` passes (`applyLeaderInviteIfReady`, audit-logged):
+  confirmed email, full name and address, 48 hours. 2FA is recommended, not
+  required, for leaders (owner, 2026-11-17).
+- **Public role tags** come from `publicRole()` beside `publicHandle()`, rendered
+  by `src/components/RoleTag.tsx`, fed only by `get_public_profile(s)`. They show
+  in the forum, the Lounge, group posts, chat and members, walls and profiles.
+  The owner's tag reads Admin. The member feed and friend lists carry no role
+  flags yet, so they show no tag.
+
+---
+
+## Search and the brand (2026-11-17)
+
+Google indexes us and ranks ikratom.org first on a verbatim search, but rewrites
+the query "ikratom" to "kratom". Crawl access is fine; the gap is brand signals.
+The home page now states the name in WebSite + Organization JSON-LD
+(`src/lib/seo.ts`), hubs carry canonicals, and private pages are noindex. The
+evidence, the owner's Search Console / Bing steps and the weekly check are in
+`docs/SEO_BRAND.md`. The "ik" mark concepts went to the owner the same day.
+
 ---
 
 ## Things that will bite you
@@ -533,6 +568,15 @@ the owner's yes.
    `scripts/broadcast-whats-new.mjs`, run by hand after the owner says yes.
    The page carries only changes a member can see: Publish refuses internal or
    security wording, and CI holds the files to the same list.
+   Since 2026-11-17 a note can also carry ledger items (`patch_note_items`,
+   one row per change) and number tiles (`patch_note_figures`), migration
+   0323. With at least one item, `/whats-new/[slug]` shows a scoreboard, a
+   chart by area and a searchable ledger instead of the markdown, and the
+   index card shows the counts. The generator drafts the items with the note;
+   the owner edits them under each note at `/admin/whats-new`, and Publish
+   checks them like the body. A note's ledger can also be loaded from
+   `scripts/data/patch-notes/<slug>.json` with `scripts/fill-patch-note-ledger.mjs`
+   (`--undo` removes it). The areas have no slot for internal work, by design.
 2. **A branch that looks unlanded may already be merged by content.** Release
    PRs squash several branches at once, so GitHub never marks the sources
    merged and they stay permanently "ahead". Test-merge into `origin/main` and

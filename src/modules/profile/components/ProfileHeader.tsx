@@ -1,4 +1,5 @@
-import { publicHandle, handleInitials } from "@/lib/public-handle";
+import { publicHandle, handleInitials, publicRole } from "@/lib/public-handle";
+import { RoleTag } from "@/components/RoleTag";
 import { PowerUserBadge } from "@/components/PowerUserBadge";
 import { AUDIENCE_ICON, AUDIENCE_LABEL } from "../audience";
 import type { ProfileView } from "../view";
@@ -13,9 +14,7 @@ import { ConnectButton } from "@/modules/connections/components/ConnectButton";
  */
 export function ProfileHeader({ p, isPowerUser, signedIn }: { p: ProfileView; isPowerUser: boolean; signedIn: boolean }) {
   const handle = publicHandle(p);
-  const badges: { label: string; cls: string }[] = [];
-  if (p.is_admin) badges.push({ label: "Admin", cls: "bg-emerald-950/40 text-emerald-300" });
-  else if (p.is_advocate_leader) badges.push({ label: "Advocate Leader", cls: "bg-emerald-950/40 text-emerald-300" });
+  const role = publicRole(p);
 
   const self = p.relationship === "self";
 
@@ -52,15 +51,16 @@ export function ProfileHeader({ p, isPowerUser, signedIn }: { p: ProfileView; is
           <div className="min-w-0 flex-1 pb-1">
             <h1 className="flex flex-wrap items-center gap-2 break-all text-2xl font-bold">
               {handle}
+              <RoleTag role={role} className="text-[11px]" />
               {isPowerUser && <PowerUserBadge size="md" />}
             </h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
               {p.state && <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-300">{p.state}</span>}
               {p.friend_count !== null && <span>{p.friend_count} {p.friend_count === 1 ? "friend" : "friends"}</span>}
               {p.relationship === "friends" && <span className="text-emerald-400">✓ Friends</span>}
-              {badges.map((b) => (
-                <span key={b.label} className={`rounded px-2 py-0.5 font-semibold ${b.cls}`}>{b.label}</span>
-              ))}
+              {(role || isPowerUser) && (
+                <a href="/roles" className="underline decoration-dotted hover:text-emerald-400">What the marks mean</a>
+              )}
             </div>
           </div>
           <HeaderActions p={p} signedIn={signedIn} />

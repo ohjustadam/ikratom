@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
 
 export const metadata = {
+  alternates: { canonical: "/intel" },
   title: "Intel hub — kratom policy",
   description: "Federal lobbying, court litigation, rulemaking, money flow, and the structural map of kratom-industry political influence.",
 };

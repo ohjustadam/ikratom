@@ -82,7 +82,7 @@ export function OnboardingTour({
           popover: {
             title: "Make it yours",
             description:
-              "Hide widgets you don't use, reorder them, pick an accent color. Replay this tour any time from your account settings.",
+              "Hide widgets you don't use, reorder them, pick an accent color. Replay this tour any time from the Replay a tutorial card on this page.",
             side: "left",
           },
         },

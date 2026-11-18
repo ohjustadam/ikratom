@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RoleTag } from "@/components/RoleTag";
 import { usePathname } from "next/navigation";
-import { publicHandle } from "@/lib/public-handle";
+import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
 import { createClient } from "@/lib/supabase/client";
 import { useSignIn } from "@/components/auth/SignInContext";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -36,7 +37,7 @@ import Link from "@/components/Link";
  * src/app/layout.tsx inside that provider.
  */
 
-type AuthorInfo = { name: string; username: string | null; isAdmin: boolean };
+type AuthorInfo = { name: string; username: string | null; isAdmin: boolean; role: PublicRole | null };
 
 const ROOM = "lounge";
 const INITIAL_LIMIT = 25;
@@ -76,8 +77,8 @@ export function ChatPopup() {
     if (!data) return;
     setAuthorMap((cur) => {
       const next = { ...cur };
-      for (const row of data as { id: string; username: string | null; state: string | null; is_admin: boolean | null }[]) {
-        next[row.id] = { name: publicHandle(row), username: row.username, isAdmin: !!row.is_admin };
+      for (const row of data as { id: string; username: string | null; state: string | null; is_admin: boolean | null; is_advocate_leader?: boolean | null }[]) {
+        next[row.id] = { name: publicHandle(row), username: row.username, isAdmin: !!row.is_admin, role: publicRole(row) };
       }
       return next;
     });
@@ -323,6 +324,7 @@ export function ChatPopup() {
                 className={`shrink-0 font-semibold ${author?.isAdmin ? "text-amber-300" : "text-emerald-300"} hover:underline`}
               >
                 {author?.name ?? "…"}
+                <RoleTag role={author?.role} />
               </a>
               <span className="text-zinc-600">:</span>
               <span className="min-w-0 flex-1 break-words text-zinc-200"><MentionText body={m.body} me={myUsername} /></span>

@@ -2,6 +2,7 @@ import Link from "@/components/Link";
 import { getContent } from "@/lib/editable-content";
 
 export const metadata = {
+  alternates: { canonical: "/ethics" },
   title: "Code of Ethics — what we stand for + how we operate",
   description: "iKratom's code of ethics. Nonpartisan kratom advocacy. We don't take sides on whether 7-OH should be banned. We insist on accuracy, evidence, transparency, action — and on cooperation over war.",
 };

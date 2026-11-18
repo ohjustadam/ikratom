@@ -4,7 +4,7 @@ import matter from "gray-matter";
 import { frontmatterString } from "@/lib/frontmatter";
 
 import Link from "@/components/Link";
-export const metadata = { title: "Policy briefings" };
+export const metadata = { alternates: { canonical: "/briefings" }, title: "Policy briefings" };
 
 /**
  * Briefings index — every briefing in /briefings/*.md is auto-discovered

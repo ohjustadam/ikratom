@@ -8,6 +8,10 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { getAdminContext } from "./actions";
 import { requireMfaForMutation } from "./mfa";
 import { verifyUserForPromotion } from "@/modules/auth/trust-tier";
+import { ownerMissingLine, type ChecklistItem } from "@/modules/auth/promotion-checklist";
+import { LEADER_GRANTED_NOTIFICATION } from "./leader-invite";
+
+export type RoleRefusal = { items: ChecklistItem[]; canInvite: boolean };
 
 /**
  * Set a user's role flags. Owner-only — `manage_roles` is owner-reserved.
@@ -77,12 +81,19 @@ export async function setUserRoles(input: {
   // Anti-infiltration gate (PR4): don't hand the campaign-authoring +
   // wave-amplification keys to a thin/unvetted account. Promotion to
   // Advocate Leader requires the target to be a "verified" user first
-  // (confirmed email + complete profile + 2FA enrolled + account >= 48h).
+  // (confirmed email + complete profile + account >= 48h; 2FA is recommended,
+  // not required, owner 2026-11-17).
   // Admin/owner grants are owner-driven trust and aren't gated here.
   if (newlyLeader) {
     const v = await verifyUserForPromotion(input.userId);
     if (!v.ok) {
-      return { error: `Can't promote to leader yet — this user must first complete: ${v.missing.join(", ")}.` };
+      // Not saved. Say so plainly, with exactly what is missing, and offer
+      // the invite (leader-invite-actions.ts) so the role applies by itself
+      // once they finish. The row renders this as a full-width panel.
+      return {
+        error: `Not saved: they can't be a leader yet. They ${ownerMissingLine(v.items)}.`,
+        refusal: { items: v.items, canInvite: !input.isAdmin },
+      };
     }
   }
 
@@ -101,15 +112,10 @@ export async function setUserRoles(input: {
       const sr = createServiceRoleClient();
       const rows: Array<{ user_id: string; kind: string; title: string; body: string; link: string }> = [];
       if (newlyLeader) {
-        rows.push({
-          user_id: input.userId,
-          kind: "role_granted_leader",
-          title: "🎖 You're now an Advocate Leader",
-          body:
-            "You can author campaigns, moderate the forum, and access the leader workshop. " +
-            "Your dashboard will walk you through what's new on your next visit.",
-          link: "/dashboard",
-        });
+        rows.push({ user_id: input.userId, ...LEADER_GRANTED_NOTIFICATION });
+        // A direct promotion settles any open invite.
+        await sr.from("leader_invites").update({ accepted_at: new Date().toISOString() })
+          .eq("user_id", input.userId).is("accepted_at", null);
       }
       if (newlyAdmin) {
         rows.push({

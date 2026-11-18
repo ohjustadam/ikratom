@@ -5,7 +5,7 @@ import {
 } from "@/modules/external-communities/actions";
 import { CATEGORY_LABELS, type ExtCategory } from "@/modules/external-communities/labels";
 
-export const metadata = { title: "Kratom communities" };
+export const metadata = { alternates: { canonical: "/communities" }, title: "Kratom communities" };
 export const dynamic = "force-dynamic";
 
 // Order categories appear in. Anything not listed here falls to the end.

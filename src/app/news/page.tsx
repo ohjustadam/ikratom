@@ -2,7 +2,7 @@ import { listAllRecentNews } from "@/modules/news/actions";
 import { NewsList } from "./NewsList";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
-export const metadata = { title: "Kratom news" };
+export const metadata = { alternates: { canonical: "/news" }, title: "Kratom news" };
 
 /**
  * ISR, 10 minutes.

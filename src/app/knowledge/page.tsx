@@ -4,7 +4,8 @@ import { CategoryLanding } from "@/components/CategoryLanding";
 import { categoryBySlug } from "@/config/nav-categories";
 
 export const metadata: Metadata = {
-  title: "Knowledge — iKratom",
+  alternates: { canonical: "/knowledge" },
+  title: "Knowledge",
   description: "What to read: research, news, briefings, and the library.",
 };
 

@@ -520,3 +520,29 @@ export function resolvePermissions(
 
   return out;
 }
+
+/**
+ * Who may change a campaign. Holders of `edit_campaigns` (admins by default)
+ * may change any; anyone who may author campaigns may change the ones they
+ * wrote. Mirrors the campaigns_creator_write RLS policy (mig 0204), so the
+ * page, the action and the database agree.
+ *
+ * Until 2026-11-17 every campaign action required `edit_campaigns`, so an
+ * Advocate Leader could open the new-campaign form but never save it.
+ */
+export function canEditCampaign(
+  permissions: readonly string[],
+  userId: string,
+  createdBy: string | null | undefined,
+): boolean {
+  if (permissions.includes("edit_campaigns")) return true;
+  return permissions.includes("author_campaigns") && !!createdBy && createdBy === userId;
+}
+
+/**
+ * Whose campaigns publish without an admin's check. Everyone else's land in
+ * the review queue, whatever the stance screen says.
+ */
+export function campaignsSkipReview(roles: { isOwner: boolean; isAdmin: boolean }, permissions: readonly string[]): boolean {
+  return roles.isOwner || roles.isAdmin || permissions.includes("approve_campaigns");
+}

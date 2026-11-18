@@ -37,7 +37,19 @@ const LS_KEY = "ikratom:leader-tour:v4";
 type TourState = {
   pageKey: string;
   completedPages: string[];
+  /** Started from "Replay a tutorial": runs even after the rules were signed. */
+  replay?: boolean;
 };
+
+/**
+ * Start the walkthrough again from the dashboard. The tour normally runs only
+ * while leader_tour_pending is set and the rules are unsigned, so a leader who
+ * finished it had no way back in; the old ?replay=leader link did nothing.
+ */
+export function startLeaderTourReplay() {
+  saveState({ pageKey: "dashboard", completedPages: [], replay: true });
+  window.location.assign("/dashboard");
+}
 
 type PageSteps = {
   pageKey: string;
@@ -55,14 +67,14 @@ const TOUR_PAGES: PageSteps[] = [
     label: "Dashboard",
     steps: [
       {
-        title: "🎖 Welcome to Leader",
+        title: "🎖 Welcome, leader",
         description:
-          "An admin promoted you. This walkthrough takes 90 seconds and ends with a rules acknowledgment you'll need to sign before unlocking the rest of the leader tools. Use the Next button to advance.",
+          "Thank you for stepping up. This walkthrough takes about two minutes and visits each leader tool. It ends with a short promise to sign, which unlocks Field signup. Use Next to move on.",
       },
       {
         title: "Your dashboard",
         description:
-          "This is the same dashboard every user sees, plus a few leader-only cards. The tour will jump you to each new surface in order. Click Next to head to Campaigns.",
+          "Your dashboard stays the same as every member's. Your leader tools live on the Leader workshop, linked from the menu. Next: campaigns.",
       },
     ],
   },
@@ -70,22 +82,22 @@ const TOUR_PAGES: PageSteps[] = [
     pageKey: "campaigns",
     matchesPath: (p) => p === "/admin/campaigns" || p.startsWith("/admin/campaigns/"),
     navigateTo: "/admin/campaigns",
-    label: "Author campaigns",
+    label: "Write campaigns",
     steps: [
       {
-        title: "📣 Authoring campaigns",
+        title: "📣 Writing campaigns",
         description:
-          "Leaders can draft call-to-action campaigns for any state. You write the email template (with placeholders like {{full_name}}, {{state}}, {{legislator_name}}). When you save, the campaign lands in pending_review — an admin approves before it goes live. You CANNOT publish directly; that's by design.",
+          "Write a call to action for any state: who should get the letter, and the letter itself. Placeholders like {{full_name}}, {{city}} and {{legislator_name}} fill in for each member who sends it. When you submit, an admin checks it before it goes live. You can't publish on your own, and that's on purpose.",
       },
       {
         title: "What you can target",
         description:
-          "State legislators (Senate + House), city + county officials, federal reps — pick combos by role + state + locality. Auto-generated campaigns from intel alerts also land here; you can review + edit those before activation.",
+          "State senators and representatives, members of Congress, and city or county officials. Pick by role, state and town. Once your campaign is live you can schedule a wave on it: a set time when everyone who signs up sends together.",
       },
       {
-        title: "Rules for campaign authoring",
+        title: "Rules for campaigns",
         description:
-          "1. Nonpartisan tone — never endorse candidates or parties.<br/>2. No personal attacks on legislators.<br/>3. Distinguish natural-leaf kratom from 7-OH-enriched products in your messaging — this is platform policy.<br/>4. Cite a real bill or alert — don't make up urgency.<br/>5. Templates are sent via the user's own email; they sign their real name.",
+          "1. Nonpartisan. Never endorse a candidate or a party.<br/>2. No personal attacks on any official.<br/>3. Keep natural-leaf kratom separate from 7-OH products. That's platform policy.<br/>4. Point to a real bill or alert. Never invent urgency.<br/>5. Members send from their own email and sign their own name, so write something they're proud to sign.",
       },
     ],
   },
@@ -93,27 +105,27 @@ const TOUR_PAGES: PageSteps[] = [
     pageKey: "forum",
     matchesPath: (p) => p === "/admin/forum",
     navigateTo: "/admin/forum",
-    label: "Moderate the forum",
+    label: "Keep the forum safe",
     steps: [
       {
-        title: "💬 Forum moderation queue",
+        title: "💬 The forum queue",
         description:
-          "This shows posts auto-flagged for review (new-account spam patterns, links from low-trust accounts, keyword matches) plus user-reported content. As a leader you can: approve, hide, or escalate to an admin.",
+          "Posts the filters held back (links, phone numbers, spam patterns, a new account's first posts) and posts members reported. Approve the ones that are fine and hide the ones that aren't. Reports from groups and photos come in at Moderation.",
       },
       {
-        title: "What you CAN do",
+        title: "What you can do",
         description:
-          "✓ Approve a flagged post that's clean<br/>✓ Hide a post (soft delete; admin can restore)<br/>✓ Add a moderation note for context<br/>✓ Escalate to admin if you're uncertain",
+          "✓ Approve a held post<br/>✓ Hide a post or thread (it isn't deleted, and an admin can bring it back)<br/>✓ Lock or pin a thread<br/>✓ Escalate to an admin when you're unsure",
       },
       {
-        title: "What you CANNOT do",
+        title: "What only admins do",
         description:
-          "✗ Permanently delete posts (admin only)<br/>✗ Ban users (admin only — escalate instead)<br/>✗ Edit a user's post content (we don't put words in people's mouths)<br/>✗ Override another moderator's recent decision without admin review",
+          "✗ Change someone's words. We don't put words in people's mouths; when an admin corrects a post it says so.<br/>✗ Act on an admin's or the owner's posts<br/>✗ Lock or ban accounts",
       },
       {
         title: "Moderation rules",
         description:
-          "1. Apply the same standard to every user regardless of stance.<br/>2. Personal attacks, spam, doxing, vendor promo without disclosure → hide.<br/>3. Strong disagreement, blunt language, anger at policy → leave alone. Free speech tilts the scale here.<br/>4. When in doubt, escalate. Don't decide hard cases solo.<br/>5. Every action is audit-logged with your name.",
+          "1. The same standard for everyone, whatever their view.<br/>2. Hide personal attacks, spam, doxxing and undisclosed selling.<br/>3. Leave strong disagreement, blunt words and anger at policy alone. Free speech tilts the scale.<br/>4. When in doubt, escalate. Don't decide hard cases alone.<br/>5. Every action is logged to your account.",
       },
     ],
   },
@@ -126,12 +138,12 @@ const TOUR_PAGES: PageSteps[] = [
       {
         title: "🏛 Local officials",
         description:
-          "When a city/county bill comes up in your area, you can add the local mayor + council members here so campaigns can target them. The platform also auto-pulls these via Gemini Search when a municipal bill is detected — but your local knowledge is more accurate than any LLM.",
+          "When a city or county takes up kratom, add its mayor and council here so campaigns can reach them. AI suggest pulls the roster from the city's own public records when it can, and you check it before anything is saved. Your local knowledge still beats any search.",
       },
       {
-        title: "Rules for local-rep data",
+        title: "Rules for local contacts",
         description:
-          "1. Only contact info that's PUBLICLY published (city website, official agenda).<br/>2. Never list a personal cell or home address even if you know it.<br/>3. Email format: prefer @cityof[X].gov over personal aliases.<br/>4. If a member's website is a parked domain, leave it null. The system warns advocates not to click bad URLs.",
+          "1. Only contact details the official published (city website, agenda).<br/>2. Never a personal cell or home address, even if you know it.<br/>3. Prefer the official city or county email address.<br/>4. If an official's website is dead or parked, leave it blank.",
       },
     ],
   },
@@ -144,12 +156,12 @@ const TOUR_PAGES: PageSteps[] = [
       {
         title: "🛠 Leader workshop",
         description:
-          "Your home base for field-work tools (most are 'coming soon'). Field signup, booth recruitment, business outreach, hearing turnout coordination. Bookmark this page.",
+          "Your home base: Field signup for booths and events, your campaigns, local officials and the moderation queues, all in one place. Bookmark it.",
       },
       {
         title: "Your recruits",
         description:
-          "Once Field Signup ships, advocates you onboard at events / booths / door-to-door will appear here. You'll see their consent status, their activity, and whether they've taken any campaign actions. Privacy: leaders only see their own recruits, never other leaders'.",
+          "People you sign up with Field signup show here by @username, with whether they've taken action yet. You only see your own recruits, never another leader's.",
       },
     ],
   },
@@ -158,12 +170,12 @@ const TOUR_PAGES: PageSteps[] = [
     pageKey: "acknowledge",
     matchesPath: (p) => p === "/account",
     navigateTo: "/account",
-    label: "Acknowledge the rules",
+    label: "Agree to the leader rules",
     steps: [
       {
-        title: "📋 Last step — acknowledge the rules",
+        title: "📋 Last step",
         description:
-          "Almost done. Click Next to open the acknowledgment form. You'll review the leader rules one more time and sign with a checkbox — that unlocks the rest of your leader functions.",
+          "Click Next to see the leader rules once more and agree with a checkbox. That unlocks Field signup.",
       },
     ],
   },
@@ -212,13 +224,14 @@ export function LeaderTourController({
   const [ackError, setAckError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (alreadyAcknowledged || !pending) {
+    if (typeof window === "undefined") return;
+    const state = loadState();
+    const replaying = !!state.replay;
+    if (!replaying && (alreadyAcknowledged || !pending)) {
       clearState();
       return;
     }
-    if (typeof window === "undefined") return;
 
-    const state = loadState();
     const currentPage = TOUR_PAGES.find((p) => p.matchesPath(pathname));
     if (!currentPage) return;
     if (state.completedPages.includes(currentPage.pageKey)) return;
@@ -261,6 +274,11 @@ export function LeaderTourController({
         saveState(newState);
 
         if (isLastPage) {
+          // A replay by someone who already signed ends here, no form.
+          if (replaying && alreadyAcknowledged) {
+            clearState();
+            return;
+          }
           setAckOpen(true);
           return;
         }
@@ -344,7 +362,7 @@ export function LeaderTourController({
             <li>Escalate uncertainty to an admin instead of deciding hard cases solo</li>
             <li>Use only publicly-available contact info for local officials</li>
             <li>Treat your recruits&apos; information as confidential</li>
-            <li>Every leader action is audit-logged with your name</li>
+            <li>Every leader action is logged to your account</li>
           </ul>
         </div>
 
@@ -357,8 +375,8 @@ export function LeaderTourController({
           />
           <span className="text-sm text-zinc-200">
             I have read the leader walkthrough and I agree to follow these rules. I understand
-            that my actions as a leader are logged and that admins may review or revoke this
-            role at any time.
+            that my actions as a leader are logged and that the owner may review them or
+            remove this role at any time.
           </span>
         </label>
 
@@ -385,8 +403,8 @@ export function LeaderTourController({
         </div>
 
         <p className="mt-4 text-[11px] text-zinc-500">
-          You can&apos;t exercise leader functions until you complete this. Closing this without
-          agreeing leaves the reminder banner active on every page.
+          Field signup stays locked until you agree. Closing this keeps the reminder at the top
+          of each page.
         </p>
       </div>
     </div>

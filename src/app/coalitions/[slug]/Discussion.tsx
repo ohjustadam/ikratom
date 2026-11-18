@@ -1,6 +1,7 @@
 import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
-import { publicHandle } from "@/lib/public-handle";
+import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
+import { RoleTag } from "@/components/RoleTag";
 import { NewThreadForm } from "./NewThreadForm";
 
 /**
@@ -28,10 +29,13 @@ export async function Discussion({ coalitionId, slug, prefill }: {
 
   const authorIds = [...new Set(threads.map((t) => t.author_id))];
   const handles = new Map<string, string>();
+  const tags = new Map<string, PublicRole>();
   if (authorIds.length > 0) {
     const { data: profs } = await sb.rpc("get_public_profiles", { p_ids: authorIds });
-    for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null }[]) {
+    for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null; is_admin?: boolean | null; is_advocate_leader?: boolean | null }[]) {
       handles.set(p.id, publicHandle(p));
+      const tag = publicRole(p);
+      if (tag) tags.set(p.id, tag);
     }
   }
 
@@ -57,7 +61,7 @@ export async function Discussion({ coalitionId, slug, prefill }: {
                   {t.pinned_at && <span className="mr-1 text-amber-300" title="Pinned">📌</span>}
                   {t.photo_id && <span className="mr-1" title="Has an image">🖼</span>}{t.title}
                 </span>
-                <span className="text-[11px] text-zinc-500">{handles.get(t.author_id) ?? "@member"}</span>
+                <span className="text-[11px] text-zinc-500">{handles.get(t.author_id) ?? "@member"}<RoleTag role={tags.get(t.author_id)} /></span>
                 <span className="ml-auto text-[11px] text-zinc-500">
                   {t.reply_count} repl{t.reply_count === 1 ? "y" : "ies"} · {new Date(t.last_post_at).toLocaleDateString()}
                 </span>

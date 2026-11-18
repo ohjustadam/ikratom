@@ -30,7 +30,7 @@ export function WallComments({ postId, count, viewerId }: { postId: string; coun
           {pending && !items && <p className="text-xs text-zinc-500">Loading…</p>}
           {items?.map((c) => (
             <div key={c.id} className="rounded-md bg-zinc-900/60 p-2">
-              <WallAuthor id={c.author_id} username={c.author_username} avatarUrl={c.author_avatar_url} at={c.created_at} small />
+              <WallAuthor id={c.author_id} username={c.author_username} avatarUrl={c.author_avatar_url} at={c.created_at} role={c.author_role} small />
               <p className="mt-1 whitespace-pre-line break-words text-sm text-zinc-200">{c.body}</p>
               <div className="mt-1 flex gap-3">
                 {viewerId && c.author_id !== viewerId && <ReportButton targetType="wall_comment" targetId={c.id} />}

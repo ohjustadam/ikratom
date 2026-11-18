@@ -55,9 +55,10 @@ export async function generateMetadata({ params }: Props) {
   const { code } = await params;
   const codeUpper = code.toUpperCase();
   const stateName = STATE_NAMES[codeUpper];
-  if (!stateName) return { title: "State · iKratom" };
+  if (!stateName) return { title: "State" };
   return {
-    title: `${stateName} kratom policy — bills, meetings, calls · iKratom`,
+    title: `${stateName} kratom policy — bills, meetings, calls`,
+    alternates: { canonical: `/states/${codeUpper}` },
     description: `Every kratom-policy event in ${stateName}: bills, hearings, municipal meetings, recent alerts. Take action with one-click calls + emails.`,
     openGraph: {
       title: `${stateName} kratom advocacy hub`,

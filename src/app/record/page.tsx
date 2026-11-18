@@ -3,6 +3,7 @@ import { STATE_NAMES } from "@/lib/state-names";
 
 /** /record — pick a state to see its legislators' kratom record (records, not endorsements). */
 export const metadata = {
+  alternates: { canonical: "/record" },
   title: "Your legislators' kratom record",
   description: "Before you vote: how every sitting state legislator sponsored and voted on kratom bills, from the official record.",
 };
