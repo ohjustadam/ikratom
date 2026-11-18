@@ -122,9 +122,14 @@ export async function getTrustTier(): Promise<TrustInfo> {
  * thin/astroturf account can't be handed the authoring + amplification keys.
  * Service-role (reads another user's auth record + profile). Returns the list
  * of unmet requirements for a clear admin-facing message.
+ *
+ * 2FA is recommended for leaders, not required (owner, 2026-11-17). It still
+ * appears in `items`, marked optional. Pass `requireMfa` from any admin-level
+ * gate. The `verified` trust tier above is separate and unchanged.
  */
 export async function verifyUserForPromotion(
   userId: string,
+  opts: { requireMfa?: boolean } = {},
 ): Promise<{ ok: boolean; missing: string[]; items: ChecklistItem[] }> {
   const sr = createServiceRoleClient();
   const missing: string[] = [];
@@ -138,7 +143,7 @@ export async function verifyUserForPromotion(
 
   const factors = (u.factors ?? []) as Array<{ status?: string }>;
   const mfaEnrolled = factors.some((f) => f.status === "verified");
-  if (!mfaEnrolled) missing.push("2FA enrolled");
+  if (!mfaEnrolled && opts.requireMfa) missing.push("2FA enrolled");
 
   const { data: profile } = await sr
     .from("profiles")
@@ -154,6 +159,7 @@ export async function verifyUserForPromotion(
     emailConfirmed: !!u.email_confirmed_at,
     ageHours: accountAgeHours(u.created_at),
     mfaEnrolled,
+    requireMfa: !!opts.requireMfa,
     profile,
   });
 

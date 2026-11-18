@@ -97,10 +97,13 @@ export default function RolesPage() {
       </p>
       <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-zinc-300">
         <li>a confirmed email address,</li>
-        <li>two-step sign-in (2FA) turned on,</li>
         <li>your full name and mailing address on your profile (private: used only to sign your own letters),</li>
         <li>been around for two days.</li>
       </ul>
+      <p className="mt-2 text-sm text-zinc-300">
+        Two-step sign-in (2FA) is strongly recommended, so a stolen password isn&apos;t enough to use your account. It
+        won&apos;t hold up the role.
+      </p>
       <p className="mt-2 text-sm text-zinc-300">
         If you&apos;re invited before all that&apos;s done, you get a checklist, and the role turns on by itself the moment
         it is. Then a two-minute walkthrough and a short promise to follow the rules. The{" "}

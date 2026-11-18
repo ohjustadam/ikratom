@@ -81,7 +81,8 @@ export async function setUserRoles(input: {
   // Anti-infiltration gate (PR4): don't hand the campaign-authoring +
   // wave-amplification keys to a thin/unvetted account. Promotion to
   // Advocate Leader requires the target to be a "verified" user first
-  // (confirmed email + complete profile + 2FA enrolled + account >= 48h).
+  // (confirmed email + complete profile + account >= 48h; 2FA is recommended,
+  // not required, owner 2026-11-17).
   // Admin/owner grants are owner-driven trust and aren't gated here.
   if (newlyLeader) {
     const v = await verifyUserForPromotion(input.userId);

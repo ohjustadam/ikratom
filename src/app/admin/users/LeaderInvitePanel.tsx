@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { requiredOpen } from "@/modules/auth/promotion-checklist";
 import { inviteLeader, revokeLeaderInvite } from "@/modules/admin/leader-invite-actions";
 import type { ChecklistItem } from "@/modules/auth/promotion-checklist";
 import { useSignIn } from "@/components/auth/SignInContext";
@@ -59,7 +60,7 @@ export function LeaderInvitePanel({
   }
 
   if (refusal) {
-    const open = refusal.items.filter((i) => !i.done);
+    const open = requiredOpen(refusal.items);
     return (
       <div className="rounded-lg border-2 border-amber-600/70 bg-amber-950/30 p-4 text-sm text-amber-100" role="alert">
         <p className="text-base font-bold text-amber-200">⚠ Not saved. {who} is not a leader yet.</p>

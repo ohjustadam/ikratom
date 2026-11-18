@@ -65,7 +65,7 @@ export function AccountTypesTable({
         "Add local officials; Field signup after the rules agreement",
       ],
       cannot: "Can't rewrite anyone's words, act on admins, approve campaigns, or touch users, syncs or roles.",
-      howToGet: "Owner only. Needs confirmed email, 2FA, full name + address and a 2-day-old account. Not there yet? Use Invite: the role turns on by itself once they are.",
+      howToGet: "Owner only. Needs confirmed email, full name + address and a 2-day-old account (2FA recommended, not required). Not there yet? Use Invite: the role turns on by itself once they are.",
     },
     {
       role: "User",

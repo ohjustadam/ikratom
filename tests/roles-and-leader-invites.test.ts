@@ -19,18 +19,31 @@ describe("promotionChecklist", () => {
     expect(ownerMissingLine(items)).toBe("nothing left");
   });
 
-  it("names exactly what the 11-17 refusal was missing: 2FA and name + street + city + ZIP", () => {
+  it("the 11-17 case: the address blocks, 2FA is only recommended", () => {
     const items = promotionChecklist({
       emailConfirmed: true, ageHours: 400, mfaEnrolled: false,
       profile: { full_name: null, street: null, city: null, state: "OK", zip: null },
     });
     expect(checklistDone(items)).toBe(false);
-    expect(ownerMissingLine(items)).toBe("needs 2FA and full name, street, city and ZIP");
+    expect(ownerMissingLine(items)).toBe("needs full name, street, city and ZIP");
     const body = inviteNotificationBody(items);
-    expect(body).toContain("two-step sign-in");
     expect(body).toContain("full name, street, city and ZIP");
+    expect(body).toContain("Recommended, not required: turn on two-step sign-in");
+    expect(body).not.toMatch(/\d\. Turn on two-step/); // never a numbered, required step
     expect(body).toContain("Your name and address stay private");
     expect(body).not.toContain("Confirm your email"); // already done, so not listed
+  });
+
+  it("owner 11-17: a leader without 2FA is done; an admin-level gate still needs it", () => {
+    const leader = promotionChecklist({ emailConfirmed: true, ageHours: 100, mfaEnrolled: false, profile: FULL });
+    expect(checklistDone(leader)).toBe(true);
+    expect(ownerMissingLine(leader)).toBe("nothing left");
+    expect(leader.find((i) => i.key === "mfa")).toMatchObject({ done: false, optional: true });
+    expect(inviteNotificationBody(leader)).toContain("Open this to accept. Recommended, not required");
+
+    const admin = promotionChecklist({ emailConfirmed: true, ageHours: 100, mfaEnrolled: false, requireMfa: true, profile: FULL });
+    expect(checklistDone(admin)).toBe(false);
+    expect(ownerMissingLine(admin)).toBe("needs 2FA");
   });
 
   it("counts down the 48-hour wait and needs no action for it", () => {

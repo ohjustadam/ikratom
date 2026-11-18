@@ -1,5 +1,6 @@
 import Link from "@/components/Link";
 import { applyLeaderInviteIfReady } from "@/modules/admin/leader-invite";
+import { requiredOpen } from "@/modules/auth/promotion-checklist";
 
 /**
  * Dashboard card for a member the owner invited to lead. Checks the invite on
@@ -23,7 +24,7 @@ export async function LeaderInviteCard({ userId, welcome }: { userId: string; we
   }
   if (r.state !== "waiting") return null;
 
-  const left = r.items.filter((i) => !i.done).length;
+  const left = requiredOpen(r.items).length;
   return (
     <section className="mb-6 rounded-lg border border-amber-600/50 bg-amber-950/20 p-4">
       <p className="font-semibold text-amber-200">🎖 You&apos;re invited to be an Advocate Leader</p>

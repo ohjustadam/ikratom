@@ -344,9 +344,9 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 
 ## Leader promotion waits for verification; the owner invites instead (2026-11-17)
 
-**Decision:** `verifyUserForPromotion` still refuses a leader who lacks a confirmed email, 48 hours of account age, two-step sign-in or a full mailing address. The refusal now lists what's missing, and the owner can send an invite. The role turns on by itself once the member is verified, without the owner checking back.
+**Decision:** `verifyUserForPromotion` refuses a leader who lacks a confirmed email, 48 hours of account age or a full mailing address. Two-step sign-in is recommended, not required: it stays on the checklist, marked optional. Any admin-level gate passes `requireMfa`. The refusal now lists what's missing, and the owner can send an invite. The role turns on by itself once the member is verified, without the owner checking back.
 
-**Why:** a promotion for a member who hadn't set up two-step sign-in was refused with a one-line error the owner missed. Lowering the bar would hand moderation powers to unverified accounts. An invite keeps the bar and removes the follow-up.
+**Why:** a promotion for a member who hadn't set up 2FA or their address was refused with a one-line error the owner missed. An invite keeps the bar and removes the follow-up. The same day the owner dropped 2FA from the bar ("turn off the 2fa requirement for leaders"): email, address and account age still keep throwaway accounts out, and admins keep 2FA.
 
 ## The audit gate allows an advisory only when no fix exists, and only until a date (2026-11-18)
 

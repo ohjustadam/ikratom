@@ -45,7 +45,14 @@ export default async function LeaderInvitePage() {
                   {i.done ? "✓" : "○"}
                 </span>
                 <div className="flex-1">
-                  <p className={i.done ? "text-zinc-400 line-through" : "text-zinc-100"}>{i.label}</p>
+                  <p className={i.done ? "text-zinc-400 line-through" : "text-zinc-100"}>
+                    {i.label}
+                    {i.optional && !i.done && (
+                      <span className="ml-2 rounded bg-sky-900/50 px-1.5 py-0.5 text-[11px] font-semibold text-sky-200">
+                        Recommended, won&apos;t hold up your role
+                      </span>
+                    )}
+                  </p>
                   {!i.done && i.href && (
                     <Link href={i.href} className="mt-1 inline-block text-sm font-semibold text-emerald-400 hover:underline">
                       Do this now →

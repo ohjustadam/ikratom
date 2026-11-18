@@ -535,8 +535,9 @@ the same powers. Change the catalog first, then both pages.
   someone who isn't verified yet, `/admin/users` shows what's missing and offers
   "Invite to lead". The member gets a notice and a checklist at `/leader/invite`.
   The role turns on by itself at their next dashboard visit once
-  `verifyUserForPromotion` passes (`applyLeaderInviteIfReady`, audit-logged).
-  The safeguard itself is unchanged.
+  `verifyUserForPromotion` passes (`applyLeaderInviteIfReady`, audit-logged):
+  confirmed email, full name and address, 48 hours. 2FA is recommended, not
+  required, for leaders (owner, 2026-11-17).
 - **Public role tags** come from `publicRole()` beside `publicHandle()`, rendered
   by `src/components/RoleTag.tsx`, fed only by `get_public_profile(s)`. They show
   in the forum, the Lounge, group posts, chat and members, walls and profiles.

@@ -5,6 +5,11 @@
  *
  * The rules themselves live in trust-tier.ts (verifyUserForPromotion); this
  * only turns its facts into plain language with a place to go fix each one.
+ *
+ * Two-step sign-in is RECOMMENDED for leaders, never required (owner,
+ * 2026-11-17: "turn off the 2fa requirement for leaders"). It stays on the
+ * list, marked optional, so members are still nudged to turn it on. Pass
+ * requireMfa for any admin-level gate.
  */
 
 export const LEADER_MIN_AGE_HOURS = 48;
@@ -13,6 +18,8 @@ export type PromotionFacts = {
   emailConfirmed: boolean;
   ageHours: number;
   mfaEnrolled: boolean;
+  /** Admin-level gates only. Leaders get 2FA as a recommendation. */
+  requireMfa?: boolean;
   profile: {
     full_name?: string | null;
     street?: string | null;
@@ -33,6 +40,8 @@ export type ChecklistItem = {
   short: string;
   /** Where to go to finish it; null when only time can finish it. */
   href: string | null;
+  /** Recommended only: shown, encouraged, never blocks the role. */
+  optional: boolean;
 };
 
 export function missingAddressParts(p: PromotionFacts["profile"]): string[] {
@@ -61,13 +70,15 @@ export function promotionChecklist(f: PromotionFacts): ChecklistItem[] {
       label: "Confirm your email address (use the link we emailed you)",
       short: "confirmed email",
       href: "/account",
+      optional: false,
     },
     {
       key: "mfa",
       done: f.mfaEnrolled,
-      label: "Turn on two-step sign-in (2FA) so nobody else can use your account",
-      short: "2FA",
+      label: "Turn on two-step sign-in (2FA) so a stolen password isn't enough to use your account",
+      short: f.requireMfa ? "2FA" : "2FA (recommended)",
       href: "/account/security",
+      optional: !f.requireMfa,
     },
     {
       key: "profile",
@@ -78,6 +89,7 @@ export function promotionChecklist(f: PromotionFacts): ChecklistItem[] {
           : `Add your ${joinAnd(missingAddress)} to your profile`,
       short: missingAddress.length === 0 ? "name and address" : joinAnd(missingAddress),
       href: "/account#identity",
+      optional: false,
     },
     {
       key: "age",
@@ -88,17 +100,23 @@ export function promotionChecklist(f: PromotionFacts): ChecklistItem[] {
           : `Have your account for two days (about ${hoursLeft} more ${hoursLeft === 1 ? "hour" : "hours"}, nothing to do)`,
       short: hoursLeft === 0 ? "account age" : `${hoursLeft}h until the account is 2 days old`,
       href: null,
+      optional: false,
     },
   ];
 }
 
-export function checklistDone(items: ChecklistItem[]): boolean {
-  return items.every((i) => i.done);
+/** Steps still blocking the role. Recommended steps never count. */
+export function requiredOpen(items: ChecklistItem[]): ChecklistItem[] {
+  return items.filter((i) => !i.done && !i.optional);
 }
 
-/** The owner-facing line: "needs 2FA and street, city and ZIP". */
+export function checklistDone(items: ChecklistItem[]): boolean {
+  return requiredOpen(items).length === 0;
+}
+
+/** The owner-facing line: "needs street, city and ZIP". */
 export function ownerMissingLine(items: ChecklistItem[]): string {
-  const open = items.filter((i) => !i.done).map((i) => i.short);
+  const open = requiredOpen(items).map((i) => i.short);
   return open.length === 0 ? "nothing left" : `needs ${joinAnd(open)}`;
 }
 
@@ -108,13 +126,17 @@ export const ADDRESS_PRIVACY_NOTE =
 
 /** The in-app notification a member gets when the owner invites them to lead. */
 export function inviteNotificationBody(items: ChecklistItem[]): string {
-  const open = items.filter((i) => !i.done);
+  const open = requiredOpen(items);
+  const recommended = items.filter((i) => !i.done && i.optional);
+  const tip = recommended.length
+    ? ` Recommended, not required: ${recommended.map((i) => i.label.charAt(0).toLowerCase() + i.label.slice(1)).join("; ")}.`
+    : "";
   if (open.length === 0) {
-    return "You're invited to be an Advocate Leader. Open this to accept.";
+    return `You're invited to be an Advocate Leader. Open this to accept.${tip}`;
   }
   const steps = open.map((i, n) => `${n + 1}. ${i.label}.`).join(" ");
   return (
     `You're invited to be an Advocate Leader. To finish: ${steps} ` +
-    `The role turns on by itself once these are done. ${ADDRESS_PRIVACY_NOTE}`
+    `The role turns on by itself once these are done.${tip} ${ADDRESS_PRIVACY_NOTE}`
   );
 }
