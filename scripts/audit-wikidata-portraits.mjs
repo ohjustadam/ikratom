@@ -9,6 +9,8 @@
  *   same image as the state-checked answer   -> keep
  *   a different, state-checked image          -> replace with it
  *   no state-checked image                    -> clear (no photo beats a wrong one)
+ *   county seats never get a replacement (in-state namesakes), and state
+ *   rows with no match are only listed for review (statewide offices miss the check)
  *   Wikidata query failed                     -> keep, counted as "unchecked"
  *
  *   node --env-file=.env.local scripts/audit-wikidata-portraits.mjs               # dry run
@@ -45,7 +47,7 @@ for (let from = 0; ; from += 1000) {
 const todo = rows.slice(0, LIMIT);
 console.log(`wikidata portraits on file: ${rows.length}; checking ${todo.length}${APPLY ? "" : " (DRY RUN)"}`);
 
-const out = { keep: 0, replace: [], clear: [], unchecked: 0, timedOut: 0 };
+const out = { keep: 0, replace: [], clear: [], review: [], unchecked: 0, timedOut: 0 };
 let next = 0;
 async function worker() {
   while (next < todo.length) {
@@ -53,16 +55,24 @@ async function worker() {
     if (Date.now() > DEADLINE) { out.timedOut++; continue; }
     const res = await stateCheckedPortrait(r.full_name, r.state);
     if (!res.ok) { out.unchecked++; continue; }
-    if (res.img && commonsFile(res.img) === commonsFile(r.portrait_url)) { out.keep++; continue; }
-    (res.img ? out.replace : out.clear).push({ id: r.id, name: r.full_name, where: `${r.level} ${r.locality ?? r.state}`, old: r.portrait_url, new: res.img });
+    // Any in-state image confirms the one on file (two P18 photos, e.g. Keith Ellison).
+    if (res.imgs.some((i) => commonsFile(i) === commonsFile(r.portrait_url))) { out.keep++; continue; }
+    const row = { id: r.id, name: r.full_name, where: `${r.level} ${r.locality ?? r.state}`, old: r.portrait_url, new: null };
+    // Statewide offices miss the place check when Wikidata files them oddly (Gov.
+    // Sarah Huckabee Sanders returned nothing), and a county seat's in-state
+    // namesake is usually a different person (an 18th-century SC William Smith).
+    // So: county never gets a replacement, and state rows are only listed for a person to check.
+    if (r.level === "state") { if (res.img) out.replace.push({ ...row, new: res.img }); else out.review.push(row); continue; }
+    if (res.img && r.level !== "county") out.replace.push({ ...row, new: res.img }); else out.clear.push(row);
   }
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
 const show = (x) => `  ${x.where} | ${x.name} | ${commonsFile(x.old)}${x.new ? ` -> ${commonsFile(x.new)}` : ""}`;
-console.log(`\nkeep ${out.keep} · replace ${out.replace.length} · clear ${out.clear.length} · unchecked ${out.unchecked} · not reached ${out.timedOut}`);
+console.log(`\nkeep ${out.keep} · replace ${out.replace.length} · clear ${out.clear.length} · state rows for review ${out.review.length} · unchecked ${out.unchecked} · not reached ${out.timedOut}`);
 console.log("\nreplace:"); out.replace.forEach((x) => console.log(show(x)));
 console.log("\nclear:"); out.clear.forEach((x) => console.log(show(x)));
+console.log("\nreview (state, not changed):"); out.review.forEach((x) => console.log(show(x)));
 
 if (APPLY) {
   fs.writeFileSync(BACKUP, JSON.stringify({ at: new Date().toISOString(), replace: out.replace, clear: out.clear }, null, 1));

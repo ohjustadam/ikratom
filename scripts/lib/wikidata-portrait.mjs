@@ -38,19 +38,23 @@ export function commonsFile(url) {
   return m ? decodeURIComponent(m[1]).replace(/_/g, " ").toLowerCase() : null;
 }
 
-/** { ok, img } — ok=false means the query itself failed (keep what we have). */
+/**
+ * { ok, img, imgs } — ok=false means the query itself failed (keep what we have).
+ * imgs is every in-state image: a person can carry two P18 photos (Keith
+ * Ellison), which makes img null but still confirms either one on file.
+ */
 export async function stateCheckedPortrait(fullName, stateAbbr, { timeoutMs = 60_000 } = {}) {
   const q = portraitSparql(fullName, stateAbbr);
-  if (!q) return { ok: true, img: null };
+  if (!q) return { ok: true, img: null, imgs: [] };
   try {
     const res = await fetch(`${WDQS}?format=json&query=${encodeURIComponent(q)}`, {
       headers: { "User-Agent": UA, Accept: "application/sparql-results+json" },
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!res.ok) return { ok: false, img: null };
-    const json = await res.json();
-    return { ok: true, img: pickPortrait(json.results?.bindings) };
+    if (!res.ok) return { ok: false, img: null, imgs: [] };
+    const bindings = (await res.json()).results?.bindings ?? [];
+    return { ok: true, img: pickPortrait(bindings), imgs: [...new Set(bindings.map((b) => b.img?.value).filter(Boolean))] };
   } catch {
-    return { ok: false, img: null };
+    return { ok: false, img: null, imgs: [] };
   }
 }
