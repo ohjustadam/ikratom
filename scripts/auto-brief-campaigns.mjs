@@ -80,11 +80,16 @@ console.log(`auto-brief: local:${localModel ?? "none"} cloud:[${cloudProviders.j
 
 // Newest unbriefed active campaigns first — auto-approved ones land here the
 // hour they flip active, so "newly approved" is the natural front of queue.
+// State campaigns only: research-campaign.mjs refuses a campaign with no state
+// ("federal campaigns aren't supported"), so a federal one was never briefed,
+// stayed at the front, and took a slot every night. 11-06 to 11-17 the job
+// failed outright on 7 of 12 nights, every slot spent on refusals.
 const { data: rows, error } = await sb
   .from("campaigns")
   .select("id, slug, title, state, created_at")
   .eq("active", true)
   .is("briefing", null)
+  .not("state", "is", null)
   .order("created_at", { ascending: false })
   .limit(LIMIT);
 if (error) { console.error(error.message); process.exit(1); }
@@ -113,8 +118,9 @@ for (const c of rows ?? []) {
     failed++;
     const reason = r.error?.message ?? (r.signal ? `signal ${r.signal} (timeout?)` : `exit ${r.status}`);
     console.log(`  ✗ ${tag}: ${reason}`);
-    const tail = (r.stdout ?? "").split("\n").filter(Boolean).slice(-3).join(" | ");
-    if (tail) console.log(`    ${tail.slice(0, 200)}`);
+    // stderr too: the refusal above went to stderr, so the log only said "exit 1".
+    const tail = `${r.stdout ?? ""}\n${r.stderr ?? ""}`.split("\n").filter(Boolean).slice(-3).join(" | ");
+    if (tail) console.log(`    ${tail.slice(0, 300)}`);
   }
 }
 
