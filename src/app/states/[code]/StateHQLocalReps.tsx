@@ -5,6 +5,7 @@ import Link from "@/components/Link";
 import { OfficialAvatar } from "@/components/OfficialAvatar";
 import { EmailOfficialButton } from "@/modules/compose/EmailOfficialButton";
 import type { MyRepsResult } from "@/app/api/states/[code]/my-reps/route";
+import { hasSupabaseAuthCookie } from "@/lib/chrome-cookies";
 
 /**
  * "Your local reps" — the FIRST thing an advocate should see on the State HQ
@@ -33,6 +34,14 @@ export function StateHQLocalReps({ state, stateName }: { state: string; stateNam
 
   useEffect(() => {
     let alive = true;
+    // No Supabase auth cookie = the route would answer "anon", so skip the
+    // paid server call (2026-11-18: every signed-out State HQ view made one).
+    let cookie: string | null = null;
+    try { cookie = document.cookie; } catch { /* sandboxed: fall through to the fetch */ }
+    if (cookie !== null && !hasSupabaseAuthCookie(cookie)) {
+      setData({ kind: "anon" });
+      return;
+    }
     fetch(`/api/states/${state}/my-reps`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { kind: "anon" }))
       .then((d: MyRepsResult) => { if (alive) setData(d); })
