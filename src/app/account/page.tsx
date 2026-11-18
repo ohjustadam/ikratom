@@ -1,6 +1,7 @@
 import { getProfile } from "@/modules/auth/actions";
 import { ProfileForm } from "@/modules/auth/components/ProfileForm";
 import { getGmailStatus } from "@/modules/auth/actions-gmail";
+import { gmailConnectOpenFor } from "@/lib/email/gmail-cap";
 import { GmailConnect } from "@/modules/auth/components/GmailConnect";
 import { EmailSafetyNote } from "@/components/EmailSafetyNote";
 import { SmtpConnect } from "@/modules/auth/components/SmtpConnect";
@@ -58,6 +59,7 @@ export default async function AccountPage({
   // Yahoo / AOL / iCloud (app password) connection, if that's what they use.
   const { data: { user: me } } = await (await createServerClient()).auth.getUser();
   const anyIntegration = me ? await getEmailIntegration(me.id) : null;
+  const gmailOpen = gmailStatus || !me ? true : await gmailConnectOpenFor(me.id);
   const smtpConnected = anyIntegration && isSmtpProvider(anyIntegration.provider)
     ? { label: SMTP_PROVIDERS[anyIntegration.provider].label, email: anyIntegration.account_email }
     : null;
@@ -211,6 +213,7 @@ export default async function AccountPage({
               <h3 className="mb-3 text-sm font-semibold">Gmail (one-click batch sending)</h3>
               <GmailConnect
                 status={gmailStatus}
+                open={gmailOpen}
                 flashError={sp.gmail_error ?? null}
                 flashConnected={sp.gmail_connected === "1"}
               />
