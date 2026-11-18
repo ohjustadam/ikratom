@@ -35,6 +35,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { runWithLogging } from "./lib/scraper-run.mjs";
+import { stateCheckedPortrait } from "./lib/wikidata-portrait.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -58,7 +59,8 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: fal
 
 const MAX_BYTES = 6 * 1024 * 1024;
 const MIN_BYTES = 512;
-const UA = "iKratom-portraits/1.0 (+https://www.ikratom.org; contact@ikratom.org)";
+// support@ forwards; contact@ falls through to the catch-all and is dropped.
+const UA = "iKratom-portraits/1.0 (+https://www.ikratom.org; support@ikratom.org)";
 const FEDERAL_ROLES = new Set(["us_senate", "us_house"]);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -126,29 +128,10 @@ async function fetchImage(url, download) {
 }
 
 // ---- Wikidata P18 (opt-in, conservative) --------------------------------
+// The person must have held an office IN THIS STATE (scripts/lib/wikidata-portrait.mjs):
+// a name-only match put Speaker Kevin McCarthy on a Normal, IL council seat (2026-11-18).
 async function wikidataPortrait(fullName, stateAbbr) {
-  // Exact-label human who held a US public office; require a SINGLE match to
-  // avoid attributing the wrong person's photo. Best-effort; returns url|null.
-  const safe = fullName.replace(/["\\]/g, " ").trim();
-  if (safe.length < 4) return null;
-  const sparql = `SELECT ?img WHERE {
-    ?p rdfs:label "${safe}"@en ; wdt:P31 wd:Q5 ; wdt:P18 ?img .
-    ?p wdt:P27 wd:Q30 .
-    { ?p wdt:P39 ?pos } UNION { ?p p:P39 ?st }
-  } LIMIT 3`;
-  try {
-    const res = await fetch(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(sparql)}`, {
-      headers: { "User-Agent": UA, Accept: "application/sparql-results+json" },
-    });
-    if (!res.ok) return null;
-    const json = await res.json();
-    const rows = json.results?.bindings ?? [];
-    const imgs = [...new Set(rows.map((r) => r.img?.value).filter(Boolean))];
-    if (imgs.length !== 1) return null; // ambiguous or none -> skip (real-data-only)
-    return imgs[0];
-  } catch {
-    return null;
-  }
+  return (await stateCheckedPortrait(fullName, stateAbbr)).img;
 }
 
 // ---- self-gate (weekly) --------------------------------------------------
