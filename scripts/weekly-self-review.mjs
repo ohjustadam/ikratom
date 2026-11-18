@@ -53,7 +53,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { aiRouter, providerNote, logProviderSummary } from "./lib/ai-router.mjs";
 import { runWithLogging } from "./lib/scraper-run.mjs";
-import { REGISTRY } from "./lib/cron-pager-registry.mjs";
+import { REGISTRY, UNPAGED_SOURCES } from "./lib/cron-pager-registry.mjs";
 import {
   redact,
   summarise,
@@ -238,7 +238,7 @@ async function main() {
   const runs = await readRuns();
   const { cur, prev } = summarise(runs, { windowStartMs });
   const movement = findMovement(cur, prev);
-  const decay = findDecay(cur, prev, { registry: REGISTRY, windowDays: DAYS });
+  const decay = findDecay(cur, prev, { registry: REGISTRY, windowDays: DAYS, unpaged: UNPAGED_SOURCES });
   const audit = await readAudit();
   const shipped = readShipped();
   const signals =
