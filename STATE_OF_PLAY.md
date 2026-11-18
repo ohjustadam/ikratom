@@ -557,6 +557,15 @@ the same powers. Change the catalog first, then both pages.
    `scripts/broadcast-whats-new.mjs`, run by hand after the owner says yes.
    The page carries only changes a member can see: Publish refuses internal or
    security wording, and CI holds the files to the same list.
+   Since 2026-11-17 a note can also carry ledger items (`patch_note_items`,
+   one row per change) and number tiles (`patch_note_figures`), migration
+   0323. With at least one item, `/whats-new/[slug]` shows a scoreboard, a
+   chart by area and a searchable ledger instead of the markdown, and the
+   index card shows the counts. The generator drafts the items with the note;
+   the owner edits them under each note at `/admin/whats-new`, and Publish
+   checks them like the body. A note's ledger can also be loaded from
+   `scripts/data/patch-notes/<slug>.json` with `scripts/fill-patch-note-ledger.mjs`
+   (`--undo` removes it). The areas have no slot for internal work, by design.
 2. **A branch that looks unlanded may already be merged by content.** Release
    PRs squash several branches at once, so GitHub never marks the sources
    merged and they stay permanently "ahead". Test-merge into `origin/main` and
