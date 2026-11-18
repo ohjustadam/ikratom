@@ -79,6 +79,10 @@ export function GroupHeader({ group, memberCount, faces, viewerRole, tab, showTa
         {viewerRole && (
           <div className="mt-3 flex gap-2">
             <InviteButton coalitionId={group.id} groupName={group.name} shareUrl={link.url} unavailable={link.error} />
+            <Link href={`/coalitions/${group.slug}?post=1#discussion`}
+              className="flex min-h-11 flex-1 items-center justify-center rounded-md border border-zinc-700 px-3 text-sm font-semibold text-zinc-200 hover:border-emerald-500 sm:flex-none">
+              ✍ Post
+            </Link>
             {isOrganizer && (
               <Link href={`/coalitions/${group.slug}?plan=1#events`}
                 className="flex min-h-11 flex-1 items-center justify-center rounded-md border border-zinc-700 px-3 text-sm font-semibold text-zinc-200 hover:border-emerald-500 sm:flex-none">

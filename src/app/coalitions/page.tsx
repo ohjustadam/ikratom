@@ -1,5 +1,6 @@
 import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
+import { QuickCreateGroup } from "./QuickCreateGroup";
 
 export const metadata = {
   alternates: { canonical: "/coalitions" },
@@ -22,6 +23,9 @@ export const dynamic = "force-dynamic";
 export default async function CoalitionsIndexPage() {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
+  const { data: myProfile } = user
+    ? await sb.from("profiles").select("state").eq("id", user.id).maybeSingle()
+    : { data: null };
 
   // Mine: any coalition where the user has a coalition_members row.
   // RLS lets members read their own coalitions through the member
@@ -78,16 +82,7 @@ export default async function CoalitionsIndexPage() {
         </p>
       )}
 
-      {user && (
-        <div className="mb-6 flex flex-wrap gap-2">
-          <Link
-            href="/coalitions/new"
-            className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
-          >
-            + New coalition
-          </Link>
-        </div>
-      )}
+      {user && <QuickCreateGroup defaultState={(myProfile as { state: string | null } | null)?.state ?? null} />}
 
       {/* My coalitions */}
       {user && (
@@ -97,7 +92,7 @@ export default async function CoalitionsIndexPage() {
           </h2>
           {mine.length === 0 ? (
             <p className="rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-[11px] text-zinc-400">
-              You&apos;re not in any coalitions yet. <Link href="/coalitions/new" className="text-emerald-400 hover:underline">Create one</Link> or follow a teammate&apos;s invite link.
+              You&apos;re not in any groups yet. Start one above, or follow a teammate&apos;s invite link.
             </p>
           ) : (
             <ul className="space-y-2">

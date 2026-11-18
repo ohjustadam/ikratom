@@ -7,6 +7,7 @@ import { assertNotReadOnly } from "@/lib/read-only-mode";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { sellingIssue } from "@/lib/selling";
 import { GROUP_POST_MAX, GROUP_TITLE_MAX } from "./limits";
+import { threadTitle } from "./thread-title";
 
 /**
  * Coalition discussion board (migration 0273). Owner ask 2026-10-21, after a
@@ -74,11 +75,14 @@ export async function createCoalitionThread(
 ): Promise<Result> {
   const ro = await assertNotReadOnly();
   if (ro) return { ok: false, error: ro };
-  const t = String(title ?? "").trim();
+  const typed = String(title ?? "").trim();
   const b = String(body ?? "").trim();
-  if (t.length < 3 || t.length > MAX_TITLE) return { ok: false, error: `Give it a title of 3–${MAX_TITLE} characters.` };
+  if (typed.length > MAX_TITLE) return { ok: false, error: `Keep the title under ${MAX_TITLE} characters.` };
   if (b.length > MAX_BODY) return { ok: false, error: `Keep it under ${fmt(MAX_BODY)} characters.` };
   if (!b && !opts.photoId) return { ok: false, error: "Write something or add an image." };
+  // The title is optional: the message's first line stands in (thread-title.ts).
+  const t = threadTitle(typed, b, !!opts.photoId);
+  if (!t) return { ok: false, error: "Write a few more words, or give it a title." };
   const selling = sellingIssue(`${t}\n\n${b}`);
   if (selling) return { ok: false, error: selling };
 
