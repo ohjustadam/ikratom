@@ -170,6 +170,7 @@
     {"route":"/knowledge","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/leader","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/leader/field-signup","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
+    {"route":"/leader/invite","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":false,"loginGated":true,"redirectOnly":false},
     {"route":"/legislative","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/legislators","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":true,"loginGated":false,"redirectOnly":false},
     {"route":"/legislators/[id]","dynamic":true,"forceDynamic":false,"revalidate":3600,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},

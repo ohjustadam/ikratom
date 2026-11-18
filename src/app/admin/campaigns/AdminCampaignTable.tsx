@@ -13,6 +13,10 @@ export type AdminCampaignRow = {
   actions14d: number;
   score: number;
   tier: "high" | "medium" | "low";
+  /** The viewer may change it (their own, or they hold edit_campaigns). */
+  canEdit: boolean;
+  /** Waiting for an admin's check. */
+  inReview: boolean;
 };
 
 type SortKey = "priority" | "actions" | "recent";
@@ -92,14 +96,18 @@ export function AdminCampaignTable({ rows }: { rows: AdminCampaignRow[] }) {
                 <td className="p-3 text-center">
                   {c.active ? (
                     <span className="rounded bg-emerald-950/40 px-2 py-0.5 text-xs text-emerald-300">Active</span>
+                  ) : c.inReview ? (
+                    <span className="rounded bg-amber-950/40 px-2 py-0.5 text-xs text-amber-300">In review</span>
                   ) : (
                     <span className="rounded bg-zinc-900 px-2 py-0.5 text-xs text-zinc-500">Archived</span>
                   )}
                 </td>
                 <td className="p-3 text-right">
-                  <a href={`/admin/campaigns/${c.id}/edit`} className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs hover:border-emerald-500">
-                    Edit
-                  </a>
+                  {c.canEdit && (
+                    <a href={`/admin/campaigns/${c.id}/edit`} className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs hover:border-emerald-500">
+                      Edit
+                    </a>
+                  )}
                 </td>
               </tr>
             ))}
