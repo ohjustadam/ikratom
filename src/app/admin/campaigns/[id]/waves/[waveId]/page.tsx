@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { canEditCampaign } from "@/modules/admin/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { WaveAdminPanel } from "./WaveAdminPanel";
@@ -34,7 +35,7 @@ export default async function WaveDetailPage({
 }: {
   params: Promise<{ id: string; waveId: string }>;
 }) {
-  const ctx = await getCreatorContext({ require: "edit_campaigns" });
+  const ctx = await getCreatorContext({ require: "author_campaigns" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { id: campaignId, waveId } = await params;
@@ -42,10 +43,12 @@ export default async function WaveDetailPage({
 
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, slug, title")
+    .select("id, slug, title, created_by")
     .eq("id", campaignId)
     .single();
   if (!campaign) notFound();
+  // Authors manage their own campaigns; edit_campaigns holders manage any.
+  if (!canEditCampaign(ctx.permissions, ctx.userId, (campaign as { created_by?: string | null }).created_by)) redirect("/admin/campaigns");
 
   const { data: waveRaw } = await supabase
     .from("campaign_waves")

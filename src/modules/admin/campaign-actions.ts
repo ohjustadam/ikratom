@@ -7,6 +7,7 @@ import { getCreatorContext } from "./actions";
 import { requireMfaForMutation, requireMfaEnrolled } from "./mfa";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { screenCampaignTemplate } from "@/modules/campaigns/screen-content";
+import { canEditCampaign, campaignsSkipReview } from "./permissions";
 
 const ROLE_OPTIONS = ["us_senate", "us_house", "state_senate", "state_house"] as const;
 
@@ -80,35 +81,41 @@ function validate(d: ReturnType<typeof readForm>): string | null {
 }
 
 /**
- * Stance gate (anti-weaponization PR3). Returns campaign-column overrides
- * that route a flagged template to the review queue, or {} to publish as
- * submitted. Only PURE advocate leaders are gated — admins/owner are the
- * trusted tier and skip the screen (their edits are still recorded in the
- * template version history from mig 0204).
+ * Review gate. Admins, the owner and anyone granted approve_campaigns publish
+ * as submitted. Everyone else (Advocate Leaders, and any member granted
+ * author_campaigns alone) lands in the review queue with active=false, so an
+ * admin checks every leader campaign before members are notified. The stance
+ * screen (anti-weaponization PR3) still runs and its verdict is attached to
+ * help the reviewer.
+ *
+ * Decided 2026-11-17 (docs/DECISIONS.md): the tour, the permission catalog
+ * and the leader notice all promised review; the code published anything the
+ * screen passed. It never mattered in practice, because leaders could not save
+ * a campaign at all from 2026-07-26 (#847) until this fix.
  */
 async function screenForReview(
-  ctx: { isLeader: boolean; isAdmin: boolean; isOwner: boolean },
+  ctx: { isAdmin: boolean; isOwner: boolean; permissions: readonly string[] },
   data: { title: string; subject_template: string; body_template: string },
 ): Promise<{ active?: boolean; review_state?: string; review_reason?: string }> {
-  if (!ctx.isLeader || ctx.isAdmin || ctx.isOwner) return {};
+  if (campaignsSkipReview(ctx, ctx.permissions)) return {};
   const screen = await screenCampaignTemplate({
     title: data.title,
     subject: data.subject_template,
     body: data.body_template,
   });
-  if (screen.pass) return {};
   return {
     active: false,
     review_state: "pending_review",
     review_reason: (
-      `AI stance screen: ${screen.verdict.stance} (${screen.verdict.confidence.toFixed(2)})` +
-      `${screen.errored ? " [screener unavailable]" : ""} — ${screen.verdict.reason}`
+      `Leader campaign, waiting for an admin. AI stance screen: ${screen.pass ? "passed" : "FLAGGED"}, ` +
+      `${screen.verdict.stance} (${screen.verdict.confidence.toFixed(2)})` +
+      `${screen.errored ? " [screener unavailable]" : ""}. ${screen.verdict.reason}`
     ).slice(0, 500),
   };
 }
 
 export async function createCampaign(formData: FormData): Promise<CampaignFormResult> {
-  const ctx = await getCreatorContext({ require: "edit_campaigns" });
+  const ctx = await getCreatorContext({ require: "author_campaigns" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
   // MFA mandatory for leader authoring (PR4); admins/owner keep the soft gate.
   const mfaErr = ctx.isLeader && !ctx.isAdmin && !ctx.isOwner
@@ -162,7 +169,7 @@ export async function updateCampaign(
   id: string,
   formData: FormData
 ): Promise<CampaignFormResult> {
-  const ctx = await getCreatorContext({ require: "edit_campaigns" });
+  const ctx = await getCreatorContext({ require: "author_campaigns" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader to manage campaigns." };
   // MFA mandatory for leader authoring (PR4); admins/owner keep the soft gate.
   const mfaErr = ctx.isLeader && !ctx.isAdmin && !ctx.isOwner
@@ -185,9 +192,13 @@ export async function updateCampaign(
   // changed the message (and record the new state in append-only history).
   const { data: prev } = await supabase
     .from("campaigns")
-    .select("subject_template, body_template")
+    .select("subject_template, body_template, created_by")
     .eq("id", id)
     .maybeSingle();
+  if (!prev) return { error: "Campaign not found." };
+  if (!canEditCampaign(ctx.permissions, ctx.userId, prev.created_by as string | null)) {
+    return { error: "You can change only the campaigns you wrote. Ask an admin to change this one." };
+  }
 
   const { data: row, error } = await supabase
     .from("campaigns")

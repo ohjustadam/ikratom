@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { canEditCampaign } from "@/modules/admin/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { CampaignForm } from "@/modules/admin/components/CampaignForm";
 import { listWavesForCampaign } from "@/modules/waves/actions-admin";
@@ -12,7 +13,7 @@ export default async function EditCampaignPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getCreatorContext({ require: "edit_campaigns" });
+  const ctx = await getCreatorContext({ require: "author_campaigns" });
   if (!ctx.ok) redirect("/dashboard");
 
   const { id } = await params;
@@ -20,12 +21,14 @@ export default async function EditCampaignPage({
   const { data: campaignRaw } = await supabase
     .from("campaigns")
     .select(
-      "id, title, slug, blurb, body_md, state, target_roles, subject_template, body_template, active, is_standing, briefing, briefing_generated_at"
+      "id, title, slug, blurb, body_md, state, target_roles, subject_template, body_template, active, is_standing, briefing, briefing_generated_at, created_by"
     )
     .eq("id", id)
     .single();
 
   if (!campaignRaw) notFound();
+  // Authors manage their own campaigns; edit_campaigns holders manage any.
+  if (!canEditCampaign(ctx.permissions, ctx.userId, (campaignRaw as { created_by?: string | null }).created_by)) redirect("/admin/campaigns");
   // Supabase generated types lag the migration that added briefing columns.
   // Just pull off the briefing fields and pass the rest through unchanged.
   const campaign = campaignRaw as typeof campaignRaw & {
