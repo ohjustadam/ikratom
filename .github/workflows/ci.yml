@@ -158,7 +158,7 @@ jobs:
         # don't ship to runtime.
         # scripts/ci-audit-gate.mjs also honours a short, dated list of
         # advisories that have no patched release (scripts/lib/audit-gate.mjs).
-        run: node scripts/ci-audit-gate.mjs
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/ci-audit-gate.mjs
 
   credits:
     name: Netlify credit budget
