@@ -11,7 +11,7 @@ import { ForumSubscribeButton } from "@/modules/forum/components/ForumSubscribeB
 import { ForumStateNav } from "@/modules/forum/components/ForumStateNav";
 
 import Link from "@/components/Link";
-export const metadata = { title: "Community" };
+export const metadata = { alternates: { canonical: "/forum" }, title: "Community" };
 
 export default async function ForumIndexPage() {
   const supabase = await createClient();

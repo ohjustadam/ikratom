@@ -3,6 +3,7 @@ import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const metadata = {
+  alternates: { canonical: "/status" },
   title: "iKratom · live platform status",
   description: "Real-time platform health: bills tracked, meetings monitored, alerts pushed, research catalogued. Proof the intel network is alive.",
 };

@@ -2,7 +2,7 @@ import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { CampaignBrowser } from "./CampaignBrowser";
 
-export const metadata = { title: "Campaigns" };
+export const metadata = { alternates: { canonical: "/campaigns" }, title: "Campaigns" };
 /**
  * Static + ISR, 15 minutes.
  *

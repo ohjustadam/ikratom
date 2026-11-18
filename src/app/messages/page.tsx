@@ -4,7 +4,8 @@ import { listConversations } from "@/modules/dm/actions";
 import { MessagesInbox } from "./MessagesInbox";
 
 import Link from "@/components/Link";
-export const metadata = { title: "Messages" };
+import { NOINDEX } from "@/lib/seo";
+export const metadata = { title: "Messages", robots: NOINDEX };
 
 export default async function MessagesPage() {
   const supabase = await createClient();

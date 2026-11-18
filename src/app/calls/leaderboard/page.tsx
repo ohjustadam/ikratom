@@ -2,7 +2,7 @@ import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
-  title: "Leaderboard — top callers · iKratom",
+  title: "Leaderboard — top callers",
   description: "See which advocates are making the most kratom-policy calls to legislators this week, this month, and all time.",
 };
 export const dynamic = "force-dynamic";

@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { OnboardingWizard } from "./OnboardingWizard";
+import { NOINDEX } from "@/lib/seo";
 
-export const metadata = { title: "Welcome to iKratom" };
+export const metadata = { title: "Welcome to iKratom", robots: NOINDEX };
 
 export default async function OnboardingPage() {
   const supabase = await createClient();

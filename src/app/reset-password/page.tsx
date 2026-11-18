@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ResetForm } from "./ResetForm";
+import { NOINDEX } from "@/lib/seo";
 
-export const metadata = { title: "Set new password" };
+export const metadata = { title: "Set new password", robots: NOINDEX };
 
 export default async function ResetPasswordPage() {
   const supabase = await createClient();

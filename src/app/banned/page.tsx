@@ -4,6 +4,7 @@ import { createAnonClient } from "@/lib/supabase/anon";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
 export const metadata = {
+  alternates: { canonical: "/banned" },
   title: "Where kratom is banned — every state, county, and city tracking",
   description: "Comprehensive list of US jurisdictions banning kratom — states, counties, and cities. Updated as bans are enacted or repealed.",
 };

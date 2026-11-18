@@ -546,6 +546,17 @@ the same powers. Change the catalog first, then both pages.
 
 ---
 
+## Search and the brand (2026-11-17)
+
+Google indexes us and ranks ikratom.org first on a verbatim search, but rewrites
+the query "ikratom" to "kratom". Crawl access is fine; the gap is brand signals.
+The home page now states the name in WebSite + Organization JSON-LD
+(`src/lib/seo.ts`), hubs carry canonicals, and private pages are noindex. The
+evidence, the owner's Search Console / Bing steps and the weekly check are in
+`docs/SEO_BRAND.md`. The "ik" mark concepts went to the owner the same day.
+
+---
+
 ## Things that will bite you
 
 1. **The changelog no longer lives in the repo.** As of 2026-09-18, patch

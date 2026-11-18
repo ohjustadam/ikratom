@@ -5,6 +5,7 @@ import { getContent } from "@/lib/editable-content";
 export const revalidate = 3600;
 
 export const metadata = {
+  alternates: { canonical: "/support" },
   title: "Support iKratom — keep the advocate's toolbelt free + independent",
   description:
     "iKratom is a free, nonpartisan, ad-free advocacy platform built by one person. Small recurring donations keep it running, independent, and beholden to nothing but the advocate.",

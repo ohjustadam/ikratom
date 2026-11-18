@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listMyCalls, listMyAchievements } from "@/modules/calls/actions";
 
-export const metadata = { title: "Your call history · iKratom" };
+export const metadata = { title: "Your call history" };
 export const dynamic = "force-dynamic";
 
 const OUTCOME_META: Record<string, { label: string; tone: string; emoji: string }> = {

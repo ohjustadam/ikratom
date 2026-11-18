@@ -14,7 +14,7 @@ import { frontmatterString } from "@/lib/frontmatter";
 
 import Link from "@/components/Link";
 import { newsAboutState } from "@/lib/news-state-filter";
-export const metadata = { title: "Pulse — live policy feed" };
+export const metadata = { alternates: { canonical: "/pulse" }, title: "Pulse — live policy feed" };
 // Force dynamic so newly-inserted alerts and breaking events appear on
 // next refresh — the alerts table is the live war room and stale page
 // caches there hurt advocacy speed.

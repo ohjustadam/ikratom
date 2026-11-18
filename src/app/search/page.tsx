@@ -1,9 +1,11 @@
 import Link from "@/components/Link";
 import { searchSite, SITE_SEARCH_KIND_EMOJI, SITE_SEARCH_KIND_LABELS, type SiteSearchKind } from "@/lib/site-search";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { NOINDEX } from "@/lib/seo";
 
 export const metadata = {
-  title: "Search — iKratom",
+  title: "Search",
+  robots: NOINDEX,
   description: "Search bills, research, legislators, campaigns, and community threads across iKratom.",
 };
 export const dynamic = "force-dynamic";

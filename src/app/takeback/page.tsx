@@ -4,6 +4,7 @@ import { extractSponsor, extractBlurb, repealPath } from "@/lib/takeback";
 import { PageShareWithAttribution } from "@/components/PageShareWithAttribution";
 
 export const metadata = {
+  alternates: { canonical: "/takeback" },
   title: "Takeback — the offense + defense plan for every banned state",
   description: "Every US state that bans kratom: who pushed the ban, what political coalition backed it, and the concrete repeal plan. Plus imminent state-level threats.",
 };

@@ -2,8 +2,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { MfaChallengeForm } from "@/modules/auth/components/MfaChallengeForm";
 import { safeRelativePath } from "@/lib/safe-redirect";
+import { NOINDEX } from "@/lib/seo";
 
-export const metadata = { title: "Two-factor sign-in" };
+export const metadata = { title: "Two-factor sign-in", robots: NOINDEX };
 
 export default async function MfaLoginPage({
   searchParams,
