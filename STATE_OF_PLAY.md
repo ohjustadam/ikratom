@@ -396,8 +396,10 @@ remove those.
 
 **Group notifications (checked end to end 2026-11-17).** Every notice is an
 ordinary `notifications` row, so push (the fan-out cron, by each member's
-cadence and quiet hours) and the email digest ("Your groups" section,
-`scripts/lib/digest-sections.mjs`) follow the inbox.
+cadence and quiet hours) and the email digest follow the inbox. The digest's
+"Your groups" section is built but **OFF** until the 12-05 build ships the
+setting that mutes it: `GROUPS_IN_DIGEST` in `scripts/lib/digest-sections.mjs`,
+flipped to `true` by the trunk in that build's merge window.
 
 | Event | Who gets it | Kind | Muted by "Your groups"? |
 |---|---|---|---|

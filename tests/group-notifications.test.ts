@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { threadTitle, AUTO_TITLE_MAX } from "@/modules/coalitions/thread-title";
-import { DIGEST_KINDS, SECTIONS, dedupeByLink } from "../scripts/lib/digest-sections.mjs";
+import { DIGEST_KINDS, GROUP_SECTION, GROUPS_IN_DIGEST, dedupeByLink } from "../scripts/lib/digest-sections.mjs";
 
 /** Every `kind: "coalition_…"` literal the app writes to notifications. */
 function groupKindsInCode(): string[] {
@@ -27,8 +27,12 @@ describe("group notices reach every channel", () => {
     expect(kinds).toEqual(expect.arrayContaining(["coalition_discussion", "coalition_event", "coalition_join_request", "coalition_action"]));
   });
 
-  it("every group kind the app writes is in the email digest", () => {
-    for (const k of kinds) expect(DIGEST_KINDS, k).toContain(k);
+  it("every group kind the app writes is in the digest's Your groups section", () => {
+    for (const k of kinds) expect(GROUP_SECTION.kinds, k).toContain(k);
+  });
+
+  it("the section emails exactly when the switch is on (off until the 12-05 build)", () => {
+    for (const k of kinds) expect(DIGEST_KINDS.includes(k), k).toBe(GROUPS_IN_DIGEST);
   });
 
   it("every group kind except join requests is muted by the Your groups toggle (0327)", () => {
@@ -42,8 +46,7 @@ describe("group notices reach every channel", () => {
   });
 
   it("the digest keeps different threads apart and folds repeats of one thread", () => {
-    const group = SECTIONS.find((s: { title: string }) => s.title === "Your groups");
-    expect(group?.dedupe).toBe("link");
+    expect(GROUP_SECTION.dedupe).toBe("link");
     const items = [
       { title: "New reply in OK Advocates", body: "Hearing Tuesday", link: "/coalitions/ok/t/1" },
       { title: "New reply in OK Advocates", body: "Hearing Tuesday", link: "/coalitions/ok/t/1" },
