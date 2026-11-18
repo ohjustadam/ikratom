@@ -27,7 +27,10 @@
  *
  * Budget: shares email_quota_log with the site's router and never touches the
  * per-provider reserve kept for auth + transactional mail. When the day's quota
- * runs out it stops cleanly; the next digest picks up from the same `since`.
+ * runs out it stops cleanly. Every delivered email is written to the
+ * `email_deliveries` ledger (migration 0326, scripts/lib/email-ledger.mjs), so
+ * the next run skips what each member already has and serves the members
+ * emailed longest ago first. --only and --dry-run write nothing to it.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -37,6 +40,7 @@ import { renderDigest, renderMeetingAlert, renderAnnouncement } from "./lib/emai
 import { isDeliverable, digestHearings } from "./lib/email-select.mjs";
 import { dedupeStories } from "./lib/story-dedupe.mjs";
 import { SECTIONS, DIGEST_KINDS, dedupeByLink } from "./lib/digest-sections.mjs";
+import { KEEP_DAYS, fetchAll, digestRef, lastSentByUser, deliveredKeys, digestSinceFor, byPriority } from "./lib/email-ledger.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
@@ -89,13 +93,32 @@ async function record(status, rows, notes) {
   await sb.from("scraper_runs").insert({ source: SOURCE, started_at: startedAt, finished_at: new Date().toISOString(), status, rows_updated: rows, notes: notes.slice(0, 900) });
 }
 
-/** Members with an email address, joined to their preferences. */
+/**
+ * The delivery ledger (migration 0326). A read failure must not stop the
+ * day's email: it logs, and the run behaves as it did before the ledger.
+ */
+let LEDGER_OK = true;
+async function ledger(makeQuery) {
+  if (ONLY) return []; // a test send goes out whatever the member already has
+  try { return await fetchAll(makeQuery); } catch (e) {
+    LEDGER_OK = false;
+    console.warn(`  ! email_deliveries unreadable (${e.message}): no skip-already-sent this run`);
+    return [];
+  }
+}
+async function remember(user, refs) {
+  if (DRY || ONLY || !LEDGER_OK || !refs?.length) return;
+  const { error } = await sb.from("email_deliveries")
+    .upsert(refs.map((r) => ({ ...r, user_id: user.id })), { onConflict: "source,ref,user_id", ignoreDuplicates: true });
+  if (error) console.warn(`  ! ledger write failed: ${error.message}`);
+}
+
+/** Members with an email address, joined to their preferences. Paged: PostgREST returns at most 1,000 rows. */
 async function members(audience) {
-  const [{ data: profiles, error: e1 }, { data: prefs, error: e2 }] = await Promise.all([
-    sb.from("profiles").select("id, email, username, state").not("email", "is", null).limit(50_000),
-    sb.from("notification_preferences").select("user_id, email, digest").limit(50_000),
+  const [profiles, prefs] = await Promise.all([
+    fetchAll(() => sb.from("profiles").select("id, email, username, state").not("email", "is", null).order("id")),
+    fetchAll(() => sb.from("notification_preferences").select("user_id, email, digest").order("user_id")),
   ]);
-  if (e1 || e2) throw new Error((e1 ?? e2).message);
   const byUser = new Map(prefs.map((p) => [p.user_id, p]));
   if (ONLY) return profiles.filter((p) => p.id === ONLY).map((p) => ({ ...p, weekly: false }));
   const monday = new Date().getUTCDay() === 1;
@@ -125,7 +148,7 @@ async function deliver(queue) {
     if (budget <= 0) { deferred++; continue; }
     const r = await sendEmail(sb, { to: job.user.email, ...job.msg });
     budget--;
-    if (r.ok) sent++; else { failed++; if (errors.length < 3) errors.push(r.error); }
+    if (r.ok) { sent++; await remember(job.user, job.refs); } else { failed++; if (errors.length < 3) errors.push(r.error); }
   }
   return { sent, failed, deferred, errors };
 }
@@ -155,9 +178,9 @@ async function runDigest() {
   const ids = users.map((u) => u.id);
   const notes = new Map();
   for (let i = 0; i < ids.length; i += 200) {
-    const { data, error } = await sb.from("notifications").select("user_id, kind, title, body, link, created_at")
-      .in("user_id", ids.slice(i, i + 200)).in("kind", DIGEST_KINDS).gte("created_at", weekAgo).order("created_at", { ascending: false }).limit(20_000);
-    if (error) throw new Error(error.message);
+    // Paged: 200 members' week can pass PostgREST's 1,000-row cap, which a bigger limit never lifted.
+    const data = await fetchAll(() => sb.from("notifications").select("user_id, kind, title, body, link, created_at")
+      .in("user_id", ids.slice(i, i + 200)).in("kind", DIGEST_KINDS).gte("created_at", weekAgo).order("created_at", { ascending: false }).order("id"));
     for (const n of data) (notes.get(n.user_id) ?? notes.set(n.user_id, []).get(n.user_id)).push(n);
   }
 
@@ -167,19 +190,24 @@ async function runDigest() {
     .eq("status", "success").gte("started_at", weekAgo).limit(50);
   const emailedLinks = new Set((announced ?? []).map((a) => `/whats-new/${String(a.notes).split(" ")[0]}`));
 
+  // Each member's own last digest: one skipped for quota yesterday gets both days,
+  // and the queue below serves the members emailed longest ago first.
+  const lastSent = lastSentByUser(await ledger(() => sb.from("email_deliveries").select("user_id, sent_at")
+    .eq("source", "digest").gte("sent_at", floor).order("user_id").order("ref")));
+  const ref = digestRef(now);
+
   const queue = [];
   for (const u of users) {
-    const from = u.weekly ? weekAgo : since;
+    const from = u.weekly ? weekAgo : digestSinceFor(since, floor, lastSent.get(u.id));
     const mine = (notes.get(u.id) ?? []).filter((n) => n.created_at > from && !(n.kind === "whats_new" && emailedLinks.has(n.link)));
     const sections = [{ title: "Hearings and meetings (every state)", meetings: digestHearings(meetings, from, now) },
       ...SECTIONS.map((s) => { const mineHere = mine.filter((n) => s.kinds.includes(n.kind)); return { title: s.title, items: s.dedupe === "link" ? dedupeByLink(mineHere) : dedupeStories(mineHere) }; })];
     const msg = renderDigest({ username: u.username, sections, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), briefLink: "/brief", via: VIA && "digest" });
     if (msg.count === 0) continue; // nothing new: send nothing
-    queue.push({ user: u, msg: { ...msg, tag: "digest", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } });
+    queue.push({ user: u, refs: [{ source: "digest", ref }], msg: { ...msg, tag: "digest", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } });
   }
-  // Members with a hearing in their digest go first if the day's quota is tight.
-  const hasHearing = (q) => Number(/hearing/i.test(q.msg.subject));
-  queue.sort((a, b) => hasHearing(b) - hasHearing(a));
+  // A hearing first if the day's quota is tight, then whoever waited longest.
+  queue.sort(byPriority(lastSent));
   const r = await deliver(queue);
   return { ...r, eligible: users.length, withContent: queue.length, since };
 }
@@ -193,7 +221,17 @@ async function runMeetings() {
   if (error) throw new Error(error.message);
   if (!fresh?.length) return { sent: 0, failed: 0, deferred: 0, errors: [], eligible: 0, meetings: 0, since };
   const users = await members(DRY ? arg("audience", "opted-in") : "opted-in");
-  const queue = users.map((u) => ({ user: u, msg: { ...renderMeetingAlert({ username: u.username, meetings: fresh, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), via: VIA && "hearing" }), tag: "meeting", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } }));
+  // A run that ran out of quota keeps the old watermark, so the next run sees
+  // the same meetings again: send each member only the ones they lack.
+  const had = deliveredKeys(await ledger(() => sb.from("email_deliveries").select("ref, user_id")
+    .eq("source", "meeting").in("ref", fresh.map((m) => String(m.id))).order("user_id").order("ref")));
+  const queue = [];
+  for (const u of users) {
+    const mine = fresh.filter((m) => !had.has(`${m.id}:${u.id}`));
+    if (!mine.length) continue;
+    queue.push({ user: u, refs: mine.map((m) => ({ source: "meeting", ref: String(m.id) })),
+      msg: { ...renderMeetingAlert({ username: u.username, meetings: mine, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), via: VIA && "hearing" }), tag: "meeting", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } });
+  }
   const r = await deliver(queue);
   return { ...r, eligible: users.length, meetings: fresh.length, since };
 }
@@ -210,8 +248,11 @@ async function runAnnounce() {
     const { data: prior } = await sb.from("scraper_runs").select("id").eq("source", SOURCE).eq("status", "success").ilike("notes", `${slug}%`).limit(1);
     if (prior?.length) throw new Error(`announcement "${slug}" was already sent — refusing to send twice`);
   }
-  const users = await members(audience);
-  const queue = users.map((u) => ({ user: u, msg: { ...renderAnnouncement({ ...content, username: u.username, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), via: VIA && (content.md ? "report" : "announce") }), tag: "announcement", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } }));
+  // A quota-cut announcement records "partial", so it may run again: skip whoever has it.
+  const had = deliveredKeys(await ledger(() => sb.from("email_deliveries").select("ref, user_id")
+    .eq("source", "announce").eq("ref", slug).order("user_id")));
+  const users = (await members(audience)).filter((u) => !had.has(`${slug}:${u.id}`));
+  const queue = users.map((u) => ({ user: u, refs: [{ source: "announce", ref: slug }], msg: { ...renderAnnouncement({ ...content, username: u.username, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), via: VIA && (content.md ? "report" : "announce") }), tag: "announcement", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } }));
   const r = await deliver(queue);
   return { ...r, eligible: users.length, slug, audience };
 }
@@ -225,6 +266,11 @@ try {
     ` · links ${VIA ? "tagged" : "plain"}` + (r.errors.length ? ` · errors: ${r.errors.join(" ; ")}` : "");
   console.log(summary);
   await record(r.failed > 0 && r.sent === 0 ? "error" : r.deferred > 0 ? "partial" : "success", r.sent, summary);
+  // Housekeeping: the ledger only needs recent rows (migration 0326).
+  if (!DRY && !ONLY && LEDGER_OK) {
+    const { error } = await sb.from("email_deliveries").delete().lt("sent_at", new Date(Date.now() - KEEP_DAYS * 86400e3).toISOString());
+    if (error) console.warn(`  ! ledger prune failed: ${error.message}`);
+  }
   // exitCode, not exit(): an abrupt exit with fetch sockets still closing trips
   // a libuv assertion on Windows. Same exit status, clean shutdown.
   process.exitCode = r.failed > 0 && r.sent === 0 ? 1 : 0;
