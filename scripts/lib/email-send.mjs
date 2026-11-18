@@ -44,10 +44,17 @@ async function bump(sb, provider, ok) {
   else await sb.from("email_quota_log").insert(row);
 }
 
+/**
+ * The part of a provider's daily cap this send may use. Account mail
+ * (`priority: "auth"`, e.g. the queued signup links) may spend the reserve,
+ * because the reserve exists for exactly that mail.
+ */
+const usable = (p, opts = {}) => p.dailyCap - (opts.priority === "auth" ? 0 : p.reserve ?? RESERVE);
+
 /** Emails still sendable today across every configured provider, after the reserve. */
-export async function remainingToday(sb) {
+export async function remainingToday(sb, opts = {}) {
   let left = 0;
-  for (const p of configured()) left += Math.max(0, p.dailyCap - (p.reserve ?? RESERVE) - (await usedToday(sb, p.id)));
+  for (const p of configured()) left += Math.max(0, usable(p, opts) - (await usedToday(sb, p.id)));
   return left;
 }
 
@@ -58,13 +65,14 @@ export function providerSummary() {
 /**
  * Send one message. Tries providers in order, skipping any at its daily cap.
  * msg: { to, subject, html, text, unsubscribeUrl?, tag? }
+ * opts: { priority?: "auth" } — account mail may use the per-provider reserve.
  * Returns { ok: true, provider, id } or { ok: false, error }.
  */
-export async function sendEmail(sb, msg) {
+export async function sendEmail(sb, msg, opts = {}) {
   if (!fromAddress().email) return { ok: false, error: "no sender address (RESEND_FROM_EMAIL / EMAIL_FROM)" };
   const errors = [];
   for (const p of configured()) {
-    if ((await usedToday(sb, p.id)) >= p.dailyCap - (p.reserve ?? RESERVE)) { errors.push(`${p.id}: daily cap`); continue; }
+    if ((await usedToday(sb, p.id)) >= usable(p, opts)) { errors.push(`${p.id}: daily cap`); continue; }
     try {
       const id = await p.send(msg);
       await bump(sb, p.id, true);

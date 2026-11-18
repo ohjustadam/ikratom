@@ -37,9 +37,11 @@ describe("intent prefetch", () => {
 });
 
 describe("presence heartbeat", () => {
-  it("uses a deploy-proof route, at most every 4 minutes, and gives up on repeated failure", () => {
+  it("pings Supabase directly (no server function), at most every 4 minutes, and gives up on repeated failure", () => {
     const h = fs.readFileSync("src/components/PresenceHeartbeat.tsx", "utf8");
-    expect(h).toMatch(/fetch\("\/api\/presence"/);
+    // Not through /api/presence: that woke a paid Netlify function per tab every 4 min (2026-11-17).
+    expect(h).toMatch(/supabase\.rpc\("touch_last_seen"\)/);
+    expect(h).not.toMatch(/fetch\("\/api\/presence"/);
     expect(h).toMatch(/EVERY_MS = 4 \* 60_000/);
     expect(h).toMatch(/GIVE_UP_AFTER/);
     expect(h).not.toMatch(/@\/modules\/presence\/actions/);

@@ -322,6 +322,9 @@ export const REGISTRY = [
   // when there is nothing to send, so a dead job reads as stale, not quiet.
   { source: "email_digest", interval_hours: 48, system: "github-actions", cadence: "daily" },
   { source: "email_meeting_alerts", interval_hours: 12, system: "gh-hourly", cadence: "hourly" },
+  // Queued signup links (2026-11-17): signups the auth email cap turned away.
+  // Writes telemetry on every run, so silence means the job died.
+  { source: "signup_link_queue", interval_hours: 12, system: "gh-hourly", cadence: "hourly" },
   // Push delivery from Actions, independent of Netlify (2026-10-03). Before
   // this, a disabled site meant zero push and nothing paged about it.
   { source: "push_fanout_actions", interval_hours: 12, system: "gh-hourly", cadence: "hourly" },

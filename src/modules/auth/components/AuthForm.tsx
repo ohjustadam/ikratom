@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { signIn, signUp } from "../actions";
-import { SIGNUP_SENT_HINT, SIGNUP_SENT_MESSAGE } from "../signup-outcome";
+import { SIGNUP_QUEUED_MESSAGE, SIGNUP_SENT_HINT, SIGNUP_SENT_MESSAGE } from "../signup-outcome";
 import { useTurnstile } from "@/components/auth/useTurnstile";
 import { CAPTCHA_FIELD } from "@/lib/captcha";
 import { AuthNotice } from "./AuthNotice";
@@ -26,6 +26,7 @@ export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) 
   const [errorHint, setErrorHint] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState("");
+  const [queued, setQueued] = useState(false);
   const [pending, startTransition] = useTransition();
   const { slot: captchaSlot, ...captcha } = useTurnstile("auth");
 
@@ -52,9 +53,13 @@ export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) 
       if (result?.error) {
         setError(result.error);
         if ("hint" in result && result.hint) setErrorHint(result.hint);
+      } else if (mode === "signup" && result?.signedIn) {
+        // Email confirmation is off (surge switch): the account is live now.
+        window.location.assign(redirectTo ?? "/account?welcome=1");
       } else if (mode === "signup") {
         setSentTo(String(formData.get("email") ?? ""));
-        setSuccess(SIGNUP_SENT_MESSAGE);
+        setQueued(Boolean(result?.queued));
+        setSuccess(result?.queued ? SIGNUP_QUEUED_MESSAGE : SIGNUP_SENT_MESSAGE);
       }
     });
   }
@@ -131,9 +136,14 @@ export function AuthForm({ redirectTo: redirectProp }: { redirectTo?: string }) 
       {success && (
         <div className="rounded-md border border-emerald-900/40 bg-emerald-950/40 px-3 py-2 text-sm">
           <p className="text-emerald-300">{success}</p>
-          <p className="mt-1 text-xs text-emerald-200/70">{SIGNUP_SENT_HINT}</p>
-          <p className="mt-2 text-xs text-zinc-400">Nothing arrived after a few minutes?</p>
-          <ResendLinkForm defaultEmail={sentTo} />
+          {/* A queued email has no resend: asking again would hit the same full queue. */}
+          {!queued && (
+            <>
+              <p className="mt-1 text-xs text-emerald-200/70">{SIGNUP_SENT_HINT}</p>
+              <p className="mt-2 text-xs text-zinc-400">Nothing arrived after a few minutes?</p>
+              <ResendLinkForm defaultEmail={sentTo} />
+            </>
+          )}
         </div>
       )}
 
