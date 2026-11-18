@@ -9,7 +9,7 @@ import { getAdminContext } from "./actions";
 import { requireMfaForMutation } from "./mfa";
 import { verifyUserForPromotion } from "@/modules/auth/trust-tier";
 import { inviteNotificationBody, ownerMissingLine } from "@/modules/auth/promotion-checklist";
-import { applyLeaderInviteIfReady, grantLeaderRole, type ApplyResult } from "./leader-invite";
+import { applyLeaderInviteIfReady, grantLeaderRole, isOpenInvite, type ApplyResult } from "./leader-invite";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -55,6 +55,17 @@ export async function inviteLeader(input: { userId: string }): Promise<
     });
     revalidatePath("/admin/users");
     return { ok: true, applied: true, line: "They were already verified, so they're a leader now." };
+  }
+
+  // An open invite already exists (from this button or written by a script):
+  // keep its inviter and date, and never notify the member a second time.
+  const { data: existing } = await sr
+    .from("leader_invites")
+    .select("accepted_at, revoked_at")
+    .eq("user_id", input.userId)
+    .maybeSingle();
+  if (isOpenInvite(existing)) {
+    return { ok: true, applied: false, line: `Already invited. They ${ownerMissingLine(v.items)}; the role turns on by itself after that.` };
   }
 
   const { error } = await sr.from("leader_invites").upsert({
