@@ -9,7 +9,7 @@ export type AuthResult =
       hint?: never;
       errorCode?: never;
     }
-  | { error: string; hint?: string; errorCode?: string | null; success?: never };
+  | { error: string; hint?: string; errorCode?: string | null; success?: never; signedIn?: never; queued?: never };
 
 export type Profile = {
   id: string;

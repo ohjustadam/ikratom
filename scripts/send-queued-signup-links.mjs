@@ -68,7 +68,7 @@ async function main() {
     .select("email, attempts").eq("status", "pending").order("queued_at").limit(LIMIT);
   if (error) throw new Error(`read queue: ${error.message}`);
   let budget = DRY ? Infinity : await remainingToday(sb, { priority: "auth" });
-  const n = { sent: 0, confirmed: 0, failed: 0, deferred: 0 };
+  const n = { sent: 0, confirmed: 0, failed: 0, skipped: 0, deferred: 0 };
   const errors = [];
 
   for (const row of rows ?? []) {
@@ -79,7 +79,8 @@ async function main() {
     // addresses that already have one (the resend form queues any address).
     const esc = row.email.replace(/[\\%_]/g, (c) => `\\${c}`);
     const { data: prof } = await sb.from("profiles").select("id").ilike("email", esc).limit(1).maybeSingle();
-    if (!prof) { await update(row.email, { status: "failed", last_error: "no account for this address" }); n.failed++; continue; }
+    // A mistyped address on the resend form is not a job failure: close the row and move on.
+    if (!prof) { await update(row.email, { status: "failed", last_error: "no account for this address" }); n.skipped++; continue; }
     // Required by the API, ignored for an existing account (see header). Random so it is never usable.
     const g = await sb.auth.admin.generateLink({ type: "signup", email: row.email, password: `${crypto.randomUUID()}A1!` });
     if (g.error) {
@@ -111,7 +112,7 @@ async function main() {
 try {
   console.log(`signup link queue${DRY ? " (DRY RUN)" : ""} · providers: ${providerSummary()} · app ${APP_URL}`);
   const r = await main();
-  const summary = `pending ${r.pending} · sent ${r.sent} · already confirmed ${r.confirmed} · failed ${r.failed} · deferred ${r.deferred} (quota)` +
+  const summary = `pending ${r.pending} · sent ${r.sent} · already confirmed ${r.confirmed} · failed ${r.failed} · no account ${r.skipped} · deferred ${r.deferred} (quota)` +
     (r.errors.length ? ` · errors: ${r.errors.join(" ; ")}` : "");
   console.log(summary);
   const status = r.failed > 0 && r.sent === 0 ? "error" : r.deferred > 0 ? "partial" : "success";

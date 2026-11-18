@@ -497,6 +497,21 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Mail queued signup links
+        # Signups that Supabase Auth could not email (its 30-an-hour cap or
+        # Resend's 100-a-day) wait in signup_email_queue (migration 0325). This
+        # mails each one its confirm link through Brevo first. Before hearings:
+        # someone who cannot get in cannot read one either.
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          EMAIL_APP_URL: https://www.ikratom.org
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/send-queued-signup-links.mjs
       - name: Email newly approved meetings
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
