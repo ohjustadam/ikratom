@@ -301,6 +301,7 @@ order:
 |---|---|---|
 | Roster diffs | `sync-state-roster-diff.mjs`, `sync-congress-roster-diff.mjs` | exact openstates / bioguide ids |
 | State contacts | `sync-state-legislator-contacts.mjs` | email / phone / office address of sitting members from openstates/people; never clears, never steps an official email down to a personal one; **over 25 changed rows it holds** for the owner's yes (`--allow-bulk`) |
+| Roster emails (weekly) | `check-legislator-rosters.mjs` | each chamber's own member list beats openstates/people (MI Fairbairn bounced off the upstream spelling). Swaps only when the page lists ≥90% of the chamber and exactly one address carries the member's own name; 60-90% pages and anything else are reported, never cleared. Most chambers show emails only on detail pages, so ~19 of 100 can be checked. Over 25 swaps hold |
 | Swap on the handover day | `turnover-swap.mjs` | retires the incumbent only when openstates/people or congress-legislators shows the successor **in office**; the record is kept |
 | Election results | `ingest-election-results.mjs` | Election Day +1 to +60; a winner lands only when a **later day's** reading names the same person |
 | Seat watch | `sync-seat-watch.mjs` (every 3 days) | `term_calendar` + `seat_elections` (migration 0277) |
