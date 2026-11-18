@@ -1,7 +1,7 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { publicHandle } from "@/lib/public-handle";
+import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
 import { groupForViewer } from "@/modules/coalitions/moderation";
 import type { GroupChatMessage } from "@/modules/coalitions/chat-actions";
 import { GroupChat } from "./GroupChat";
@@ -51,7 +51,12 @@ export default async function GroupChatPage({ params, searchParams }: {
   const ids = [...new Set([user.id, ...rows.map((r) => r.user_id)])];
   const { data: profs } = await sb.rpc("get_public_profiles", { p_ids: ids });
   const handles: Record<string, string> = {};
-  for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null }[]) handles[p.id] = publicHandle(p);
+  const tags: Record<string, PublicRole> = {};
+  for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null; is_admin?: boolean | null; is_advocate_leader?: boolean | null }[]) {
+    handles[p.id] = publicHandle(p);
+    const tag = publicRole(p);
+    if (tag) tags[p.id] = tag;
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-10 pt-4 sm:px-6 sm:pt-8">
@@ -74,7 +79,7 @@ export default async function GroupChatPage({ params, searchParams }: {
           </ol>
         </>
       ) : (
-        <GroupChat coalitionId={c.id} initial={rows} handles={handles}
+        <GroupChat coalitionId={c.id} initial={rows} handles={handles} tags={tags}
           me={{ id: user.id, handle: handles[user.id] ?? "@you" }}
           canModerate={viewer.role === "owner" || viewer.role === "admin"} />
       )}

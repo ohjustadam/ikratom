@@ -333,6 +333,21 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 
 **Why:** 12 Illinois rows, NE LB 972 and TN HB 861 showed unrelated newer bills. Run on today's 120 live rows, the rule blocks exactly the two live ones and nothing else.
 
+## Leader campaigns always go to review; the owner's tag reads Admin (2026-11-17)
+
+**Decision:** a campaign written by anyone without `approve_campaigns` (leaders included) is saved inactive and `pending_review`, with the AI screen's verdict attached for the reviewer. Admins and the owner skip review. On public surfaces the owner's role tag reads **Admin**, not Owner.
+
+- **Review for every leader campaign.** The AI screen is a free model and can be wrong both ways, and a campaign sends letters to real officials in members' names. A human look costs an admin one click.
+- **Owner shows as Admin.** One account holds every key. Labelling it publicly makes it the obvious target for phishing and pressure, and members gain nothing from knowing which admin it is. `publicRole()` maps owner to "admin".
+
+**Why:** the owner asked for roles to be current and visible (2026-11-17). Leaders couldn't save a campaign at all from #847 until this fix, so there was no live behaviour to preserve.
+
+## Leader promotion waits for verification; the owner invites instead (2026-11-17)
+
+**Decision:** `verifyUserForPromotion` refuses a leader who lacks a confirmed email, 48 hours of account age or a full mailing address. Two-step sign-in is recommended, not required: it stays on the checklist, marked optional. Any admin-level gate passes `requireMfa`. The refusal now lists what's missing, and the owner can send an invite. The role turns on by itself once the member is verified, without the owner checking back.
+
+**Why:** a promotion for a member who hadn't set up 2FA or their address was refused with a one-line error the owner missed. An invite keeps the bar and removes the follow-up. The same day the owner dropped 2FA from the bar ("turn off the 2fa requirement for leaders"): email, address and account age still keep throwaway accounts out, and admins keep 2FA.
+
 ## The audit gate allows an advisory only when no fix exists, and only until a date (2026-11-18)
 
 **Decision:** CI's required "npm audit (high+)" job runs `scripts/ci-audit-gate.mjs`. It still fails on any high or critical advisory in production dependencies, except those in a short list (`scripts/lib/audit-gate.mjs`). Each entry is a single GHSA with a reason and an expiry no more than 90 days out. When an entry expires, the gate goes red again: drop the entry if a patch has shipped, otherwise re-check it and extend.

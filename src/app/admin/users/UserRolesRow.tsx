@@ -10,6 +10,8 @@ import {
 } from "@/modules/admin/user-actions";
 import { useSignIn } from "@/components/auth/SignInContext";
 import { wasMfaRequired } from "@/lib/mfa-error";
+import type { RoleRefusal } from "@/modules/admin/user-actions";
+import { LeaderInvitePanel } from "./LeaderInvitePanel";
 
 /** Admins get username/state/roles only; email, name, city and county are
  *  filled for the owner alone (0310). */
@@ -31,10 +33,13 @@ export function UserRolesRow({
   user,
   callerIsOwner,
   callerUserId,
+  invite = null,
 }: {
   user: UserRow;
   callerIsOwner: boolean;
   callerUserId: string;
+  /** An open leader invite and what it still waits on (owner view only). */
+  invite?: { line: string } | null;
 }) {
   const { requireMfa } = useSignIn();
   const [isAdmin, setIsAdmin] = useState(user.is_admin);
@@ -43,22 +48,25 @@ export function UserRolesRow({
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [tempModal, setTempModal] = useState<{ password: string; email: string } | null>(null);
+  const [refusal, setRefusal] = useState<RoleRefusal | null>(null);
 
   const isSelf = user.id === callerUserId;
   const label = user.email ?? (user.username ? `@${user.username}` : "this member");
 
-  async function doSave(): Promise<{ ok: boolean; error?: string }> {
+  async function doSave(): Promise<{ ok: boolean; error?: string; refusal?: RoleRefusal }> {
     const result = await setUserRoles({
       userId: user.id,
       isAdmin,
       isLeader,
       isOwner: callerIsOwner ? isOwner : undefined,
     });
-    return result.error ? { ok: false, error: result.error } : { ok: true };
+    if (!result.error) return { ok: true };
+    return { ok: false, error: result.error, refusal: "refusal" in result ? result.refusal : undefined };
   }
 
   function save() {
     setMsg(null);
+    setRefusal(null);
     startTransition(async () => {
       let result = await doSave();
       // MFA step-up: open the in-page modal instead of redirecting.
@@ -77,7 +85,13 @@ export function UserRolesRow({
         }
         result = await doSave();
       }
-      if (!result.ok) {
+      if (!result.ok && result.refusal) {
+        // A refused leader promotion gets the full-width panel, not a line.
+        setRefusal(result.refusal);
+        setIsAdmin(user.is_admin);
+        setIsLeader(user.is_advocate_leader);
+        setIsOwner(user.is_owner);
+      } else if (!result.ok) {
         setMsg(`✗ ${result.error}`);
         setIsAdmin(user.is_admin);
         setIsLeader(user.is_advocate_leader);
@@ -156,7 +170,11 @@ export function UserRolesRow({
     }
   }
 
+  const who = user.username ? `@${user.username}` : "This member";
+  const showPanel = !!refusal || !!invite;
+
   return (
+    <>
     <tr>
       <td className="p-3">
         <div className="flex items-center gap-2">
@@ -276,6 +294,20 @@ export function UserRolesRow({
         )}
       </td>
     </tr>
+    {showPanel && (
+      <tr>
+        <td colSpan={4} className="px-3 pb-3">
+          <LeaderInvitePanel
+            userId={user.id}
+            who={who}
+            refusal={refusal}
+            openInvite={refusal ? null : invite}
+            onClose={() => setRefusal(null)}
+          />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 

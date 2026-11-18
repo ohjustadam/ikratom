@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { canEditCampaign } from "@/modules/admin/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { computePriority } from "@/lib/campaign-priority";
 import { AdminCampaignTable, type AdminCampaignRow } from "./AdminCampaignTable";
@@ -17,7 +18,7 @@ export default async function AdminCampaignsPage() {
   const supabase = await createClient();
   const { data: campaigns } = await supabase
     .from("campaigns")
-    .select("id, slug, title, state, active, auto_generated, created_at, bill_id");
+    .select("id, slug, title, state, active, auto_generated, created_at, bill_id, created_by, review_state");
   const list = campaigns ?? [];
 
   // Per-campaign action signals (all-time, 14d, 60d) — paged past the 1k cap.
@@ -76,6 +77,8 @@ export default async function AdminCampaignsPage() {
     return {
       id: c.id, slug: c.slug, title: c.title, state: c.state, active: c.active,
       auto_generated: !!c.auto_generated, actionsAll: all[c.id] ?? 0, actions14d: recent[c.id] ?? 0, score, tier,
+      canEdit: canEditCampaign(ctx.permissions, ctx.userId, c.created_by as string | null),
+      inReview: !c.active && c.review_state === "pending_review",
     };
   });
 

@@ -1,4 +1,5 @@
 import Link from "@/components/Link";
+import { CALL_BADGES } from "@/modules/calls/call-badges";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listMyCalls, listMyAchievements } from "@/modules/calls/actions";
@@ -14,12 +15,7 @@ const OUTCOME_META: Record<string, { label: string; tone: string; emoji: string 
   no_answer: { label: "No answer", tone: "text-zinc-400", emoji: "⌛" },
 };
 
-const BADGE_META: Record<string, { emoji: string; title: string }> = {
-  first_call: { emoji: "🎉", title: "First call" },
-  capital_seven: { emoji: "🏛️", title: "Capital Seven" },
-  coast_to_coast: { emoji: "🗺️", title: "Coast to Coast" },
-  century_club: { emoji: "💯", title: "Century Club" },
-};
+const BADGE_META = CALL_BADGES;
 
 function formatDur(seconds: number | null | undefined): string {
   if (!seconds) return "—";

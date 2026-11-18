@@ -175,10 +175,15 @@ function ForLeaders() {
     <section className="mt-12 rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-6 text-center">
       <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">For organizers and leaders</p>
       <h2 className="mt-2 text-xl font-bold">There&apos;s a separate playbook for advocate leaders.</h2>
-      <p className="mt-2 text-sm text-zinc-300">Writing campaigns, scheduling waves, local ordinances, events and research briefings.</p>
-      <a href="/how-it-works/for-leaders" className="mt-4 inline-block rounded-md border border-emerald-700/50 bg-emerald-950/30 px-5 py-2 text-sm font-semibold text-emerald-300 hover:border-emerald-500">
-        Read the leader playbook →
-      </a>
+      <p className="mt-2 text-sm text-zinc-300">Writing campaigns, scheduling waves, local officials, keeping the forum safe and signing people up.</p>
+      <div className="mt-4 flex flex-wrap justify-center gap-3">
+        <a href="/how-it-works/for-leaders" className="inline-block rounded-md border border-emerald-700/50 bg-emerald-950/30 px-5 py-2 text-sm font-semibold text-emerald-300 hover:border-emerald-500">
+          Read the leader playbook →
+        </a>
+        <a href="/roles" className="inline-block rounded-md border border-zinc-700 px-5 py-2 text-sm font-semibold text-zinc-200 hover:border-emerald-500">
+          Roles &amp; badges →
+        </a>
+      </div>
     </section>
   );
 }
