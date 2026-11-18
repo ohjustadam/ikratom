@@ -2,6 +2,7 @@ import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
+  alternates: { canonical: "/coalitions" },
   title: "Coalitions — multi-advocate teams",
   description:
     "Coordinate with other advocates in your state. Create a coalition, invite teammates, share intel and strategy.",

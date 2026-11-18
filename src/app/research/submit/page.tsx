@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SubmitResearchForm } from "./SubmitResearchForm";
 
 export const metadata = {
-  title: "Submit research — iKratom",
+  title: "Submit research",
   description: "Advocate leaders can paste a research-paper URL and we'll add it to the public kratom research library.",
 };
 export const dynamic = "force-dynamic";

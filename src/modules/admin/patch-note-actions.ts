@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
 import { recordAdminAction } from "@/lib/audit";
 import { publishBlocklistMatches } from "../../../scripts/lib/changelog-safety.mjs";
+import { ledgerBlockReason } from "./patch-note-ledger";
 
 /**
  * Curate the public changelog (`patch_notes`, migration 0250).
@@ -137,13 +138,16 @@ export async function setPatchNoteStatus(input: {
   if (input.publish) {
     const { data: note, error: readError } = await supabase
       .from("patch_notes")
-      .select("title, summary, body_md")
+      .select("id, title, summary, body_md")
       .eq("slug", slug)
       .maybeSingle();
     if (readError) return { error: readError.message };
     if (!note) return { error: "Note not found." };
     const blocked = publishBlockReason(note);
     if (blocked) return { error: blocked };
+    // The ledger items and number tiles go public with the note (migration 0323).
+    const ledgerBlocked = await ledgerBlockReason(supabase, note.id as string);
+    if (ledgerBlocked) return { error: ledgerBlocked };
   }
 
   const { error } = await supabase

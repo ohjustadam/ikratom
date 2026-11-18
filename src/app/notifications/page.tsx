@@ -2,8 +2,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listNotifications } from "@/modules/notifications/actions";
 import { NotificationList } from "./NotificationList";
+import { NOINDEX } from "@/lib/seo";
 
-export const metadata = { title: "Notifications" };
+export const metadata = { title: "Notifications", robots: NOINDEX };
 
 export default async function NotificationsPage() {
   const supabase = await createClient();

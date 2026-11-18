@@ -13,7 +13,7 @@ import { httpUrlOrNull } from "@/modules/compose/send-links";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
-  title: "My District — your reps + your top action · iKratom",
+  title: "My District — your reps + your top action",
   description: "Your state's kratom + 7-OH status, the single highest-priority action in your area, and your local representatives — in one place.",
 };
 

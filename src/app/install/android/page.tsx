@@ -1,6 +1,7 @@
 import Link from "@/components/Link";
 
 export const metadata = {
+  alternates: { canonical: "/install/android" },
   title: "Install iKratom on Android",
 };
 

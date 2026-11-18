@@ -19,7 +19,10 @@
  *   node scripts/generate-patch-note.mjs --db               # + upsert a DRAFT row
  *
  * --db upserts the same draft into the `patch_notes` table (migration 0250)
- * with status='draft'. That is how the daily and weekly crons draft now: a row
+ * with status='draft', and drafts its ledger items into `patch_note_items`
+ * (migration 0323): one row per public feat/fix/perf commit, with an area and
+ * type suggested from the commit scope. The owner corrects both at
+ * /admin/whats-new. That is how the daily and weekly crons draft now: a row
  * costs nothing, a merged .md costs a 15-credit Netlify build. The row is NOT
  * public until an admin presses Publish at /admin/whats-new — the curation
  * step below is the reason, and --db does not skip it.
@@ -28,6 +31,7 @@ import { execSync } from "node:child_process";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { classifyCommit, cleanSubject } from "./lib/changelog-safety.mjs";
+import { draftItem } from "./lib/patch-note-draft.mjs";
 
 const args = process.argv.slice(2);
 const sinceIdx = args.indexOf("--since");
@@ -40,7 +44,7 @@ if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 let log;
 try {
   log = execSync(
-    `git log --since="${since}" --pretty=format:"%H%x09%s%x09%b%x1e" --reverse`,
+    `git log --since="${since}" --pretty=format:"%H%x09%cI%x09%s%x09%b%x1e" --reverse`,
     { encoding: "utf8" },
   );
 } catch (e) {
@@ -53,8 +57,8 @@ const commits = log
   .map((block) => block.trim())
   .filter(Boolean)
   .map((block) => {
-    const [hash, subject, ...rest] = block.split("\t");
-    return { hash, subject, body: rest.join("\t") };
+    const [hash, date, subject, ...rest] = block.split("\t");
+    return { hash, date, subject, body: rest.join("\t") };
   });
 
 if (commits.length === 0) {
@@ -69,21 +73,26 @@ if (commits.length === 0) {
 // never shipped raw: two past leaks (PR #691) came from publishing it verbatim.
 const feats = [];
 const fixes = [];
+const faster = [];
+const items = []; // ledger rows for patch_note_items, drafted from the same public commits
 const held = []; // sensitive: written to a gitignored sidecar + console, never published
 
 for (const c of commits) {
   const klass = classifyCommit(c.subject);
   if (klass === "security") { held.push({ ...c, reason: "security" }); continue; }
   if (klass === "held") { held.push({ ...c, reason: "sensitive term" }); continue; }
-  // Only feat: and fix: can be something a member sees. Everything else stays
-  // out and is not mentioned either: What's New is for changes members can see
-  // (owner, 2026-11-06).
-  const m = cleanSubject(c.subject).match(/^(feat|fix)(?:\([^)]+\))?:\s*(.*)/i);
+  // Only feat:, fix: and perf: can be something a member sees. Everything else
+  // stays out and is not mentioned either: What's New is for changes members
+  // can see (owner, 2026-11-06).
+  const m = cleanSubject(c.subject).match(/^(feat|fix|perf)(?:\([^)]+\))?:\s*(.*)/i);
   if (!m) continue;
-  (m[1].toLowerCase() === "feat" ? feats : fixes).push({ text: m[2] });
+  const kind = m[1].toLowerCase();
+  (kind === "feat" ? feats : kind === "fix" ? fixes : faster).push({ text: m[2] });
+  const item = draftItem(c.subject, c.date);
+  if (item) items.push(item);
 }
 
-if (feats.length + fixes.length === 0) {
+if (feats.length + fixes.length + faster.length === 0) {
   console.log(`Nothing member-facing since "${since}" (${held.length} held). Nothing to draft.`);
   // A quiet day is not a stopped job. Without this row the self-pager would
   // read an internal-only stretch as the draft job going silent.
@@ -131,11 +140,13 @@ const title = `Platform update — ${today.toLocaleDateString("en-US", { timeZon
 const sections = [];
 if (feats.length > 0) sections.push(`## ✨ New features\n\n${feats.map((c) => `- ${c.text}`).join("\n")}`);
 if (fixes.length > 0) sections.push(`## 🐛 Fixes\n\n${fixes.map((c) => `- ${c.text}`).join("\n")}`);
+if (faster.length > 0) sections.push(`## ⚡ Faster\n\n${faster.map((c) => `- ${c.text}`).join("\n")}`);
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const summary = `${[
   feats.length > 0 && plural(feats.length, "new feature", "new features"),
   fixes.length > 0 && plural(fixes.length, "fix", "fixes"),
+  faster.length > 0 && plural(faster.length, "speed-up", "speed-ups"),
 ].filter(Boolean).join(", ")}.`;
 
 const frontMatter = `---
@@ -183,7 +194,7 @@ if (wantDb) {
   // morning — exactly the leak class this script's header warns about.
   const { data: existing } = await sb
     .from("patch_notes")
-    .select("slug, status")
+    .select("id, slug, status")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -201,14 +212,27 @@ if (wantDb) {
       total_commits: commits.length,
       status: "draft",
     };
-    const { error } = existing
-      ? await sb.from("patch_notes").update(row).eq("slug", slug)
-      : await sb.from("patch_notes").insert(row);
+    const { data: saved, error } = existing
+      ? await sb.from("patch_notes").update(row).eq("slug", slug).select("id").single()
+      : await sb.from("patch_notes").insert(row).select("id").single();
     if (error) {
       console.error(`patch_notes write failed: ${error.message}`);
       status = "fail";
     } else {
       dbNote = `\n  patch_notes: ${existing ? "updated" : "inserted"} draft ${slug} — publish it at /admin/whats-new`;
+      // The draft's ledger items follow the draft: replaced on every run, like
+      // its body. Only reachable while the note is still a draft (the status
+      // check above), so curated items are never overwritten.
+      const del = await sb.from("patch_note_items").delete().eq("note_id", saved.id);
+      const ins = del.error
+        ? del
+        : items.length
+          ? await sb.from("patch_note_items").insert(items.map((it, sort) => ({ ...it, sort, note_id: saved.id })))
+          : { error: null };
+      // The note itself is drafted; the items are an extra. Say so, don't fail the run.
+      dbNote += ins.error
+        ? `\n  patch_note_items: not drafted (${ins.error.message})`
+        : `\n  patch_note_items: ${items.length} item(s) drafted. Check each area and type before publishing.`;
     }
   }
 
@@ -249,6 +273,6 @@ if (held.length > 0) {
 
 console.log(`\n✓ Draft written: ${path}`);
 if (dbNote) console.log(dbNote.replace(/^\n/, ""));
-console.log(`  ${feats.length} feat · ${fixes.length} fix · ${held.length} held out`);
+console.log(`  ${feats.length} feat · ${fixes.length} fix · ${faster.length} perf · ${held.length} held out`);
 if (heldNote) console.log(heldNote);
 console.log(`\nThis draft is a STARTING POINT — never publish raw commit subjects. Security, intel, and infra lines are held automatically; review the rest for user impact before committing.`);

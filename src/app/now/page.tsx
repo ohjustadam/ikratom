@@ -2,6 +2,7 @@ import Link from "@/components/Link";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
+  alternates: { canonical: "/now" },
   title: "Do this now — iKratom action panel",
   description:
     "One screen. One action. The single highest-leverage thing you can do for kratom advocacy in the next two minutes. Phone-first.",

@@ -3,7 +3,8 @@ import { PageShareWithAttribution } from "@/components/PageShareWithAttribution"
 import { ConnectHeroActions } from "./ConnectHeroActions";
 
 export const metadata = {
-  title: "Connect: groups, friends and your profile · iKratom",
+  alternates: { canonical: "/connect" },
+  title: "Connect: groups, friends and your profile",
   description:
     "Advocacy is easier together. Start or join a local group, add friends, and choose exactly who sees what. Free, @username only.",
 };

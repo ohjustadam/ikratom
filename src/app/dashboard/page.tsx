@@ -33,6 +33,7 @@ import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 import Link from "@/components/Link";
 import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
+import { NOINDEX } from "@/lib/seo";
 /**
  * /dashboard — the cockpit.
  *
@@ -45,7 +46,7 @@ import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
  * Replay tour button (in /account) resets onboarded_at so the tour
  * fires again next visit.
  */
-export const metadata = { title: "Dashboard" };
+export const metadata = { title: "Dashboard", robots: NOINDEX };
 
 export default async function DashboardPage({
   searchParams,

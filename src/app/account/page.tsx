@@ -19,8 +19,9 @@ import { PushSubscribe } from "@/modules/auth/components/PushSubscribe";
 import { getDiscordLink } from "@/modules/auth/actions-discord";
 import { DiscordConnect } from "@/modules/auth/components/DiscordConnect";
 import { AccessLevelCard } from "@/modules/auth/components/AccessLevelCard";
+import { NOINDEX } from "@/lib/seo";
 
-export const metadata = { title: "Account" };
+export const metadata = { title: "Account", robots: NOINDEX };
 
 /**
  * /account — settings hub.

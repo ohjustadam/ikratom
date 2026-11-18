@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getAdminContext } from "@/modules/admin/actions";
 import { AdminChatUI } from "./AdminChatUI";
 
-export const metadata = { title: "Admin chatbot — iKratom" };
+export const metadata = { title: "Admin chatbot" };
 export const dynamic = "force-dynamic";
 
 /**

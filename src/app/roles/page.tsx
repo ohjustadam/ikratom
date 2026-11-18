@@ -6,7 +6,8 @@ import { CALL_BADGES } from "@/modules/calls/call-badges";
 import { GROUP_BADGES } from "@/modules/coalitions/home";
 
 export const metadata = {
-  title: "Roles & badges · iKratom",
+  alternates: { canonical: "/roles" },
+  title: "Roles & badges",
   description:
     "What Members, Advocate Leaders, Admins and the Owner can do on iKratom, how to become a leader, and what every badge and mark means.",
 };

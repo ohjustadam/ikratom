@@ -3,6 +3,7 @@ import { getContent } from "@/lib/editable-content";
 import { donateConfig } from "@/config/donate.config";
 
 export const metadata = {
+  alternates: { canonical: "/donate" },
   title: "Support iKratom",
   description:
     "iKratom is free and runs entirely on community donations. Chip in via Cash App or PayPal to keep the platform online and improving.",

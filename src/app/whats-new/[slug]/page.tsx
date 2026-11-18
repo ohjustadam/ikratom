@@ -2,6 +2,9 @@ import { marked } from "marked";
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { getPatchNote, patchNoteFileSlugs } from "@/lib/patch-notes";
+import Scoreboard from "./Scoreboard";
+import AreaBars from "./AreaBars";
+import Ledger from "./Ledger";
 
 /**
  * A patch note, from either source (see src/lib/patch-notes.ts).
@@ -59,10 +62,13 @@ export default async function PatchNotePage({ params }: { params: Promise<{ slug
   const note = await getPatchNote(slug);
   if (!note) notFound();
 
-  const html = await marked.parse(note.bodyMd, { gfm: true, breaks: false });
+  // A note with ledger items (migration 0323) shows the scoreboard and the
+  // ledger. Every other note renders its markdown exactly as before.
+  const ledger = note.items.length > 0;
+  const html = ledger ? "" : await marked.parse(note.bodyMd, { gfm: true, breaks: false });
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+    <div className={`mx-auto px-4 py-10 sm:px-6 lg:px-8 ${ledger ? "max-w-5xl" : "max-w-3xl"}`}>
       <Link href="/whats-new" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← What&apos;s new
       </Link>
@@ -76,7 +82,24 @@ export default async function PatchNotePage({ params }: { params: Promise<{ slug
         )}
         {note.summary && <p className="mt-3 text-sm text-zinc-300">{note.summary}</p>}
       </header>
-      <article className="briefing-md" dangerouslySetInnerHTML={{ __html: html }} />
+      {ledger ? (
+        <>
+          <Scoreboard items={note.items} figures={note.figures} />
+          <AreaBars items={note.items} />
+          <Ledger items={note.items} />
+          <p className="mt-6 border-t border-zinc-800 pt-4 text-xs text-zinc-500">
+            &ldquo;Member report&rdquo; marks a change that started with something a member
+            told us. Member names never appear. PR numbers link to the public code history.
+            Spot something off? Send it from the{" "}
+            <Link href="/feedback" className="text-emerald-400 hover:underline">
+              Feedback
+            </Link>{" "}
+            page.
+          </p>
+        </>
+      ) : (
+        <article className="briefing-md" dangerouslySetInnerHTML={{ __html: html }} />
+      )}
     </div>
   );
 }

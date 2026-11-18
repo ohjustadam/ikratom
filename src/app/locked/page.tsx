@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/modules/auth/components/SignOutButton";
+import { NOINDEX } from "@/lib/seo";
 
-export const metadata = { title: "Account suspended" };
+export const metadata = { title: "Account suspended", robots: NOINDEX };
 export const dynamic = "force-dynamic";
 
 /**

@@ -1,0 +1,41 @@
+{
+  "slug": "2026-11-17-update",
+  "source": "Owner-approved mockup 'Showing the work' (2026-11-17): the 29 member-visible items and the member-facing figures. Behind-the-scenes rows, the update-run count and the files/lines line are left out by the 2026-11-06 rule.",
+  "items": [
+    { "merged_on": "2026-11-05", "pr": 1124, "area": "news", "type": "fix", "title": "Stories we couldn't open still reach your feed", "detail": "They show up with a note saying the full text couldn't be loaded.", "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1126, "area": "letters", "type": "new", "title": "New accounts can send 50 letters a day for their first 3 days", "detail": "A starting allowance that keeps brand-new accounts from being misused.", "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1129, "area": "bills", "type": "fix", "title": "A bill that became law no longer reads \"Dead\"", "detail": "Enacted bills keep their final status even when a later sync says otherwise.", "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1131, "area": "community", "type": "fix", "title": "Automatic bill updates share one thread per state", "detail": "Instead of a new thread for every bill.", "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1128, "area": "community", "type": "new", "title": "Lounge links outside our trusted list wait for a moderator", "detail": "Links to well-known sites post at once.", "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1134, "area": "letters", "type": "new", "title": "Write to reporters and researchers", "detail": "Reply to a story's or study's author at the address they published.", "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1132, "area": "letters", "type": "fix", "title": "Your letter gets its own subject line", "detail": "Officials no longer see the same subject from everyone.", "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1139, "area": "community", "type": "fix", "title": "The Lounge's new-message counter clears once you've seen the chat", "detail": null, "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1138, "area": "community", "type": "new", "title": "Edit or delete your own posts", "detail": "Group leaders can hide posts in their group.", "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1142, "area": "community", "type": "new", "title": "Members' posts show ahead of automatic bill updates", "detail": null, "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1140, "area": "community", "type": "new", "title": "Image posts and edits in groups", "detail": "Images only your group can see, and group stats that count from the day you joined.", "member_report": true },
+    { "merged_on": "2026-11-06", "pr": 1137, "area": "news", "type": "fix", "title": "A story with no text shows its headline", "detail": "Not a computer-written guess at what it says.", "member_report": false },
+    { "merged_on": "2026-11-06", "pr": 1141, "area": "letters", "type": "new", "title": "New officials count as not yet written", "detail": "A campaign shows you who still needs your letter after someone new takes office.", "member_report": false },
+    { "merged_on": "2026-11-10", "pr": 1144, "area": "bills", "type": "new", "title": "Bills from past sessions say so", "detail": "Instead of looking like they're still moving.", "member_report": false },
+    { "merged_on": "2026-11-10", "pr": 1147, "area": "account", "type": "fix", "title": "Confirmation links work in any browser or mail app", "detail": "They sign you straight in.", "member_report": false },
+    { "merged_on": "2026-11-10", "pr": 1145, "area": "bills", "type": "fix", "title": "A new bill no longer lands on an old bill's page", "detail": "When a state reuses a bill number, the two stay separate.", "member_report": false },
+    { "merged_on": "2026-11-10", "pr": 1146, "area": "community", "type": "fix", "title": "Your profile explains why others see you as \"Member\"", "detail": "And how to change it.", "member_report": true },
+    { "merged_on": "2026-11-11", "pr": 1148, "area": "account", "type": "new", "title": "We can reply to your feedback", "detail": "Replies arrive in your notifications and on your Your feedback page.", "member_report": false },
+    { "merged_on": "2026-11-11", "pr": 1149, "area": "speed", "type": "faster", "title": "Legislator pages load faster", "detail": null, "member_report": false },
+    { "merged_on": "2026-11-11", "pr": 1152, "area": "community", "type": "fix", "title": "Group posts hold 10,000 characters", "detail": "And members no longer see a Join button on Connect.", "member_report": true },
+    { "merged_on": "2026-11-16", "pr": 1151, "area": "speed", "type": "faster", "title": "News, bill, alert and meeting pages load faster", "detail": null, "member_report": false },
+    { "merged_on": "2026-11-16", "pr": 1153, "area": "letters", "type": "fix", "title": "Fresher contact details for state legislators", "detail": "Email, phone and office address refresh from official sources.", "member_report": true },
+    { "merged_on": "2026-11-16", "pr": 1154, "area": "bills", "type": "fix", "title": "Stalled bills stop reading \"Advancing fast\"", "detail": "And actions from the same day show in order.", "member_report": true },
+    { "merged_on": "2026-11-16", "pr": 1155, "area": "letters", "type": "fix", "title": "Mission patches awarded; resend after an address fix", "detail": "Patches you'd already earned were added.", "member_report": true },
+    { "merged_on": "2026-11-16", "pr": 1156, "area": "letters", "type": "fix", "title": "One-click sending finishes even if you leave the page", "detail": null, "member_report": true },
+    { "merged_on": "2026-11-16", "pr": 1133, "area": "bills", "type": "fix", "title": "Election results cover more races", "detail": "U.S. Senate races, Minnesota, Indiana and Florida.", "member_report": false },
+    { "merged_on": "2026-11-16", "pr": 1120, "area": "bills", "type": "fix", "title": "State bills stay off your local pending measures", "detail": null, "member_report": false },
+    { "merged_on": "2026-11-16", "pr": 1163, "area": "speed", "type": "faster", "title": "Pages start faster when you're not signed in", "detail": null, "member_report": false },
+    { "merged_on": "2026-11-16", "pr": 1167, "area": "bills", "type": "new", "title": "Votes show every legislator by name", "detail": "Each roll-call vote lists how each legislator voted and links to their page.", "member_report": true }
+  ],
+  "figures": [
+    { "key": "votes", "value": 19233, "label": "votes on record, by name", "detail": "404 roll calls · 48.9% → 96.9% of 2026 votes linked to a legislator" },
+    { "key": "bill_actions", "value": 548, "label": "new bill actions recorded", "detail": "Committee moves, votes, signatures" },
+    { "key": "officials", "value": 125, "label": "officials added", "detail": "State and local, from official sources" },
+    { "key": "alerts", "value": 64, "label": "news alerts reviewed", "detail": "1,553 in-app notifications to members" }
+  ]
+}

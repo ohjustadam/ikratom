@@ -1,6 +1,6 @@
 import { siteConfig } from "@/config/site.config";
 
-export const metadata = { title: "Cookie Policy" };
+export const metadata = { alternates: { canonical: "/cookies" }, title: "Cookie Policy" };
 
 export default function CookiesPage() {
   return (

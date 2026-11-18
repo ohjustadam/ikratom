@@ -2,6 +2,9 @@ import { Suspense } from "react";
 import Link from "@/components/Link";
 import { siteConfig } from "@/config/site.config";
 import { AuthForm } from "@/modules/auth/components/AuthForm";
+import { NOINDEX } from "@/lib/seo";
+
+export const metadata = { title: "Sign in", robots: NOINDEX };
 
 // Static: nothing here varies per visitor. AuthForm reads ?redirect= itself.
 export default function LoginPage() {

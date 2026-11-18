@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { unstable_cache } from "next/cache";
+import { jsonLdSafe } from "@/lib/jsonld";
+import { siteJsonLd } from "@/lib/seo";
 import { getCachedClaims } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import Link from "@/components/Link";
@@ -13,6 +16,15 @@ import { readLocale } from "@/modules/auth/actions-locale";
 import { getMessages } from "@/i18n/messages";
 
 export const dynamic = "force-dynamic";
+
+// The brand query "ikratom" lands here. The title leads with the name, the
+// canonical folds /?via=… invite links and ?utm_ variants into one URL, and
+// the JSON-LD below states the site name for Google (docs/SEO_BRAND.md).
+// No openGraph here: a child openGraph replaces the layout's whole object.
+export const metadata: Metadata = {
+  title: { absolute: "iKratom: the kratom advocate's toolbelt" },
+  alternates: { canonical: "/" },
+};
 
 /**
  * Home page — hybrid of the C ("action-first") + B ("recruitment / personal")
@@ -171,6 +183,7 @@ export default async function HomePage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdSafe(siteJsonLd()) }} />
       {/* International callout — only shows for non-English locales */}
       {isIntl && (
         <div className="mb-6 rounded-lg border border-amber-700/40 bg-amber-950/20 p-4 text-center text-sm text-amber-100">
