@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { recordAuthEvent } from "@/lib/auth-events";
+import { gmailConnectOpenFor } from "@/lib/email/gmail-cap";
 
 /**
  * Initiates the Google OAuth flow for Gmail send-on-behalf.
@@ -29,6 +30,19 @@ export async function GET(req: NextRequest) {
     });
     return NextResponse.redirect(
       new URL("/account?gmail_error=not_configured", process.env.APP_URL!)
+    );
+  }
+
+  // Google lets an unverified app reach only 100 people; past our stop line a
+  // newcomer would land on Google's error page, so send them back to the
+  // other one-click options instead (see gmail-cap.ts).
+  if (!(await gmailConnectOpenFor(user.id))) {
+    await recordAuthEvent({
+      kind: "oauth_start", provider: "gmail", status: "fail",
+      errorCode: "cap_reached", userId: user.id, email: user.email, ip, userAgent,
+    });
+    return NextResponse.redirect(
+      new URL("/account?gmail_error=cap_reached#integrations", process.env.APP_URL!)
     );
   }
 
