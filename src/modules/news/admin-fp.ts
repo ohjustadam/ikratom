@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 export type FPRow = {
@@ -122,6 +123,8 @@ export async function listFlaggedFPs(opts: {
 export async function unflagFP(id: string): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const sb = await createClient();
   const { data: item } = await sb.from("news_items")
@@ -159,6 +162,8 @@ export async function unflagFP(id: string): Promise<{ ok: true } | { error: stri
 export async function deactivateFP(id: string): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const sb = await createClient();
   const { data: item } = await sb.from("news_items")

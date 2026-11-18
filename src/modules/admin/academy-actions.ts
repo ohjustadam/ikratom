@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { recordAdminAction } from "@/lib/audit";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 
 /**
  * Academy authoring/publish actions (admin only). Content lives in academy_*
@@ -31,6 +32,8 @@ export async function setAcademyStatus(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
   const table = TABLE[input.kind];
   if (!table || !UUID_RE.test(input.id) || !["draft", "published"].includes(input.status)) {
     return { ok: false, error: "Invalid request." };
@@ -51,6 +54,8 @@ export async function setCourseTreeStatus(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
   if (!UUID_RE.test(input.courseId) || !["draft", "published"].includes(input.status)) {
     return { ok: false, error: "Invalid request." };
   }
@@ -75,6 +80,8 @@ export async function updateLesson(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
   if (!UUID_RE.test(input.id)) return { ok: false, error: "Invalid lesson." };
   const sb = await createClient();
   const { error } = await sb.from("academy_lessons").update({
@@ -97,6 +104,8 @@ export async function updateQuestion(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   const ctx = await getAdminContext({ require: "edit_academy" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
   if (!UUID_RE.test(input.id)) return { ok: false, error: "Invalid question." };
   if (!Array.isArray(input.choices) || input.choices.length < 2) return { ok: false, error: "Need at least 2 choices." };
   if (input.correctIndex < 0 || input.correctIndex >= input.choices.length) return { ok: false, error: "Correct index out of range." };

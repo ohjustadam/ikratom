@@ -24,6 +24,7 @@
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "./mfa";
 import { suggestLocalOfficials, type SuggestedOfficial } from "@/lib/ai/suggest-officials";
 import { friendlyGroundingError } from "@/lib/ai/grounding-errors";
 import { verifyOfficialAgainstSource } from "@/lib/local-reps-verify";
@@ -158,6 +159,8 @@ export async function acceptSelectedOfficials(input: {
 }): Promise<AcceptSelectedResult> {
   const ctx = await getCreatorContext({ require: "add_local_officials" });
   if (!ctx.ok) return { ok: false, error: "Sign in as an admin or advocate leader." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   const stateRaw = input.state.trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(stateRaw)) return { ok: false, error: "Invalid state." };
