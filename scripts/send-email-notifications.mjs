@@ -36,6 +36,7 @@ import { sendEmail, remainingToday, providerSummary, unsubscribeUrl } from "./li
 import { renderDigest, renderMeetingAlert, renderAnnouncement } from "./lib/email-render.mjs";
 import { isDeliverable, digestHearings } from "./lib/email-select.mjs";
 import { dedupeStories } from "./lib/story-dedupe.mjs";
+import { SECTIONS, DIGEST_KINDS, dedupeByLink } from "./lib/digest-sections.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
@@ -74,18 +75,7 @@ if (!SOURCE) { console.error(`unknown --mode ${MODE}`); process.exit(2); }
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const startedAt = new Date().toISOString();
 
-// Notification kinds that belong in a member's email, by section. Anything
-// not listed (admin queues, security notices, internal tooling) never emails.
-const SECTIONS = [
-  { title: "Mentioned you", kinds: ["mention"] },
-  // The team answered their feedback (/admin/feedback reply, 2026-11-10).
-  { title: "Replies to your feedback", kinds: ["feedback_reply"] },
-  { title: "Action needed", kinds: ["policy_alert", "new_campaign", "voting_reminder"] },
-  { title: "Your state", kinds: ["state_news"] },
-  { title: "Around the country", kinds: ["national_news"] },
-  { title: "From iKratom", kinds: ["briefing", "whats_new", "reps_added"] },
-];
-const DIGEST_KINDS = SECTIONS.flatMap((s) => s.kinds);
+// Which notification kinds email, by section: scripts/lib/digest-sections.mjs.
 const MEETING_COLS = "id, state, locality, body_name, meeting_at, format, zoom_url, livestream_url, agenda_url, public_comment_signup_url, public_comment_deadline";
 
 async function lastSuccess(source) {
@@ -182,7 +172,7 @@ async function runDigest() {
     const from = u.weekly ? weekAgo : since;
     const mine = (notes.get(u.id) ?? []).filter((n) => n.created_at > from && !(n.kind === "whats_new" && emailedLinks.has(n.link)));
     const sections = [{ title: "Hearings and meetings (every state)", meetings: digestHearings(meetings, from, now) },
-      ...SECTIONS.map((s) => ({ title: s.title, items: dedupeStories(mine.filter((n) => s.kinds.includes(n.kind))) }))];
+      ...SECTIONS.map((s) => { const mineHere = mine.filter((n) => s.kinds.includes(n.kind)); return { title: s.title, items: s.dedupe === "link" ? dedupeByLink(mineHere) : dedupeStories(mineHere) }; })];
     const msg = renderDigest({ username: u.username, sections, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), briefLink: "/brief", via: VIA && "digest" });
     if (msg.count === 0) continue; // nothing new: send nothing
     queue.push({ user: u, msg: { ...msg, tag: "digest", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } });

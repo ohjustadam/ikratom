@@ -394,8 +394,33 @@ outside the group gets a read-only view, and Handled in
 (`groupRemoval()`). Chat lines and resources have no soft delete, so organizers
 remove those.
 
+**Group notifications (checked end to end 2026-11-17).** Every notice is an
+ordinary `notifications` row, so push (the fan-out cron, by each member's
+cadence and quiet hours) and the email digest follow the inbox. The digest's
+"Your groups" section is built but **OFF** until the 12-05 build ships the
+setting that mutes it: `GROUPS_IN_DIGEST` in `scripts/lib/digest-sections.mjs`,
+flipped to `true` by the trunk in that build's merge window.
+
+| Event | Who gets it | Kind | Muted by "Your groups"? |
+|---|---|---|---|
+| New discussion | every other member | `coalition_discussion` | yes |
+| Reply | the thread's earlier posters | `coalition_discussion` | yes |
+| New event, reminders | members; RSVPs for reminders | `coalition_event` | yes |
+| Group action picked | members | `coalition_action` | yes |
+| Chat @mention | the named member, if in the group | `mention` | no |
+| Join request, approval | organizers; the requester | `coalition_join_request` | no |
+
+The toggle is `notification_preferences.notify_groups` (0327), enforced by the
+SQL before-insert gate, so a muted member gets no row, no push and no email.
+`tests/group-notifications.test.ts` scans the code for every group kind and fails
+if one skips the digest or the toggle.
+
+**Fewer clicks.** Start a group from the name box on `/coalitions`, then land on
+it. The header's ✍ Post opens the board composer with the cursor in it, and the
+title is optional (`threadTitle()`: the first line stands in).
+
 Not built yet: editing an event's time (cancel and re-post), and a real cover
-photo.
+photo. Ideas, ranked: `private/SOCIAL_IDEAS.md`.
 
 ---
 

@@ -10,6 +10,8 @@ import { GROUP_POST_MAX, GROUP_TITLE_MAX } from "@/modules/coalitions/limits";
 /**
  * "Start a discussion" for a coalition's private board. The welcome checklist
  * opens it pre-filled: a member's hello, or an organizer's pinned welcome post.
+ * The header's Post button opens it empty. The title is optional
+ * (threadTitle): the first line of the message stands in for it.
  */
 export function NewThreadForm({ slug, prefill }: {
   slug: string;
@@ -51,7 +53,7 @@ export function NewThreadForm({ slug, prefill }: {
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         maxLength={GROUP_TITLE_MAX}
-        placeholder="Topic, e.g. Hearing on HB 123 next Tuesday"
+        placeholder="Topic (optional: your first line is used)"
         aria-label="Discussion title"
         className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
       />
@@ -59,6 +61,7 @@ export function NewThreadForm({ slug, prefill }: {
         value={body}
         onChange={(e) => setBody(e.target.value)}
         rows={4}
+        autoFocus={!!prefill && !prefill.title && !prefill.body}
         placeholder="What do you want the group to know or do?"
         aria-label="Discussion message"
         className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"

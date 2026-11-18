@@ -6,12 +6,14 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { looksLikeLink } from "@/lib/moderation";
 import { sellingIssue } from "@/lib/selling";
 import { accountAgeHours } from "@/modules/auth/trust-tier";
+import { notifyGroupChatMentions } from "@/modules/chat/mentions";
 
 /**
  * Live group chat (migration 0291, B4 e). Writes go through the USER's
  * client, so RLS is what proves membership; the checks here only return a
  * readable error. No push per message: a busy chat would buzz every phone in
- * the group, so chat is pull-only (the board and events still notify).
+ * the group, so chat is pull-only (the board and events still notify). The
+ * one exception is an @mention, which notifies that member (2026-11-17).
  *
  * Throttle: 10 lines a minute and 300 a day per member, plus the Lounge's
  * stuck-key and double-send guards.
@@ -64,6 +66,20 @@ export async function postGroupChat(coalitionId: string, text: string): Promise<
   const { error } = await supabase.from("coalition_chat_messages")
     .insert({ coalition_id: coalitionId, user_id: user.id, body });
   if (error) return { ok: false, error: "Only members of this group can chat here." };
+
+  // @mentions notify once the line is posted. Capped at 4 s like the Lounge:
+  // the inbox row goes first and the regular push sweep covers a slow push.
+  if (body.includes("@")) {
+    try {
+      const { data: me } = await supabase.from("profiles").select("username").eq("id", user.id).maybeSingle();
+      await Promise.race([
+        notifyGroupChatMentions({ senderId: user.id, senderUsername: me?.username ?? null, coalitionId, body }),
+        new Promise((resolve) => setTimeout(resolve, 4000)),
+      ]);
+    } catch (e) {
+      console.error("group chat mention notify failed:", e instanceof Error ? e.message : e);
+    }
+  }
   return { ok: true };
 }
 
