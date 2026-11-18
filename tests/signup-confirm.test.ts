@@ -15,6 +15,7 @@ import {
   SIGNUP_SENT_MESSAGE,
   authLinkFailurePath,
   classifySignUp,
+  isEmailCapacityError,
   parseAuthNotice,
 } from "@/modules/auth/signup-outcome";
 import {
@@ -48,6 +49,25 @@ describe("classifySignUp", () => {
     expect(
       classifySignUp({ error: { message: "For security purposes, you can only request this after 26 seconds." }, user: null }),
     ).toBe("wait");
+  });
+
+  it("the project-wide email cap is 'capacity', never 'wait' (Supabase rolled the signup back)", () => {
+    // Same code as the per-address refusal; only the message tells them apart.
+    expect(classifySignUp({ error: { code: "over_email_send_rate_limit", message: "Email rate limit exceeded" }, user: null })).toBe("capacity");
+    // Resend's daily quota gone: Supabase answers 500 and keeps nothing.
+    expect(classifySignUp({ error: { code: "unexpected_failure", message: "Error sending confirmation email" }, user: null })).toBe("capacity");
+    expect(isEmailCapacityError({ message: "For security purposes, you can only request this after 26 seconds." })).toBe(false);
+    expect(isEmailCapacityError(null)).toBe(false);
+  });
+
+  it("the signup action holds a capacity signup instead of telling people to check an empty inbox", () => {
+    const src = readFileSync("src/modules/auth/actions.ts", "utf8");
+    expect(src).toMatch(/kind === "capacity"[\s\S]{0,200}queueSignupAfterEmailCap/);
+    // The queued-link sender must use a signup link: a magiclink wipes the password (proven 2026-11-17).
+    const job = readFileSync("scripts/send-queued-signup-links.mjs", "utf8");
+    expect(job).toMatch(/generateLink\(\{ type: "signup"/);
+    expect(job).not.toMatch(/type: "magiclink"/);
+    expect(readFileSync(".github/workflows/cron-hourly.yml", "utf8")).toContain("scripts/send-queued-signup-links.mjs");
   });
 
   it("'User already registered' (autoconfirm projects) is 'existing_confirmed'", () => {

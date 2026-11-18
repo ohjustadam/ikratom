@@ -106,7 +106,11 @@ export function SignInModal({ open, onClose, onSignedIn }: Props) {
             return;
           }
           if (r.needsConfirmation) {
-            setConfirmation("Account created. Check your inbox for the confirmation email — once you click the link, come back here and sign in.");
+            setConfirmation(
+              r.queued
+                ? "Account created. A lot of people are joining right now, so your confirmation email is queued and should arrive within a few hours. Once you click the link, come back here and sign in."
+                : "Account created. Check your inbox for the confirmation email — once you click the link, come back here and sign in.",
+            );
             setMode("signin");
             return;
           }

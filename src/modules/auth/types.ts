@@ -1,6 +1,15 @@
 export type AuthResult =
-  | { success: true; error?: never; hint?: never; errorCode?: never }
-  | { error: string; hint?: string; errorCode?: string | null; success?: never };
+  | {
+      success: true;
+      /** Signup only: Supabase returned a session (email confirmation is off), so go straight in. */
+      signedIn?: boolean;
+      /** Signup only: the account exists, its confirmation email is queued behind a rush. */
+      queued?: boolean;
+      error?: never;
+      hint?: never;
+      errorCode?: never;
+    }
+  | { error: string; hint?: string; errorCode?: string | null; success?: never; signedIn?: never; queued?: never };
 
 export type Profile = {
   id: string;
