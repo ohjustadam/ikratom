@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { startLeaderTourReplay } from "./LeaderTourController";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 

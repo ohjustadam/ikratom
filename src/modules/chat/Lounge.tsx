@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { RoleTag } from "@/components/RoleTag";
-import { publicHandle } from "@/lib/public-handle";
+import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
 import { createClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { postChatMessage, deleteChatMessage, type ChatMessage } from "./actions";
@@ -25,7 +25,7 @@ import { useLoungeSeen } from "./use-lounge-seen";
  * the error if it bounces.
  */
 
-type Author = { id: string; name: string; isAdmin: boolean };
+type Author = { id: string; name: string; isAdmin: boolean; role?: PublicRole | null };
 
 export function Lounge({
   room,
@@ -37,14 +37,14 @@ export function Lounge({
 }: {
   room: string;
   initial: ChatMessage[];
-  authors: Record<string, { name: string; isAdmin: boolean }>;
+  authors: Record<string, { name: string; isAdmin: boolean; role?: PublicRole | null }>;
   me: { id: string; name: string } | null;
   isAdmin: boolean;
   signedIn: boolean;
 }) {
   const myUsername = useChromeMe().username?.toLowerCase() ?? null;
   const [messages, setMessages] = useState<ChatMessage[]>(initial);
-  const [authorMap, setAuthorMap] = useState<Record<string, { name: string; isAdmin: boolean }>>(authors);
+  const [authorMap, setAuthorMap] = useState<Record<string, { name: string; isAdmin: boolean; role?: PublicRole | null }>>(authors);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [presenceCount, setPresenceCount] = useState<number>(1);
@@ -92,12 +92,12 @@ export function Lounge({
           if (m.user_id && !(m.user_id in authorMap)) {
             supabase
               .rpc("get_public_profile", { p_id: m.user_id })
-              .then((res: { data: { id: string; username: string | null; state: string | null; is_admin: boolean | null }[] | null }) => {
+              .then((res: { data: { id: string; username: string | null; state: string | null; is_admin: boolean | null; is_advocate_leader?: boolean | null }[] | null }) => {
                 const row = res.data?.[0];
                 if (cancelled || !row) return;
                 setAuthorMap((cur) => ({
                   ...cur,
-                  [row.id]: { name: publicHandle(row), isAdmin: !!row.is_admin },
+                  [row.id]: { name: publicHandle(row), isAdmin: !!row.is_admin, role: publicRole(row) },
                 }));
               }, () => { /* RPC failed (e.g. network) — name stays "…"; non-fatal, but handle the rejection so it isn't unhandled */ });
           }
@@ -235,7 +235,7 @@ export function Lounge({
                 } hover:underline`}
               >
                 {author?.name ?? "…"}
-                <RoleTag role={author?.isAdmin ? "admin" : null} />
+                <RoleTag role={author?.role ?? (author?.isAdmin ? "admin" : null)} />
               </a>
               <span className="text-zinc-600">:</span>
               <span className="min-w-0 flex-1 break-words text-zinc-200"><MentionText body={m.body} me={myUsername} /></span>

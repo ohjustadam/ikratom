@@ -332,3 +332,18 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 - **An assembly number is exact,** even for its one-year special session. Widening "108th Legislature 1st Special Session" (2024) would let the 109th's 2025 bills through.
 
 **Why:** 12 Illinois rows, NE LB 972 and TN HB 861 showed unrelated newer bills. Run on today's 120 live rows, the rule blocks exactly the two live ones and nothing else.
+
+## Leader campaigns always go to review; the owner's tag reads Admin (2026-11-17)
+
+**Decision:** a campaign written by anyone without `approve_campaigns` (leaders included) is saved inactive and `pending_review`, with the AI screen's verdict attached for the reviewer. Admins and the owner skip review. On public surfaces the owner's role tag reads **Admin**, not Owner.
+
+- **Review for every leader campaign.** The AI screen is a free model and can be wrong both ways, and a campaign sends letters to real officials in members' names. A human look costs an admin one click.
+- **Owner shows as Admin.** One account holds every key. Labelling it publicly makes it the obvious target for phishing and pressure, and members gain nothing from knowing which admin it is. `publicRole()` maps owner to "admin".
+
+**Why:** the owner asked for roles to be current and visible (2026-11-17). Leaders couldn't save a campaign at all from #847 until this fix, so there was no live behaviour to preserve.
+
+## Leader promotion waits for verification; the owner invites instead (2026-11-17)
+
+**Decision:** `verifyUserForPromotion` still refuses a leader who lacks a confirmed email, 48 hours of account age, two-step sign-in or a full mailing address. The refusal now lists what's missing, and the owner can send an invite. The role turns on by itself once the member is verified, without the owner checking back.
+
+**Why:** a promotion for a member who hadn't set up two-step sign-in was refused with a one-line error the owner missed. Lowering the bar would hand moderation powers to unverified accounts. An invite keeps the bar and removes the follow-up.

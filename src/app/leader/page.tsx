@@ -119,7 +119,7 @@ export default async function LeaderPage() {
       </div>
 
       <p className="mt-8 text-xs text-zinc-500">
-        What leaders can and can&apos;t do is on <a href="/how-it-works/roles" className="underline hover:text-emerald-400">Roles and badges</a>.
+        What leaders can and can&apos;t do is on <a href="/roles" className="underline hover:text-emerald-400">Roles and badges</a>.
         Missing a tool? Tell us with the Feedback button.
       </p>
     </div>

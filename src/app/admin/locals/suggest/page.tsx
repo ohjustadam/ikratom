@@ -18,12 +18,11 @@ export default async function SuggestLocalsPage() {
           AI suggest local officials
         </h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Type a city or county. Claude searches the web for the official roster, you
-          review and accept. Always human-reviewed — never auto-added.
+          Type a city or county. If it publishes meetings on Legistar, we read the roster
+          from there; otherwise the place is queued for a fuller search and you can add
+          officials by hand. You review and accept. Nothing is added without you.
         </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          Cost: ~$0.01–$0.05 per query. Limit your searches.
-        </p>
+        <p className="mt-1 text-xs text-zinc-500">Free. No paid AI or search is used.</p>
       </header>
 
       <SuggestPanel />

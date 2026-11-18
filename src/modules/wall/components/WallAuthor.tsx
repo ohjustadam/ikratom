@@ -1,9 +1,11 @@
-import { publicHandle, handleInitials } from "@/lib/public-handle";
+import { publicHandle, handleInitials, type PublicRole } from "@/lib/public-handle";
+import { RoleTag } from "@/components/RoleTag";
 import { profileHref } from "@/modules/profile/href";
 
 /** Avatar + @handle (or "Member" when the author hides it) + time. */
-export function WallAuthor({ id, username, avatarUrl, at, small = false }: {
+export function WallAuthor({ id, username, avatarUrl, at, small = false, role = null }: {
   id: string;
+  role?: PublicRole | null;
   username: string | null;
   avatarUrl: string | null;
   at: string;
@@ -23,7 +25,7 @@ export function WallAuthor({ id, username, avatarUrl, at, small = false }: {
       {face}
       <div className="min-w-0 leading-tight">
         {username ? (
-          <a href={profileHref({ id, username })} className="block truncate text-sm font-semibold hover:text-emerald-400">{handle}</a>
+          <a href={profileHref({ id, username })} className="block truncate text-sm font-semibold hover:text-emerald-400">{handle}<RoleTag role={role} /></a>
         ) : (
           <span className="block truncate text-sm font-semibold text-zinc-400">{handle}</span>
         )}

@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { publicHandle } from "@/lib/public-handle";
+import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
+import { RoleTag } from "@/components/RoleTag";
 import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { deleteGroupChat, postGroupChat, type GroupChatMessage } from "@/modules/coalitions/chat-actions";
 
@@ -12,15 +13,18 @@ import { deleteGroupChat, postGroupChat, type GroupChatMessage } from "@/modules
  * messages from the server, then realtime inserts and deletes, plus "N here
  * now" from presence. @handle only; every line but your own can be reported.
  */
-export function GroupChat({ coalitionId, initial, handles, me, canModerate }: {
+export function GroupChat({ coalitionId, initial, handles, tags = {}, me, canModerate }: {
   coalitionId: string;
   initial: GroupChatMessage[];
   handles: Record<string, string>;
+  /** Leader / Admin tags by member id, from get_public_profiles. */
+  tags?: Record<string, PublicRole>;
   me: { id: string; handle: string };
   canModerate: boolean;
 }) {
   const [messages, setMessages] = useState(initial);
   const [names, setNames] = useState(handles);
+  const [roleTags, setRoleTags] = useState(tags);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [here, setHere] = useState(1);
@@ -46,9 +50,13 @@ export function GroupChat({ coalitionId, initial, handles, me, canModerate }: {
         setMessages((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, m].slice(-200)));
         if (!known.current.has(m.user_id)) {
           known.current.add(m.user_id);
-          supabase.rpc("get_public_profiles", { p_ids: [m.user_id] }).then((res: { data: { id: string; username: string | null; state: string | null }[] | null }) => {
+          supabase.rpc("get_public_profiles", { p_ids: [m.user_id] }).then((res: { data: { id: string; username: string | null; state: string | null; is_admin?: boolean | null; is_advocate_leader?: boolean | null }[] | null }) => {
             const row = res.data?.[0];
-            if (!cancelled && row) setNames((cur) => ({ ...cur, [row.id]: publicHandle(row) }));
+            if (!cancelled && row) {
+              setNames((cur) => ({ ...cur, [row.id]: publicHandle(row) }));
+              const tag = publicRole(row);
+              if (tag) setRoleTags((cur) => ({ ...cur, [row.id]: tag }));
+            }
           }, () => { /* the line shows "@member" until the next load */ });
         }
       });
@@ -111,6 +119,7 @@ export function GroupChat({ coalitionId, initial, handles, me, canModerate }: {
           <div key={m.id} id={`m-${m.id}`} className="group flex flex-wrap items-baseline gap-x-2">
             <span className={`shrink-0 font-semibold ${m.user_id === me.id ? "text-amber-300" : "text-emerald-300"}`}>
               {m.user_id === me.id ? me.handle : names[m.user_id] ?? "@member"}
+              <RoleTag role={roleTags[m.user_id]} />
             </span>
             <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-zinc-200">{m.body}</span>
             <span className="shrink-0 text-[10px] text-zinc-600">

@@ -1,11 +1,17 @@
 import Link from "@/components/Link";
+import type { PublicRole } from "@/lib/public-handle";
+import { RoleTag } from "@/components/RoleTag";
 import { handleInitial } from "@/modules/coalitions/covers";
 
 /**
  * The group's member list (members only). @handles only, via publicHandle()
  * upstream: never a real name, even to fellow members.
  */
-export type MemberView = { user_id: string; role: string; joined_at: string; handle: string; avatarUrl: string | null };
+export type MemberView = {
+  user_id: string; role: string; joined_at: string; handle: string; avatarUrl: string | null;
+  /** Site-wide Leader / Admin tag (publicRole), separate from the group role. */
+  siteRole?: PublicRole | null;
+};
 
 const ROLE_LABEL: Record<string, string> = { owner: "Organizer", admin: "Admin", member: "Member" };
 
@@ -28,7 +34,7 @@ export function Members({ members, selfId = null, selfHidden = false }: {
                 : handleInitial(m.handle)}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-semibold text-zinc-100">{m.handle}</span>
+              <span className="block truncate text-sm font-semibold text-zinc-100">{m.handle}<RoleTag role={m.siteRole} /></span>
               <span className="text-[11px] text-zinc-500">Joined {new Date(m.joined_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
               {selfHidden && m.user_id === selfId && (
                 <span className="block text-[11px] text-amber-300">

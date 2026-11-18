@@ -132,7 +132,7 @@ export default async function AdminUsersPage({
       <header className="mt-2 mb-6">
         <h1 className="text-3xl font-bold">Users</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Only the owner changes roles or sees members' names, emails and cities. Admins see @usernames.
+          Only the owner changes roles or sees members&apos; names, emails and cities. Admins see @usernames.
         </p>
       </header>
 

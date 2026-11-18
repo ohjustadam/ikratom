@@ -520,6 +520,29 @@ after 7 days, so new officials show as not yet written with no reset needed.
 dry-runs by default, isn't on a schedule, and `--apply` is a mass notice that needs
 the owner's yes.
 
+## Roles, badges and leader invites (2026-11-17)
+
+**What each role can do** is the catalog in `src/modules/admin/permissions.ts`.
+`/roles` is the public explanation, and `/how-it-works/for-leaders` describes
+the same powers. Change the catalog first, then both pages.
+
+- **Leaders could not save a campaign from #847 (2026-07-26) until this fix.**
+  The create action asked for `edit_campaigns`, which leaders don't hold. It now
+  asks for `author_campaigns`. A leader edits and schedules waves only on their
+  own campaigns (`canEditCampaign`, matching the 0204 RLS), and every campaign
+  from a non-admin goes to review with the AI screen's verdict attached.
+- **Leader invites** (migration 0324, `leader_invites`). When the owner promotes
+  someone who isn't verified yet, `/admin/users` shows what's missing and offers
+  "Invite to lead". The member gets a notice and a checklist at `/leader/invite`.
+  The role turns on by itself at their next dashboard visit once
+  `verifyUserForPromotion` passes (`applyLeaderInviteIfReady`, audit-logged).
+  The safeguard itself is unchanged.
+- **Public role tags** come from `publicRole()` beside `publicHandle()`, rendered
+  by `src/components/RoleTag.tsx`, fed only by `get_public_profile(s)`. They show
+  in the forum, the Lounge, group posts, chat and members, walls and profiles.
+  The owner's tag reads Admin. The member feed and friend lists carry no role
+  flags yet, so they show no tag.
+
 ---
 
 ## Things that will bite you

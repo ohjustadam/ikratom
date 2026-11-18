@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { withAuthorRoles } from "./roles";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -71,7 +72,7 @@ export async function loadWallComments(postId: string): Promise<WallComment[]> {
   if (!UUID_RE.test(postId)) return [];
   const { supabase } = await me();
   const { data } = await supabase.rpc("get_wall_comments", { p_post: postId });
-  return (data ?? []) as WallComment[];
+  return withAuthorRoles(supabase, (data ?? []) as WallComment[]);
 }
 
 export async function createWallComment(postId: string, text: string): Promise<{ ok: true; comments: WallComment[] } | { error: string }> {

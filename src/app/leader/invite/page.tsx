@@ -58,7 +58,7 @@ export default async function LeaderInvitePage() {
           <p className="mt-6 rounded-md border border-zinc-800 bg-zinc-950/60 p-3 text-sm text-zinc-400">🔒 {ADDRESS_PRIVACY_NOTE}</p>
           <div className="mt-6 flex flex-wrap items-center gap-4">
             <CheckAgainButton />
-            <Link href="/how-it-works/roles" className="text-sm text-zinc-400 hover:text-emerald-400">
+            <Link href="/roles" className="text-sm text-zinc-400 hover:text-emerald-400">
               What leaders do →
             </Link>
           </div>
@@ -71,7 +71,7 @@ export default async function LeaderInvitePage() {
               ? "Something went wrong turning your role on. Please try again in a minute."
               : "There's no leader invite waiting for you right now. Leaders are invited by the platform owner."}
           </p>
-          <Link href="/how-it-works/roles" className="mt-4 inline-block text-sm font-semibold text-emerald-400 hover:underline">
+          <Link href="/roles" className="mt-4 inline-block text-sm font-semibold text-emerald-400 hover:underline">
             Roles and badges, and how to become a leader →
           </Link>
         </>
