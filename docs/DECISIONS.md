@@ -333,6 +333,12 @@ The load-shedding gate cannot cover this. It sheds GitHub Actions jobs by tier, 
 
 **Why:** 12 Illinois rows, NE LB 972 and TN HB 861 showed unrelated newer bills. Run on today's 120 live rows, the rule blocks exactly the two live ones and nothing else.
 
+## The audit gate allows an advisory only when no fix exists, and only until a date (2026-11-18)
+
+**Decision:** CI's required "npm audit (high+)" job runs `scripts/ci-audit-gate.mjs`. It still fails on any high or critical advisory in production dependencies, except those in a short list (`scripts/lib/audit-gate.mjs`). Each entry is a single GHSA with a reason and an expiry no more than 90 days out. When an entry expires, the gate goes red again: drop the entry if a patch has shipped, otherwise re-check it and extend.
+
+**Why:** GHSA-fc5q-39xc-vjpf (picomatch ReDoS) flags every release up to 4.0.7 and has no patched version. Plain `npm audit --audit-level=high` has no way to say "this one, until a fix exists", so the required check was red on every PR. In production it is reached only through rollup plugins that glob our own file paths, never member input. The other choice was an admin merge on every PR, which teaches everyone to ignore the gate.
+
 ## A What's New note's numbers are tiles in their own table (2026-11-17)
 
 **Decision:** the scoreboard figures of a note ("votes on record", "officials added" ...) live in `patch_note_figures`, one row per tile with a key, a number, a label and a line of small print. Not as columns on `patch_notes`.
