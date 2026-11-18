@@ -156,7 +156,9 @@ jobs:
         # `--audit-level=high` filters out moderate/low advisories.
         # Production-relevant only via --omit=dev — devDependency CVEs
         # don't ship to runtime.
-        run: npm audit --audit-level=high --omit=dev
+        # scripts/ci-audit-gate.mjs also honours a short, dated list of
+        # advisories that have no patched release (scripts/lib/audit-gate.mjs).
+        run: node scripts/ci-audit-gate.mjs
 
   credits:
     name: Netlify credit budget
