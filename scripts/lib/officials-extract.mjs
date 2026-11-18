@@ -94,8 +94,13 @@ export function stateFromJurisdiction(pageJurisdiction) {
  * so the page is rejected by its URL before any model reads it.
  * 2026-10-21: El Paso County, CO got its appointed Board of Health (plus a
  * town mayor who sits on it) from elpasocountyhealth.org/.../board-of-health/.
+ * 2026-11-18: Juneau, AK got five former Assembly members back as "current"
+ * from juneau.granicus.com/boards/w/<id>/members, Granicus's appointed boards,
+ * committees and task forces product, whose rows include ended terms (one read
+ * "1st term: sep 13, 2021 to jan 01, 2024"). It is never the governing body's
+ * roster, so its /boards/w/ pages are refused too.
  */
-const NON_ROSTER_PATH_RE = /(board[-_]?of[-_]?elections|election[-_]?(officials|commission|office|board)|\/elections?(\/|$)|\/voter|\/auditor|\/treasurer|\/sheriff|\/assessor|\/recorder|board[-_]?of[-_]?health)/i;
+const NON_ROSTER_PATH_RE = /(board[-_]?of[-_]?elections|election[-_]?(officials|commission|office|board)|\/elections?(\/|$)|\/voter|\/auditor|\/treasurer|\/sheriff|\/assessor|\/recorder|board[-_]?of[-_]?health|^\/boards\/w\/)/i;
 /**
  * The email, only when it appears verbatim in the page text, else null.
  * A guessed address bounces with "550 5.4.1 Recipient address rejected" and

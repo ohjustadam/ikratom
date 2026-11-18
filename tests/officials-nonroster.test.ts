@@ -22,6 +22,13 @@ describe("isNonRosterPage", () => {
     expect(isNonRosterPage("https://www.elpasocountyhealth.org/about-public-health/board-of-health/")).toBe(true);
   });
 
+  it("rejects Granicus boards-and-commissions pages (Juneau 2026-11-18: ended task-force terms read as Assembly seats)", () => {
+    expect(isNonRosterPage("https://juneau.granicus.com/boards/w/1a3dc0c8edef6ecd/members")).toBe(true);
+    expect(isNonRosterPage("https://juneau.granicus.com/boards/w/1a3dc0c8edef6ecd")).toBe(true);
+    // A city's own /boards page is not the Granicus product and stays allowed.
+    expect(isNonRosterPage("https://example.gov/government/boards/city-council")).toBe(false);
+  });
+
   it("keeps real governing-board rosters", () => {
     for (const url of [
       "https://greenecountyny.gov/meet-your-legislature/",
