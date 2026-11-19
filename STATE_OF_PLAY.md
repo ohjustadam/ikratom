@@ -125,6 +125,16 @@ telling anyone they are near a ceiling**: `npm run credits`, or the CI
 Supabase egress has its own load-shedding gate (`scripts/egress-gate.mjs`),
 which defers deferrable cron jobs rather than failing them.
 
+**Database space is the next free-plan wall (500 MB, counted over all
+databases).** 2026-11-18: 337 MB after a reindex took back 29 MB of dead index
+entries. Since 2026-11-19, `scripts/db-reindex.mjs` runs weekly
+(cron-weekly). The nightly `prune-retention.mjs` drops expired rate-limit
+windows. Deleting rows frees space for reuse but does not lower the number;
+only a rebuild (REINDEX, VACUUM FULL) does. **What grows with members is
+`notifications`:** every broadcast writes one row per member, ~74 per member
+per month, 94% never read. That is ~1 GB a month at 30,000 members, so no
+retention window fixes it; broadcasts must be stored once.
+
 **2026-10-02: the credit gate was right and the site still went down.** One
 rented server replayed ~440 server-rendered URLs about 28 times each for 25
 minutes. Those renders (~6.5s each, 30s on timeout) burned ~635 credits, the

@@ -186,6 +186,8 @@ export const REGISTRY = [
   // Federal kratom bills: nightly, 3 LegiScan calls (sync-federal-bills.mjs).
   { source: "sync_federal_bills", interval_hours: 36, system: "github-actions", cadence: "daily" },
   { source: "topic_bill_discovery", interval_hours: 216, system: "github-actions", cadence: "weekly" },
+  // Weekly REINDEX CONCURRENTLY of bloated indexes (db-reindex.mjs, 2026-11-18).
+  { source: "db_reindex", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   // Free-AI research agents — MOVED OFF THE BOX 2026-09-07 into
   // cron-nightly-cloud.yml as their own jobs. They drive lib/tool-chat.mjs,
   // which runs the same tool-calling loop on local Ollama OR any free
