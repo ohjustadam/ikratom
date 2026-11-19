@@ -32,6 +32,8 @@ export const EXPECTED_INTERVAL_HOURS: Record<string, number> = {
   backfill_term_dates: 216, seed_county_directories: 216,
   // LegiScan session list: self-gated weekly since 2026-10-28 (10k/month cap).
   sync_legislative_sessions: 216,
+  // Weekly index rebuild toward the 500 MB database cap (db-reindex.mjs).
+  db_reindex: 216,
   // Federal kratom bills, nightly (sync-federal-bills.mjs).
   sync_federal_bills: 36,
   // ── infrastructure watchdogs ───────────────────────────────────────────────
