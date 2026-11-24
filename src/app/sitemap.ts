@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { isDisallowed } from "@/lib/crawl-policy";
+import { getCrawlStage } from "@/lib/crawl-stage";
 import { advertisableRoutes } from "@/lib/sitemap-routes";
 import fs from "fs";
 import path from "path";
@@ -19,6 +20,9 @@ export const revalidate = 3600; // rebuild hourly
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = (process.env.APP_URL ?? "https://www.ikratom.org").replace(/\/+$/, "");
   const now = new Date();
+  // How much of the site the staged lift has opened (src/lib/crawl-policy.ts).
+  // Fails closed to 0, the fully blocked list.
+  const stage = await getCrawlStage();
 
   const STATIC: MetadataRoute.Sitemap = [
     { url: `${base}/`, lastModified: now, changeFrequency: "daily", priority: 1.0 },
@@ -196,5 +200,69 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   //
   // This changes no priority and no changeFrequency. What to advertise, once
   // robots.txt allows it at all, stays the owner's call.
-  return [...STATIC, ...dynamic].filter((entry) => !isDisallowed(entry.url));
+  // Families the stage flag has opened (2026-11-24). Each block runs only when
+  // its family is open, so stage 0 adds no query. The row caps keep the sitemap,
+  // and Google's first sweep, bounded; the dates are the rows' own sync times,
+  // never `now`, because a lastmod that is wrong for every URL teaches Google to
+  // ignore it and recrawl everything.
+  const open = (family: string) => !isDisallowed(`${base}${family}x`, stage);
+  const real = (iso: string | null | undefined) => (iso ? new Date(iso) : undefined);
+
+  if (open("/bills/")) {
+    try {
+      const { data } = await supabase
+        .from("bills")
+        .select("id, last_synced_at")
+        .eq("active", true)
+        .order("last_synced_at", { ascending: false, nullsFirst: false })
+        .limit(800);
+      for (const b of data ?? []) {
+        dynamic.push({ url: `${base}/bills/${b.id}`, lastModified: real(b.last_synced_at), changeFrequency: "weekly", priority: 0.7 });
+      }
+    } catch (e) {
+      console.error("[sitemap] bills query failed:", e);
+    }
+  }
+
+  if (open("/research/")) {
+    try {
+      const { data } = await supabase
+        .from("research_papers")
+        .select("id, ingested_at")
+        .eq("is_active", true)
+        .order("ingested_at", { ascending: false })
+        .limit(1000);
+      for (const p of data ?? []) {
+        dynamic.push({ url: `${base}/research/${p.id}`, lastModified: real(p.ingested_at), changeFrequency: "monthly", priority: 0.6 });
+      }
+    } catch (e) {
+      console.error("[sitemap] research query failed:", e);
+    }
+  }
+
+  if (open("/legislators/")) {
+    try {
+      const { data } = await supabase
+        .from("legislators")
+        .select("id, last_synced_at")
+        .eq("active", true)
+        .order("last_synced_at", { ascending: false, nullsFirst: false })
+        .limit(1000);
+      for (const l of data ?? []) {
+        dynamic.push({ url: `${base}/legislators/${l.id}`, lastModified: real(l.last_synced_at), changeFrequency: "monthly", priority: 0.5 });
+      }
+    } catch (e) {
+      console.error("[sitemap] legislators query failed:", e);
+    }
+  }
+
+  // A `now` date is honest only for pages that change hourly or daily. For the
+  // rest it said "changed today" on every URL, every day.
+  return [...STATIC, ...dynamic]
+    .filter((entry) => !isDisallowed(entry.url, stage))
+    .map((entry) =>
+      entry.lastModified === now && entry.changeFrequency !== "hourly" && entry.changeFrequency !== "daily"
+        ? { ...entry, lastModified: undefined }
+        : entry,
+    );
 }

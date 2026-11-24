@@ -277,6 +277,13 @@ export const REGISTRY = [
   // and nothing else would notice the next flood until the credit meter did.
   { source: "flood_alarm", interval_hours: 4, system: "gh-hourly", cadence: "every-2h" },
 
+  // crawl_brake — the tripwire for the staged crawl lift (scripts/crawl-brake.mjs,
+  // its own job in cron-hourly.yml, 2026-11-24). Writes a row EVERY run, idle or
+  // not: at stage 0 it only says so. Silence here means the job stopped, and
+  // with a stage open that is the one thing between a runaway crawl and the
+  // credit cap.
+  { source: "crawl_brake", interval_hours: 4, system: "gh-hourly", cadence: "every-2h" },
+
   // patch_note_draft — the changelog drafts, written into `patch_notes` by
   // generate-patch-note.mjs --db: auto-patch-notes.yml on weekdays and
   // auto-weekly-update.yml on Sundays. A 36h interval pages at 108h, which

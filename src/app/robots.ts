@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
-import { COST_CONTROL_PATHS, PRIVATE_PATHS, costControlActive } from "@/lib/crawl-policy";
+import { disallowedPaths } from "@/lib/crawl-policy";
+import { getCrawlStage } from "@/lib/crawl-stage";
 
 /**
  * robots.txt — allow ordinary search engines + AI CITATION crawlers,
@@ -24,16 +25,17 @@ import { COST_CONTROL_PATHS, PRIVATE_PATHS, costControlActive } from "@/lib/craw
  * + CSP for stuff that matters.
  */
 /**
- * Re-rendered hourly so the cost-control expiry below takes effect on its own.
- * Without this the file is generated once at build time, Date.now() freezes at
- * the build date, and the "temporary" disallow would outlive its reset until
- * someone happened to deploy. The route touches no database, so an hourly
- * re-render costs nothing.
+ * Re-rendered hourly so a change to `site_config.crawl_stage` (the staged lift,
+ * src/lib/crawl-policy.ts) reaches robots.txt within an hour with no deploy.
+ * The one database read is a single row from the public-read site_config
+ * singleton, and getCrawlStage() fails closed to stage 0 (the fully blocked
+ * list) on any error.
  */
 export const revalidate = 3600;
 
-export default function robots(): MetadataRoute.Robots {
+export default async function robots(): Promise<MetadataRoute.Robots> {
   const base = process.env.APP_URL ?? "https://www.ikratom.org";
+  const stage = await getCrawlStage();
 
 
   // Cost-control disallow, added 2026-09-01. NOT a privacy or quality call.
@@ -152,9 +154,14 @@ export default function robots(): MetadataRoute.Robots {
   // The expiry date, the prefix list and the private list all live in
   // src/lib/crawl-policy.ts so sitemap.ts reads exactly the same policy and
   // cannot advertise what this file forbids.
-  const costControl = costControlActive() ? [...COST_CONTROL_PATHS] : [];
-
-  const DISALLOW = [...PRIVATE_PATHS, ...costControl];
+  // SUPERSEDED 2026-11-24. Everything above about a self-lifting date describes
+  // the old design, kept because the measurements in it are the reason the
+  // block exists. The lift is now a stage number (site_config.crawl_stage),
+  // raised only by a human and lowered to 0 by the hourly crawl_brake job when
+  // the credit meter trips; the families that must never lift stay blocked at
+  // every stage. See the header of src/lib/crawl-policy.ts and
+  // docs/RUNBOOK_crawl_lift.md.
+  const DISALLOW = disallowedPaths(stage);
 
   // ALLOW: AI search/citation crawlers — query-time fetchers that
   // attribute back to the source URL. Sending them to our structured
