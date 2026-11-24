@@ -3,6 +3,36 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { fanoutPushNotifications } from "@/modules/notifications/push-fanout";
+
+/**
+ * "Let them know": tell a member with no encryption key yet that someone wants
+ * to message them (migration 0329). The database decides who can be told and
+ * how often; this adds the instant push so they hear about it now.
+ */
+export async function requestDmSetup(targetId: string): Promise<{ status: "sent" | "already" | "ready" } | { error: string }> {
+  if (typeof targetId !== "string" || !/^[0-9a-f-]{36}$/i.test(targetId)) return { error: "We couldn't find that member." };
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Sign in first." };
+  if (!(await checkRateLimit(`dm:setup:user:${user.id}`, 10, 3600))) {
+    return { error: "You've sent a lot of these this hour. Try again later." };
+  }
+  const { data, error } = await supabase.rpc("request_dm_setup", { p_target: targetId });
+  if (error) return { error: "Couldn't send that just now. Try again." };
+  if (data === "already") return { status: "already" };
+  if (data === "ready") return { status: "ready" };
+  if (data === "rate") return { error: "You've sent a lot of these this hour. Try again later." };
+  if (data !== "sent") return { error: "We couldn't find that member." };
+  try {
+    await fanoutPushNotifications(createServiceRoleClient(), { userIds: [targetId], kinds: ["dm_request"], instant: true });
+  } catch (e) {
+    // The inbox row is in; the regular sweep pushes it if this instant try fails.
+    console.error("dm_request instant push failed:", e instanceof Error ? e.message : e);
+  }
+  return { status: "sent" };
+}
 
 /**
  * Set the user's public key (called from client after keypair generation).
