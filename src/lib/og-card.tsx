@@ -17,13 +17,14 @@
  *   - 1200×630 (the standard Twitter/Facebook large card)
  *   - Dark background matching site theme (#0a0a0a)
  *   - Emerald accent stripe on the left edge
- *   - iKratom wordmark in the bottom-right corner
+ *   - "ik" mark + iKratom wordmark (OgBrand) in the bottom-left corner
  *   - Optional category pill (POLICY BRIEFING, STATE BILL · NH, etc.)
  *   - Big title up to ~3 lines
  *   - Optional subtitle
  */
 
 import type { ReactElement } from "react";
+import { OgBrand } from "@/lib/og-brand";
 
 export const OG_SIZE = { width: 1200, height: 630 } as const;
 export const OG_CONTENT_TYPE = "image/png";
@@ -136,18 +137,7 @@ export function OgCard({
             borderTop: "2px solid #18181b",
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              fontSize: 32,
-              fontWeight: 700,
-              color: "#fafafa",
-            }}
-          >
-            <span style={{ color: "#10b981", marginRight: 4 }}>i</span>
-            <span>Kratom</span>
-          </div>
+          <OgBrand fontSize={32} />
           <div style={{ fontSize: 20, color: "#71717a", display: "flex" }}>
             {footer}
           </div>
