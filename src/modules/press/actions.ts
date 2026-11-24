@@ -29,10 +29,20 @@ export async function getPressContact(contactId: string): Promise<PressContactRe
   const sb = createServiceRoleClient();
   const { data: contact } = await sb
     .from("press_contacts")
-    .select("kind, name, email, news_items(title), research_papers(title)")
+    .select("kind, name, email, news_item_id, news_items(title), research_papers(title)")
     .eq("id", contactId)
     .maybeSingle();
   if (!contact) return { ok: false, reason: "missing" };
+
+  // The /media Top 5 board counts a reply opened as "emailed" (migration 0331).
+  // Through the member's own session, so RLS keeps it to their own row; a
+  // failed tick never blocks the reply.
+  const newsItemId = (contact as { news_item_id?: string | null }).news_item_id;
+  if (newsItemId) {
+    await supabase.from("media_board_actions")
+      .upsert({ user_id: user.id, news_item_id: newsItemId, kind: "emailed" }, { onConflict: "user_id,news_item_id,kind", ignoreDuplicates: true })
+      .then(() => undefined, () => undefined);
+  }
 
   const row = contact as unknown as {
     kind: PressKind;
