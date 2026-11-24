@@ -5,6 +5,8 @@ import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
 import { groupForViewer } from "@/modules/coalitions/moderation";
 import type { GroupChatMessage } from "@/modules/coalitions/chat-actions";
 import { GroupChat } from "./GroupChat";
+import { isPlaceholderHandle } from "@/lib/placeholder-handle";
+import { ChooseHandle } from "@/modules/profile/components/ChooseHandle";
 
 /**
  * A group's live chat (migration 0291, B4 e). Members only: RLS returns the
@@ -79,9 +81,12 @@ export default async function GroupChatPage({ params, searchParams }: {
           </ol>
         </>
       ) : (
+        <>
+        {isPlaceholderHandle(handles[user.id]) && <ChooseHandle current={handles[user.id]} />}
         <GroupChat coalitionId={c.id} initial={rows} handles={handles} tags={tags}
           me={{ id: user.id, handle: handles[user.id] ?? "@you" }}
           canModerate={viewer.role === "owner" || viewer.role === "admin"} />
+        </>
       )}
       <p className="mt-3 text-[11px] text-zinc-500">
         Everyone here appears by @username only. For anything longer, start a discussion on the{" "}
