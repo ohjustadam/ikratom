@@ -11,7 +11,7 @@
  * Bumping CACHE_NAME below invalidates all clients on next activate.
  */
 
-const CACHE_NAME = "ikratom-v1";
+const CACHE_NAME = "ikratom-v2"; // v2 (2026-11-24): the "ik" mark replaced the iK text icons
 const OFFLINE_URL = "/offline";
 
 // Routes that must NEVER be cached (user-specific or auth-sensitive)
@@ -124,7 +124,7 @@ self.addEventListener("push", (event) => {
     icon: "/icon",
     // Android draws the status-bar badge from the alpha channel only, so the
     // opaque /icon showed as a white square. badge.png is the glyph on
-    // transparent (scripts/make-push-badge.mjs).
+    // transparent (scripts/brand-icons.mjs).
     badge: "/badge.png",
     data: { link: payload.link || "/notifications" },
     tag: payload.tag || undefined,

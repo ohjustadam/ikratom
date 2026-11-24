@@ -602,7 +602,12 @@ the query "ikratom" to "kratom". Crawl access is fine; the gap is brand signals.
 The home page now states the name in WebSite + Organization JSON-LD
 (`src/lib/seo.ts`), hubs carry canonicals, and private pages are noindex. The
 evidence, the owner's Search Console / Bing steps and the weekly check are in
-`docs/SEO_BRAND.md`. The "ik" mark concepts went to the owner the same day.
+`docs/SEO_BRAND.md`.
+
+The owner picked the "ik" mark on 2026-11-24: an i whose dot is a veined kratom
+leaf, beside a k. It is one drawing, `public/brand/ik-mark.svg`, used in the header,
+every icon, the push badge, link previews and email headers. `docs/BRAND.md` has
+the usage rules and how to change it (`node scripts/brand-icons.mjs`).
 
 ---
 

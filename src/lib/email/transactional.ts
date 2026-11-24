@@ -32,6 +32,8 @@
  *   5. Redeploy. This module starts sending immediately.
  */
 
+import { LOGO_URL, SITE_URL } from "./letter-footer";
+
 const API = "https://api.resend.com/emails";
 
 export type SendEmailInput = {
@@ -111,8 +113,8 @@ export async function sendTransactionalEmail(
 
 /**
  * Helper: render a minimal branded HTML wrapper around a body string.
- * Inline styles only (email clients vary in CSS support). No images, no
- * tracking pixels.
+ * Inline styles only (email clients vary in CSS support). One image: the
+ * "ik" mark (LOGO_URL, a static PNG on our own domain). No tracking pixels.
  */
 export function brandedHtml(input: { headline: string; body: string; ctaLabel?: string; ctaHref?: string }): string {
   const cta =
@@ -127,7 +129,9 @@ export function brandedHtml(input: { headline: string; body: string; ctaLabel?: 
     <tr><td align="center" style="padding:32px 16px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:#0a0a0a;">
         <tr><td style="padding:24px 32px;border-bottom:1px solid #27272a;">
-          <span style="color:#10b981;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;font-size:12px;">iKratom</span>
+          <a href="${SITE_URL}" style="text-decoration:none;color:#fafafa;font-size:18px;font-weight:700;">
+            <img src="${LOGO_URL}" width="28" height="28" alt="" style="display:inline-block;vertical-align:middle;width:28px;height:28px;border:0;border-radius:6px;margin-right:10px;"><span style="vertical-align:middle;"><span style="color:#10b981;">i</span>Kratom</span>
+          </a>
         </td></tr>
         <tr><td style="padding:32px;">
           <h1 style="margin:0;font-size:24px;line-height:1.2;color:#fff;">${escapeHtml(input.headline)}</h1>
