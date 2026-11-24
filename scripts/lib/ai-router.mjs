@@ -776,8 +776,10 @@ const callOpenrouter = (sys, user, maxTokens, modelOverride) => callOpenAICompat
 const callNvidia = (sys, user, maxTokens, modelOverride) => callOpenAICompat("nvidia", {
   url: "https://integrate.api.nvidia.com/v1/chat/completions",
   key: NVIDIA_API_KEY,
-  // meta/llama-3.3-70b-instruct reached end of life 2026-08 (410).
-    model: process.env.NVIDIA_MODEL || "nvidia/nemotron-3-super-120b-a12b",
+  // NVIDIA retires models every few months and answers 410 "end of life":
+  // meta/llama-3.3-70b-instruct went 2026-08-26, nemotron-3-super 2026-10-03.
+  // List the live ones with GET https://integrate.api.nvidia.com/v1/models.
+  model: process.env.NVIDIA_MODEL || "nvidia/nemotron-3.5-super-vl-120b-a12b",
 }, sys, user, maxTokens, modelOverride);
 
 // Vercel AI Gateway: one OpenAI-compatible endpoint in front of many vendors.

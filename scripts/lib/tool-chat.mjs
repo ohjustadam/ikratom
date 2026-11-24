@@ -71,11 +71,26 @@ const PROVIDERS = {
     key: () => process.env.GROQ_API_KEY,
     model: () => process.env.GROQ_MODEL || "openai/gpt-oss-120b",
   },
-  cerebras: {
-    url: "https://api.cerebras.ai/v1/chat/completions",
-    key: () => process.env.CEREBRAS_API_KEY,
-    model: () => process.env.CEREBRAS_MODEL || "gpt-oss-120b",
+  // Same key, another model with its OWN daily token budget. The nightly jobs
+  // spend gpt-oss-120b's 200k tokens/day, so by the dossier's evening run Groq
+  // answered 429 "per day" and the chain fell through to dead providers
+  // (dossier failed 11-20, 11-22, 11-23). The one-shot router already
+  // overflows here (lib/ai-router.mjs, GROQ_MODEL_OVERFLOW).
+  groq_overflow: {
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    key: () => process.env.GROQ_API_KEY,
+    model: () => process.env.GROQ_MODEL_OVERFLOW || "qwen/qwen3.8-27b",
   },
+  // NVIDIA retires models every few months (410 "end of life"):
+  // meta/llama-3.3-70b-instruct on 2026-08-26, nemotron-3-super on 2026-10-03.
+  // Tool calls verified on this one 2026-11-24. Live list: GET /v1/models.
+  nvidia: {
+    url: "https://integrate.api.nvidia.com/v1/chat/completions",
+    key: () => process.env.NVIDIA_API_KEY,
+    model: () => process.env.NVIDIA_MODEL || "nvidia/nemotron-3.5-super-vl-120b-a12b",
+  },
+  // Cerebras left the free tier (402 "payment required", 2026-10), so it is
+  // gone from this list; the free-tier rule means it is never paid for.
   mistral: {
     url: "https://api.mistral.ai/v1/chat/completions",
     key: () => process.env.MISTRAL_API_KEY,
@@ -95,11 +110,6 @@ const PROVIDERS = {
     // STABLE meta-slug that routes to whatever is free right now, so it cannot
     // rot the same way. Verified tool-calling through it on 2026-09-07.
     model: () => process.env.OPENROUTER_MODEL || "openrouter/free",
-  },
-  nvidia: {
-    url: "https://integrate.api.nvidia.com/v1/chat/completions",
-    key: () => process.env.NVIDIA_API_KEY,
-    model: () => process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct",
   },
   github: {
     url: "https://models.github.ai/inference/chat/completions",
@@ -259,6 +269,7 @@ export async function toolChat({
   while (turns < maxTurns) {
     turns++;
     let reply = null;
+    const turnErrors = [];
 
     // Try providers in order for THIS turn. The conversation is
     // provider-agnostic, so a provider dying mid-run is survivable: the next
@@ -271,11 +282,15 @@ export async function toolChat({
         break;
       } catch (e) {
         errors.push(String(e.message ?? e).slice(0, 140));
+        turnErrors.push(String(e.message ?? e).slice(0, 90));
         onEvent({ type: "provider-failed", provider: name, error: String(e.message ?? e).slice(0, 140) });
       }
     }
     if (!reply) {
-      throw new Error(`TOOL_CHAT_FAILED: every provider failed. ${errors.slice(-3).join(" | ")}`);
+      // Every provider's reason, not just the last few: the 11-23 failure
+      // showed only OpenRouter's, which hid that Groq was out of daily tokens
+      // and NVIDIA's model had been retired.
+      throw new Error(`TOOL_CHAT_FAILED: every provider failed. ${turnErrors.join(" | ")}`);
     }
 
     if (reply.toolCalls.length === 0) {
