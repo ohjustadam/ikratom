@@ -15,6 +15,7 @@ import { LoungeLauncher } from "./LoungeLauncher";
 import { LOUNGE_SEEN_EVENT, useLoungeSeen } from "./use-lounge-seen";
 import { MentionText } from "./MentionText";
 import { MentionSuggest } from "./MentionSuggest";
+import { isSendKey } from "@/lib/enter-to-send";
 
 import Link from "@/components/Link";
 /**
@@ -254,7 +255,7 @@ export function ChatPopup() {
       if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(suggestions[Math.min(suggestIdx, suggestions.length - 1)]); return; }
       if (e.key === "Escape") { e.preventDefault(); setCaret(0); return; }
     }
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
+    if (isSendKey(e)) { e.preventDefault(); void send(); }
   }
 
   async function onDelete(id: string) {
@@ -318,26 +319,28 @@ export function ChatPopup() {
             ? "rounded bg-emerald-500/15 ring-1 ring-emerald-500/50"
             : mentionsMe ? "rounded bg-emerald-500/10" : "";
           return (
-            <div key={m.id} id={`lounge-msg-${m.id}`} className={`group flex flex-wrap gap-x-2 ${tint}`}>
+            // Flowing text, not a flex row, so the message wraps under the
+            // name instead of squeezing into a thin column beside it.
+            <div key={m.id} id={`lounge-msg-${m.id}`} className={`group wrap-anywhere ${tint}`}>
               <a
                 href={`/profile/${m.user_id}`}
-                className={`shrink-0 font-semibold ${author?.isAdmin ? "text-amber-300" : "text-emerald-300"} hover:underline`}
+                className={`font-semibold ${author?.isAdmin ? "text-amber-300" : "text-emerald-300"} hover:underline`}
               >
                 {author?.name ?? "…"}
                 <RoleTag role={author?.role} />
               </a>
-              <span className="text-zinc-600">:</span>
-              <span className="min-w-0 flex-1 break-words text-zinc-200"><MentionText body={m.body} me={myUsername} /></span>
-              <span className="shrink-0 text-[10px] text-zinc-700">
+              <span className="text-zinc-600">: </span>
+              <span className="whitespace-pre-wrap text-zinc-200"><MentionText body={m.body} me={myUsername} /></span>
+              <span className="ml-2 whitespace-nowrap text-[10px] text-zinc-700">
                 {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
               {canDelete && (
-                <button onClick={() => onDelete(m.id)} className="hidden text-[10px] text-zinc-600 hover:text-red-400 group-hover:inline" aria-label="Delete message">✕</button>
+                <button onClick={() => onDelete(m.id)} className="ml-2 hidden text-[10px] text-zinc-600 hover:text-red-400 group-hover:inline pointer-coarse:inline" aria-label="Delete message">✕</button>
               )}
               {signedIn && meId !== m.user_id && author?.username && (
                 <button
                   onClick={() => replyTo(author.username!)}
-                  className="text-[10px] text-zinc-600 hover:text-emerald-300"
+                  className="ml-2 text-[10px] text-zinc-600 hover:text-emerald-300"
                   aria-label={`Reply to @${author.username}`}
                   title="Reply"
                 >
@@ -346,7 +349,7 @@ export function ChatPopup() {
               )}
               {signedIn && meId !== m.user_id && (
                 <ReportButton targetType="lounge_message" targetId={m.id} label="⚑"
-                  className="text-[10px] text-zinc-700 hover:text-red-400" />
+                  className="ml-2 text-[10px] text-zinc-700 hover:text-red-400" />
               )}
             </div>
           );
