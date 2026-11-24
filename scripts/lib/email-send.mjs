@@ -138,3 +138,12 @@ export function unsubscribeToken(userId) {
 export function unsubscribeUrl(appUrl, userId) {
   return `${appUrl}/api/email/unsubscribe?u=${encodeURIComponent(userId)}&t=${unsubscribeToken(userId)}`;
 }
+
+/**
+ * One-click "get it weekly / daily" link (src/app/api/email/cadence/route.ts).
+ * It reuses the unsubscribe token on purpose: that token can already turn
+ * email off entirely, and this link can only set the cadence to daily or weekly.
+ */
+export function cadenceUrl(appUrl, userId, digest) {
+  return `${appUrl}/api/email/cadence?u=${encodeURIComponent(userId)}&t=${unsubscribeToken(userId)}&d=${digest === "weekly" ? "weekly" : "daily"}`;
+}
