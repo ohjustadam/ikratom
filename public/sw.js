@@ -75,7 +75,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Cache-first for icon/manifest (small, semi-stable)
-  if (url.pathname === "/icon" || url.pathname === "/apple-icon" || url.pathname === "/manifest.webmanifest") {
+  if (url.pathname === "/icon" || url.pathname === "/apple-icon" || url.pathname === "/badge.png" || url.pathname === "/manifest.webmanifest") {
     event.respondWith(cacheFirst(req));
     return;
   }
@@ -122,7 +122,10 @@ self.addEventListener("push", (event) => {
   const options = {
     body: payload.body || "",
     icon: "/icon",
-    badge: "/icon",
+    // Android draws the status-bar badge from the alpha channel only, so the
+    // opaque /icon showed as a white square. badge.png is the glyph on
+    // transparent (scripts/make-push-badge.mjs).
+    badge: "/badge.png",
     data: { link: payload.link || "/notifications" },
     tag: payload.tag || undefined,
     renotify: !!payload.tag,
