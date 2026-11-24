@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_AUDIENCES, SECTION_AUDIENCES, isAudience, type Audience, type SectionAudienceKey } from "@/modules/profile/audience";
 import { profileHref } from "@/modules/profile/view";
 import { ProfileEditor } from "@/modules/profile/components/ProfileEditor";
+import { ChooseHandle } from "@/modules/profile/components/ChooseHandle";
+import { isPlaceholderHandle } from "@/lib/placeholder-handle";
 
 export const metadata = { title: "Edit your profile" };
 export const dynamic = "force-dynamic";
@@ -41,6 +43,7 @@ export default async function EditProfilePage() {
           You appear as <strong className="text-zinc-200">@{me?.username ?? "you"}</strong> everywhere on iKratom. Choose what to share and who sees it.
           Members in states where kratom is banned: start with <em>Friends</em> or <em>Only me</em>, and add more when you are comfortable.
         </p>
+        {isPlaceholderHandle(me?.username) && <div className="mt-4"><ChooseHandle current={me!.username as string} /></div>}
         <a href="/account/photos" className="mt-4 inline-flex items-center gap-2 rounded-md border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500">
           📷 Profile photo, cover and album →
         </a>
