@@ -146,6 +146,9 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
           <option value="weekly">Weekly digest — one coalesced push Monday ~9am your time; email Mondays only</option>
           <option value="off">Off — turn off all notifications, email included</option>
         </select>
+        <p className="mt-1 text-xs text-zinc-500">
+          If you haven&apos;t visited in a month, the email summary drops to once a week until you&apos;re back. Choose Daily to always get it every day.
+        </p>
       </div>
 
       {error && (
