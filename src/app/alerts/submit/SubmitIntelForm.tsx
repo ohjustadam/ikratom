@@ -6,6 +6,7 @@ import { submitIntelTip } from "@/modules/alerts/actions";
 import { enrichLibraryUrl } from "@/modules/library/enrich-url-action";
 import { useSignIn } from "@/components/auth/SignInContext";
 import { ErrorWithReport } from "@/components/ErrorWithReport";
+import { LinkMatches } from "./LinkMatches";
 
 const STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
@@ -260,6 +261,7 @@ export function SubmitIntelForm({
         <p className="mt-1 text-[11px] text-zinc-500">
           Tips without a verifiable source get rejected. Click <strong>📎 Auto-fill</strong> after pasting to grab the title + description from the URL.
         </p>
+        <LinkMatches url={sourceUrl} />
         {autofillNote && (
           <p className="mt-1 rounded border border-emerald-700/40 bg-emerald-950/15 px-2 py-1 text-[11px] text-emerald-300">
             {autofillNote}

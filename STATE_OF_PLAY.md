@@ -231,6 +231,19 @@ only the streamed `loading.tsx` shell, so time the full response.
   Since 2026-11-06 a story with no text shows its headline as its summary,
   because AI summaries of a headline alone invented facts. `summarize-news`
   waits for extraction to finish, and `enrich-news` only scores stories.
+- **News twins (2026-11-24, migration 0330).** One story arrives under several
+  Google News URLs and only collapses once `resolve-news-urls` fills
+  `resolved_url`. The insert-time dedupe never saw it, so 7,511 twin rows
+  (30% of `news_items`) piled up. Now a row that resolves to a URL another story
+  already has becomes that story's duplicate (database trigger, all writers),
+  so feeds list it once and the extractor skips it. An error page
+  (`chrome-error://…`, Google consent/sorry, Akamai) is stored as NULL and
+  retried, never kept as the answer. The old twins are cleared by
+  `scripts/dedupe-news-resolved.mjs`: dry-run by default, `--mark` hides them
+  (reversible), and `--apply` deletes them on the owner's yes, writing an undo
+  file to `private/backups/`. 2,060 twins carry their own intel alert because
+  `classify-news-policy` makes one alert per row, so those are kept as
+  duplicates rather than deleted.
 - **Legal status re-check, 2026-10-29/30.** The 43 rows without a recent
   confirmation were checked against primary sources and stamped, so all 51
   are confirmed. Four were wrong:
