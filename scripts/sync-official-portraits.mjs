@@ -32,6 +32,13 @@
  *   node --env-file=.env.local scripts/sync-official-portraits.mjs --state=OK
  *   node --env-file=.env.local scripts/sync-official-portraits.mjs --force --limit=50
  *   node --env-file=.env.local scripts/sync-official-portraits.mjs --wikidata
+ *
+ * The Wikidata pass covers state, federal and unlevelled officials only, and
+ * stops at --max-minutes (default 45 with --wikidata). Until 2026-11-24 it
+ * queried all ~5,500 officials missing a photo, 5,373 of them county or city
+ * officials Wikidata almost never has, at up to 60 s each: the 11-23 run hit
+ * the job's 5-hour timeout and was cancelled, mid-run, for 3–12 photos a week.
+ * --wikidata-local puts county and city officials back in.
  */
 import { createClient } from "@supabase/supabase-js";
 import { runWithLogging } from "./lib/scraper-run.mjs";
@@ -48,6 +55,9 @@ const FORCE = flag("force");
 const USE_WIKIDATA = flag("wikidata");
 const STATE = (opt("state") || "").toUpperCase() || null;
 const LIMIT = parseInt(opt("limit") || "0", 10) || null;
+const WIKIDATA_LOCAL = flag("wikidata-local");
+const MAX_MINUTES = parseFloat(opt("max-minutes") || (USE_WIKIDATA ? "45" : "0")) || null;
+const LOCAL_LEVELS = new Set(["county", "municipal"]);
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -170,7 +180,7 @@ async function main() {
     for (let from = 0; ; from += PAGE) {
       let q = sb
         .from("legislators")
-        .select("id, full_name, state, role, bioguide_id, openstates_id")
+        .select("id, full_name, state, role, level, bioguide_id, openstates_id")
         .eq("active", true)
         .is("portrait_url", null)
         .order("state")
@@ -186,16 +196,20 @@ async function main() {
     if (LIMIT && queue.length > LIMIT) queue.length = LIMIT;
     log(`${queue.length} active officials missing a portrait.`);
 
-    let updated = 0, federal = 0, state = 0, wiki = 0, missed = 0, cached = 0;
+    let updated = 0, federal = 0, state = 0, wiki = 0, missed = 0, cached = 0, seen = 0;
     const useR2 = r2Configured();
+    const deadline = MAX_MINUTES ? Date.now() + MAX_MINUTES * 60_000 : Infinity;
+    let stoppedAt = null;
 
     for (const leg of queue) {
+      if (Date.now() > deadline) { stoppedAt = seen; break; }
+      seen++;
       // ordered candidate sources
       const candidates = [];
       if (FEDERAL_ROLES.has(leg.role) && leg.bioguide_id) {
         candidates.push({ src: "unitedstates", url: `https://unitedstates.github.io/images/congress/450x550/${leg.bioguide_id}.jpg` });
       }
-      if (USE_WIKIDATA && candidates.length === 0) {
+      if (USE_WIKIDATA && candidates.length === 0 && (WIKIDATA_LOCAL || !LOCAL_LEVELS.has(leg.level))) {
         const w = await wikidataPortrait(leg.full_name, leg.state);
         if (w) candidates.push({ src: "wikidata", url: w });
       }
@@ -235,7 +249,8 @@ async function main() {
       if (candidates.length > 0) await sleep(120);
     }
 
-    const notes = `${DRY ? "dry-run " : ""}${updated} portraits (${federal} federal / ${state} openstates / ${wiki} wikidata${useR2 ? `, ${cached} R2-cached` : ", hotlinked"}), ${missed} no-source, of ${queue.length} queued`;
+    const notes = `${DRY ? "dry-run " : ""}${updated} portraits (${federal} federal / ${state} openstates / ${wiki} wikidata${useR2 ? `, ${cached} R2-cached` : ", hotlinked"}), ${missed} no-source, of ${queue.length} queued`
+      + (stoppedAt !== null ? `; stopped at the ${MAX_MINUTES}-minute budget after ${stoppedAt}` : "");
     log(`\n${notes}`);
     return { rowsAdded: 0, rowsUpdated: DRY ? 0 : updated, notes };
   });

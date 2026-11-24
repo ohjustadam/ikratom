@@ -106,5 +106,9 @@ jobs:
         run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-state-portraits-bulk.mjs ${{ steps.flags.outputs.force }} ${{ steps.flags.outputs.state }} || true
       - name: Recover dead-URL portraits from the Wayback Machine (keyless, exact-URL archive)
         run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-portraits-wayback.mjs --apply ${{ steps.flags.outputs.force }} ${{ steps.flags.outputs.state }} || true
-      - name: Wikidata P18 for officials still missing a source (prominent only, name-match)
-        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-official-portraits.mjs --wikidata ${{ steps.flags.outputs.force }} || true
+      # State and federal officials only, and the script stops itself at 45
+      # minutes; the step timeout is the backstop. On 11-23 this step ran into
+      # the job's 5-hour limit and was cancelled with its run row left "running".
+      - name: Wikidata P18 for state and federal officials still missing a source (in-state office check)
+        timeout-minutes: 60
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-official-portraits.mjs --wikidata --max-minutes=45 ${{ steps.flags.outputs.force }} || true
