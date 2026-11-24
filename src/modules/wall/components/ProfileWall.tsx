@@ -3,6 +3,7 @@ import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { AUDIENCE_ICON, AUDIENCE_LABEL, isAudience } from "@/modules/profile/audience";
 import type { WallPost } from "../types";
 import { WallAuthor } from "./WallAuthor";
+import { withAuthorRoles } from "../roles";
 import { WallComposer } from "./WallComposer";
 import { WallComments } from "./WallComments";
 import { WallDeleteButton } from "./WallDeleteButton";
@@ -19,7 +20,7 @@ export async function ProfileWall({ ownerId, handle, viewerId }: { ownerId: stri
     supabase.rpc("get_wall", { p_owner: ownerId, p_limit: 20 }),
   ]);
   if (access !== "post" && access !== "view") return null;
-  const posts = (data ?? []) as WallPost[];
+  const posts = await withAuthorRoles(supabase, (data ?? []) as WallPost[]);
   const isSelf = viewerId === ownerId;
   if (access === "view" && posts.length === 0) return null;
 
@@ -31,7 +32,7 @@ export async function ProfileWall({ ownerId, handle, viewerId }: { ownerId: stri
       {posts.map((p) => (
         <article key={p.id} className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
           <div className="flex items-start justify-between gap-2">
-            <WallAuthor id={p.author_id} username={p.author_username} avatarUrl={p.author_avatar_url} at={p.created_at} />
+            <WallAuthor id={p.author_id} username={p.author_username} avatarUrl={p.author_avatar_url} at={p.created_at} role={p.author_role} />
             {isSelf && isAudience(p.audience) && (
               <span className="shrink-0 text-[11px] text-zinc-500" title="Who can see this post">
                 {AUDIENCE_ICON[p.audience]} {AUDIENCE_LABEL[p.audience]}

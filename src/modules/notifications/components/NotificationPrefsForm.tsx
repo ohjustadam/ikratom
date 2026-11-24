@@ -14,6 +14,7 @@ const CATEGORY_FIELDS = [
   { name: "notify_voting_reminder", label: "Election reminders", hint: "primary + election dates in your state — 30/7/1 days out" },
   { name: "notify_state_briefings", label: "State daily briefings", hint: "a heads-up when your state's field-work briefing refreshes — tap Listen to hear it" },
   { name: "notify_community", label: "Community", hint: "forum threads and replies" },
+  { name: "notify_groups", label: "Your groups", hint: "new discussions, replies, events and group actions. Join requests and @mentions always come through" },
   { name: "notify_announcements", label: "Announcements", hint: "platform updates + what's-new posts" },
 ] as const;
 
@@ -67,6 +68,7 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
           {/* Marker: tells the server these checkboxes were rendered, so an
               absent field means UNCHECKED — not a stale pre-deploy page. */}
           <input type="hidden" name="categories_present" value="1" readOnly />
+          <input type="hidden" name="groups_present" value="1" readOnly />
           {CATEGORY_FIELDS.map((c) => (
             <Check
               key={c.name}

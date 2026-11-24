@@ -1,4 +1,4 @@
-export const metadata = { title: "Glossary" };
+export const metadata = { alternates: { canonical: "/glossary" }, title: "Glossary" };
 
 const TERMS: Array<{ term: string; def: string; aka?: string }> = [
   { term: "Kratom", def: "Common name for Mitragyna speciosa, a tropical evergreen tree native to Southeast Asia. The leaves contain alkaloids used as a stimulant in low doses and a sedative in higher doses." },

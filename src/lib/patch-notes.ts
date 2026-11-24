@@ -4,6 +4,13 @@ import path from "path";
 import matter from "gray-matter";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { frontmatterString } from "@/lib/frontmatter";
+import {
+  toItems,
+  type ItemRow,
+  type HeadlineCounts,
+  type PatchNoteFigure,
+  type PatchNoteItem,
+} from "@/lib/patch-note-items";
 
 /**
  * One reader for /whats-new, over two sources.
@@ -40,9 +47,19 @@ export type PatchNote = {
   summary: string | null;
   published: string | null;
   source: "db" | "file";
+  /** Headline counts when the note has ledger items (migration 0323), else null. */
+  counts: HeadlineCounts | null;
 };
 
-export type PatchNoteDetail = PatchNote & { bodyMd: string };
+/**
+ * `items` empty means the note renders its body_md, exactly as before 0323.
+ * The markdown stays the fallback for every note, including ones with items.
+ */
+export type PatchNoteDetail = Omit<PatchNote, "counts"> & {
+  bodyMd: string;
+  items: PatchNoteItem[];
+  figures: PatchNoteFigure[];
+};
 
 const NOTES_DIR = path.join(process.cwd(), "src", "content", "patch-notes");
 
@@ -65,7 +82,51 @@ function readFileNote(slug: string): PatchNoteDetail | null {
     published: frontmatterString(data.published) ?? null,
     bodyMd: content,
     source: "file",
+    items: [],
+    figures: [],
   };
+}
+
+type CountsRow = {
+  note_id: string;
+  total: number;
+  new_count: number;
+  fix_count: number;
+  faster_count: number;
+  member_reports: number;
+};
+
+/**
+ * The items and tiles of one published note. Fail-open: a missing table (before
+ * 0323 is applied) or a blip returns empty lists, and the page falls back to the
+ * note's markdown.
+ */
+async function readLedger(
+  supabase: ReturnType<typeof createAnonClient>,
+  noteId: string,
+): Promise<{ items: PatchNoteItem[]; figures: PatchNoteFigure[] }> {
+  try {
+    const [items, figures] = await Promise.all([
+      supabase
+        .from("patch_note_items")
+        .select("merged_on, pr, area, type, title, detail, member_report, sort")
+        .eq("note_id", noteId)
+        .order("sort", { ascending: true })
+        .limit(500),
+      supabase
+        .from("patch_note_figures")
+        .select("key, value, label, detail")
+        .eq("note_id", noteId)
+        .order("sort", { ascending: true })
+        .limit(24),
+    ]);
+    return {
+      items: toItems((items.data ?? []) as ItemRow[]),
+      figures: ((figures.data ?? []) as PatchNoteFigure[]).map((f) => ({ ...f, value: Number(f.value) })),
+    };
+  } catch {
+    return { items: [], figures: [] };
+  }
 }
 
 /** Published notes only, newest first. Safe on a public, signed-out page. */
@@ -73,7 +134,14 @@ export async function listPatchNotes(): Promise<PatchNote[]> {
   const fromFiles: PatchNote[] = fileSlugs()
     .map((s) => readFileNote(s))
     .filter((n): n is PatchNoteDetail => n !== null)
-    .map(({ bodyMd: _bodyMd, ...rest }) => rest);
+    .map((n) => ({
+      slug: n.slug,
+      title: n.title,
+      summary: n.summary,
+      published: n.published,
+      source: n.source,
+      counts: null,
+    }));
 
   let fromDb: PatchNote[] = [];
   try {
@@ -83,16 +151,37 @@ export async function listPatchNotes(): Promise<PatchNote[]> {
     // edit, not decoration.
     const { data } = await supabase
       .from("patch_notes")
-      .select("slug, title, summary, published_on")
+      .select("id, slug, title, summary, published_on")
       .eq("status", "published")
       .order("published_on", { ascending: false })
       .limit(200);
+    // One row per note that has ledger items (view in migration 0323). Its own
+    // try: the list must still render if the view is missing or blinks.
+    const counts = new Map<string, HeadlineCounts>();
+    try {
+      const { data: rows } = await supabase
+        .from("patch_note_item_counts")
+        .select("note_id, total, new_count, fix_count, faster_count, member_reports")
+        .limit(1000);
+      for (const r of (rows ?? []) as CountsRow[]) {
+        counts.set(r.note_id, {
+          total: r.total,
+          new: r.new_count,
+          fix: r.fix_count,
+          faster: r.faster_count,
+          memberReports: r.member_reports,
+        });
+      }
+    } catch {
+      // Cards render without counts.
+    }
     fromDb = (data ?? []).map((r) => ({
       slug: r.slug as string,
       title: r.title as string,
       summary: (r.summary as string | null) ?? null,
       published: (r.published_on as string | null) ?? null,
       source: "db" as const,
+      counts: counts.get(r.id as string) ?? null,
     }));
   } catch {
     // Fall through to files only.
@@ -120,12 +209,14 @@ export async function getPatchNote(slug: string): Promise<PatchNoteDetail | null
     const supabase = createAnonClient();
     const { data } = await supabase
       .from("patch_notes")
-      .select("slug, title, summary, body_md, published_on")
+      .select("id, slug, title, summary, body_md, published_on")
       .eq("slug", slug)
       .eq("status", "published")
       .maybeSingle();
     if (data) {
+      const ledger = await readLedger(supabase, data.id as string);
       return {
+        ...ledger,
         slug: data.slug as string,
         title: data.title as string,
         summary: (data.summary as string | null) ?? null,

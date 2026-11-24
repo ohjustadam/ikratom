@@ -1,4 +1,5 @@
 /** Profile wall shapes (migration 0292). Pure: client and server import it. */
+import type { PublicRole } from "@/lib/public-handle";
 
 export const POST_MAX = 2000;
 export const COMMENT_MAX = 1000;
@@ -17,6 +18,8 @@ export type WallPost = {
   created_at: string;
   comment_count: number;
   can_delete: boolean;
+  /** Leader / Admin tag, added after the RPC by withAuthorRoles. */
+  author_role?: PublicRole | null;
 };
 
 export type WallComment = {
@@ -27,4 +30,5 @@ export type WallComment = {
   body: string;
   created_at: string;
   can_delete: boolean;
+  author_role?: PublicRole | null;
 };

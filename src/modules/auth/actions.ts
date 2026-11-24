@@ -12,7 +12,12 @@ import { recordSignIn } from "./actions-devices";
 import { recordAuthEvent } from "@/lib/auth-events";
 import type { AuthResult } from "./types";
 import { PENDING_JOIN_COOKIE, joinCodeFromPath, pendingJoinCookieOptions, pendingJoinPath } from "@/lib/pending-join";
-import { classifySignUp } from "./signup-outcome";
+import { classifySignUp, isEmailCapacityError } from "./signup-outcome";
+import { queueSignupAfterEmailCap } from "./signup-queue";
+import { CAPTCHA_FAILED_HINT, CAPTCHA_FAILED_MESSAGE, captchaTokenFrom, isCaptchaError } from "@/lib/captcha";
+
+/** Same answer everywhere the Turnstile check fails (src/lib/captcha.ts). */
+const CAPTCHA_FAILED = { error: CAPTCHA_FAILED_MESSAGE, hint: CAPTCHA_FAILED_HINT, errorCode: "captcha_failed" } as const;
 
 /**
  * Look up the most recent active campaign for a state and return its slug.
@@ -156,9 +161,11 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   const RESERVED = new Set(["admin", "root", "owner", "ikratom", "support", "staff", "moderator", "mod", "system", "official", "anonymous", "anon"]);
   if (RESERVED.has(usernameRaw)) return { error: "That username is reserved." };
 
-  // Rate limit: 5 signups per IP per hour
+  // Rate limit: 15 signups per IP per hour. It was 5 until the 2026-11-17 scale
+  // audit: a shop event's QR code puts a room of new members on one Wi-Fi
+  // address, and the 6th person in the hour was turned away.
   const ip = await getClientIp();
-  if (!(await checkRateLimit(`signup:ip:${ip}`, 5, 3600))) {
+  if (!(await checkRateLimit(`signup:ip:${ip}`, 15, 3600))) {
     return { error: "Too many signup attempts from this network. Try again later." };
   }
 
@@ -206,24 +213,46 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
     password,
     // Without this Supabase sends the link to the Site URL: the homepage,
     // which ignores ?code= and leaves the person signed out with no message.
-    options: { emailRedirectTo: `${appUrl}/auth/callback` },
+    options: { emailRedirectTo: `${appUrl}/auth/callback`, captchaToken: captchaTokenFrom(formData) },
   });
-  const kind = classifySignUp({ error, user: data?.user });
+  let kind = classifySignUp({ error, user: data?.user });
   // A real account id only when Supabase made or found an unconfirmed account;
   // for a confirmed address it hands back a stand-in with a random id.
-  const realUserId = kind === "created" || kind === "resent" ? data?.user?.id ?? null : null;
+  let realUserId = kind === "created" || kind === "resent" ? data?.user?.id ?? null : null;
+
+  // No confirmation email could go out (a rush used up the hourly cap or the
+  // provider's day). Make the account anyway, unconfirmed, and queue its link.
+  let queued = false;
+  if (kind === "capacity") {
+    const q = await queueSignupAfterEmailCap(sr, { email, password });
+    if (!q.ok) {
+      console.error("[signup] queue after email cap failed:", q.error);
+    } else {
+      queued = true;
+      realUserId = q.userId;
+      kind = q.userId ? "created" : "resent";
+    }
+  }
 
   await recordAuthEvent({
     kind: "signup", provider: "password",
-    status: error ? "fail" : "ok",
+    status: error && !queued ? "fail" : "ok",
     errorCode: error ? error.code ?? "signup_error" : null,
     errorMessage: error?.message,
     userId: realUserId,
     email, ip: ip ?? null,
-    context: { outcome: kind },
+    context: { outcome: queued ? "queued" : kind },
   });
 
+  if (kind === "capacity") {
+    return {
+      error: "We're getting a lot of signups right now and couldn't create your account. Please try again in a few minutes.",
+      errorCode: "email_capacity",
+    };
+  }
+
   if (kind === "error") {
+    if (isCaptchaError(error?.message)) return CAPTCHA_FAILED;
     return { error: error?.message || "We couldn't create the account. Try again in a minute." };
   }
 
@@ -299,7 +328,10 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
     }
   }
 
-  return { success: true };
+  // A session means email confirmation is OFF (the surge switch in
+  // private/SCALE_READINESS.md): the member is signed in already.
+  if (data?.session) return { success: true, signedIn: true };
+  return queued ? { success: true, queued: true } : { success: true };
 }
 
 /**
@@ -362,7 +394,11 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   }
 
   const supabase = await createClient();
-  const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+  const { error, data } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+    options: { captchaToken: captchaTokenFrom(formData) },
+  });
   if (error) {
     await recordAuthEvent({
       kind: "login", provider: "password", status: "fail",
@@ -395,9 +431,9 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
       hint = "Double-check your email and password. Signed up more than once? Your password is the one from your FIRST try. If you never confirmed your email, tap the link in the newest email from iKratom (check spam). Otherwise use 'Forgot password' to reset access, or 'Sign up' if you're new.";
     } else if (msg.includes("rate limit") || msg.includes("too many")) {
       friendly = "Too many attempts. Try again in a few minutes.";
-    } else if (msg.includes("captcha")) {
-      friendly = "Sign-in is temporarily blocked.";
-      hint = "Refresh the page and try again. If it persists, contact support.";
+    } else if (isCaptchaError(msg)) {
+      friendly = CAPTCHA_FAILED_MESSAGE;
+      hint = CAPTCHA_FAILED_HINT;
     } else if (msg.includes("banned") || msg.includes("blocked")) {
       friendly = "This account has been suspended.";
       hint = "Contact support if you think this is a mistake.";
@@ -506,7 +542,11 @@ export async function signInInline(formData: FormData): Promise<AuthResult & { m
   }
 
   const supabase = await createClient();
-  const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+  const { error, data } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+    options: { captchaToken: captchaTokenFrom(formData) },
+  });
   if (error) {
     await recordAuthEvent({
       kind: "login", provider: "password", status: "fail",
@@ -530,6 +570,7 @@ export async function signInInline(formData: FormData): Promise<AuthResult & { m
         errorCode: "invalid_credentials",
       };
     }
+    if (isCaptchaError(msg)) return CAPTCHA_FAILED;
     return { error: error.message, errorCode: error.code ?? null };
   }
 
@@ -567,9 +608,11 @@ export async function signUpInline(formData: FormData): Promise<AuthResult & { n
   // "Check your inbox" state instead of trying to auto-submit the pending action.
   const result = await signUp(formData);
   if (result.success) {
+    // Confirmation OFF (surge switch): already signed in, let the modal finish.
+    if (result.signedIn) return { success: true, signedIn: true };
     // Supabase email-confirmation defaults to ON. The user must click the
     // confirmation link before signInWithPassword works.
-    return { success: true, needsConfirmation: true };
+    return { success: true, needsConfirmation: true, queued: result.queued };
   }
   return result;
 }
@@ -596,7 +639,7 @@ export async function resendSignupLink(formData: FormData): Promise<AuthResult> 
   const { error } = await supabase.auth.resend({
     type: "signup",
     email,
-    options: { emailRedirectTo: `${appUrl}/auth/callback` },
+    options: { emailRedirectTo: `${appUrl}/auth/callback`, captchaToken: captchaTokenFrom(formData) },
   });
   await recordAuthEvent({
     kind: "signup", provider: "password",
@@ -606,6 +649,19 @@ export async function resendSignupLink(formData: FormData): Promise<AuthResult> 
     email, ip: ip ?? null,
     context: { outcome: "resend_link" },
   });
+  // A failed bot check says nothing about the address, so it can be shown.
+  if (isCaptchaError(error?.message)) return CAPTCHA_FAILED;
+  // Out of email (a rush): queue the link instead. The hourly sender skips an
+  // address with no account, so this never creates one, and the answer below
+  // is the same either way.
+  if (isEmailCapacityError(error)) {
+    const { error: qErr } = await createServiceRoleClient().from("signup_email_queue").upsert(
+      { email: email.toLowerCase(), status: "pending", attempts: 0, last_error: null, queued_at: new Date().toISOString() },
+      { onConflict: "email" },
+    );
+    if (qErr) console.error("[resend-link] queue write failed:", qErr.message);
+    return { success: true, queued: true };
+  }
   return { success: true };
 }
 
@@ -635,7 +691,11 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
   const appUrl = process.env.APP_URL ?? "http://localhost:3001";
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${appUrl}/auth/callback?next=/reset-password`,
+    captchaToken: captchaTokenFrom(formData),
   });
+  // A failed bot check says nothing about the address, so it can be shown;
+  // otherwise the member waits for an email that was never sent.
+  if (isCaptchaError(error?.message)) return CAPTCHA_FAILED;
 
   // We always return success to prevent email enumeration. The user will get
   // the email if their account exists; otherwise nothing happens.

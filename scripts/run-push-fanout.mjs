@@ -39,7 +39,8 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABA
 const startedAt = new Date().toISOString();
 let status = "success", notes = "";
 try {
-  const r = await fanoutPushNotifications(sb);
+  // 4 min of paging; the job allows 8 including install (cron-hourly.yml push-fanout).
+  const r = await fanoutPushNotifications(sb, { budgetMs: 4 * 60_000 });
   notes = JSON.stringify(r).slice(0, 900);
   console.log("fan-out:", notes);
 } catch (e) {

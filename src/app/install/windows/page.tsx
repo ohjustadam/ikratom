@@ -2,6 +2,7 @@ import Link from "@/components/Link";
 import { InstallPcButton } from "./InstallPcButton";
 
 export const metadata = {
+  alternates: { canonical: "/install/windows" },
   title: "Install iKratom on your PC — Windows / Mac / Linux desktop app",
   description:
     "Install iKratom as a real desktop program — its own window, taskbar icon, Start-menu entry, and push notifications. Free, 10 seconds, no store.",

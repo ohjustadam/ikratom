@@ -5,7 +5,8 @@ import { extractMentions } from "@/lib/mentions";
 import { fanoutPushNotifications } from "@/modules/notifications/push-fanout";
 
 /**
- * Notify the members a Lounge message @mentions (owner ask 2026-10-28).
+ * Notify the members a chat message @mentions: the Lounge (owner ask
+ * 2026-10-28) and, since 2026-11-17, group chat.
  *
  * Each mentioned member gets an ordinary `notifications` row (kind 'mention'):
  * it shows in their inbox and bell count at once, it rides the daily email
@@ -21,12 +22,53 @@ import { fanoutPushNotifications } from "@/modules/notifications/push-fanout";
  *   - never yourself, and never across a block in either direction.
  * Identity stays public-safe: the notification names the sender by @username
  * only, and resolution is exact-match (no username search is exposed).
+ * A group chat mention reaches only members of that group: anyone else
+ * couldn't open the chat, and the notice would leak that the group exists.
  */
 export async function notifyLoungeMentions(input: {
   senderId: string;
   senderUsername: string | null;
   messageId: string;
   body: string;
+}): Promise<number> {
+  return notifyMentions({
+    senderId: input.senderId,
+    senderUsername: input.senderUsername,
+    body: input.body,
+    where: "the Lounge",
+    link: `/?lounge=${input.messageId}`,
+  });
+}
+
+export async function notifyGroupChatMentions(input: {
+  senderId: string;
+  senderUsername: string | null;
+  coalitionId: string;
+  body: string;
+}): Promise<number> {
+  if (!extractMentions(input.body).length || !input.senderUsername) return 0;
+  const admin = createServiceRoleClient();
+  const { data: group } = await admin
+    .from("coalitions").select("slug, name").eq("id", input.coalitionId).maybeSingle();
+  if (!group) return 0;
+  return notifyMentions({
+    senderId: input.senderId,
+    senderUsername: input.senderUsername,
+    body: input.body,
+    where: `${group.name} chat`,
+    link: `/coalitions/${group.slug}/chat`,
+    coalitionId: input.coalitionId,
+  });
+}
+
+async function notifyMentions(input: {
+  senderId: string;
+  senderUsername: string | null;
+  body: string;
+  where: string;
+  link: string;
+  /** Set for group chat: only this group's members can be notified. */
+  coalitionId?: string;
 }): Promise<number> {
   const handles = extractMentions(input.body);
   if (handles.length === 0 || !input.senderUsername) return 0;
@@ -39,6 +81,15 @@ export async function notifyLoungeMentions(input: {
     .neq("id", input.senderId);
   let ids = (targets ?? []).map((t) => t.id as string);
   if (ids.length === 0) return 0;
+
+  if (input.coalitionId) {
+    const { data: members } = await admin
+      .from("coalition_members").select("user_id")
+      .eq("coalition_id", input.coalitionId).in("user_id", ids);
+    const inGroup = new Set((members ?? []).map((m) => m.user_id as string));
+    ids = ids.filter((id) => inGroup.has(id));
+    if (ids.length === 0) return 0;
+  }
 
   const { data: blocks } = await admin
     .from("user_blocks")
@@ -62,9 +113,9 @@ export async function notifyLoungeMentions(input: {
     allowed.map((user_id) => ({
       user_id,
       kind: "mention",
-      title: `@${input.senderUsername} mentioned you in the Lounge`,
+      title: `@${input.senderUsername} mentioned you in ${input.where}`,
       body: snippet,
-      link: `/?lounge=${input.messageId}`,
+      link: input.link,
     })),
   );
   if (error) {

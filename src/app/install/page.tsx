@@ -1,6 +1,7 @@
 import Link from "@/components/Link";
 
 export const metadata = {
+  alternates: { canonical: "/install" },
   title: "Install iKratom — home-screen app for any device",
   description: "Install iKratom as a phone app — free, no app store needed.",
 };

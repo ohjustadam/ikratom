@@ -3,7 +3,8 @@ import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const metadata = {
-  title: "All 50 states · iKratom",
+  alternates: { canonical: "/states" },
+  title: "All 50 states",
   description: "Kratom policy by state — every active bill, upcoming meeting, and recent alert in one place per state.",
 };
 // Per-state counts are fully public + identical for everyone → cached across

@@ -7,7 +7,8 @@ import { PressReplyButton } from "@/modules/press/PressReplyButton";
 export const revalidate = 3600;
 
 export const metadata: Metadata = {
-  title: "Media Persuasion | iKratom",
+  alternates: { canonical: "/media" },
+  title: "Media Persuasion",
   description: "Answer the reporters and researchers who write about kratom, from your own mailbox.",
 };
 

@@ -5,6 +5,7 @@ import { ResearchSubmitCta } from "./ResearchSubmitCta";
 import { ResearchBrowser, type PaperRow } from "./ResearchBrowser";
 
 export const metadata = {
+  alternates: { canonical: "/research" },
   title: "Kratom + 7-OH research library — peer-reviewed evidence",
   description: "Curated, AI-evaluated library of peer-reviewed kratom and 7-hydroxymitragynine research. Conservative methodology scoring, original abstracts always preserved, sourced from PubMed.",
 };

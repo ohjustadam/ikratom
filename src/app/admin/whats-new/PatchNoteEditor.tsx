@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { savePatchNote, setPatchNoteStatus, type AdminPatchNote } from "@/modules/admin/patch-note-actions";
+import LedgerEditor from "./LedgerEditor";
 
 /**
  * One changelog entry, editable in place.
@@ -83,7 +84,7 @@ export default function PatchNoteEditor({ note }: { note: AdminPatchNote }) {
             onChange={(e) => setBody(e.target.value)}
             rows={14}
             className="w-full rounded border border-zinc-800 bg-zinc-900 px-3 py-2 font-mono text-xs"
-            placeholder="Markdown body"
+            placeholder="Markdown body (the public page shows it when the note has no ledger items)"
           />
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -116,6 +117,7 @@ export default function PatchNoteEditor({ note }: { note: AdminPatchNote }) {
             </a>
             {msg && <span className="text-xs text-zinc-400">{msg}</span>}
           </div>
+          <LedgerEditor slug={note.slug} publishedOn={note.published_on} />
         </div>
       )}
     </li>

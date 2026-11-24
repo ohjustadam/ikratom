@@ -1,7 +1,7 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { publicHandle } from "@/lib/public-handle";
+import { publicHandle, publicRole } from "@/lib/public-handle";
 import { getGroupLink } from "@/modules/coalitions/growth-actions";
 import { groupBadge, type WinsRow } from "@/modules/coalitions/home";
 import { About } from "./About";
@@ -81,14 +81,14 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
     const { data: rows } = await sb.from("coalition_members").select("user_id, role, joined_at")
       .eq("coalition_id", c.id).order("joined_at", { ascending: true });
     const list = (rows ?? []) as { user_id: string; role: string; joined_at: string }[];
-    const prof = new Map<string, { username: string | null; state: string | null; avatar_url: string | null }>();
+    const prof = new Map<string, { username: string | null; state: string | null; avatar_url: string | null; is_admin?: boolean | null; is_advocate_leader?: boolean | null }>();
     if (list.length > 0) {
       const { data: profs } = await sb.rpc("get_public_profiles", { p_ids: list.map((r) => r.user_id) });
-      for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null; avatar_url: string | null }[]) prof.set(p.id, p);
+      for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null; avatar_url: string | null; is_admin?: boolean | null; is_advocate_leader?: boolean | null }[]) prof.set(p.id, p);
     }
     members = list.map((r) => {
       const p = prof.get(r.user_id);
-      return { ...r, handle: publicHandle({ username: p?.username ?? null, state: p?.state ?? null }), avatarUrl: p?.avatar_url ?? null };
+      return { ...r, handle: publicHandle({ username: p?.username ?? null, state: p?.state ?? null }), avatarUrl: p?.avatar_url ?? null, siteRole: publicRole(p) };
     });
   }
 
@@ -106,6 +106,7 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
 
   // The welcome checklist's one-tap shortcuts: ?intro=1 a pre-filled hello,
   // ?welcome=1 an organizer's pinned welcome post, ?plan=1 the event form.
+  // ?post=1 (the header's Post button) opens an empty composer, cursor in it.
   const { data: featuredCamp } = c.featured_campaign_id && viewerRole
     ? await sb.from("campaigns").select("id, slug, active").eq("id", c.featured_campaign_id).maybeSingle()
     : { data: null };
@@ -115,7 +116,9 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
     ? { title: "👋 Welcome! Start here", body: welcomeBody(c.name), pin: true }
     : sp.intro === "1"
       ? { title: `👋 Hi, I'm ${myHandle}`, body: "Hi everyone! I live in ___ and kratom matters to me because ___.\n\nI can help by ___." }
-      : null;
+      : sp.post === "1"
+        ? { title: "", body: "" }
+        : null;
 
   const invite = viewerRole && (
     <div id="invite" className="scroll-mt-20">

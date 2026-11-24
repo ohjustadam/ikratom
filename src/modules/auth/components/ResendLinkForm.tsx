@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { resendSignupLink } from "../actions";
+import { useTurnstile } from "@/components/auth/useTurnstile";
+import { CAPTCHA_FIELD } from "@/lib/captcha";
 
 /**
  * "Send me a new link" for someone whose confirmation link expired, was
@@ -12,13 +14,17 @@ export function ResendLinkForm({ defaultEmail = "" }: { defaultEmail?: string })
   const [email, setEmail] = useState(defaultEmail);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
+  const { slot: captchaSlot, ...captcha } = useTurnstile("resend");
 
   function send() {
     setMsg(null);
     const fd = new FormData();
     fd.set("email", email);
     startTransition(async () => {
+      const token = await captcha.getToken();
+      if (token) fd.set(CAPTCHA_FIELD, token);
       const r = await resendSignupLink(fd);
+      captcha.reset();
       setMsg(
         r.error
           ? { ok: false, text: r.error }
@@ -58,6 +64,7 @@ export function ResendLinkForm({ defaultEmail = "" }: { defaultEmail?: string })
           {pending ? "Sending…" : "Send a new link"}
         </button>
       </div>
+      <div ref={captchaSlot} />
       {msg && (
         <p className={`text-xs ${msg.ok ? "text-emerald-300" : "text-red-300"}`}>{msg.text}</p>
       )}

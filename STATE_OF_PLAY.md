@@ -125,6 +125,16 @@ telling anyone they are near a ceiling**: `npm run credits`, or the CI
 Supabase egress has its own load-shedding gate (`scripts/egress-gate.mjs`),
 which defers deferrable cron jobs rather than failing them.
 
+**Database space is the next free-plan wall (500 MB, counted over all
+databases).** 2026-11-18: 337 MB after a reindex took back 29 MB of dead index
+entries. Since 2026-11-19, `scripts/db-reindex.mjs` runs weekly
+(cron-weekly). The nightly `prune-retention.mjs` drops expired rate-limit
+windows. Deleting rows frees space for reuse but does not lower the number;
+only a rebuild (REINDEX, VACUUM FULL) does. **What grows with members is
+`notifications`:** every broadcast writes one row per member, ~74 per member
+per month, 94% never read. That is ~1 GB a month at 30,000 members, so no
+retention window fixes it; broadcasts must be stored once.
+
 **2026-10-02: the credit gate was right and the site still went down.** One
 rented server replayed ~440 server-rendered URLs about 28 times each for 25
 minutes. Those renders (~6.5s each, 30s on timeout) burned ~635 credits, the
@@ -140,7 +150,14 @@ fixed by a better estimate:
   burst mid-flight. Netlify's emails at 50/75/100% are not configurable.
 - **The evidence lives in Cloudflare.** `scripts/cf-origin-report.mjs` ranks
   who is spending origin time; Netlify's function logs keep 24h and will not
-  load while the site is paused.
+  load while the site is paused. Since 2026-11-16 `scripts/flood-alarm.mjs`
+  (its own job in `cron-hourly.yml`, source `flood_alarm`) reads it for every
+  5-minute bucket since its last scan and pages the owner when bots spend the
+  origin far above the last 7 days, naming the window, user agents, paths, IP
+  count, max per IP and the share Cloudflare challenged. A residential-proxy
+  crawler (~1,000-1,200 IPs, ≤30 requests each, Chrome/120 + Firefox/121)
+  hit around 12:25-13:45Z on most days of 11-05..11-16; `/api/me` was 63% of its
+  server time on 11-11.
 - **Prevention has to happen before the origin.** A per-IP rate limit at
   Cloudflare would have stopped this outright, and caching a page for anonymous
   visitors bounds a replay to one render per URL per TTL
@@ -388,8 +405,33 @@ outside the group gets a read-only view, and Handled in
 (`groupRemoval()`). Chat lines and resources have no soft delete, so organizers
 remove those.
 
+**Group notifications (checked end to end 2026-11-17).** Every notice is an
+ordinary `notifications` row, so push (the fan-out cron, by each member's
+cadence and quiet hours) and the email digest follow the inbox. The digest's
+"Your groups" section is built but **OFF** until the 12-05 build ships the
+setting that mutes it: `GROUPS_IN_DIGEST` in `scripts/lib/digest-sections.mjs`,
+flipped to `true` by the trunk in that build's merge window.
+
+| Event | Who gets it | Kind | Muted by "Your groups"? |
+|---|---|---|---|
+| New discussion | every other member | `coalition_discussion` | yes |
+| Reply | the thread's earlier posters | `coalition_discussion` | yes |
+| New event, reminders | members; RSVPs for reminders | `coalition_event` | yes |
+| Group action picked | members | `coalition_action` | yes |
+| Chat @mention | the named member, if in the group | `mention` | no |
+| Join request, approval | organizers; the requester | `coalition_join_request` | no |
+
+The toggle is `notification_preferences.notify_groups` (0327), enforced by the
+SQL before-insert gate, so a muted member gets no row, no push and no email.
+`tests/group-notifications.test.ts` scans the code for every group kind and fails
+if one skips the digest or the toggle.
+
+**Fewer clicks.** Start a group from the name box on `/coalitions`, then land on
+it. The header's ✍ Post opens the board composer with the cursor in it, and the
+title is optional (`threadTitle()`: the first line stands in).
+
 Not built yet: editing an event's time (cancel and re-post), and a real cover
-photo.
+photo. Ideas, ranked: `private/SOCIAL_IDEAS.md`.
 
 ---
 
@@ -514,6 +556,41 @@ after 7 days, so new officials show as not yet written with no reset needed.
 dry-runs by default, isn't on a schedule, and `--apply` is a mass notice that needs
 the owner's yes.
 
+## Roles, badges and leader invites (2026-11-17)
+
+**What each role can do** is the catalog in `src/modules/admin/permissions.ts`.
+`/roles` is the public explanation, and `/how-it-works/for-leaders` describes
+the same powers. Change the catalog first, then both pages.
+
+- **Leaders could not save a campaign from #847 (2026-07-26) until this fix.**
+  The create action asked for `edit_campaigns`, which leaders don't hold. It now
+  asks for `author_campaigns`. A leader edits and schedules waves only on their
+  own campaigns (`canEditCampaign`, matching the 0204 RLS), and every campaign
+  from a non-admin goes to review with the AI screen's verdict attached.
+- **Leader invites** (migration 0324, `leader_invites`). When the owner promotes
+  someone who isn't verified yet, `/admin/users` shows what's missing and offers
+  "Invite to lead". The member gets a notice and a checklist at `/leader/invite`.
+  The role turns on by itself at their next dashboard visit once
+  `verifyUserForPromotion` passes (`applyLeaderInviteIfReady`, audit-logged):
+  confirmed email, full name and address, 48 hours. 2FA is recommended, not
+  required, for leaders (owner, 2026-11-17).
+- **Public role tags** come from `publicRole()` beside `publicHandle()`, rendered
+  by `src/components/RoleTag.tsx`, fed only by `get_public_profile(s)`. They show
+  in the forum, the Lounge, group posts, chat and members, walls and profiles.
+  The owner's tag reads Admin. The member feed and friend lists carry no role
+  flags yet, so they show no tag.
+
+---
+
+## Search and the brand (2026-11-17)
+
+Google indexes us and ranks ikratom.org first on a verbatim search, but rewrites
+the query "ikratom" to "kratom". Crawl access is fine; the gap is brand signals.
+The home page now states the name in WebSite + Organization JSON-LD
+(`src/lib/seo.ts`), hubs carry canonicals, and private pages are noindex. The
+evidence, the owner's Search Console / Bing steps and the weekly check are in
+`docs/SEO_BRAND.md`. The "ik" mark concepts went to the owner the same day.
+
 ---
 
 ## Things that will bite you
@@ -527,6 +604,15 @@ the owner's yes.
    `scripts/broadcast-whats-new.mjs`, run by hand after the owner says yes.
    The page carries only changes a member can see: Publish refuses internal or
    security wording, and CI holds the files to the same list.
+   Since 2026-11-17 a note can also carry ledger items (`patch_note_items`,
+   one row per change) and number tiles (`patch_note_figures`), migration
+   0323. With at least one item, `/whats-new/[slug]` shows a scoreboard, a
+   chart by area and a searchable ledger instead of the markdown, and the
+   index card shows the counts. The generator drafts the items with the note;
+   the owner edits them under each note at `/admin/whats-new`, and Publish
+   checks them like the body. A note's ledger can also be loaded from
+   `scripts/data/patch-notes/<slug>.json` with `scripts/fill-patch-note-ledger.mjs`
+   (`--undo` removes it). The areas have no slot for internal work, by design.
 2. **A branch that looks unlanded may already be merged by content.** Release
    PRs squash several branches at once, so GitHub never marks the sources
    merged and they stay permanently "ahead". Test-merge into `origin/main` and
@@ -628,6 +714,17 @@ the owner's yes.
     draft run proves it.
 
 ---
+
+15. **Sign-in captcha: code first, switch second (2026-11-16).** Every
+   Supabase Auth call forwards a Cloudflare Turnstile token (`src/lib/captcha.ts`,
+   `src/components/auth/useTurnstile.ts`), but Supabase only checks it once its
+   captcha setting is on, and then it rejects every call WITHOUT a token. The
+   site key is baked in at build time, so the order is: keys in Netlify, a
+   production build, `node --env-file=.env.local scripts/auth-captcha.mjs status`
+   says Ready, then `... enable`. `... disable` is the rollback. Blocking admins
+   and the owner who have no 2FA factor is built but OFF (`ADMIN_MFA_ENFORCED` in
+   `src/modules/admin/mfa.ts`): members were told it starts Mon 2026-11-23, and
+   the admin 2FA sweep flips it after the owner's go/no-go that day.
 
 ## Where the forward plan is declared
 

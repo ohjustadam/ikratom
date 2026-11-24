@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PeopleBrowser } from "./PeopleBrowser";
 
 export const metadata = {
+  alternates: { canonical: "/people" },
   title: "People of interest — documented positions of every named figure across kratom policy",
   description: "Browseable directory of named figures across kratom bills, with each one's documented position on natural leaf and on 7-OH (with sources). Filter by role, state, or search by name.",
 };

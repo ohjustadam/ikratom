@@ -17,6 +17,7 @@ import { cleanStateCode, newsAboutState } from "@/lib/news-state-filter";
 const EASTERN_TZ = "America/New_York";
 
 export const metadata = {
+  alternates: { canonical: "/brief" },
   title: "Daily brief — what's moving in kratom policy",
   description:
     "Personalized digest: alerts in your state, bills you watch, news on tracked legislators, active operations near you. Pull-mode tracking burden converted to push-mode reading.",

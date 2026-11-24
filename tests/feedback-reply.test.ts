@@ -254,6 +254,8 @@ describe("guard rails in the source", () => {
   });
 
   it("puts replies in the member email digest", () => {
-    expect(read("scripts/send-email-notifications.mjs")).toMatch(/kinds: \["feedback_reply"\]/);
+    // The section list moved to a shared module (2026-11-17) that the script imports.
+    expect(read("scripts/lib/digest-sections.mjs")).toMatch(/kinds: \["feedback_reply"\]/);
+    expect(read("scripts/send-email-notifications.mjs")).toContain("./lib/digest-sections.mjs");
   });
 });

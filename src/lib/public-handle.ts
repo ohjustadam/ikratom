@@ -32,3 +32,23 @@ export function handleInitials(handle: string): string {
   const letters = core.replace(/[^a-zA-Z0-9]/g, "");
   return (letters.slice(0, 2) || "M").toUpperCase();
 }
+
+export type PublicRole = "leader" | "admin";
+
+/**
+ * The role tag shown beside @username in public surfaces. Read the flags from
+ * get_public_profile(s) (they return is_admin and is_advocate_leader), never
+ * from a direct profiles select of another member.
+ *
+ * The owner shows as "Admin", not "Owner" (docs/DECISIONS.md, 2026-11-17):
+ * publicly naming the one account that holds every key makes it the obvious
+ * target for impersonation and social engineering, and members only need to
+ * know who can moderate.
+ */
+export function publicRole(
+  p?: { is_admin?: boolean | null; is_owner?: boolean | null; is_advocate_leader?: boolean | null } | null,
+): PublicRole | null {
+  if (p?.is_admin || p?.is_owner) return "admin";
+  if (p?.is_advocate_leader) return "leader";
+  return null;
+}

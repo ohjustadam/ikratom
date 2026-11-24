@@ -1,7 +1,8 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { publicHandle } from "@/lib/public-handle";
+import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
+import { RoleTag } from "@/components/RoleTag";
 import { groupForViewer } from "@/modules/coalitions/moderation";
 import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { PinButton, PostText, ReplyForm, RemoveButton } from "./ThreadClient";
@@ -47,9 +48,12 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
   }[];
   const ids = [...new Set([thread.author_id, ...posts.map((p) => p.author_id)])];
   const handles = new Map<string, string>();
+  const tags = new Map<string, PublicRole>();
   const { data: profs } = await sb.rpc("get_public_profiles", { p_ids: ids });
-  for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null }[]) {
+  for (const p of (profs ?? []) as { id: string; username: string | null; state: string | null; is_admin?: boolean | null; is_advocate_leader?: boolean | null }[]) {
     handles.set(p.id, publicHandle(p));
+    const tag = publicRole(p);
+    if (tag) tags.set(p.id, tag);
   }
   const canModerate = viewer.role === "owner" || viewer.role === "admin";
   const who = (id: string) => handles.get(id) ?? "@member";
@@ -69,7 +73,7 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
       <article className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
         <h1 className="text-2xl font-bold text-zinc-100">{thread.title}</h1>
         <p className="mt-1 text-[11px] text-zinc-500">
-          {who(thread.author_id)} · {when(thread.created_at)}{thread.edited_at && " · edited"}
+          {who(thread.author_id)}<RoleTag role={tags.get(thread.author_id)} /> · {when(thread.created_at)}{thread.edited_at && " · edited"}
         </p>
         {thread.photo_id && <GroupImage id={thread.photo_id} />}
         <PostText
@@ -91,7 +95,7 @@ export default async function CoalitionThreadPage({ params }: { params: Params }
         {posts.map((p) => (
           <li key={p.id} id={`post-${p.id}`} className="scroll-mt-20 rounded-lg border border-zinc-800 bg-zinc-950/30 p-3 target:border-amber-500">
             <p className="text-[11px] text-zinc-500">
-              {who(p.author_id)} · {when(p.created_at)}{p.edited_at && " · edited"}
+              {who(p.author_id)}<RoleTag role={tags.get(p.author_id)} /> · {when(p.created_at)}{p.edited_at && " · edited"}
             </p>
             {p.photo_id && <GroupImage id={p.photo_id} />}
             <PostText slug={c.slug} kind="post" id={p.id} body={p.body} canEdit={isMember && p.author_id === user.id} />

@@ -5,6 +5,7 @@ import { DeadlinesView } from "./DeadlinesView";
 import type { DeadlineItem } from "./types";
 
 export const metadata = {
+  alternates: { canonical: "/deadlines" },
   title: "Comment deadline radar — every public-input window we know about",
   description: "Every state BoP rule, federal DEA scheduling proposal, and city ordinance currently accepting public comment, with countdown timers. The intel lobbyists already have.",
 };

@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { promotionChecklist, type ChecklistItem } from "./promotion-checklist";
 
 /**
  * Trust tiers (anti-weaponization PR4).
@@ -121,22 +122,28 @@ export async function getTrustTier(): Promise<TrustInfo> {
  * thin/astroturf account can't be handed the authoring + amplification keys.
  * Service-role (reads another user's auth record + profile). Returns the list
  * of unmet requirements for a clear admin-facing message.
+ *
+ * 2FA is recommended for leaders, not required (owner, 2026-11-17). It still
+ * appears in `items`, marked optional. Pass `requireMfa` from any admin-level
+ * gate. The `verified` trust tier above is separate and unchanged.
  */
 export async function verifyUserForPromotion(
   userId: string,
-): Promise<{ ok: boolean; missing: string[] }> {
+  opts: { requireMfa?: boolean } = {},
+): Promise<{ ok: boolean; missing: string[]; items: ChecklistItem[] }> {
   const sr = createServiceRoleClient();
   const missing: string[] = [];
 
   const { data: got, error } = await sr.auth.admin.getUserById(userId);
   const u = got?.user;
-  if (error || !u) return { ok: false, missing: ["account not found"] };
+  if (error || !u) return { ok: false, missing: ["account not found"], items: [] };
 
   if (!u.email_confirmed_at) missing.push("confirmed email");
   if (!accountAgeOk(u.created_at)) missing.push("account age ≥ 48h");
 
   const factors = (u.factors ?? []) as Array<{ status?: string }>;
-  if (!factors.some((f) => f.status === "verified")) missing.push("2FA enrolled");
+  const mfaEnrolled = factors.some((f) => f.status === "verified");
+  if (!mfaEnrolled && opts.requireMfa) missing.push("2FA enrolled");
 
   const { data: profile } = await sr
     .from("profiles")
@@ -147,5 +154,14 @@ export async function verifyUserForPromotion(
     missing.push(`complete profile (${missingProfileFields(profile).join(", ")})`);
   }
 
-  return { ok: missing.length === 0, missing };
+  // The same facts, in the words the owner and the member both see.
+  const items = promotionChecklist({
+    emailConfirmed: !!u.email_confirmed_at,
+    ageHours: accountAgeHours(u.created_at),
+    mfaEnrolled,
+    requireMfa: !!opts.requireMfa,
+    profile,
+  });
+
+  return { ok: missing.length === 0, missing, items };
 }

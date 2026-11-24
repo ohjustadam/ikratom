@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-export const metadata = { title: "Leader playbook" };
+export const metadata = { alternates: { canonical: "/how-it-works/for-leaders" }, title: "Leader playbook" };
 
 /**
  * Tutorial for advocate leaders — what they can do that regular users can't.
@@ -40,14 +40,14 @@ export default async function LeaderHowItWorksPage() {
           You can move bills. Here&apos;s how.
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-zinc-400">
-          Advocate leaders run campaigns, schedule waves, post events, and shape
-          the platform&apos;s response when threats land. Most powers don&apos;t
-          require admin or owner — just <span className="font-mono text-emerald-300">is_advocate_leader = true</span>{" "}
-          on your profile.
+          Advocate Leaders write campaigns, schedule waves, add local officials and
+          help keep the community safe. None of it needs admin access. This page is
+          public so anyone thinking about leading can see what it involves.
         </p>
         {!isLeader && (
           <div className="mt-6 inline-block rounded-md border border-amber-700/40 bg-amber-950/20 px-4 py-2 text-sm text-amber-200">
-            You&apos;re viewing this as a regular user. To get leader access, ask the platform owner.
+            You&apos;re viewing this as a member. Leaders are invited by the owner.{" "}
+            <a href="/roles" className="underline hover:text-amber-100">How to become one</a>.
           </div>
         )}
         {isLeader && (
@@ -57,32 +57,32 @@ export default async function LeaderHowItWorksPage() {
         )}
       </header>
 
-      {/* Sections */}
+      {/* Sections: each checked against the real permission gates (2026-11-17). */}
       <div className="space-y-12">
         <Section
           n="01"
-          title="Spawn a campaign in 60 seconds"
-          body="Most powerful thing a leader does. Go to /admin/campaigns/new. Pick a state, pick which legislator roles to target (state senate, state house, US senate, US house), pick locality if it's local, paste a subject + body template with {{variables}}, hit save. Campaign goes live immediately and notifies every matched user via the existing trigger. If it's tied to a specific bill, link the bill_id to surface it on the bill detail page."
+          title="Write a campaign"
+          body="The most powerful thing a leader does. Open the campaign form, pick a state and who should get the letter (state senators and representatives, members of Congress, or city and county officials), then write the subject and letter. Placeholders like {{full_name}}, {{city}} and {{legislator_name}} fill in for each member who sends it. When you submit, an admin checks it, and once it's approved it goes live and members it fits are told. Changes to a live campaign go back to an admin too. Tie it to a bill and it shows on that bill's page."
           actionHref="/admin/campaigns/new"
-          actionLabel="Create a campaign"
+          actionLabel="Write a campaign"
           gated
           isLeader={isLeader}
         />
 
         <Section
           n="02"
-          title="Schedule a coalition wave"
-          body="A wave coordinates a coordinated send. 50 emails in the same hour weighs more than 50 scattered over a week — staffers tally inbound for the morning briefing. Open any campaign you created (or any campaign in /admin/campaigns), click ⚡ Schedule wave. Pick the fire time, set a signup goal. Users see a live counter on the campaign page, sign up between now and fire time, and at the scheduled minute every signed-up user's email goes out via their own Gmail."
+          title="Schedule a wave"
+          body="A wave is a set time when everyone sends together. Fifty letters in the same hour weigh more than fifty spread over a week, because staff count what came in for the morning briefing. Once your campaign is live, open it from Your campaigns and schedule a wave: pick the time and a signup goal. Members see a live counter, join before the time, and at that minute each one's letter goes out from their own email."
           actionHref="/admin/campaigns"
-          actionLabel="Pick a campaign to wave"
+          actionLabel="Your campaigns"
           gated
           isLeader={isLeader}
         />
 
         <Section
           n="03"
-          title="Add local officials OpenStates can't track"
-          body="Mayors, county commissioners, school board members, city council — none of these are in OpenStates. /admin/locals lets you add them. Use AI suggest at /admin/locals/suggest — paste a city name and Gemini auto-fills the current officials with their public emails. Review, accept, done. These officials become available as targets for local campaigns the same as state legislators."
+          title="Add local officials"
+          body="Mayors, county commissioners and city councils aren't in the state data we sync. Add them so local campaigns can reach them. AI suggest pulls a city's roster from its own public meeting records when it has them; you check every name before anything is saved. It's free."
           actionHref="/admin/locals"
           actionLabel="Manage local officials"
           gated
@@ -91,81 +91,60 @@ export default async function LeaderHowItWorksPage() {
 
         <Section
           n="04"
-          title="Add a county or municipal bill"
-          body="OpenStates doesn't track local legislation. When a city council moves on kratom, you add it manually at /admin/bills/new. Pick scope = municipal/county, set the locality (Tulsa, OK), paste the title + summary + advocacy callout. The bill gets its own /bills/<id> page just like state bills, can have campaigns linked to it, can have waves run against it."
-          actionHref="/admin/bills/new"
-          actionLabel="Add a local bill"
+          title="Keep the forum safe"
+          body="The forum queue holds posts the filters stopped (links, phone numbers, spam patterns, a new account's first posts) and posts members reported. Approve the fine ones, hide the rest, and lock or pin threads. Reports from groups and photos come in at Moderation. You can hide a post, but only an admin can change someone's words, and it then says so."
+          actionHref="/admin/forum"
+          actionLabel="Forum queue"
           gated
           isLeader={isLeader}
         />
 
         <Section
           n="05"
-          title="Post a town hall or public hearing"
-          body="The fastest way to make a legislator move is to be the one advocate who actually showed up. /admin/events/new lets you add upcoming hearings, town halls, listening sessions, committee hearings, even floor-vote dates. Title + state + locality + datetime + venue. Appears on /events publicly, sorted by day. Users can filter by their state."
-          actionHref="/admin/events/new"
-          actionLabel="Add an event"
+          title="Approve members' stories"
+          body="Members share their kratom stories at /stories/new. Read each one: personal, factual, no medical claims, no selling. Approved stories appear on /stories with a button that lets any advocate add the story to their own letter."
+          actionHref="/admin/stories"
+          actionLabel="Story submissions"
           gated
           isLeader={isLeader}
         />
 
         <Section
           n="06"
-          title="Approve or reject auto-generated campaigns"
-          body="When the daily cron detects a new anti-kratom bill, it auto-creates a campaign with high confidence + auto-publishes, OR with medium confidence + lands in /admin/campaigns/pending for your review. The pending queue shows the bill's classification confidence, whether deep-analysis confirmed it targets natural leaf, and the official source URL. One click approve = goes live + notifies users. One click reject = stays inactive forever."
-          actionHref="/admin/campaigns/pending"
-          actionLabel="Review pending campaigns"
-          gated
-          isLeader={isLeader}
+          title="Turn a forum thread into a campaign"
+          body="When a discussion picks up steam, open the thread and use ✨ Turn into campaign (leaders see it). It starts the campaign form with the thread's state and a draft letter. Edit it and submit for review."
         />
 
         <Section
           n="07"
-          title="Moderate the forum"
-          body="/admin/forum is your queue for posts that auto-flagged (commercial spam, links, phone numbers, crypto wallets), reported posts, even ones still showing, and first-3-posts from new accounts. One-click approve, one-click remove (with optional reason), see the post in context. It also shows recent edits with the old wording, and bill threads with member replies that have gone quiet for 90 days. You can hide a post, but only an admin can change someone else's words."
-          actionHref="/admin/forum"
-          actionLabel="Forum moderation queue"
+          title="Sign people up in person"
+          body="Field signup puts someone on the platform in 30 seconds at a booth or event: email, first name and ZIP on your phone, and they finish on their own device. Your personal invite link and QR code work the same way online. Everyone who joins through you shows on your Leader workshop by @username."
+          actionHref="/leader"
+          actionLabel="Leader workshop"
           gated
           isLeader={isLeader}
         />
 
         <Section
           n="08"
-          title="Approve story bank submissions"
-          body="Users submit personal kratom stories at /stories/new. They land in /admin/stories. Read it, decide if it fits the platform's voice (personal, factual, no medical claims, no vendor promotion), approve or reject. Approved stories appear on /stories with a 📨 'Use this story in a letter' button — every advocate can attach the story to their own legislator email with one click."
-          actionHref="/admin/stories"
-          actionLabel="Story moderation queue"
-          gated
-          isLeader={isLeader}
+          title="Run a group"
+          body="Any member can start a group, and leaders often run one. Groups have events and call-in days with reminders, district captains, pinned letter templates and a group badge that grows with the letters sent. Hearings, town halls and public meetings on the site calendar are added by admins; tell one when you spot one."
+          actionHref="/coalitions"
+          actionLabel="Groups"
         />
 
         <Section
           n="09"
-          title="Spawn a campaign from a forum thread"
-          body="A discussion in the forum picked up momentum and you want to turn it into action? Open the thread → ✨ Turn into campaign button (visible to leaders only) auto-fills /admin/campaigns/new with the thread's state + a draft body. Edit, save, live. Forum thread → mass legislator email in a few minutes."
+          title="Everything you do is logged"
+          body="Every leader action is recorded to your account: campaigns written, posts hidden, stories approved. The owner can review it any time. That protects you as much as the platform: if anyone says you played favorites, the record is there."
         />
 
         <Section
           n="10"
-          title="Run AI research briefings on any campaign"
-          body="Before crafting a campaign template, kick off a research briefing locally. From your laptop with Ollama running: npm run research:campaign -- --slug <campaign-slug>. The agent uses tool-calling to query bills, news, and legislators in your state, then writes a one-page briefing covering: landscape, active bills, recent news, recommended legislators to target, suggested talking points. Briefing saves to the campaign's edit page automatically."
+          title="What only admins and the owner do"
+          body="Admins approve and publish campaigns, change other people's campaigns, add bills and calendar events, correct someone's words, act on other admins' posts, lock accounts and turn on the emergency banner. Only the owner gives or takes away roles and changes permissions. The role gives you real creative power over advocacy without the keys to the platform, by design."
         />
 
-        <Section
-          n="11"
-          title="The audit log keeps you accountable"
-          body="Every leader action is audit-logged. Campaign create, wave create, story approve, post remove — all of it. The owner can review /admin/audit any time. This protects YOU as much as it protects the platform — if anyone accuses you of bias or favoritism, the receipts are right there."
-          actionHref="/admin/audit"
-          actionLabel="View the audit log"
-          gated
-          isLeader={isLeader}
-        />
-
-        <Section
-          n="12"
-          title="What you can't do (without admin)"
-          body="Promote/demote other admins or leaders (owner-only). Toggle emergency mode (admin-only). Delete users (admin-only). Edit other leaders' campaigns (each leader can edit their own). Modify global notification preferences. Run database-level operations. The role gives you full creative authority over advocacy work without giving you nuclear-option access — by design."
-        />
       </div>
 
       {/* Closing */}

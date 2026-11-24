@@ -10,7 +10,7 @@ import {
 } from "@/lib/legislator-directory";
 import { LegislatorBrowser } from "./LegislatorBrowser";
 
-export const metadata = { title: "Legislators" };
+export const metadata = { alternates: { canonical: "/legislators" }, title: "Legislators" };
 
 // The public half (officials, places, vote tallies) comes from a per-state
 // cache shared by every viewer (src/lib/legislator-directory.ts). Only the

@@ -5,6 +5,7 @@ import { CalendarView } from "./CalendarView";
 import { etYmd, type CalendarSnapshot } from "./types";
 
 export const metadata = {
+  alternates: { canonical: "/calendar" },
   title: "Community Calendar — every public kratom event",
   description: "The kratom community calendar: elections + primaries, town halls + hearings, city/county meetings, bill actions, and legislative sessions in one place. Subscribe to the .ics feed.",
 };

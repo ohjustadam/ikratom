@@ -186,6 +186,8 @@ export const REGISTRY = [
   // Federal kratom bills: nightly, 3 LegiScan calls (sync-federal-bills.mjs).
   { source: "sync_federal_bills", interval_hours: 36, system: "github-actions", cadence: "daily" },
   { source: "topic_bill_discovery", interval_hours: 216, system: "github-actions", cadence: "weekly" },
+  // Weekly REINDEX CONCURRENTLY of bloated indexes (db-reindex.mjs, 2026-11-18).
+  { source: "db_reindex", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   // Free-AI research agents — MOVED OFF THE BOX 2026-09-07 into
   // cron-nightly-cloud.yml as their own jobs. They drive lib/tool-chat.mjs,
   // which runs the same tool-calling loop on local Ollama OR any free
@@ -269,6 +271,12 @@ export const REGISTRY = [
   // header — this narrows the window, it does not close it.
   { source: "check_cron_staleness", interval_hours: 4, system: "github-actions", cadence: "every-2h" },
 
+  // flood_alarm — the bot-flood alarm (scripts/flood-alarm.mjs, its own job in
+  // cron-hourly.yml, 2026-11-11). Writes a row EVERY run: quiet, FLOOD or
+  // BLIND. It rescans any gap itself, so silence here means the job stopped,
+  // and nothing else would notice the next flood until the credit meter did.
+  { source: "flood_alarm", interval_hours: 4, system: "gh-hourly", cadence: "every-2h" },
+
   // patch_note_draft — the changelog drafts, written into `patch_notes` by
   // generate-patch-note.mjs --db: auto-patch-notes.yml on weekdays and
   // auto-weekly-update.yml on Sundays. A 36h interval pages at 108h, which
@@ -319,6 +327,9 @@ export const REGISTRY = [
   // when there is nothing to send, so a dead job reads as stale, not quiet.
   { source: "email_digest", interval_hours: 48, system: "github-actions", cadence: "daily" },
   { source: "email_meeting_alerts", interval_hours: 12, system: "gh-hourly", cadence: "hourly" },
+  // Queued signup links (2026-11-17): signups the auth email cap turned away.
+  // Writes telemetry on every run, so silence means the job died.
+  { source: "signup_link_queue", interval_hours: 12, system: "gh-hourly", cadence: "hourly" },
   // Push delivery from Actions, independent of Netlify (2026-10-03). Before
   // this, a disabled site meant zero push and nothing paged about it.
   { source: "push_fanout_actions", interval_hours: 12, system: "gh-hourly", cadence: "hourly" },
@@ -333,3 +344,20 @@ export const REGISTRY = [
   // schedule has quietly taken over again.
   { source: "dispatch_clock", interval_hours: 4, system: "supabase-pg-cron", cadence: "2h" },
 ];
+
+// Sources that write scraper_runs but must NEVER be registered above, each with
+// the reason. The weekly self-review (scripts/lib/self-review.mjs) skips these
+// in its "not in the pager registry" list, which otherwise flagged them every
+// week (2026-11-01) for something that is correct by design.
+//
+// The manual ones run only when someone starts them, so they have no cadence to be
+// late against: registering one would page the owner the first quiet week.
+// egress_gate writes only when it defers work (see the note in REGISTRY).
+export const UNPAGED_SOURCES = {
+  egress_gate: "writes only on the defer path; wiring is asserted by tests/egress-gate-wiring.test.ts",
+  email_announcement: "manual: send-email-notifications.mjs --mode announce, run by hand per announcement",
+  send_service_notice: "manual: send-service-notice.mjs, run by hand for a service notice",
+  local_reps_from_roster: "manual: fulfill-local-reps-from-roster.mjs, in no workflow",
+  backfill_legiscan_people: "manual: backfill-legiscan-people.mjs, run by hand to name and link roll-call votes",
+  sync_bill_votes_backfill: "manual: sync-bills-via-legiscan.mjs --votes-backfill, run by hand for finished bills with no roll calls",
+};

@@ -1,6 +1,7 @@
 import { ForgotForm } from "./ForgotForm";
+import { NOINDEX } from "@/lib/seo";
 
-export const metadata = { title: "Forgot password" };
+export const metadata = { title: "Forgot password", robots: NOINDEX };
 
 export default function ForgotPage() {
   return (

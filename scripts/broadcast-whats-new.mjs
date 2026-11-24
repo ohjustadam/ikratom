@@ -98,6 +98,10 @@ const link = BRIEFING ? `/briefings/${SLUG}` : `/whats-new/${SLUG}`;
 // Dedupe is keyed on (kind, link), so a distinct kind keeps briefing pushes
 // from ever colliding with a what's-new push's idempotency check.
 const notifKind = BRIEFING ? "briefing" : "whats_new";
+// Owner, 2026-11-18: a patch-note notification opens with an eye-catcher, so
+// a phone that cuts the title short still shows what this is.
+export const PATCH_NOTE_PREFIX = "🛠️ Showing our work · Patch notes: ";
+const notifTitle = BRIEFING ? title : `${PATCH_NOTE_PREFIX}${title}`;
 
 console.log(`Broadcasting "${title}"`);
 console.log(`Link: ${link}`);
@@ -153,7 +157,7 @@ if (DRY_RUN) {
   console.log({
     user_id: toNotify[0],
     kind: notifKind,
-    title,
+    title: notifTitle,
     body: summary,
     link,
   });
@@ -167,7 +171,7 @@ for (let i = 0; i < toNotify.length; i += BATCH) {
   const chunk = toNotify.slice(i, i + BATCH).map((user_id) => ({
     user_id,
     kind: notifKind,
-    title,
+    title: notifTitle,
     body: summary,
     link,
   }));

@@ -31,6 +31,12 @@ export type SignUpKind =
   | "existing_confirmed"
   /** A link went to this address under a minute ago. Nothing new was sent. */
   | "wait"
+  /**
+   * Supabase could not send ANY confirmation email: the project-wide hourly
+   * cap (rate_limit_email_sent) or the mail provider's daily quota is used up.
+   * Supabase rolled the signup back, so no account exists and nothing was sent.
+   */
+  | "capacity"
   | "error";
 
 type SignUpUser = {
@@ -49,6 +55,14 @@ export function classifySignUp(input: {
   const { error, user } = input;
   if (error) {
     const msg = (error.message ?? "").toLowerCase();
+    // One error code, two meanings (2026-11-17 scale audit). "For security
+    // purposes, you can only request this after N seconds" is about THIS
+    // address: a link really is in its inbox. "Email rate limit exceeded" is the
+    // whole project's hourly cap (30/hour): Supabase rolled the signup back and
+    // sent nothing. Calling that "wait" told people to check an inbox that
+    // would stay empty and not to sign up again, so a rush lost every signup
+    // past the 30th in an hour without a trace.
+    if (isEmailCapacityError(error)) return "capacity";
     if (error.code === "over_email_send_rate_limit" || msg.includes("only request this after")) {
       return "wait";
     }
@@ -73,6 +87,30 @@ export function classifySignUp(input: {
   if (Number.isFinite(created) && now - created > FRESH_ACCOUNT_MS) return "resent";
   return "created";
 }
+
+/**
+ * True when Supabase could send no confirmation email at all, as opposed to
+ * refusing a second email to the same address within a minute.
+ *  - "Email rate limit exceeded" (429, over_email_send_rate_limit): the
+ *    project-wide hourly cap.
+ *  - "Error sending confirmation email" (500): the SMTP provider refused, which
+ *    on our free tier means its daily quota is gone (Resend: 100 per UTC day).
+ * Either way the signup was rolled back.
+ */
+export function isEmailCapacityError(error: SignUpError): boolean {
+  if (!error) return false;
+  const msg = (error.message ?? "").toLowerCase();
+  if (msg.includes("only request this after")) return false;
+  return msg.includes("email rate limit exceeded") || msg.includes("error sending confirmation email");
+}
+
+/**
+ * What the form says when the account was made but its confirmation email is
+ * queued behind a rush (see send-queued-signup-links.mjs). True, and it tells
+ * them not to sign up again, which would only queue the same email twice.
+ */
+export const SIGNUP_QUEUED_MESSAGE =
+  "You're signed up. A lot of people are joining right now, so your confirmation email is in a queue: it should arrive within a few hours. Tap the link in it to sign in. No need to sign up again.";
 
 /**
  * What the form says after a signup that did not fail validation. One message

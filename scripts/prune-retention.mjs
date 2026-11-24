@@ -7,6 +7,8 @@
  *   * scraper_runs: keep 90 days, plus each source's newest row.
  * letter_screen_blocks keeps 90 days too (0314): it names a member, so it doesn't
  * stay longer than it takes to see a pattern.
+ * rate_limits drops windows older than 2 days (2026-11-18): they are expired
+ * for every caller, so the row carries nothing.
  * At most --limit rows per table per night, so a backlog drains gradually.
  *
  * Usage:
@@ -34,7 +36,18 @@ const oldBlocks = DRY_RUN
   : sb.from("letter_screen_blocks").delete({ count: "exact" }).lt("created_at", blockCutoff);
 const { count: blocks, error: blocksError } = await oldBlocks;
 if (blocksError) console.error(`✗ letter_screen_blocks: ${blocksError.message}`);
-const summary = `${verb} ${row.briefings} old state briefings, ${row.scraper_runs} scraper_runs older than 90 days, ${blocks ?? 0} letter-block records`;
+// rate_limits keeps one row per key forever, and keys are per member and per
+// action, so the table grows with every member (2026-11-18: 6,033 of 6,213
+// rows were stale). check_rate_limit() caps a window at 86,400 s and resets an
+// expired row anyway, and a held drain lease is seconds old, so a window older
+// than 2 days carries no state: deleting it changes no answer.
+const windowCutoff = new Date(t0.getTime() - 2 * 86_400_000).toISOString();
+const oldWindows = DRY_RUN
+  ? sb.from("rate_limits").select("key", { count: "exact", head: true }).lt("window_start", windowCutoff)
+  : sb.from("rate_limits").delete({ count: "exact" }).lt("window_start", windowCutoff);
+const { count: windows, error: windowsError } = await oldWindows;
+if (windowsError) console.error(`✗ rate_limits: ${windowsError.message}`);
+const summary = `${verb} ${row.briefings} old state briefings, ${row.scraper_runs} scraper_runs older than 90 days, ${blocks ?? 0} letter-block records, ${windows ?? 0} expired rate-limit windows`;
 console.log(error ? `✗ prune_retention: ${error.message}` : `✓ ${summary}${DRY_RUN ? " (dry run)" : ""}`);
 
 if (!DRY_RUN) {
@@ -47,7 +60,7 @@ if (!DRY_RUN) {
       started_at: t0.toISOString(),
       finished_at: new Date().toISOString(),
       status: error ? "error" : capped ? "partial" : "success",
-      rows_updated: error ? 0 : row.briefings + row.scraper_runs,
+      rows_updated: error ? 0 : row.briefings + row.scraper_runs + (blocks ?? 0) + (windows ?? 0),
       error_message: error ? error.message.slice(0, 500) : null,
       notes: error ? null : `${summary}${capped ? ` (hit --limit ${LIMIT}; rest next run)` : ""}`,
     });

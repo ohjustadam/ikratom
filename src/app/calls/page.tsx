@@ -1,4 +1,5 @@
 import Link from "@/components/Link";
+import { CALL_BADGES } from "@/modules/calls/call-badges";
 import { createClient } from "@/lib/supabase/server";
 import { getUserLegislators } from "@/lib/legislators";
 import { listMyCalls, listMyAchievements } from "@/modules/calls/actions";
@@ -9,12 +10,7 @@ import { STANCE_LABELS_RETIRED, publishedStance } from "@/lib/published-stance";
 export const metadata = { title: "Call your reps — track + earn" };
 export const dynamic = "force-dynamic";
 
-const BADGE_META: Record<string, { emoji: string; title: string; desc: string }> = {
-  first_call: { emoji: "🎉", title: "First call", desc: "You made your first tracked call. The hardest one is done." },
-  capital_seven: { emoji: "🏛️", title: "Capital Seven", desc: "Reached 7 distinct legislators." },
-  coast_to_coast: { emoji: "🗺️", title: "Coast to Coast", desc: "Calls placed in 5+ states." },
-  century_club: { emoji: "💯", title: "Century Club", desc: "100 tracked calls." },
-};
+const BADGE_META = CALL_BADGES;
 
 /**
  * /calls — the call hub.

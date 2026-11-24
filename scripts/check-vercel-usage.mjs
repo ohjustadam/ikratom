@@ -60,7 +60,10 @@ import { pageProbeTargets, probeProblem } from "./lib/page-probes.mjs";
 const DRY = process.argv.includes("--dry-run");
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const URL_SB = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
+// Trimmed, BOM included: the stored secret starts with U+FEFF (seen 2026-11-06),
+// so every Vercel call threw "Cannot convert argument to a ByteString" and the
+// spare's soft-block check never ran. The site checks were unaffected.
+const VERCEL_TOKEN = (process.env.VERCEL_TOKEN ?? "").replace(/^\uFEFF/, "").trim();
 // Team that owns the ikratom project. Overridable so a future account move
 // doesn't need a code change; the default is the current owner's team.
 const TEAM_ID = process.env.VERCEL_TEAM_ID || "team_ZGMOvQ3FPi6lHFerlrOk6cvt";
@@ -239,6 +242,13 @@ if (!NETLIFY_TOKEN) {
 // surge: on 2026-10-03 ~45,000 requests came from 10,000+ IPs (median ONE
 // request each, busiest 246 in 14h), which (a) can never see and no per-IP
 // rate limit can stop. Any of them is a page.
+//
+// 2026-11-11: (b) and (c) MOVED to scripts/flood-alarm.mjs (its own job). This
+// check saw only the trailing hour of an every-2-hours job, so half of each day
+// was unwatched, and (b) multiplied ALL requests by the origin average, so
+// challenged and cached requests counted as server time (15,526 read for a
+// true 5,105 on 11-11). Keeping both here would page twice, with different
+// numbers, for one flood. Their figures stay in this job's notes line.
 // Needs CLOUDFLARE_CACHE_TOKEN (Zone Analytics:Read); skipped if unset.
 let floodSummary = "";
 if (process.env.CLOUDFLARE_CACHE_TOKEN) {
@@ -252,7 +262,7 @@ if (process.env.CLOUDFLARE_CACHE_TOKEN) {
       headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_CACHE_TOKEN}`, "content-type": "application/json" },
       body: JSON.stringify({ query: `{viewer{zones(filter:{zoneTag:"${zone}"}){
         ip:httpRequestsAdaptiveGroups(limit:1,orderBy:[count_DESC],filter:{${win}}){count dimensions{clientIP userAgent}}
-        org:httpRequestsAdaptiveGroups(limit:20,filter:{${win}}){count avg{originResponseDurationMs}}
+        org:httpRequestsAdaptiveGroups(limit:1,filter:{${win},originResponseDurationMs_gt:0}){sum{originResponseDurationMs}}
         hit:httpRequestsAdaptiveGroups(limit:1,filter:{${win},originResponseDurationMs_gt:0}){count}
         ips:httpRequestsAdaptiveGroups(limit:1000,orderBy:[count_DESC],filter:{${win},originResponseDurationMs_gt:0}){count dimensions{clientIP}}}}}` }),
       signal: AbortSignal.timeout(20_000),
@@ -261,23 +271,14 @@ if (process.env.CLOUDFLARE_CACHE_TOKEN) {
     if (j.errors) throw new Error(j.errors[0].message);
     const z = j.data.viewer.zones[0];
     const top = z.ip[0];
-    const originSec = z.org.reduce((s, g) => s + (g.count * Math.max(0, g.avg.originResponseDurationMs ?? 0)) / 1000, 0);
+    const originSec = (z.org[0]?.sum.originResponseDurationMs ?? 0) / 1000;
     const IP_MAX = Number(process.env.FLOOD_IP_PER_HOUR || 1200);
-    const ORIGIN_MAX = Number(process.env.FLOOD_ORIGIN_SEC_PER_HOUR || 1800);
-    // Normal hour: ~200-350 requests reach the origin. 1,500 is ~5x that.
-    const SURGE_MAX = Number(process.env.FLOOD_ORIGIN_REQ_PER_HOUR || 1500);
     const originReqs = z.hit[0]?.count ?? 0;
     const ipCount = z.ips.length; // capped at 1000 by the query
     floodSummary = ` · top IP ${top?.count ?? 0}/h · origin ${Math.round(originSec)}s/h · ${originReqs} origin req/h from ${ipCount >= 1000 ? "1000+" : ipCount} IPs`;
     console.log(`cloudflare last hour: busiest IP ${top?.count ?? 0} req (${top?.dimensions?.clientIP ?? "-"}), origin time ${Math.round(originSec)}s`);
     if ((top?.count ?? 0) > IP_MAX) {
       problems.push(`FLOOD: one IP (${top.dimensions.clientIP}) made ${top.count} requests in the last hour — block it in Cloudflare → Security → WAF. UA: ${String(top.dimensions.userAgent).slice(0, 80)}`);
-    }
-    if (originSec > ORIGIN_MAX) {
-      problems.push(`ORIGIN LOAD: ${Math.round(originSec)} origin-seconds in the last hour (normal ~180). Run scripts/cf-origin-report.mjs to see who.`);
-    }
-    if (originReqs > SURGE_MAX && (top?.count ?? 0) < originReqs / 10) {
-      problems.push(`DISTRIBUTED CRAWL: ${originReqs} requests reached the server in the last hour from ${ipCount >= 1000 ? "1,000+" : ipCount} different IPs (busiest only ${top?.count ?? 0}) — per-IP limits can't stop this. Cloudflare → Security → Settings → turn on "I'm Under Attack" for a few hours.`);
     }
   } catch (e) { console.log(`cloudflare flood check failed: ${e.message}`); }
 } else {

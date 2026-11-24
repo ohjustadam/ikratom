@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: { params: Promise<{ topic: st
   if (!isStanceTopic(topic)) return { title: "Topic not found" };
   const meta = STANCE_TOPIC_META[topic];
   return {
-    title: `${meta.label} bills — iKratom`,
+    title: `${meta.label} bills`,
     description: `Legislation we track that touches ${meta.label.toLowerCase()} policy.`,
   };
 }

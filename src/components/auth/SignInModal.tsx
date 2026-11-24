@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { signInInline, signUpInline } from "@/modules/auth/actions";
 import { ErrorWithReport } from "@/components/ErrorWithReport";
+import { useTurnstile } from "@/components/auth/useTurnstile";
+import { CAPTCHA_FIELD } from "@/lib/captcha";
 
 /**
  * SignInModal — inline auth popup that DOESN'T redirect the user away.
@@ -42,6 +44,7 @@ export function SignInModal({ open, onClose, onSignedIn }: Props) {
   const [mfaUrl, setMfaUrl] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
+  const { slot: captchaSlot, ...captcha } = useTurnstile("auth");
 
   // Reset modal state every time it opens. Keeps a previous error
   // from leaking into a fresh attempt.
@@ -81,8 +84,11 @@ export function SignInModal({ open, onClose, onSignedIn }: Props) {
     fd.set("form_elapsed_ms", String(Date.now() - startTimeRef.current));
     startTransition(async () => {
       try {
+        const token = await captcha.getToken();
+        if (token) fd.set(CAPTCHA_FIELD, token);
         if (mode === "signin") {
           const r = await signInInline(fd);
+          captcha.reset(); // tokens are single-use
           if (r.error) {
             setError({ message: r.error, hint: r.hint, code: r.errorCode ?? null });
             return;
@@ -94,12 +100,17 @@ export function SignInModal({ open, onClose, onSignedIn }: Props) {
           onSignedIn();
         } else {
           const r = await signUpInline(fd);
+          captcha.reset();
           if (r.error) {
             setError({ message: r.error, hint: r.hint, code: r.errorCode ?? null });
             return;
           }
           if (r.needsConfirmation) {
-            setConfirmation("Account created. Check your inbox for the confirmation email — once you click the link, come back here and sign in.");
+            setConfirmation(
+              r.queued
+                ? "Account created. A lot of people are joining right now, so your confirmation email is queued and should arrive within a few hours. Once you click the link, come back here and sign in."
+                : "Account created. Check your inbox for the confirmation email — once you click the link, come back here and sign in.",
+            );
             setMode("signin");
             return;
           }
@@ -224,6 +235,8 @@ export function SignInModal({ open, onClose, onSignedIn }: Props) {
                 extraContext={{ source: "SignInModal", mode }}
               />
             )}
+
+            <div ref={captchaSlot} />
 
             <button
               type="submit"

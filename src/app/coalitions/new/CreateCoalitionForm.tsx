@@ -103,7 +103,7 @@ export function CreateCoalitionForm({ defaultState }: { defaultState: string }) 
         disabled={pending}
         className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
       >
-        {pending ? "Creating…" : "Create coalition"}
+        {pending ? "Starting…" : "Start group"}
       </button>
     </form>
   );

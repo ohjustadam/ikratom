@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { deleteMyAccount, exportMyData } from "../data-actions";
+import { useTurnstile } from "@/components/auth/useTurnstile";
 
 export function DangerZone() {
   const [pending, startTransition] = useTransition();
@@ -10,6 +11,7 @@ export function DangerZone() {
   const [password, setPassword] = useState("");
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const { slot: captchaSlot, ...captcha } = useTurnstile("reauth");
 
   function exportData() {
     setExportMsg(null);
@@ -36,7 +38,9 @@ export function DangerZone() {
   function deleteAccount() {
     setDeleteError(null);
     startTransition(async () => {
-      const result = await deleteMyAccount({ confirmation, password });
+      const captchaToken = await captcha.getToken();
+      const result = await deleteMyAccount({ confirmation, password, captchaToken });
+      captcha.reset();
       if (result && "error" in result && result.error) {
         setDeleteError(result.error);
       }
@@ -114,6 +118,7 @@ export function DangerZone() {
                 {deleteError}
               </p>
             )}
+            <div ref={captchaSlot} />
             <div className="flex items-center gap-3">
               <button
                 type="button"

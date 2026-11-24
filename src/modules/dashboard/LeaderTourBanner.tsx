@@ -28,7 +28,7 @@ export function LeaderTourBanner() {
   return (
     <div className="border-b border-amber-700/40 bg-amber-950/40 px-4 py-2 text-center text-xs text-amber-200">
       <span className="font-semibold">📋 You haven&apos;t finished the leader walkthrough.</span>{" "}
-      Some leader functions are gated until you complete it and sign the acknowledgment.{" "}
+      Field signup unlocks once you finish it and agree to the leader rules.{" "}
       <button
         onClick={resumeTour}
         disabled={pending}

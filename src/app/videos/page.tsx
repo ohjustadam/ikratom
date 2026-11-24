@@ -3,6 +3,7 @@ import { loadVideoPage, subscribeUrl, type CommunityVideo } from "@/modules/comm
 import { VideoCard } from "./VideoCard";
 
 export const metadata = {
+  alternates: { canonical: "/videos" },
   title: "Kratom videos",
   description: "The latest videos from kratom advocacy organizations and independent creators, in one place.",
 };

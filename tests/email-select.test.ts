@@ -64,7 +64,8 @@ describe("account emails keep their share of Resend", () => {
   it("the notification sender leaves 40/day of Resend for sign-up and reset emails", () => {
     const src = readFileSync("scripts/lib/email-send.mjs", "utf8");
     expect(src).toMatch(/id: "resend",[^\n]*dailyCap: 100, reserve: 40/);
-    expect(src).toMatch(/p\.dailyCap - \(p\.reserve \?\? RESERVE\)/);
+    // Only account mail (priority "auth": the queued signup links) may spend the reserve.
+    expect(src).toMatch(/p\.dailyCap - \(opts\.priority === "auth" \? 0 : p\.reserve \?\? RESERVE\)/);
     // Brevo (300/day) is tried first, so bulk mail lands there.
     expect(src.indexOf('id: "brevo"')).toBeLessThan(src.indexOf('id: "resend"'));
   });

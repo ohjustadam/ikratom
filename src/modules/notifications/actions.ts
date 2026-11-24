@@ -15,6 +15,8 @@ export type NotificationPrefs = {
   notify_voting_reminder: boolean;
   notify_state_briefings: boolean;
   notify_community: boolean;
+  /** Groups you joined (0327). Join requests and @mentions are never gated. */
+  notify_groups: boolean;
   notify_announcements: boolean;
   in_app: boolean;
   email: boolean;
@@ -92,6 +94,11 @@ export async function updateNotificationPrefs(formData: FormData) {
   const categoriesPresent = formData.get("categories_present") === "1";
   if (categoriesPresent) {
     for (const f of categoryFields) update[f] = formData.get(f) === "on";
+  }
+  // notify_groups (0327) has its own marker: a page loaded before it shipped
+  // still sends categories_present=1, and must not mute every group.
+  if (formData.get("groups_present") === "1") {
+    update.notify_groups = formData.get("notify_groups") === "on";
   }
 
   let { error } = await supabase

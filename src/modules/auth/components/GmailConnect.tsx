@@ -6,10 +6,13 @@ import { disconnectGmailAction } from "../actions-gmail";
 
 export function GmailConnect({
   status,
+  open = true,
   flashError,
   flashConnected,
 }: {
   status: { account_email: string } | null;
+  /** False once Google's 100-person cap is near (see lib/email/gmail-cap.ts). */
+  open?: boolean;
   flashError?: string | null;
   flashConnected?: boolean;
 }) {
@@ -38,7 +41,7 @@ export function GmailConnect({
         </div>
       </div>
 
-      {flashError && (
+      {flashError && !(flashError === "cap_reached" && !status && !open) && (
         <p className="rounded-md border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
           {prettyError(flashError)}
         </p>
@@ -63,6 +66,12 @@ export function GmailConnect({
             Disconnect
           </button>
         </div>
+      ) : !open ? (
+        <p className="rounded-md border border-amber-900/40 bg-amber-950/30 px-3 py-2 text-sm text-amber-200">
+          Gmail one-click is full for now. Google lets an app it hasn&apos;t finished reviewing
+          reach only 100 people. Connect Yahoo, AOL or iCloud below, or open any campaign
+          letter in your own email app. Neither has a limit.
+        </p>
       ) : (
         <a
           href="/api/oauth/google/start"
@@ -100,6 +109,8 @@ function prettyError(code: string): string {
       return "Couldn't exchange the auth code with Google. Try again in a moment.";
     case "db_write":
       return "Couldn't save the connection. Try again.";
+    case "cap_reached":
+      return "Gmail one-click is full for now while Google reviews the app. Connect Yahoo, AOL or iCloud, or open campaign letters in your own email app.";
     case "missing_code":
       return "OAuth callback was missing a code parameter.";
     default:
