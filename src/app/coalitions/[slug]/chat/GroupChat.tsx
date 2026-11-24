@@ -7,6 +7,7 @@ import { publicHandle, publicRole, type PublicRole } from "@/lib/public-handle";
 import { RoleTag } from "@/components/RoleTag";
 import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { deleteGroupChat, postGroupChat, type GroupChatMessage } from "@/modules/coalitions/chat-actions";
+import { isSendKey } from "@/lib/enter-to-send";
 
 /**
  * A group's live chat (migration 0291), on the Lounge pattern: the last
@@ -116,22 +117,24 @@ export function GroupChat({ coalitionId, initial, handles, tags = {}, me, canMod
         className="h-[60vh] space-y-2 overflow-y-auto p-3 text-sm sm:h-96">
         {messages.length === 0 && <p className="py-12 text-center text-xs text-zinc-500">No messages yet. Say hi to your group.</p>}
         {messages.map((m) => (
-          <div key={m.id} id={`m-${m.id}`} className="group flex flex-wrap items-baseline gap-x-2">
-            <span className={`shrink-0 font-semibold ${m.user_id === me.id ? "text-amber-300" : "text-emerald-300"}`}>
+          // Flowing text, not a flex row: the message wraps under the name
+          // instead of squeezing into a thin column beside it on a phone.
+          <div key={m.id} id={`m-${m.id}`} className="group wrap-anywhere">
+            <span className={`font-semibold ${m.user_id === me.id ? "text-amber-300" : "text-emerald-300"}`}>
               {m.user_id === me.id ? me.handle : names[m.user_id] ?? "@member"}
               <RoleTag role={roleTags[m.user_id]} />
-            </span>
-            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-zinc-200">{m.body}</span>
-            <span className="shrink-0 text-[10px] text-zinc-600">
+            </span>{" "}
+            <span className="whitespace-pre-wrap text-zinc-200">{m.body}</span>
+            <span className="ml-2 whitespace-nowrap text-[10px] text-zinc-600">
               {new Date(m.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
             </span>
             {(m.user_id === me.id || canModerate) && (
               <button type="button" onClick={() => remove(m.id)} aria-label="Delete message"
-                className="text-[11px] text-zinc-600 hover:text-red-400">✕</button>
+                className="ml-2 text-[11px] text-zinc-600 hover:text-red-400">✕</button>
             )}
             {m.user_id !== me.id && (
               <ReportButton targetType="group_chat_message" targetId={m.id} label="⚑"
-                className="text-[11px] text-zinc-600 hover:text-red-400" />
+                className="ml-2 text-[11px] text-zinc-600 hover:text-red-400" />
             )}
           </div>
         ))}
@@ -139,7 +142,7 @@ export function GroupChat({ coalitionId, initial, handles, tags = {}, me, canMod
       <div className="border-t border-zinc-900 p-3">
         <div className="flex gap-2">
           <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={1} maxLength={500}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+            onKeyDown={(e) => { if (isSendKey(e)) { e.preventDefault(); send(); } }}
             placeholder="Message your group…" aria-label="Message"
             className="min-h-11 flex-1 resize-none rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-base text-zinc-100 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none sm:text-sm" />
           <button type="button" onClick={send} disabled={pending || !draft.trim()}

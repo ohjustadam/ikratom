@@ -10,6 +10,7 @@ import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { useChromeMe } from "@/components/chrome/ChromeProvider";
 import { MentionText } from "./MentionText";
 import { useLoungeSeen } from "./use-lounge-seen";
+import { isSendKey } from "@/lib/enter-to-send";
 
 /**
  * Live community chat for the forum index. Three jobs in one component:
@@ -179,7 +180,7 @@ export function Lounge({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (isSendKey(e)) {
       e.preventDefault();
       send();
     }
@@ -227,25 +228,28 @@ export function Lounge({
           const author = authorMap[m.user_id];
           const canDelete = signedIn && (isAdmin || (me && me.id === m.user_id));
           return (
-            <div key={m.id} className="group flex flex-wrap gap-x-2">
+            // One line of flowing text, not a flex row: the message wraps under
+            // the name across the full width instead of squeezing into a thin
+            // column beside it on a phone.
+            <div key={m.id} className="group wrap-anywhere">
               <a
                 href={`/profile/${m.user_id}`}
-                className={`shrink-0 font-semibold ${
+                className={`font-semibold ${
                   author?.isAdmin ? "text-amber-300" : "text-emerald-300"
                 } hover:underline`}
               >
                 {author?.name ?? "…"}
                 <RoleTag role={author?.role ?? (author?.isAdmin ? "admin" : null)} />
               </a>
-              <span className="text-zinc-600">:</span>
-              <span className="min-w-0 flex-1 break-words text-zinc-200"><MentionText body={m.body} me={myUsername} /></span>
-              <span className="shrink-0 text-[10px] text-zinc-700">
+              <span className="text-zinc-600">: </span>
+              <span className="whitespace-pre-wrap text-zinc-200"><MentionText body={m.body} me={myUsername} /></span>
+              <span className="ml-2 whitespace-nowrap text-[10px] text-zinc-700">
                 {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
               {canDelete && (
                 <button
                   onClick={() => onDelete(m.id)}
-                  className="hidden text-[10px] text-zinc-600 hover:text-red-400 group-hover:inline"
+                  className="ml-2 hidden text-[10px] text-zinc-600 hover:text-red-400 group-hover:inline pointer-coarse:inline"
                   aria-label="Delete"
                 >
                   ✕
@@ -253,7 +257,7 @@ export function Lounge({
               )}
               {signedIn && me?.id !== m.user_id && (
                 <ReportButton targetType="lounge_message" targetId={m.id} label="⚑"
-                  className="text-[10px] text-zinc-700 hover:text-red-400" />
+                  className="ml-2 text-[10px] text-zinc-700 hover:text-red-400" />
               )}
             </div>
           );
@@ -286,7 +290,7 @@ export function Lounge({
             </p>
           )}
           <p className="mt-1 text-[10px] text-zinc-600">
-            Enter to send · Shift+Enter for newline · {draft.length}/500
+            <span className="pointer-coarse:hidden">Enter to send · Shift+Enter for a new line · </span>{draft.length}/500
           </p>
         </div>
       ) : (

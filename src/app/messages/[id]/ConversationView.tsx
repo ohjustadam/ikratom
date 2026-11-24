@@ -14,6 +14,7 @@ import { sendMessage } from "@/modules/dm/actions";
 import { blockUser } from "@/modules/dm/block-actions";
 import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { createClient } from "@/lib/supabase/client";
+import { isSendKey } from "@/lib/enter-to-send";
 
 import Link from "@/components/Link";
 type MessageRow = {
@@ -361,7 +362,7 @@ export function ConversationView({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (isSendKey(e)) {
                 e.preventDefault();
                 send();
               }
