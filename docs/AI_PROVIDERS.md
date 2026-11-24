@@ -40,10 +40,10 @@ Ranked by what is worth your five minutes first.
 | 3 | **Mistral** | `MISTRAL_API_KEY` | Free plan: $10/month of API credit, no card | https://console.mistral.ai/api-keys |
 | 4 | **OpenRouter** | `OPENROUTER_API_KEY` | ~20 req/min, 50 req/day on free models (1,000/day after a one-time $10 credit purchase, which is not required) | https://openrouter.ai/keys |
 | 5 | **Cloudflare** | `CLOUDFLARE_AI_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` | 10k neurons/day | https://dash.cloudflare.com → AI → Workers AI |
-| 6 | **NVIDIA NIM** | `NVIDIA_API_KEY` | ~40 req/min, 100+ models, no card | https://build.nvidia.com |
+| 6 | **NVIDIA NIM** | `NVIDIA_API_KEY` | ~40 req/min, no card. **Models retire every few months** and answer 410 "end of life" (llama-3.3-70b 2026-08, nemotron-3-super 2026-10). Default since 2026-11-24: `nvidia/nemotron-3.5-super-vl-120b-a12b`, tool calls verified. List the live ones with `GET https://integrate.api.nvidia.com/v1/models`. | https://build.nvidia.com |
 | 7 | **Vercel AI Gateway** | `AI_GATEWAY_API_KEY` | $5 credit every 30 days, no card, never bills unless you buy credits. Last in the chain on purpose (a reserve). **The current key is REJECTED (401)** — the router drops it for the run; replace it only if you want the reserve back. Using the gateway does not mean the site is hosted on Vercel; it is on Netlify. | https://vercel.com/dashboard → AI Gateway → API Keys |
 | 8 | **SambaNova** | `SAMBANOVA_API_KEY` | Fast Llama; current key is REJECTED (401) — replace it only if signup is still free without a card | https://cloud.sambanova.ai/apis |
-| — | Cerebras | `CEREBRAS_API_KEY` | **Left the free tier** (answers 402). Kept wired in case it returns. | https://cloud.cerebras.ai |
+| — | Cerebras | `CEREBRAS_API_KEY` | **Left the free tier** (answers 402). Kept wired in the one-shot router in case it returns; removed from the tool-calling chain (`scripts/lib/tool-chat.mjs`) on 2026-11-24. | https://cloud.cerebras.ai |
 | — | GitHub Models | `GH_MODELS_TOKEN` | **Being retired** (answers plain "OK", not JSON). Kept wired in case it returns. | https://github.com/settings/tokens |
 | — | Cohere | — | **Not used:** trial keys are free but their terms forbid production use. | — |
 | — | Ollama | `OLLAMA_URL` | Local only — unreachable from CI by design | your own machine |
