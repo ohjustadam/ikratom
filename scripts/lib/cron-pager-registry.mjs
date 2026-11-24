@@ -219,6 +219,9 @@ export const REGISTRY = [
   { source: "fetch_bill_texts", interval_hours: 72, system: "github-actions", cadence: "daily" },
   { source: "verify_stub_bills", interval_hours: 72, system: "github-actions", cadence: "daily" },
   { source: "check_legislator_email_domains", interval_hours: 216, system: "github-actions", cadence: "weekly" },
+  // State legislators' emails vs each chamber's own roster page (2026-11-16).
+  // Silent = an address the chamber spells differently keeps bouncing letters.
+  { source: "check_legislator_rosters", interval_hours: 216, system: "github-actions", cadence: "weekly" },
   // Security sweep 10-30: rolled-back attacks on the row rules. Silent = a
   // regression could ship unnoticed.
   { source: "rls_pentest", interval_hours: 216, system: "github-actions", cadence: "weekly" },

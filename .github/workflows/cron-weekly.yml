@@ -151,6 +151,17 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/check-legislator-email-domains.mjs --apply
 
+      # Emails vs each chamber's own member list: openstates/people can be wrong
+      # too (MI Rep. Fairbairn, 11-11). Swaps only where the roster page vouches
+      # for the chamber and one address carries the member's name; more than 25
+      # swaps hold for the owner's yes.
+      - name: Check legislator emails against chamber rosters
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-legislator-rosters.mjs --apply
+
       # Try to break the row rules as a member and as a visitor, in transactions
       # that always roll back (security sweep 10-30, migration 0302). A table
       # added without its guard fails here instead of in public.
