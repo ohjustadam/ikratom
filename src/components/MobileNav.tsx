@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { CATEGORIES } from "@/config/nav-categories";
 
 import Link from "@/components/Link";
+import { BrandMark } from "@/components/BrandMark";
 /**
  * Mobile menu — full-screen overlay (NOT a side drawer).
  *
@@ -162,11 +163,13 @@ export function MobileNav({
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur">
             <Link
               href="/"
-              className="flex items-center gap-1 text-lg font-bold"
+              className="flex items-center gap-2 text-lg font-bold"
               onClick={close}
             >
-              <span className="text-emerald-400">i</span>
-              <span>Kratom</span>
+              <BrandMark className="h-6 w-6 shrink-0 text-emerald-400" />
+              <span>
+                <span className="text-emerald-400">i</span>Kratom
+              </span>
             </Link>
             <button
               type="button"

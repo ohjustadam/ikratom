@@ -17,6 +17,8 @@
  */
 import { marked } from "marked";
 
+/** The "ik" mark as a 180 px PNG, the same file as LOGO_URL in src/lib/email/letter-footer.ts. */
+export const EMAIL_LOGO_URL = "https://www.ikratom.org/ikratom-icon-180.png";
 const C = { ink: "#14171c", mute: "#5d6673", line: "#e3e6eb", bg: "#f4f6f8", brand: "#1a7f4b", warn: "#b26b00" };
 
 /**
@@ -82,7 +84,7 @@ function shell({ preheader, title, bodyHtml, footer }) {
 <span style="display:none!important;opacity:0;color:transparent;height:0;width:0;overflow:hidden">${esc(preheader)}</span>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.bg};"><tr><td align="center" style="padding:20px 12px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid ${C.line};border-radius:12px;">
-<tr><td style="padding:22px 24px 6px;font:700 20px/1.2 Arial,sans-serif;color:${C.brand};">iKratom</td></tr>
+<tr><td style="padding:22px 24px 6px;font:700 20px/1.2 Arial,sans-serif;color:${C.ink};"><img src="${EMAIL_LOGO_URL}" width="28" height="28" alt="" style="display:inline-block;vertical-align:middle;width:28px;height:28px;border:0;border-radius:6px;margin-right:10px;"><span style="vertical-align:middle;"><span style="color:${C.brand};">i</span>Kratom</span></td></tr>
 <tr><td style="padding:0 24px 18px;font:15px/1.55 Arial,sans-serif;color:${C.ink};">${bodyHtml}</td></tr>
 <tr><td style="padding:16px 24px 22px;border-top:1px solid ${C.line};font:12px/1.55 Arial,sans-serif;color:${C.mute};">${footer}</td></tr>
 </table></td></tr></table></body></html>`;
