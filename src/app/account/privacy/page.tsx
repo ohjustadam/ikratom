@@ -5,6 +5,8 @@ import { profileHref } from "@/modules/profile/view";
 import { listBlockedUsers } from "@/modules/dm/block-actions";
 import { BlockedUsersList } from "@/modules/auth/components/BlockedUsersList";
 import { PrivacySettings } from "@/modules/profile/components/PrivacySettings";
+import { ChooseHandle } from "@/modules/profile/components/ChooseHandle";
+import { isPlaceholderHandle } from "@/lib/placeholder-handle";
 
 export const metadata = { title: "Privacy" };
 export const dynamic = "force-dynamic";
@@ -46,6 +48,8 @@ export default async function PrivacyPage() {
         </p>
         <a href={profileHref({ id: user.id, username: me?.username ?? null })} className="mt-3 inline-block text-sm text-emerald-400 hover:underline">View my profile →</a>
       </header>
+
+      {isPlaceholderHandle(me?.username) && <ChooseHandle current={me!.username as string} />}
 
       <PrivacySettings
         initial={audiences}

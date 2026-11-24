@@ -2,6 +2,8 @@ import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { publicHandle, publicRole } from "@/lib/public-handle";
+import { isPlaceholderHandle } from "@/lib/placeholder-handle";
+import { ChooseHandle } from "@/modules/profile/components/ChooseHandle";
 import { getGroupLink } from "@/modules/coalitions/growth-actions";
 import { groupBadge, type WinsRow } from "@/modules/coalitions/home";
 import { About } from "./About";
@@ -138,6 +140,8 @@ export default async function CoalitionDetailPage({ params, searchParams }: {
         link={{ url: link?.ok ? link.url : null, error: link && !link.ok ? link.error : null }}
         badge={wins ? groupBadge(wins.letters_total) : null}
       />
+
+      {viewerRole && isPlaceholderHandle(myHandle) && <ChooseHandle current={myHandle} />}
 
       {!viewerRole && (
         <>
