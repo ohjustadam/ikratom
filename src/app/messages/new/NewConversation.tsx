@@ -11,6 +11,7 @@ import {
   createConversation,
   setPublicKey,
 } from "@/modules/dm/actions";
+import { LetThemKnow } from "./LetThemKnow";
 
 type Person = {
   id: string;
@@ -32,6 +33,7 @@ export function NewConversation({
   const [searching, startSearch] = useTransition();
   const [creating, startCreate] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [searched, setSearched] = useState<string | null>(null);
   const [myKp, setMyKp] = useState<{ publicKey: string; privateKey: string } | null>(null);
 
   // Ensure keypair exists
@@ -45,10 +47,12 @@ export function NewConversation({
   }, []);
 
   function search() {
-    if (query.trim().length < 2) return;
+    const q = query.trim();
+    if (q.length < 2) return;
     startSearch(async () => {
-      const found = await searchUsers(query);
+      const found = await searchUsers(q);
       setResults(found);
+      setSearched(q.replace(/^@/, ""));
     });
   }
 
@@ -124,39 +128,47 @@ export function NewConversation({
 
       {results.length > 0 && (
         <ul className="space-y-2">
-          {results.map((p) => (
-            <li key={p.id}>
-              <button
-                onClick={() => start(p)}
-                disabled={creating || !p.public_key}
-                className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 text-left hover:border-emerald-700/50 disabled:opacity-50"
-              >
-                <Avatar name={p.username || "?"} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{p.username ? `@${p.username}` : "Member"}</span>
-                    {p.state && (
-                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-400">{p.state}</span>
-                    )}
-                  </div>
-                  {!p.public_key && (
-                    <p className="text-xs text-amber-400">
-                      Hasn&apos;t set up encryption — can&apos;t message yet
-                    </p>
-                  )}
-                </div>
-                {p.public_key && (
-                  <span className="text-xs text-emerald-400">→</span>
+          {results.map((p) => {
+            const name = p.username ? `@${p.username}` : "Member";
+            const who = (
+              <div className="flex items-center gap-2">
+                <span className="wrap-anywhere font-medium">{name}</span>
+                {p.state && (
+                  <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-400">{p.state}</span>
                 )}
-              </button>
-            </li>
-          ))}
+              </div>
+            );
+            return (
+              <li key={p.id}>
+                {p.public_key ? (
+                  <button
+                    onClick={() => start(p)}
+                    disabled={creating}
+                    className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 text-left hover:border-emerald-700/50 disabled:opacity-50"
+                  >
+                    <Avatar name={p.username || "?"} />
+                    <div className="min-w-0 flex-1">{who}</div>
+                    <span className="text-xs text-emerald-400">→</span>
+                  </button>
+                ) : (
+                  // No key yet: they have never opened Messages. Offer to tell them.
+                  <div className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+                    <Avatar name={p.username || "?"} />
+                    <div className="min-w-0 flex-1">
+                      {who}
+                      <LetThemKnow id={p.id} handle={name} />
+                    </div>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      {query.length >= 2 && !searching && results.length === 0 && (
+      {searched && !searching && results.length === 0 && (
         <p className="rounded-md border border-zinc-800 bg-zinc-950/40 p-4 text-center text-sm text-zinc-400">
-          No users matched. They need to open /messages once to enable encryption.
+          No member&apos;s @handle contains &ldquo;{searched}&rdquo;. Check the spelling, or ask them for their handle.
         </p>
       )}
     </div>
