@@ -94,9 +94,20 @@ async function main() {
     const host = hostOf(clean);
     if (!isNewsHost(host)) { skipPortal++; continue; }       // gov/legislative/tracker/advocacy
 
-    // Already in /news under this URL? Link it instead of duplicating.
-    const { data: existing } = await sb.from("news_items")
+    // Already in /news under this URL? Link it instead of duplicating. Most
+    // stories came in as a Google News redirect, so their publisher URL is in
+    // resolved_url, not url: look there too, or the seed becomes a twin.
+    let { data: existing } = await sb.from("news_items")
       .select("id, policy_alert_id").eq("url", clean).maybeSingle();
+    if (!existing) {
+      const { data: twins } = await sb.from("news_items")
+        .select("id, policy_alert_id")
+        .eq("resolved_url", clean)
+        .is("duplicate_of", null) // the canonical; also what the 0252 partial index covers
+        .order("scraped_at", { ascending: true })
+        .limit(1);
+      existing = twins?.[0] ?? null;
+    }
 
     if (existing) {
       if (!existing.policy_alert_id) {
