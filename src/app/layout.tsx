@@ -33,6 +33,7 @@ import { LeaderTourGate, MobileNavGate, LocaleSwitcherGate, PresenceHeartbeatGat
 import "./globals.css";
 
 import Link from "@/components/Link";
+import { BrandMark } from "@/components/BrandMark";
 const geist = Geist({
   variable: "--font-geist",
   subsets: ["latin"],
@@ -183,11 +184,13 @@ export default function RootLayout({
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
             <Link
               href="/"
-              className="flex items-center gap-1 text-lg font-bold leading-none"
+              className="flex items-center gap-2 text-lg font-bold leading-none"
               aria-label="iKratom home"
             >
-              <span className="text-emerald-400">i</span>
-              <span>Kratom</span>
+              <BrandMark className="h-6 w-6 shrink-0 text-emerald-400" />
+              <span>
+                <span className="text-emerald-400">i</span>Kratom
+              </span>
             </Link>
 
             {/* Desktop nav (lg+). Was md+ (768px), but this toolbar renders ~766px

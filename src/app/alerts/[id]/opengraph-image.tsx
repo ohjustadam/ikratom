@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { OgBrand } from "@/lib/og-brand";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -162,9 +163,8 @@ export default async function Image({ params }: { params: Promise<{ id: string }
             borderTop: `2px solid ${sevEmojiAccent}`,
           }}
         >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ fontSize: 42, fontWeight: 900, color: "#10b981" }}>i</span>
-            <span style={{ fontSize: 42, fontWeight: 800, color: "#fafafa" }}>Kratom</span>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <OgBrand fontSize={42} />
             <span style={{ fontSize: 24, color: "#71717a", marginLeft: 16 }}>
               policy alert
             </span>
