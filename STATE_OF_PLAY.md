@@ -231,6 +231,19 @@ only the streamed `loading.tsx` shell, so time the full response.
   Since 2026-11-06 a story with no text shows its headline as its summary,
   because AI summaries of a headline alone invented facts. `summarize-news`
   waits for extraction to finish, and `enrich-news` only scores stories.
+- **News twins (2026-11-24, migration 0330).** One story arrives under several
+  Google News URLs and only collapses once `resolve-news-urls` fills
+  `resolved_url`. The insert-time dedupe never saw it, so 7,511 twin rows
+  (30% of `news_items`) piled up. Now a row that resolves to a URL another story
+  already has becomes that story's duplicate (database trigger, all writers),
+  so feeds list it once and the extractor skips it. An error page
+  (`chrome-error://…`, Google consent/sorry, Akamai) is stored as NULL and
+  retried, never kept as the answer. The old twins are cleared by
+  `scripts/dedupe-news-resolved.mjs`: dry-run by default, `--mark` hides them
+  (reversible), and `--apply` deletes them on the owner's yes, writing an undo
+  file to `private/backups/`. 2,060 twins carry their own intel alert because
+  `classify-news-policy` makes one alert per row, so those are kept as
+  duplicates rather than deleted.
 - **Legal status re-check, 2026-10-29/30.** The 43 rows without a recent
   confirmation were checked against primary sources and stamped, so all 51
   are confirmed. Four were wrong:
@@ -589,7 +602,12 @@ the query "ikratom" to "kratom". Crawl access is fine; the gap is brand signals.
 The home page now states the name in WebSite + Organization JSON-LD
 (`src/lib/seo.ts`), hubs carry canonicals, and private pages are noindex. The
 evidence, the owner's Search Console / Bing steps and the weekly check are in
-`docs/SEO_BRAND.md`. The "ik" mark concepts went to the owner the same day.
+`docs/SEO_BRAND.md`.
+
+The owner picked the "ik" mark on 2026-11-24: an i whose dot is a veined kratom
+leaf, beside a k. It is one drawing, `public/brand/ik-mark.svg`, used in the header,
+every icon, the push badge, link previews and email headers. `docs/BRAND.md` has
+the usage rules and how to change it (`node scripts/brand-icons.mjs`).
 
 ---
 

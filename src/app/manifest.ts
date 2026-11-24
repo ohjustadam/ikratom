@@ -56,9 +56,8 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: "any",
       },
       {
-        // Properly padded maskable variant: logo at ~76% of canvas
-        // on theme-colored background, so Android can crop into a
-        // squircle/circle without clipping the mark.
+        // Maskable variant: the mark at 56% of the canvas, inside the
+        // 80% circle Android may crop to (scripts/brand-icons.mjs).
         src: "/ikratom-icon-512-maskable.png",
         sizes: "512x512",
         type: "image/png",
@@ -69,6 +68,13 @@ export default function manifest(): MetadataRoute.Manifest {
         // hi-dpi rendering on tablets.
         src: "/ikratom-icon-1024.png",
         sizes: "1024x1024",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        // Android's home-screen size; Chrome's install check wants 192 + 512.
+        src: "/ikratom-icon-192.png",
+        sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },

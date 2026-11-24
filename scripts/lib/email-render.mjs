@@ -17,6 +17,8 @@
  */
 import { marked } from "marked";
 
+/** The "ik" mark as a 180 px PNG, the same file as LOGO_URL in src/lib/email/letter-footer.ts. */
+export const EMAIL_LOGO_URL = "https://www.ikratom.org/ikratom-icon-180.png";
 const C = { ink: "#14171c", mute: "#5d6673", line: "#e3e6eb", bg: "#f4f6f8", brand: "#1a7f4b", warn: "#b26b00" };
 
 /**
@@ -82,7 +84,7 @@ function shell({ preheader, title, bodyHtml, footer }) {
 <span style="display:none!important;opacity:0;color:transparent;height:0;width:0;overflow:hidden">${esc(preheader)}</span>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.bg};"><tr><td align="center" style="padding:20px 12px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid ${C.line};border-radius:12px;">
-<tr><td style="padding:22px 24px 6px;font:700 20px/1.2 Arial,sans-serif;color:${C.brand};">iKratom</td></tr>
+<tr><td style="padding:22px 24px 6px;font:700 20px/1.2 Arial,sans-serif;color:${C.ink};"><img src="${EMAIL_LOGO_URL}" width="28" height="28" alt="" style="display:inline-block;vertical-align:middle;width:28px;height:28px;border:0;border-radius:6px;margin-right:10px;"><span style="vertical-align:middle;"><span style="color:${C.brand};">i</span>Kratom</span></td></tr>
 <tr><td style="padding:0 24px 18px;font:15px/1.55 Arial,sans-serif;color:${C.ink};">${bodyHtml}</td></tr>
 <tr><td style="padding:16px 24px 22px;border-top:1px solid ${C.line};font:12px/1.55 Arial,sans-serif;color:${C.mute};">${footer}</td></tr>
 </table></td></tr></table></body></html>`;
@@ -118,7 +120,29 @@ export function meetingCard(m, appUrl, via = null) {
  * Daily digest. sections: [{ title, items: [{ title, body, link }], meetings?: [row] }]
  * Empty sections are dropped; items beyond `cap` collapse into a "+N more" link.
  */
-export function renderDigest({ username, sections, appUrl, unsubscribeUrl, briefLink, cap = 8, via = null }) {
+/**
+ * The line about how often this digest comes (scripts/lib/digest-cadence.mjs).
+ * cadence: "daily" | "weekly" | "quiet". switchUrl: the one-click link that
+ * flips daily <-> weekly, or null while that page is not live.
+ * @param {{ cadence?: string, switchUrl?: string | null, appUrl: string }} opts
+ * @returns {{ html: string, text: string } | null}
+ */
+export function cadenceNote({ cadence = "daily", switchUrl = null, appUrl }) {
+  const link = (href, label) => `<a href="${esc(href)}" style="color:${C.brand};">${esc(label)}</a>`;
+  const p = (inner) => `<p style="margin:12px 0 0;font-size:13px;color:${C.mute};">${inner}</p>`;
+  if (cadence === "quiet") {
+    const back = switchUrl ? ` Or ${link(switchUrl, "get it every day again")}.` : ` To always get it daily, choose Daily in ${link(`${appUrl}/account`, "your settings")}.`;
+    return {
+      html: p(`You're getting this once a week because you haven't been on iKratom for a month. Visit any time and it goes back to daily.${back}`),
+      text: `\nYou're getting this once a week because you haven't been on iKratom for a month. Visit any time and it goes back to daily.${switchUrl ? ` Daily again: ${switchUrl}` : ` Settings: ${appUrl}/account`}`,
+    };
+  }
+  if (!switchUrl) return null;
+  if (cadence === "weekly") return { html: p(`Want it every day? ${link(switchUrl, "Switch to daily")}.`), text: `\nSwitch to daily: ${switchUrl}` };
+  return { html: p(`Too many emails? ${link(switchUrl, "Get this once a week instead")}.`), text: `\nGet this once a week instead: ${switchUrl}` };
+}
+
+export function renderDigest({ username, sections, appUrl, unsubscribeUrl, briefLink, cap = 8, via = null, cadence = "daily", switchUrl = null }) {
   const live = sections.filter((s) => (s.items?.length ?? 0) + (s.meetings?.length ?? 0) > 0);
   const count = live.reduce((n, s) => n + (s.items?.length ?? 0) + (s.meetings?.length ?? 0), 0);
   const parts = [`<p style="margin:0 0 12px;">Hi @${esc(username || "advocate")} — here is what moved on kratom policy since your last update.</p>`];
@@ -144,7 +168,11 @@ export function renderDigest({ username, sections, appUrl, unsubscribeUrl, brief
     }
   }
   parts.push(`<p style="margin:18px 0 0;font-size:13px;color:${C.mute};">Every article opens in iKratom's reader: the full story, no publisher ads, and the actions you can take sit right next to it.</p>`);
-  const reason = "You get this daily summary because email updates are on for your iKratom account.";
+  const note = cadenceNote({ cadence, switchUrl, appUrl });
+  if (note) { parts.push(note.html); txt.push(note.text); }
+  const reason = cadence === "daily"
+    ? "You get this daily summary because email updates are on for your iKratom account."
+    : "You get this weekly summary because email updates are on for your iKratom account.";
   // Never "+ 0 kratom updates" / "1 updates" (both reached a real inbox in the
   // 2026-10-05 test send).
   const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
