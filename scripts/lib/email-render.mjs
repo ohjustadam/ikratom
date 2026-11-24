@@ -118,7 +118,29 @@ export function meetingCard(m, appUrl, via = null) {
  * Daily digest. sections: [{ title, items: [{ title, body, link }], meetings?: [row] }]
  * Empty sections are dropped; items beyond `cap` collapse into a "+N more" link.
  */
-export function renderDigest({ username, sections, appUrl, unsubscribeUrl, briefLink, cap = 8, via = null }) {
+/**
+ * The line about how often this digest comes (scripts/lib/digest-cadence.mjs).
+ * cadence: "daily" | "weekly" | "quiet". switchUrl: the one-click link that
+ * flips daily <-> weekly, or null while that page is not live.
+ * @param {{ cadence?: string, switchUrl?: string | null, appUrl: string }} opts
+ * @returns {{ html: string, text: string } | null}
+ */
+export function cadenceNote({ cadence = "daily", switchUrl = null, appUrl }) {
+  const link = (href, label) => `<a href="${esc(href)}" style="color:${C.brand};">${esc(label)}</a>`;
+  const p = (inner) => `<p style="margin:12px 0 0;font-size:13px;color:${C.mute};">${inner}</p>`;
+  if (cadence === "quiet") {
+    const back = switchUrl ? ` Or ${link(switchUrl, "get it every day again")}.` : ` To always get it daily, choose Daily in ${link(`${appUrl}/account`, "your settings")}.`;
+    return {
+      html: p(`You're getting this once a week because you haven't been on iKratom for a month. Visit any time and it goes back to daily.${back}`),
+      text: `\nYou're getting this once a week because you haven't been on iKratom for a month. Visit any time and it goes back to daily.${switchUrl ? ` Daily again: ${switchUrl}` : ` Settings: ${appUrl}/account`}`,
+    };
+  }
+  if (!switchUrl) return null;
+  if (cadence === "weekly") return { html: p(`Want it every day? ${link(switchUrl, "Switch to daily")}.`), text: `\nSwitch to daily: ${switchUrl}` };
+  return { html: p(`Too many emails? ${link(switchUrl, "Get this once a week instead")}.`), text: `\nGet this once a week instead: ${switchUrl}` };
+}
+
+export function renderDigest({ username, sections, appUrl, unsubscribeUrl, briefLink, cap = 8, via = null, cadence = "daily", switchUrl = null }) {
   const live = sections.filter((s) => (s.items?.length ?? 0) + (s.meetings?.length ?? 0) > 0);
   const count = live.reduce((n, s) => n + (s.items?.length ?? 0) + (s.meetings?.length ?? 0), 0);
   const parts = [`<p style="margin:0 0 12px;">Hi @${esc(username || "advocate")} — here is what moved on kratom policy since your last update.</p>`];
@@ -144,7 +166,11 @@ export function renderDigest({ username, sections, appUrl, unsubscribeUrl, brief
     }
   }
   parts.push(`<p style="margin:18px 0 0;font-size:13px;color:${C.mute};">Every article opens in iKratom's reader: the full story, no publisher ads, and the actions you can take sit right next to it.</p>`);
-  const reason = "You get this daily summary because email updates are on for your iKratom account.";
+  const note = cadenceNote({ cadence, switchUrl, appUrl });
+  if (note) { parts.push(note.html); txt.push(note.text); }
+  const reason = cadence === "daily"
+    ? "You get this daily summary because email updates are on for your iKratom account."
+    : "You get this weekly summary because email updates are on for your iKratom account.";
   // Never "+ 0 kratom updates" / "1 updates" (both reached a real inbox in the
   // 2026-10-05 test send).
   const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;

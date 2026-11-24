@@ -10,7 +10,8 @@
  *
  * Modes:
  *   --mode digest     daily. Opted-in users (prefs.email, digest != off; weekly
- *                     users on Mondays) get everything since the last digest,
+ *                     users, and members quiet for 30 days who never picked
+ *                     Daily, on Mondays: lib/digest-cadence.mjs) get everything since the last digest,
  *                     grouped, upcoming hearings first. No-state users get it
  *                     all (that is the "prefer not to say" lane).
  *   --mode meetings   hourly. Meetings approved since the last run are emailed
@@ -35,7 +36,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { sendEmail, remainingToday, providerSummary, unsubscribeUrl } from "./lib/email-send.mjs";
+import { sendEmail, remainingToday, providerSummary, unsubscribeUrl, cadenceUrl } from "./lib/email-send.mjs";
+import { digestCadence, weeklySince, CADENCE_LINKS_LIVE } from "./lib/digest-cadence.mjs";
 import { renderDigest, renderMeetingAlert, renderAnnouncement } from "./lib/email-render.mjs";
 import { isDeliverable, digestHearings } from "./lib/email-select.mjs";
 import { dedupeStories } from "./lib/story-dedupe.mjs";
@@ -116,7 +118,7 @@ async function remember(user, refs) {
 /** Members with an email address, joined to their preferences. Paged: PostgREST returns at most 1,000 rows. */
 async function members(audience) {
   const [profiles, prefs] = await Promise.all([
-    fetchAll(() => sb.from("profiles").select("id, email, username, state").not("email", "is", null).order("id")),
+    fetchAll(() => sb.from("profiles").select("id, email, username, state, last_seen_at, created_at").not("email", "is", null).order("id")),
     fetchAll(() => sb.from("notification_preferences").select("user_id, email, digest").order("user_id")),
   ]);
   const byUser = new Map(prefs.map((p) => [p.user_id, p]));
@@ -129,7 +131,43 @@ async function members(audience) {
     if (audience === "all") return true;
     if (!pr?.email) return false;
     return pr.digest !== "weekly" || monday;
-  }).map((p) => ({ ...p, weekly: byUser.get(p.id)?.digest === "weekly" }));
+  }).map((p) => ({ ...p, digest: byUser.get(p.id)?.digest ?? "instant", weekly: byUser.get(p.id)?.digest === "weekly" }));
+}
+
+/** auth.users last_sign_in_at by member, or null when it can't be read (then nobody is treated as quiet). */
+async function lastSignIns() {
+  const out = new Map();
+  try {
+    for (let page = 1; page <= 500; page++) {
+      const { data, error } = await sb.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error) throw error;
+      for (const u of data.users) out.set(u.id, u.last_sign_in_at ?? null);
+      if (data.users.length < 1000) break;
+    }
+    return out;
+  } catch (e) {
+    console.warn(`  ! sign-in times unreadable (${e.message}): no quiet-member weekly digest this run`);
+    return null;
+  }
+}
+
+/**
+ * Quiet members (scripts/lib/digest-cadence.mjs) get the digest on Mondays only.
+ * Sets u.cadence on every member and drops the quiet ones on other days.
+ */
+async function applyCadence(all) {
+  const signIns = ONLY ? null : await lastSignIns();
+  const monday = new Date().getUTCDay() === 1;
+  let quietHeld = 0, quiet = 0;
+  const users = [];
+  for (const u of all) {
+    const cadence = signIns
+      ? digestCadence({ digest: u.digest, lastSeenAt: u.last_seen_at, lastSignInAt: signIns.get(u.id), createdAt: u.created_at })
+      : (u.weekly ? "weekly" : "daily");
+    if (cadence === "quiet") { quiet++; if (!monday) { quietHeld++; continue; } }
+    users.push({ ...u, cadence, weekly: cadence !== "daily" });
+  }
+  return { users, quiet, quietHeld };
 }
 
 function writePreview(name, html) {
@@ -155,7 +193,7 @@ async function deliver(queue) {
 
 async function runDigest() {
   // A dry run may preview what EVERY member would get (--audience all); a real send never widens the audience.
-  const users = await members(DRY ? arg("audience", "opted-in") : "opted-in");
+  const { users, quiet, quietHeld } = await applyCadence(await members(DRY ? arg("audience", "opted-in") : "opted-in"));
   const now = Date.now();
   const last = await lastSuccess(SOURCE);
   // One digest a day, whoever starts it. GitHub ran the 10:17 UTC schedule nine
@@ -198,18 +236,19 @@ async function runDigest() {
 
   const queue = [];
   for (const u of users) {
-    const from = u.weekly ? weekAgo : digestSinceFor(since, floor, lastSent.get(u.id));
+    const from = u.weekly ? weeklySince(weekAgo, lastSent.get(u.id)) : digestSinceFor(since, floor, lastSent.get(u.id));
     const mine = (notes.get(u.id) ?? []).filter((n) => n.created_at > from && !(n.kind === "whats_new" && emailedLinks.has(n.link)));
     const sections = [{ title: "Hearings and meetings (every state)", meetings: digestHearings(meetings, from, now) },
       ...SECTIONS.map((s) => { const mineHere = mine.filter((n) => s.kinds.includes(n.kind)); return { title: s.title, items: s.dedupe === "link" ? dedupeByLink(mineHere) : dedupeStories(mineHere) }; })];
-    const msg = renderDigest({ username: u.username, sections, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), briefLink: "/brief", via: VIA && "digest" });
+    const msg = renderDigest({ username: u.username, sections, appUrl: APP_URL, unsubscribeUrl: unsubscribeUrl(APP_URL, u.id), briefLink: "/brief", via: VIA && "digest",
+      cadence: u.cadence, switchUrl: CADENCE_LINKS_LIVE ? cadenceUrl(APP_URL, u.id, u.cadence === "daily" ? "weekly" : "daily") : null });
     if (msg.count === 0) continue; // nothing new: send nothing
     queue.push({ user: u, refs: [{ source: "digest", ref }], msg: { ...msg, tag: "digest", unsubscribeUrl: unsubscribeUrl(APP_URL, u.id) } });
   }
   // A hearing first if the day's quota is tight, then whoever waited longest.
   queue.sort(byPriority(lastSent));
   const r = await deliver(queue);
-  return { ...r, eligible: users.length, withContent: queue.length, since };
+  return { ...r, eligible: users.length, withContent: queue.length, since, quiet, quietHeld };
 }
 
 async function runMeetings() {
@@ -262,7 +301,7 @@ try {
   VIA = await clickPathsLive();
   const r = MODE === "digest" ? await runDigest() : MODE === "meetings" ? await runMeetings() : await runAnnounce();
   const summary = `${r.slug ? `${r.slug} · ` : ""}sent ${r.sent} · failed ${r.failed} · deferred ${r.deferred} (quota) · eligible ${r.eligible}` +
-    (r.withContent != null ? ` · with-content ${r.withContent}` : "") + (r.meetings != null ? ` · meetings ${r.meetings}` : "") +
+    (r.withContent != null ? ` · with-content ${r.withContent}` : "") + (r.meetings != null ? ` · meetings ${r.meetings}` : "") + (r.quiet ? ` · quiet ${r.quiet} (${r.quietHeld} held for Monday)` : "") +
     ` · links ${VIA ? "tagged" : "plain"}` + (r.errors.length ? ` · errors: ${r.errors.join(" ; ")}` : "");
   console.log(summary);
   await record(r.failed > 0 && r.sent === 0 ? "error" : r.deferred > 0 ? "partial" : "success", r.sent, summary);
