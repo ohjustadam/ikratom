@@ -337,8 +337,8 @@ Where the facts come from, all free and keyless:
 - **State `term_end_date`** is set from the SEAT's handover day, never from
   start date + term length, which is wrong for every appointee.
 
-**The 2026 general, as of 2026-11-25:** 4,737 of 6,679 seats called (3,592
-re-elected, 1,145 successors), 1,764 not yet read, 167 in review. Most of the
+**The 2026 general, as of 2026-11-25:** 4,738 of 6,679 seats called (3,593
+re-elected, 1,145 successors), 1,764 not yet read, 166 in review. Most of the
 review queue is turnover-swap holding seats whose handover passed (FL, IN, TN,
 SC, AL, DE, HI, OK) until openstates/people shows the successor; it drains as
 upstream updates. Unread chambers are the ones Wikipedia hasn't tabled yet (PA,
