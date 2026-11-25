@@ -9,6 +9,9 @@ export const siteConfig = {
   // Search identity (docs/SEO_BRAND.md). `url` is the canonical host, never an
   // env value: structured data must name the real site even on a draft deploy.
   url: "https://www.ikratom.org",
+  // Who runs the site, named in the public privacy page. Change these two words
+  // when the host moves (docs/RUNBOOK_host_move.md); nothing else names a host.
+  infra: { host: "Netlify", edge: "Cloudflare" },
   // What people actually type. Google's site-name system reads these from the
   // WebSite markup on the home page.
   alternateNames: ["ikratom", "iKratom.org"],
