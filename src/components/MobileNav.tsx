@@ -351,6 +351,10 @@ export function MobileNav({
               <a href="/cookies" className="px-2 hover:text-emerald-400" onClick={close}>
                 Cookies
               </a>
+              ·
+              <a href="/security" className="px-2 hover:text-emerald-400" onClick={close}>
+                Security
+              </a>
             </div>
           </div>
         </div>,
