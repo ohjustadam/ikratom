@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { sendPush, isPushConfigured } from "@/lib/push/send";
 import { canPushUser, type PushGatePrefs } from "@/lib/notifications/push-gate";
@@ -62,6 +63,8 @@ export async function setMeetingAutoApprovePolicy(input: {
 }) {
   const ctx = await getAdminContext({ require: "edit_meetings" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   // Clamp confidence to a sane band so a fat-fingered value can't either
   // auto-approve everything (0) or nothing (>1).
@@ -104,6 +107,8 @@ export async function setMeetingAutoApprovePolicy(input: {
 export async function broadcastMeeting(input: { id: string; force?: boolean }) {
   const ctx = await getAdminContext({ require: "edit_meetings" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const sb = await createClient();
   const { data: meeting, error: readErr } = await sb
@@ -309,6 +314,8 @@ export async function broadcastMeeting(input: { id: string; force?: boolean }) {
 export async function setMeetingStatus(input: { id: string; status: string; note?: string }) {
   const ctx = await getAdminContext({ require: "edit_meetings" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!VALID_STATUSES.includes(input.status as Status)) return { error: "Invalid status." };
 
   const sb = await createClient();

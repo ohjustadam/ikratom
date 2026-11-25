@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 /**
@@ -67,6 +68,8 @@ export async function setCallModeration(input: {
 }) {
   const ctx = await getAdminContext({ require: "moderate_calls" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(input.id)) return { error: "Invalid id." };
   if (input.action !== "approve" && input.action !== "reject") return { error: "Unknown action." };
 

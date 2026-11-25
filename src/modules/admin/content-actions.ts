@@ -3,6 +3,7 @@
 import { updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 /**
@@ -28,6 +29,8 @@ export async function saveContent(input: {
 }): Promise<SaveResult> {
   const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   const key = input.key?.trim() ?? "";
   if (!KEY_RE.test(key)) {
@@ -75,6 +78,8 @@ export type DeleteResult =
 export async function deleteContent(key: string): Promise<DeleteResult> {
   const ctx = await getAdminContext({ require: "edit_site_content" });
   if (!ctx.ok) return { ok: false, error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   if (!KEY_RE.test(key)) {
     return { ok: false, error: "Invalid key." };

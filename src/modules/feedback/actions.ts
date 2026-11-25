@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { sendEmail } from "@/lib/email/router";
@@ -240,6 +241,8 @@ export async function setFeedbackStatus(
 ): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "Invalid id." };
 
   const supabase = await createClient();

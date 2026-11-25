@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { sendEmail } from "@/lib/email/router";
@@ -36,6 +37,8 @@ export async function replyToFeedback(input: {
 }): Promise<{ ok: true; delivered: boolean; label: string; detail: string | null } | { error: string }> {
   const ctx = await getAdminContext({ require: "moderate_feedback" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!ID_RE.test(input.id ?? "")) return { error: "Invalid id." };
   const clean = cleanReplyBody(input.body);
   if ("error" in clean) return clean;

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { sendDiscordEmbed, maskWebhook, EMBED_COLORS } from "@/lib/discord/webhook";
 import { recordOnFailure, VALID_EVENTS, type EventKind } from "@/modules/discord/notify";
@@ -75,6 +76,8 @@ export async function createDiscordIntegration(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const webhookUrl = (input.webhookUrl ?? "").trim();
   // Basic shape check before insert (the DB CHECK enforces fully)
@@ -157,6 +160,8 @@ export async function updateDiscordIntegration(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(input.id)) return { error: "Invalid id." };
 
   const update: Record<string, unknown> = {};
@@ -198,6 +203,8 @@ export async function updateDiscordIntegration(input: {
 export async function deleteDiscordIntegration(id: string) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "Invalid id." };
   const supabase = await createClient();
   const { error } = await supabase.from("discord_integrations").delete().eq("id", id);
@@ -210,6 +217,8 @@ export async function deleteDiscordIntegration(id: string) {
 export async function testDiscordIntegration(id: string) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "Invalid id." };
 
   const supabase = await createClient();

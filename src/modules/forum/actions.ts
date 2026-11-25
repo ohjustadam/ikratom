@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { forumRights, forumRoleOf, isNewForumAccount, isSamePost } from "@/lib/forum-permissions";
 import { moderateNewContent } from "@/lib/moderation";
 import { sellingIssue } from "@/lib/selling";
@@ -496,6 +497,8 @@ export async function approveContent(input: {
 }) {
   const moderator = await getCreatorContext({ require: "moderate_forum" });
   if (!moderator.ok) return { error: "Moderators only." };
+  const mfaErr = requireMfaForMutation(moderator);
+  if (mfaErr) return { error: mfaErr };
   const sr = createServiceRoleClient();
 
   const table = input.targetType === "post" ? "forum_posts" : "forum_threads";
@@ -535,6 +538,8 @@ export async function removeContent(input: {
 }) {
   const moderator = await getCreatorContext({ require: "moderate_forum" });
   if (!moderator.ok) return { error: "Moderators only." };
+  const mfaErr = requireMfaForMutation(moderator);
+  if (mfaErr) return { error: mfaErr };
   const sr = createServiceRoleClient();
 
   const allowed = await removableIds(sr, moderator, input.targetType, [input.targetId]);
@@ -578,6 +583,8 @@ export async function bulkApproveContent(input: {
 }) {
   const moderator = await getCreatorContext({ require: "moderate_forum" });
   if (!moderator.ok) return { error: "Moderators only." };
+  const mfaErr = requireMfaForMutation(moderator);
+  if (mfaErr) return { error: mfaErr };
   const sr = createServiceRoleClient();
 
   const postIds = (input.posts ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
@@ -627,6 +634,8 @@ export async function bulkRemoveContent(input: {
 }) {
   const moderator = await getCreatorContext({ require: "moderate_forum" });
   if (!moderator.ok) return { error: "Moderators only." };
+  const mfaErr = requireMfaForMutation(moderator);
+  if (mfaErr) return { error: mfaErr };
   const sr = createServiceRoleClient();
 
   const postIds = await removableIds(

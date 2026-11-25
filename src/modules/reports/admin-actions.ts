@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { groupRemoval, isReportTarget, isTargetId } from "./types";
@@ -22,6 +23,8 @@ export async function resolveContentReports(
 ): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAdminContext({ require: "moderate_forum" });
   if (!ctx.ok) return { error: "Not authorized." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!isReportTarget(targetType) || !isTargetId(targetId) || (decision !== "dismissed" && decision !== "actioned")) {
     return { error: "Bad request." };
   }

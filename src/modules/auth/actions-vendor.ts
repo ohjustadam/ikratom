@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -135,6 +136,8 @@ export async function listPendingVendorApplications() {
 export async function approveVendor(userId: string) {
   const ctx = await getAdminContext({ require: "review_vendor_applications" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(userId)) return { error: "Invalid user id." };
 
   // Service-role: only the owner may read or write another member's row
@@ -164,6 +167,8 @@ export async function approveVendor(userId: string) {
 export async function rejectVendor(input: { userId: string; reason: string }) {
   const ctx = await getAdminContext({ require: "review_vendor_applications" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(input.userId)) return { error: "Invalid user id." };
   const reason = input.reason?.trim();
   if (!reason || reason.length > 500) {
@@ -203,6 +208,8 @@ export async function rejectVendor(input: { userId: string; reason: string }) {
 export async function revokeVendor(userId: string) {
   const ctx = await getAdminContext({ require: "review_vendor_applications" });
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(userId)) return { error: "Invalid user id." };
 
   // Service-role: only the owner may read or write another member's row

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { STANCE_TOPICS, STANCE_TOPIC_DEFAULT, type StanceTopic } from "@/lib/legislator-action-plan";
 
@@ -53,6 +54,8 @@ export async function setStance(input: {
 }) {
   const ctx = await getAdminContext({ require: "edit_stance" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!VALID_STANCES.includes(input.stance as Stance)) return { error: "Invalid stance." };
   const t = normTopic(input.topic);
 
@@ -97,6 +100,8 @@ export async function bulkSetStance(input: {
 }) {
   const ctx = await getAdminContext({ require: "edit_stance" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!VALID_STANCES.includes(input.stance as Stance)) return { error: "Invalid stance." };
   const t = normTopic(input.topic);
   const ids = (input.legislatorIds ?? []).slice(0, 100).filter(Boolean);
