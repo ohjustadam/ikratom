@@ -780,7 +780,7 @@ older daily drafts (11-18 to 11-24) are superseded, so don't publish them.
    captcha setting is on, and then it rejects every call WITHOUT a token. The
    site key is baked in at build time, so the order is: keys in Netlify, a
    production build, `node --env-file=.env.local scripts/auth-captcha.mjs status`
-   says Ready, then `... enable`. `... disable` is the rollback. Blocking admins
+   says Ready, then `... enable`. `... disable` is the rollback. **ON since 2026-11-25** (owner yes): a call without a token now gets `captcha_failed`, and a real visitor gets a token with nothing to click. Blocking admins
    and the owner who have no 2FA factor is built but OFF (`ADMIN_MFA_ENFORCED` in
    `src/modules/admin/mfa.ts`): members were told it starts Mon 2026-11-23, and
    the admin 2FA sweep flips it after the owner's go/no-go that day.
