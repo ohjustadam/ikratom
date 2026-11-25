@@ -3,6 +3,9 @@ import Link from "@/components/Link";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PressReplyButton } from "@/modules/press/PressReplyButton";
+import { TopFive } from "@/modules/press/TopFive";
+import { MonthlyLeaders } from "@/modules/press/MonthlyLeaders";
+import { getWeeklyBoard, getMonthlyLeaders } from "@/modules/press/board-data";
 
 export const revalidate = 3600;
 
@@ -62,7 +65,7 @@ function Piece({ row }: { row: Row }) {
 }
 
 export default async function MediaPersuasionPage() {
-  const rows = await getContacts();
+  const [rows, top, leaders] = await Promise.all([getContacts(), getWeeklyBoard(), getMonthlyLeaders()]);
   const stories = rows.filter((r) => r.news_items);
   const papers = rows.filter((r) => r.research_papers);
   return (
@@ -76,6 +79,17 @@ export default async function MediaPersuasionPage() {
         Please be kind. Some of these stories are about a family&apos;s loss. Say what you know,
         offer a source, and thank them. One honest note does more than a hundred angry ones.
       </p>
+      {top.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold">This week&apos;s Top 5</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            The stories most worth answering from the last 7 days. Email the writer, leave a comment
+            where the story is posted, and tick it so others can see which ones still need a voice.
+          </p>
+          <TopFive stories={top} />
+        </section>
+      )}
+      <MonthlyLeaders leaders={leaders} />
       {rows.length === 0 && (
         <p className="mt-8 text-sm text-zinc-500">Nothing here yet. New stories are checked every night.</p>
       )}

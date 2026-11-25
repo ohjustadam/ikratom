@@ -14,10 +14,13 @@ export function PressReplyButton({
   contactId,
   label = "✉ Reply to the writer",
   source,
+  onOpened,
 }: {
   contactId: string;
   label?: string;
   source: string;
+  /** Called once the reply opens (the Top 5 board marks it "emailed"). */
+  onOpened?: () => void;
 }) {
   const [result, setResult] = useState<PressContactResult | null>(null);
   const [open, setOpen] = useState(false);
@@ -27,7 +30,7 @@ export function PressReplyButton({
     start(async () => {
       const r = await getPressContact(contactId);
       setResult(r);
-      if (r.ok) setOpen(true);
+      if (r.ok) { setOpen(true); onOpened?.(); }
     });
 
   return (

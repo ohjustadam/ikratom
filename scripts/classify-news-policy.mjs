@@ -162,6 +162,10 @@ console.log(`Providers: ${avail().join(", ")}`);
 let q = sb.from("news_items")
   .select("id, title, url, resolved_url, source_name, state, published_at, summary, body_has_kratom_keyword, body_extract_excerpt")
   .eq("active", true)
+  // A copy of a story we already have is never classified on its own: each
+  // one minted its own policy alert (2,012 extra alerts, dedupe dry run
+  // 2026-11-24). The original carries the story.
+  .is("duplicate_of", null)
   .not("body_has_kratom_keyword", "is", false)
   .limit(LIMIT);
 if (!REFRESH) q = q.is("policy_classified_at", null);
