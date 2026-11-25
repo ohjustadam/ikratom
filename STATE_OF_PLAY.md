@@ -611,6 +611,27 @@ the usage rules and how to change it (`node scripts/brand-icons.mjs`).
 
 ---
 
+## The crawl block is a staged switch (2026-11-24)
+
+`robots.txt` has blocked bills, research, legislators and twelve more families
+since 2026-09-01 to save Netlify credits, which also keeps them out of Google.
+The block no longer lifts on a date. It is `site_config.crawl_stage` (0 to 3,
+migration 0332), read hourly by `robots.ts` and `sitemap.ts`, so it changes with
+no deploy. **Stage 0 is the default and anything unreadable is 0**: merging the
+code opens nothing. Stage 1 opens bills and research, 2 adds legislators and
+briefings, 3 adds library and topics. Member content, alerts, campaigns and intel
+never open (`NEVER_LIFTED_PATHS` in `src/lib/crawl-policy.ts`).
+
+Only a human raises it (`scripts/crawl-stage.mjs`, which refuses at 80% of
+credits). The hourly `crawl_brake` job lowers it to 0 at 90% or on a spike, and
+`private/scripts/cf-bot-brake.mjs` cuts verified search crawlers off at once,
+because Googlebot and Bingbot skip every Cloudflare rule and cache robots.txt for
+about a day. Check a family with `scripts/crawl-lift-check.mjs` before opening it.
+**Do not raise it before the 12-05 reset and the build carrying the signup fix.**
+Runbook: `docs/RUNBOOK_crawl_lift.md`.
+
+---
+
 ## Things that will bite you
 
 1. **The changelog no longer lives in the repo.** As of 2026-09-18, patch
