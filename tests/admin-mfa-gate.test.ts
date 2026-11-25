@@ -2,25 +2,29 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_MFA_ENFORCED, ADMIN_MFA_ENROLL_MESSAGE, requireMfaForMutation } from "@/modules/admin/mfa";
 import { wasMfaRequired } from "@/lib/mfa-error";
 
-// Admin and owner mutations will need an enrolled, verified factor. The block
-// ships OFF: members were told it starts Mon 2026-11-23, and the admin 2FA
-// sweep flips ADMIN_MFA_ENFORCED after the owner's go/no-go that day.
+// Admin and owner mutations need an enrolled, verified factor. Members were
+// told it starts Mon 2026-11-23; the owner said go on 2026-11-25, so the
+// block ships ON (ADMIN_MFA_ENFORCED).
 const admin = { isAdmin: true, isOwner: false };
 const owner = { isAdmin: false, isOwner: true };
 const leader = { isAdmin: false, isOwner: false };
 
-describe("requireMfaForMutation, before Nov 23 (flag off)", () => {
-  it("ships with enforcement off", () => {
-    expect(ADMIN_MFA_ENFORCED).toBe(false);
+describe("requireMfaForMutation, as shipped (flag on)", () => {
+  it("ships with enforcement on", () => {
+    expect(ADMIN_MFA_ENFORCED).toBe(true);
   });
 
-  it("lets an admin or owner with no factor through for now", () => {
-    expect(requireMfaForMutation({ ...admin, aal: "aal1", aalNext: "aal1" })).toBeNull();
-    expect(requireMfaForMutation({ ...owner, aal: null, aalNext: null })).toBeNull();
+  it("blocks an admin or owner with no factor without any override", () => {
+    expect(requireMfaForMutation({ ...admin, aal: "aal1", aalNext: "aal1" })).toBe(ADMIN_MFA_ENROLL_MESSAGE);
+    expect(requireMfaForMutation({ ...owner, aal: null, aalNext: null })).toBe(ADMIN_MFA_ENROLL_MESSAGE);
   });
 
   it("still asks an enrolled admin at aal1 for the code (inline prompt)", () => {
     expect(wasMfaRequired(requireMfaForMutation({ ...admin, aal: "aal1", aalNext: "aal2" }))).toBe(true);
+  });
+
+  it("enforce: false still restores the grace rule (the off switch works)", () => {
+    expect(requireMfaForMutation({ ...admin, enforce: false, aal: "aal1", aalNext: "aal1" })).toBeNull();
   });
 });
 

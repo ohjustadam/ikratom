@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { moderateEdit } from "@/lib/moderation";
@@ -25,7 +26,12 @@ import {
 
 type Result = { ok: true; moderationStatus?: string } | { error: string };
 type ServiceClient = ReturnType<typeof createServiceRoleClient>;
-type Actor = { viewer: ForumViewer & { id: string }; postCount: number };
+type Actor = {
+  viewer: ForumViewer & { id: string };
+  postCount: number;
+  /** The moderator guard, kept so an edit of someone else's words can be 2FA-gated. */
+  moderator: Awaited<ReturnType<typeof getCreatorContext>>;
+};
 
 const ID_RE = /^[0-9a-f-]{36}$/i;
 
@@ -45,6 +51,7 @@ async function actor(): Promise<Actor | { error: string }> {
   return {
     viewer: { id: user.id, role: forumRoleOf(profile), canModerate: moderator.ok },
     postCount: profile?.forum_post_count ?? 0,
+    moderator,
   };
 }
 
@@ -129,6 +136,9 @@ export async function editForumPost(input: { postId: string; body: string }): Pr
     if ("error" in screened) return screened;
     Object.assign(patch, screened.patch);
   } else {
+    // A moderator changing someone else's words: an admin needs 2FA (#1159).
+    const mfaErr = me.moderator.ok ? requireMfaForMutation(me.moderator) : null;
+    if (mfaErr) return { error: mfaErr };
     patch.edited_by_moderator = true;
   }
 
@@ -196,6 +206,9 @@ export async function editForumThread(input: {
     if ("error" in screened) return screened;
     Object.assign(patch, screened.patch);
   } else {
+    // A moderator changing someone else's words: an admin needs 2FA (#1159).
+    const mfaErr = me.moderator.ok ? requireMfaForMutation(me.moderator) : null;
+    if (mfaErr) return { error: mfaErr };
     patch.edited_by_moderator = true;
   }
 
@@ -336,6 +349,8 @@ export async function setThreadFlags(input: {
 }): Promise<Result> {
   const moderator = await getCreatorContext({ require: "moderate_forum" });
   if (!moderator.ok) return { error: "Moderators only." };
+  const mfaErr = requireMfaForMutation(moderator);
+  if (mfaErr) return { error: mfaErr };
   if (!ID_RE.test(input.threadId)) return { error: "That thread can't be changed." };
 
   const patch: { locked?: boolean; pinned?: boolean } = {};

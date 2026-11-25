@@ -5,6 +5,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { suggestLocalOfficials, type SuggestedOfficial } from "@/lib/ai/suggest-officials";
 import { normalizeLocality } from "@/lib/locality";
 import { getCreatorContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 
 export async function suggestOfficialsAction(input: { city: string; state: string }) {
   const ctx = await getCreatorContext({ require: "use_ai_editor" });
@@ -33,6 +34,8 @@ export async function acceptSuggestions(input: {
 }) {
   const ctx = await getCreatorContext({ require: "use_ai_editor" });
   if (!ctx.ok) return { error: "Sign in as an admin or advocate leader." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const stateRaw = input.state.trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(stateRaw)) return { error: "Invalid state code." };

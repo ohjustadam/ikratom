@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { deletePhotoRow } from "./photo-upload";
@@ -16,6 +17,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function resolvePhotoReport(photoId: string, decision: "restore" | "remove"): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAdminContext({ require: "moderate_forum" });
   if (!ctx.ok) return { error: "Not authorized." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!UUID_RE.test(photoId) || (decision !== "restore" && decision !== "remove")) return { error: "Bad request." };
 
   const svc = createServiceRoleClient();

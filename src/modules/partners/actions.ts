@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 /**
@@ -73,6 +74,8 @@ export async function createPartner(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const shop_name = (input.shopName ?? "").trim();
   if (shop_name.length < 1 || shop_name.length > 120) {
@@ -147,6 +150,8 @@ export async function updatePartner(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(input.id)) return { error: "Invalid id." };
 
   // Slug deliberately omitted — QR codes already in the wild encode it.
@@ -179,6 +184,8 @@ export async function updatePartner(input: {
 export async function deletePartner(id: string) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "Invalid id." };
   const supabase = await createClient();
   const { error } = await supabase.from("partners").delete().eq("id", id);

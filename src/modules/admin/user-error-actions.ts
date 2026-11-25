@@ -10,6 +10,7 @@
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "./mfa";
 import { redactPii } from "@/lib/redact";
 import { recordAdminAction } from "@/lib/audit";
 import { suggestedFixForErrorCode } from "@/lib/auth-events";
@@ -35,6 +36,8 @@ export async function escalateUserErrorToDevs(input: {
 }): Promise<EscalateResult> {
   const ctx = await getAdminContext({ require: "view_security_signals" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
@@ -153,6 +156,8 @@ export async function dismissUserErrorCluster(input: {
 }): Promise<{ ok: true; updated: number } | { ok: false; error: string }> {
   const ctx = await getAdminContext({ require: "view_security_signals" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   const since24h = new Date(Date.now() - 24 * 3600_000).toISOString();
   const db = admin();

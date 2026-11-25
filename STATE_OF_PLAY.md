@@ -798,10 +798,11 @@ older daily drafts (11-18 to 11-24) are superseded, so don't publish them.
    captcha setting is on, and then it rejects every call WITHOUT a token. The
    site key is baked in at build time, so the order is: keys in Netlify, a
    production build, `node --env-file=.env.local scripts/auth-captcha.mjs status`
-   says Ready, then `... enable`. `... disable` is the rollback. Blocking admins
-   and the owner who have no 2FA factor is built but OFF (`ADMIN_MFA_ENFORCED` in
-   `src/modules/admin/mfa.ts`): members were told it starts Mon 2026-11-23, and
-   the admin 2FA sweep flips it after the owner's go/no-go that day.
+   says Ready, then `... enable`. `... disable` is the rollback. Every admin write
+   calls `requireMfaForMutation` (#1166; `tests/admin-mfa-coverage.test.ts` fails CI
+   on an ungated one), and admins and the owner with no 2FA factor are blocked
+   (`ADMIN_MFA_ENFORCED` in `src/modules/admin/mfa.ts`, owner go 2026-11-25, live
+   from the first production build after #1166). Leaders keep the grace rule.
 
 ## Where the forward plan is declared
 

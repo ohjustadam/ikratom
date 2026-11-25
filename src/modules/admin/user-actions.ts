@@ -167,6 +167,8 @@ export async function setUserRoles(input: {
 export async function sendPasswordResetForUser(input: { userId: string }) {
   const ctx = await getAdminContext({ require: "send_password_reset" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!input.userId) return { error: "Missing user id." };
 
   // Per-admin rate limit: 15 reset-emails per admin per hour. A
@@ -263,6 +265,8 @@ export async function sendPasswordResetForUser(input: { userId: string }) {
 export async function sendMagicLinkForUser(input: { userId: string }) {
   const ctx = await getAdminContext({ require: "send_magic_link" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!input.userId) return { error: "Missing user id." };
 
   if (!(await checkRateLimit(`admin:magiclink:${ctx.userId}`, 15, 3600))) {
@@ -344,6 +348,8 @@ export async function generateTempPassword(input: { userId: string }): Promise<
 > {
   const ctx = await getAdminContext({ require: "issue_temp_password" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   // No MFA-for-mutation gate here. This is a customer-support action
   // used precisely when an admin is helping a locked-out user, often
   // from a session that hasn't re-verified 2FA recently. The gate was
@@ -509,6 +515,8 @@ function generateReadableTempPassword(len: number): string {
 export async function setAccountLocked(input: { userId: string; locked: boolean; reason?: string }) {
   const ctx = await getAdminContext({ require: "lock_accounts" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!ctx.isOwner) return { error: "Owner only." };
   if (!input.userId) return { error: "Missing user id." };
 

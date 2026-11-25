@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { PERMISSION_BY_KEY, isOwnerOnly } from "./permissions";
 
@@ -23,6 +24,8 @@ export async function setUserPermissionOverride(input: {
   // the matrix describes its own access rule accurately.
   const ctx = await getAdminContext({ require: "manage_permissions" });
   if (!ctx.ok) return { error: "Owner only — only the owner can edit permission overrides." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!input.userId) return { error: "Missing user id." };
 
   const perm = PERMISSION_BY_KEY[input.permission];

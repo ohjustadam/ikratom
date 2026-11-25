@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 export type Announcement = {
@@ -65,6 +66,8 @@ export async function createAnnouncement(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const title = input.title.trim();
   const body = input.body.trim();
@@ -98,6 +101,8 @@ export async function createAnnouncement(input: {
 export async function deleteAnnouncement(id: string) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admins only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "Invalid id." };
   const supabase = await createClient();
   const { error } = await supabase.from("announcements").delete().eq("id", id);
