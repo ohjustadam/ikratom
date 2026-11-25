@@ -5,7 +5,7 @@
  * WHY (2026-11-24). robots.txt is lifted in stages (src/lib/crawl-policy.ts,
  * `site_config.crawl_stage`). Googlebot and Bingbot skip every Cloudflare rule,
  * so once a family is open the only brake is on our side. Each hour this job
- * reads the TRUE Netlify credit meter and, if a stage is open and the month is
+ * reads the host's usage meter (Netlify's TRUE credit meter today) and, if a stage is open and the month is
  * past 90% or a recent day spiked far above the median (thresholds and tests:
  * scripts/lib/crawl-brake.mjs), it sets the stage back to 0 and pages the owner.
  *
@@ -23,7 +23,7 @@
  * BRAKE FAILED or BLIND (same convention as flood_alarm), not that it crashed.
  */
 import { createClient } from "@supabase/supabase-js";
-import { readTrueCredits } from "./lib/netlify-credits.mjs";
+import { readUsageMeter } from "./lib/usage-meter.mjs";
 import { evaluateBrake } from "./lib/crawl-brake.mjs";
 import { alertOwner } from "./lib/owner-alert.mjs";
 
@@ -60,9 +60,7 @@ async function main() {
     return;
   }
   const stage = Number(cfg?.crawl_stage ?? 0);
-  const truth = stage
-    ? await readTrueCredits({ token: process.env.NETLIFY_AUTH_TOKEN, accountSlug: process.env.NETLIFY_ACCOUNT_SLUG || "ohjustadam" })
-    : null;
+  const truth = stage ? await readUsageMeter() : null; // host-neutral: scripts/lib/usage-meter.mjs
   const ev = evaluateBrake({ stage, truth });
 
   if (ev.blind) {

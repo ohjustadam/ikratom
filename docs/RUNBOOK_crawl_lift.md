@@ -24,6 +24,17 @@ _Written 2026-11-24. Why: `robots.txt` has blocked sixteen families (bills, rese
 5. **Search Console is verified** for `www.ikratom.org` (owner). Its Crawl stats page is the only live view of Googlebot's load, and it can request a slower crawl rate for 90 days.
 6. **Decide what a Google visitor sees.** The crawl shield challenges every anonymous visit to `/bills/`, `/legislators/`, `/research` and `/intel/` (probed 2026-11-24: 403 `cf-mitigated: challenge`, even with a Google referer). A browser normally passes the challenge in a second or two, but it adds an interstitial to the first page a searcher sees. Real Googlebot is a verified bot and skips it. Options: leave it and measure bounce for a week, or exempt Google-referred visits on stage-1 families (a scraper can fake a referer). Decide before raising; do not discover it from the bounce rate.
 
+## Where it stands (2026-11-25)
+
+| Gate | State |
+|---|---|
+| 1. Reset and signup fix | The signup-queue build went live 18:42 UTC on 11-25. The 12-05 reset is still ahead. |
+| 2. Credits calm | 768 of 1,000 (76.9%) on 11-25, about 14.5 a day, so roughly 908 by the reset. Under the 80% line today, but it will cross it before 12-05: raise after the reset. |
+| 3. Cold renders | `crawl-lift-check.mjs --stage 3` against the published deploy's direct URL: **stages 1 and 2 pass** (/research 0.3-1.3 s, /bills 1.7-2.4 s, /legislators 1.2-1.8 s, /briefings 0.7-0.9 s). /bills is within a tenth of the 2.5 s limit. **Stage 3 is HOLD**: /topics/kratom took 3.3 s and /topics/cannabis 2.7 s. The check measures the direct deploy URL because the site's own netlify.app address answers 308 to www. |
+| 4. Data fit | Owner and trunk: merge the bill twin pairs and settle the 20 inactive rows first. |
+| 5. Search Console | Done. Domain property `ikratom.org` verified, `sitemap.xml` submitted 11-25 (it lists only the open pages), the home page, /pulse and /news are already indexed, no manual actions, no security issues. Crawl stats and the Pages report fill in over the next days. |
+| 6. What a Google visitor sees | Leave the challenge. Real Googlebot is a verified bot and skips it; a person clicking a result gets a managed challenge that a normal browser clears in a second or two. Do **not** exempt by Referer: any scraper can send one. Measure bounce for the first week. |
+
 ## Lift
 
 ```bash
