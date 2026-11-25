@@ -266,6 +266,16 @@ if (SPECIFIC) {
 
 if (findings.length === 0) {
   console.log("Nothing to classify.");
+  // A quiet day is still a run. Without this row the staleness check reads
+  // "silent since <last finding>" (it did, 2026-11-19 → 11-25, while the job
+  // passed every day).
+  try {
+    const now = new Date().toISOString();
+    await sb.from("scraper_runs").insert({
+      source: "classify_bop_findings_ai", started_at: now, finished_at: now,
+      status: "empty", rows_updated: 0, notes: "nothing to classify",
+    });
+  } catch { /* best-effort */ }
   process.exit(0);
 }
 console.log(`Classifying ${findings.length} finding(s) via Gemini ${MODEL} with grounding…`);
