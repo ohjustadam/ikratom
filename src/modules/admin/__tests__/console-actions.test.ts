@@ -63,7 +63,7 @@ describe("runSqlQuery — safety rails", () => {
   });
 
   it("refuses an owner with no 2FA factor before running anything (#1159 sweep)", async () => {
-    // enforce: true stands in for ADMIN_MFA_ENFORCED, off until the Nov 23 go/no-go.
+    // enforce: true pins the block on, whatever ADMIN_MFA_ENFORCED says.
     mockCtx = { ...mockCtx, aal: "aal1", aalNext: "aal1", enforce: true };
     const { runSqlQuery } = await loadActions();
     const r = await runSqlQuery({ query: "select 1" });

@@ -27,8 +27,8 @@ threats, ranked:
    service-role isolation in audit/backup-code helpers,
    `getAdminContext()` guard on all admin mutations,
    `requireMfaForMutation()`: an aal2 session to mutate once a factor is
-   enrolled; from the Nov 23 go/no-go (`ADMIN_MFA_ENFORCED`), admins and
-   the owner need an enrolled factor at all.
+   enrolled; and admins and the owner need an enrolled factor at all
+   (`ADMIN_MFA_ENFORCED`, on since the owner's go on 2026-11-25).
 5. **Mass assignment** — every server action explicitly projects fields
    from FormData; no bulk inserts. Role flags (`is_admin`, `is_owner`,
    `is_advocate_leader`) are only writeable via the dedicated
@@ -96,10 +96,10 @@ Out of scope:
 - `requireMfaForMutation()` blocks every admin write (reads are listed in
   `tests/admin-mfa-coverage.test.ts`, which fails CI on an ungated admin
   action) from any aal1 session whose user has a factor; the signed
-  backup-code cookie still bypasses for an hour. Blocking an admin or
-  owner with NO verified factor ("enroll at /account/security") is built
-  but off until `ADMIN_MFA_ENFORCED` flips: members were told it starts
-  Mon 2026-11-23
+  backup-code cookie still bypasses for an hour. An admin or owner with
+  NO verified factor is blocked too ("enroll at /account/security"):
+  `ADMIN_MFA_ENFORCED`, on since 2026-11-25. A plain leader keeps the
+  grace rule
 - `_ikratom_migrations` ledger has RLS-with-no-policies (locked to
   service role only — see migration 0021)
 

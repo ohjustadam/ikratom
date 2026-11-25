@@ -47,6 +47,7 @@ const READ_ONLY: Record<string, string[]> = {
   "src/modules/admin/master-edit-actions.ts": ["searchEntitiesForEdit"],
   "src/modules/admin/meetings-actions.ts": ["listMeetingsForReview"],
   "src/modules/admin/patch-note-actions.ts": ["listPatchNotesForAdmin"],
+  "src/modules/admin/patch-note-ledger-actions.ts": ["getPatchNoteLedger"],
   "src/modules/admin/permissions-actions.ts": ["getUserEffectivePermissions"],
   "src/modules/admin/queue-resolve-actions.ts": ["analyzeCampaignQueue", "analyzeIntelQueue", "queueCounts"],
   "src/modules/alerts/actions.ts": ["listPendingIntelTips"],
