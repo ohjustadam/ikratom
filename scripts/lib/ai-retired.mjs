@@ -13,6 +13,10 @@ export const RETIRED_PROVIDERS = {
   github: "GitHub Models retired; answers 200 'OK' with no JSON (2026-11-25)",
 };
 
+/**
+ * @param {string} name
+ * @param {Record<string, string | undefined>} [env]
+ */
 export function isRetired(name, env = process.env) {
   if (!(name in RETIRED_PROVIDERS)) return false;
   const named = (env.AI_PROVIDER_ORDER || "")
