@@ -678,6 +678,39 @@ jobs:
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/flood-alarm.mjs
 
+  crawl-brake:
+    # Tripwire for the staged crawl lift (2026-11-24, site_config.crawl_stage,
+    # migration 0332). Googlebot and Bingbot skip every Cloudflare rule, so once
+    # a stage is open the only brake is ours: this reads the TRUE Netlify credit
+    # meter and, if a stage is open and the month is past 90% or a recent day
+    # spiked, sets the stage back to 0 and pages the owner. It only ever lowers
+    # the stage. At stage 0 it reads one row and stops. Its own job with no
+    # `needs`, so nothing upstream can starve it. Makes no request to the site.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - name: Crawl brake (credit meter vs the open crawl stage)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_ACCOUNT_SLUG: ${{ secrets.NETLIFY_ACCOUNT_SLUG }}
+          # Owner phone + inbox (scripts/lib/owner-alert.mjs). Unset = skipped.
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          OWNER_SMS_EMAIL: ${{ secrets.OWNER_SMS_EMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/crawl-brake.mjs
+
   drain-send-batches:
     # Drains the durable campaign send queue (migration 0248).
     #
