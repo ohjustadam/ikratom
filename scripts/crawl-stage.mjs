@@ -18,7 +18,7 @@
  * Runbook: docs/RUNBOOK_crawl_lift.md.
  */
 import { createClient } from "@supabase/supabase-js";
-import { readTrueCredits } from "./lib/netlify-credits.mjs";
+import { readUsageMeter } from "./lib/usage-meter.mjs";
 import { liftAllowed } from "./lib/crawl-brake.mjs";
 
 const argv = process.argv.slice(2);
@@ -54,7 +54,7 @@ if (!Number.isInteger(target) || target < 0 || target > 3) { console.error("Stag
 if (target === stage) { console.log("Already there; nothing to do."); process.exit(0); }
 
 if (target > stage) {
-  const truth = await readTrueCredits({ token: process.env.NETLIFY_AUTH_TOKEN, accountSlug: process.env.NETLIFY_ACCOUNT_SLUG || "ohjustadam" });
+  const truth = await readUsageMeter(); // host-neutral: scripts/lib/usage-meter.mjs
   const ok = liftAllowed({ truth, force: FORCE });
   console.log(`credit check: ${ok.ok ? "ok" : "REFUSED"} (${ok.reason})`);
   if (!ok.ok) process.exit(2);

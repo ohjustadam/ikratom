@@ -14,9 +14,9 @@
  *   node --env-file=.env.local scripts/crawl-lift-check.mjs --origin https://<draft>.netlify.app
  *
  * Verdict per family: OK when all three answer 200 within 2.5 s and show a
- * title; HOLD otherwise. Two cases it cannot see for you: /topics/ has no
- * sampler (open one by hand), and the TTFB trap from the 2026-11-10 render work
- * does not apply because this times the full body.
+ * title; HOLD otherwise. It times the full body, so the TTFB trap from the
+ * 2026-11-10 render work does not apply. Default origin: the published production
+ * deploy's direct URL (the site's own netlify.app address redirects to www).
  */
 import { createClient } from "@supabase/supabase-js";
 import { readdirSync } from "node:fs";
@@ -24,7 +24,22 @@ import { browserUA } from "./lib/browser-ua.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (n) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : undefined; };
-const ORIGIN = (arg("origin") || process.env.CRON_ORIGIN || "https://ikratom.netlify.app").replace(/\/$/, "");
+// The site's own *.netlify.app address answers 308 to www (netlify.toml), which reads as HOLD for every family
+// and measures nothing. The published production deploy's URL serves directly, so the render is cold and real.
+// Another host: pass --origin <its direct URL>, or set CRON_ORIGIN (docs/RUNBOOK_host_move.md).
+async function resolveOrigin() {
+  if (arg("origin")) return arg("origin");
+  const t = process.env.NETLIFY_AUTH_TOKEN, id = process.env.NETLIFY_SITE_ID;
+  if (t && id) {
+    try {
+      const r = await fetch(`https://api.netlify.com/api/v1/sites/${id}`, { headers: { Authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(15_000) });
+      const u = (await r.json())?.published_deploy?.deploy_ssl_url;
+      if (u) return u;
+    } catch { /* fall through to the next source */ }
+  }
+  return process.env.CRON_ORIGIN || "https://ikratom.netlify.app";
+}
+const ORIGIN = (await resolveOrigin()).replace(/\/$/, "");
 const MAX_SECONDS = 2.5;
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
@@ -52,6 +67,8 @@ const samplers = {
   "/research/": () => ids("research_papers", "id", { is_active: true }),
   "/legislators/": () => ids("legislators", "id", { active: true }),
   "/library/": () => ids("library_items", "id", { active: true }),
+  // The topic slugs are a fixed list (src/app/topics/[topic]); the heaviest three are sampled.
+  "/topics/": async () => ["kratom", "cannabis", "hemp_cbd"],
   "/briefings/": async () => pick3(readdirSync("src/content/briefings").filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, ""))),
 };
 
@@ -65,7 +82,7 @@ async function timeIt(path) {
     const body = await r.text();
     const sec = (performance.now() - t) / 1000;
     const bad = [];
-    if (r.status !== 200) bad.push(`HTTP ${r.status}`);
+    if (r.status !== 200) bad.push(`HTTP ${r.status}${[301, 302, 307, 308].includes(r.status) ? ` to ${r.headers.get("location") ?? "?"} (this origin redirects instead of serving: pass --origin <direct deploy URL>)` : ""}`);
     if (!/<title[^>]*>[^<]+/i.test(body)) bad.push("no title");
     if (/Application error|This page couldn.t load|Internal Server Error/i.test(body)) bad.push("error text");
     if (sec > MAX_SECONDS) bad.push(`slow ${sec.toFixed(1)}s`);
