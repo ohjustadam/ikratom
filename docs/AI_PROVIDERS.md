@@ -7,6 +7,12 @@ router can use, what each one needs, and exactly where to set it.
 **You never need to paste a key into a chat.** Every key below is set either in
 GitHub → repository secrets, or in your local `.env.local`. Nowhere else.
 
+**Live status (`npm run ai:smoke`, 2026-11-25): 4 answering.**
+- **Answering:** Groq, Gemini, Cloudflare and NVIDIA. Cloudflare had been answering empty: Gemma 4's thinking used the whole token budget, so it is now called with thinking off.
+- **Retired, skipped by both routers:** Cerebras, Mistral and GitHub Models (`scripts/lib/ai-retired.mjs`). Cerebras and Mistral moved to paid; GitHub Models shut down. Name one in `AI_PROVIDER_ORDER` if its free tier comes back.
+- **Needs the owner:** SambaNova rejects its key (401), so make a new free key or delete the secret. Ollama answers only while it runs on the owner's PC.
+- **Throttled:** OpenRouter's free models stop at 50 requests a day without credits, and we don't buy credits.
+
 ---
 
 ## How the pool works
