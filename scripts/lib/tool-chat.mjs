@@ -51,6 +51,7 @@
  */
 
 import { OLLAMA_NUM_THREAD } from "./ollama-options.mjs";
+import { isRetired } from "./ai-retired.mjs";
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
@@ -139,7 +140,7 @@ export async function ollamaToolModel() {
 
 /** Which tool-capable CLOUD providers are configured right now. */
 export function availableToolProviders() {
-  return TOOL_PROVIDER_ORDER.filter((p) => p !== "ollama" && PROVIDERS[p].key());
+  return TOOL_PROVIDER_ORDER.filter((p) => p !== "ollama" && PROVIDERS[p].key() && !isRetired(p));
 }
 
 /**

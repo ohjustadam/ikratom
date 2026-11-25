@@ -134,6 +134,13 @@ async function syncScope(scope) {
         `"mitragynine" FDA`,
         `"7-hydroxymitragynine"`,
         `"kratom" Congress bill`,
+        // City and county action. A local paper often never names its own
+        // state ("Sequim City Council to consider ordinance", Peninsula Daily
+        // News, 2026-11-23, missed by every state query). These land with no
+        // state, and body extraction tags it from the article text.
+        `"kratom" "city council"`,
+        `"kratom" ordinance`,
+        `"kratom" "county commission"`,
       ]
     : [
         `"kratom" "${stateName}"`,
