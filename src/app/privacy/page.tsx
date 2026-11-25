@@ -7,7 +7,7 @@ export default function PrivacyPage() {
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
       <header className="mb-8">
         <h1 className="text-3xl font-bold">Privacy Policy</h1>
-        <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-07-05</p>
+        <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-11-25</p>
       </header>
 
       <div className="space-y-6 text-sm leading-relaxed text-zinc-300">
@@ -109,7 +109,7 @@ export default function PrivacyPage() {
         <section>
           <h2 className="mb-2 text-lg font-semibold text-zinc-100">How your data is protected</h2>
           <ul className="list-disc space-y-1 pl-6">
-            <li>All data encrypted in transit (HTTPS / TLS 1.3)</li>
+            <li>All data encrypted in transit (HTTPS, TLS 1.2 or newer)</li>
             <li>All data encrypted at rest (Supabase managed Postgres)</li>
             <li>Row-level security: you can only read your own profile + sent messages</li>
             <li>Direct messages encrypted client-side with libsodium (Curve25519 + XChaCha20-Poly1305)</li>
@@ -122,7 +122,7 @@ export default function PrivacyPage() {
           <p>For the platform to function we rely on:</p>
           <ul className="mt-2 list-disc space-y-1 pl-6">
             <li><strong>Supabase</strong> — database + auth (your data lives here)</li>
-            <li><strong>Vercel</strong> — application hosting</li>
+            <li><strong>{siteConfig.infra.host}</strong> — application hosting; <strong>{siteConfig.infra.edge}</strong> — the network in front of it (speed and abuse protection)</li>
             <li><strong>OpenStates, congress-legislators, Census</strong> — public legislator data sources we sync from (no data flows the other way)</li>
             <li><strong>Google Gemini</strong> — when admins use AI-suggest local officials or news scraping (we send queries, never user data)</li>
             <li><strong>Google OAuth + Gmail API</strong> — only if you connect Gmail. Only <code className="text-xs">gmail.send</code> scope.</li>

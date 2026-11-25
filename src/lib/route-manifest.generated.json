@@ -214,6 +214,7 @@
     {"route":"/reset-password","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/roles","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/search","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":true,"loginGated":false,"redirectOnly":false},
+    {"route":"/security","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/signup","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":true,"redirectOnly":true},
     {"route":"/spread","dynamic":false,"forceDynamic":true,"revalidate":null,"usesSearchParams":true,"loginGated":false,"redirectOnly":false},
     {"route":"/states","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
