@@ -30,6 +30,7 @@
 
 import { OLLAMA_NUM_THREAD } from "./ollama-options.mjs";
 import { pickGeminiKey, markGeminiKeyCooldown, markGeminiKeyDead, liveGeminiKeyCount, geminiKeyCount } from "./gemini-keys.mjs";
+import { isRetired } from "./ai-retired.mjs";
 import {
   estimateTokens, fitsProvider, tierModel, laneOf, extraProviders, hedge, cacheKey,
   loadProviderHealth, saveProviderHealth, readCache, writeCache,
@@ -195,6 +196,8 @@ function availableProviders() {
   if (NVIDIA_API_KEY) out.push("nvidia");
   if (AI_GATEWAY_API_KEY) out.push("vercel");
   for (const x of EXTRAS) out.push(x.name);
+  // Paid or shut down: skipped unless AI_PROVIDER_ORDER names them.
+  for (let i = out.length - 1; i >= 0; i--) if (isRetired(out[i])) out.splice(i, 1);
   // Ollama stays last by default: it only answers on the owner's box, so in the
   // cloud it is a guaranteed timeout, not a fallback. AI_PROVIDER_ORDER can
   // still promote it for local runs.
@@ -674,6 +677,11 @@ async function callCloudflare(sys, user, maxTokens) {
       max_tokens: maxTokens,
       temperature: 0.1,
       response_format: { type: "json_object" },
+      // Gemma 4 thinks before it answers, and the thinking used the whole
+      // max_tokens: every smoke test came back empty (finish_reason=length).
+      // Off, it answers in ~0.5 s instead of ~1 s and spends fewer of the day's
+      // 10,000 neurons (probe 2026-11-25, max_tokens 24: off answered, on didn't).
+      chat_template_kwargs: { enable_thinking: false },
     }),
     signal: AbortSignal.timeout(60_000),
   });
