@@ -31,7 +31,7 @@ describe("group notices reach every channel", () => {
     for (const k of kinds) expect(GROUP_SECTION.kinds, k).toContain(k);
   });
 
-  it("the section emails exactly when the switch is on (off until the 12-05 build)", () => {
+  it("the section emails exactly when the switch is on (on since the 2026-11-25 build)", () => {
     for (const k of kinds) expect(DIGEST_KINDS.includes(k), k).toBe(GROUPS_IN_DIGEST);
   });
 

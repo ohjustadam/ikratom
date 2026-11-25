@@ -73,7 +73,7 @@ describe("cadence note in the digest", () => {
     const daily = renderDigest({ username: "t", appUrl, unsubscribeUrl: "https://x/u", sections } as never).text as string;
     expect(daily).toMatch(/daily summary/);
   });
-  it("the one-click links stay off until the 12-05 build ships /api/email/cadence", () => {
-    expect(CADENCE_LINKS_LIVE).toBe(false);
+  it("the one-click links are on now that /api/email/cadence is live (2026-11-25 build)", () => {
+    expect(CADENCE_LINKS_LIVE).toBe(true);
   });
 });

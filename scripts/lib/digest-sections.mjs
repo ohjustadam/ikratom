@@ -6,13 +6,12 @@
  */
 
 /**
- * THE SWITCH for group notices in the email digest. OFF until the 12-05
- * production build ships the "Your groups" setting (trunk, 2026-11-18: we
- * don't email members something they can't switch off on its own). The trunk
- * flips this to true in the same merge window as that build. Nothing else
- * needs to change.
+ * THE SWITCH for group notices in the email digest. It waited for the
+ * production build that shipped the "Your groups" setting (trunk, 2026-11-18:
+ * we don't email members something they can't switch off on its own). That
+ * build went live 2026-11-25 18:42 UTC, so it is on.
  */
-export const GROUPS_IN_DIGEST = false;
+export const GROUPS_IN_DIGEST = true;
 
 /** Groups the member joined (2026-11-17). The inbox row is already gated by notify_groups (0327). */
 export const GROUP_SECTION = {
