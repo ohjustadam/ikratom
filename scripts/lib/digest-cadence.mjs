@@ -19,12 +19,11 @@ export const QUIET_DAYS = 30;
 
 /**
  * THE SWITCH for the one-click "switch to weekly / back to daily" links in the
- * digest. They point at /api/email/cadence, which ships with the 12-05
- * production build. OFF until then, so no email links to a page that is not
- * live yet. The trunk flips this to true in the same merge window as that
- * build, next to GROUPS_IN_DIGEST.
+ * digest. They point at /api/email/cadence, which went live with the
+ * 2026-11-25 production build (checked: the route answers 400 without a
+ * token, not 404). On, next to GROUPS_IN_DIGEST.
  */
-export const CADENCE_LINKS_LIVE = false;
+export const CADENCE_LINKS_LIVE = true;
 
 const DAY = 864e5;
 const t = (iso) => (iso ? Date.parse(iso) : NaN);
