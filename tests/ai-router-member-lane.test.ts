@@ -14,7 +14,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const PROVIDER_ENV = { GROQ_API_KEY: "test-groq", MISTRAL_API_KEY: "test-mistral" };
+// Mistral is retired (paid since 2026-11-25); naming it brings it back, which is
+// how these tests keep a second OpenAI-shaped provider behind Groq.
+const PROVIDER_ENV = { GROQ_API_KEY: "test-groq", MISTRAL_API_KEY: "test-mistral", AI_PROVIDER_ORDER: "groq,mistral" };
 
 async function loadRouter(extraEnv: Record<string, string> = {}) {
   vi.resetModules();
