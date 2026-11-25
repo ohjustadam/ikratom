@@ -286,6 +286,9 @@ export function wikiTitles(year, stateName, office) {
     `${year} ${s} House of Delegates election`, `${year} ${s} State Assembly election`, `${year} ${s} Assembly election`, `${year} ${s} House of Representatives elections`];
 }
 
+/** "J. D. Mesnard" and "A.J. McCampbell" read as "JD Mesnard": paired initials are a first name. */
+const joinInitials = (s) => String(s ?? "").replace(/\b([A-Za-z])\.\s*([A-Za-z])\.(?=\s)/g, "$1$2");
+
 /**
  * Surname agreement between a listed name and ours. Accents, footnote marks
  * (Wikipedia's † for "retiring"), party tags and suffixes are ignored, and a
@@ -295,10 +298,15 @@ export function wikiTitles(year, stateName, office) {
  * Hilton", but "Lindsey Graham" is NOT "Darline Graham Nordone" — the
  * senator who replaced him (2026-07-14), whom a looser rule confirmed as him.
  */
+// "Van Schoiack" and "VanSchoiack" are one surname (MO House 9, 2026).
+const PARTICLES = new Set(["van", "von", "de", "del", "della", "der", "den", "di", "da", "du", "la", "le", "st"]);
+const joinParticles = (w) => w.reduce((out, t, i) => {
+  if (i > 0 && PARTICLES.has(w[i - 1]) && i - 1 > 0) out[out.length - 1] += t; else out.push(t);
+  return out;
+}, []);
+
 export function sameSurname(a, b) {
-  const words = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
-    .replace(/\(.*?\)/g, " ").replace(/[^a-z\s'-]/g, " ").replace(/\b(jr|sr|ii|iii|iv)\b/g, " ")
-    .split(/\s+/).map((w) => w.replace(/^[-']+|[-']+$/g, "")).filter((t) => t.length > 1);
+  const words = (s) => joinParticles(wordsOf(s));
   const x = words(a), y = words(b);
   if (x.length < 2 || y.length < 2) return false;
   const lastParts = (w) => w.at(-1).split("-").filter((p) => p.length > 1);
@@ -306,6 +314,12 @@ export function sameSurname(a, b) {
   if (lx.some((p) => ly.includes(p))) return true; // same surname, or one part of a hyphenated one
   const sameFirst = x[0] === y[0];
   return sameFirst && (y.slice(1, -1).some((w) => lx.includes(w)) || x.slice(1, -1).some((w) => ly.includes(w)));
+}
+
+function wordsOf(s) {
+  return joinInitials(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+    .replace(/\(.*?\)/g, " ").replace(/[^a-z\s'-]/g, " ").replace(/\b(jr|sr|ii|iii|iv)\b/g, " ")
+    .split(/\s+/).map((w) => w.replace(/^[-']+|[-']+$/g, "")).filter((t, i) => t.length > 1 || (i === 0 && t)); // a leading initial still counts: "J. Correa"
 }
 
 /**
@@ -340,9 +354,24 @@ const NICKNAMES = [
   ["theodore", "ted"], ["charles", "chuck"], ["margaret", "peggy"], ["rebecca", "becky"],
   ["elizabeth", "liz", "beth", "betsy", "betty"], ["anthony", "tony"], ["henry", "hank"], ["gerald", "jerry"],
   ["andrew", "drew"], ["catherine", "kathy", "kate"], ["patricia", "tricia", "trish"],
+  ["michael", "mike"], ["james", "jim", "jimmy"], ["john", "jack"], ["steven", "stephen", "steve"], ["lawrence", "larry"],
 ];
 const sameGivenName = (p, q) => NICKNAMES.some((set) => set.includes(p) && set.includes(q))
   || (p.length >= 3 && q.endsWith(p)) || (q.length >= 3 && p.endsWith(q));
+
+/**
+ * Stricter than samePerson: the first names must agree outright, or be a known
+ * short form. A shared initial is not enough, because Josh Clark and Jasmine
+ * Clark can sit in one chamber. Use it when the two names come from different
+ * districts, where a same-surname neighbour is a real possibility.
+ */
+export function sameFullName(a, b) {
+  if (!sameSurname(a, b)) return false;
+  const first = (s) => joinInitials(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z\s]/g, " ").trim().split(/\s+/)[0];
+  const x = first(a), y = first(b);
+  const clipped = (p, q) => p.length >= 3 && q.startsWith(p); // Greg / Gregorio, Dan / Daniel
+  return x === y || sameGivenName(x, y) || clipped(x, y) || clipped(y, x);
+}
 
 /**
  * The same first name and a surname one letter apart: "John Burkey" on the 2026
