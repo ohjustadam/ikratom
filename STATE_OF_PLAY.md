@@ -627,8 +627,28 @@ credits). The hourly `crawl_brake` job lowers it to 0 at 90% or on a spike, and
 `private/scripts/cf-bot-brake.mjs` cuts verified search crawlers off at once,
 because Googlebot and Bingbot skip every Cloudflare rule and cache robots.txt for
 about a day. Check a family with `scripts/crawl-lift-check.mjs` before opening it.
-**Do not raise it before the 12-05 reset and the build carrying the signup fix.**
-Runbook: `docs/RUNBOOK_crawl_lift.md`.
+**Do not raise it before the 12-05 credit reset.** The build carrying the signup
+fix (#1174) went live on 2026-11-25. Runbook: `docs/RUNBOOK_crawl_lift.md`.
+
+## The 2026-11-25 merge window
+
+One production build (18:42 UTC, `cbb0ef7b`) carried everything merged since
+11-17 except #1166. That included the ik mark, the media Top 5, link sharing,
+the signup queue, roles, and the group and DM fixes. Patch note:
+`/whats-new/2026-11-25-update`, published from the database with its ledger. The
+older daily drafts (11-18 to 11-24) are superseded, so don't publish them.
+
+- **The digest switches are on** (#1201): `GROUPS_IN_DIGEST` and
+  `CADENCE_LINKS_LIVE` waited for that build.
+- **Retired AI providers are skipped** (#1199, `scripts/lib/ai-retired.mjs`):
+  Cerebras, Mistral and GitHub Models. Name one in `AI_PROVIDER_ORDER` to bring
+  it back. Cloudflare answers again with `enable_thinking: false`.
+- **Local news:** the federal news queries now include city council, ordinance
+  and county commission searches, because local papers often never name their
+  state.
+- **A quiet run is still a run:** a job with nothing to do must still write
+  `scraper_runs`, or the staleness check calls it silent. That happened to
+  `classify_bop_findings_ai`, fixed in #1200.
 
 ---
 
