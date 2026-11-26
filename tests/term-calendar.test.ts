@@ -205,6 +205,29 @@ describe("samePerson: nicknames and short forms", () => {
   });
 });
 
+describe("sameSurname: surname particles", () => {
+  it("reads Van Schoiack and VanSchoiack as one surname", async () => {
+    const { sameSurname, samePerson } = await import("../scripts/lib/term-calendar.mjs");
+    expect(sameSurname("Dean VanSchoiack", "Dean Van Schoiack")).toBe(true);
+    expect(samePerson("Dean VanSchoiack", "Dean Van Schoiack")).toBe(true);
+    expect(sameSurname("Ruth De La Cruz", "Ruth Delacruz")).toBe(true);
+    expect(sameSurname("Ann Kelley", "Brenden Kelley")).toBe(true);
+    expect(samePerson("Ann Kelley", "Brenden Kelley")).toBe(false);
+    expect(sameSurname("Van Smith", "Ivan Smith")).toBe(true);
+  });
+});
+
+describe("sameFullName: names from different districts", () => {
+  it("needs the first name, not just the initial", async () => {
+    const { sameFullName } = await import("../scripts/lib/term-calendar.mjs");
+    expect(sameFullName("Josh Clark", "Jasmine Clark")).toBe(false);
+    expect(sameFullName("John P. Carr", "Joey L. Carr")).toBe(false);
+    expect(sameFullName("Ami Bera", "Ami Bera")).toBe(true);
+    expect(sameFullName("Greg Casar", "Gregorio Casar")).toBe(true);
+    expect(sameFullName("Mike Kennedy", "Michael Kennedy")).toBe(true);
+  });
+});
+
 describe("nearlySamePerson: a typo is not a new winner", () => {
   it("catches a one-letter surname slip on the same first name", async () => {
     const { nearlySamePerson } = await import("../scripts/lib/term-calendar.mjs");
@@ -218,5 +241,18 @@ describe("nearlySamePerson: a typo is not a new winner", () => {
     expect(nearlySamePerson("John Burkel", "Jane Burkey")).toBe(false);
     expect(nearlySamePerson("John Smith", "John Jones")).toBe(false);
     expect(nearlySamePerson("Ann Lee", "Ann Lea")).toBe(false);
+  });
+});
+
+describe("sameSurname: names written with initials", () => {
+  it("treats paired initials as a first name", async () => {
+    const { sameSurname, samePerson } = await import("../scripts/lib/term-calendar.mjs");
+    expect(sameSurname("J. D. Mesnard", "J.D. Mesnard")).toBe(true);
+    expect(sameSurname("JB Pritzker", "J. B. Pritzker")).toBe(true);
+    expect(sameSurname("K.C. Ohaebosim", "KC Ohaebosim")).toBe(true);
+    expect(samePerson("A.J. McCampbell", "Artis J. McCampbell")).toBe(true);
+    expect(sameSurname("T.J. Marti", "T.J. Hardaway")).toBe(false);
+    expect(sameSurname("J. Correa", "Lou Correa")).toBe(true);
+    expect(samePerson("J. Correa", "Lou Correa")).toBe(false);
   });
 });
