@@ -66,7 +66,12 @@ function SheetHandle({ win }: { win: ChatWindow }) {
     <button
       type="button"
       aria-label={`Chat height: ${SHEET_LABEL[win.sheet]}. Tap to change.`}
-      onPointerDown={(e) => { y0.current = e.clientY; swiped.current = false; }}
+      onPointerDown={(e) => {
+        y0.current = e.clientY;
+        swiped.current = false;
+        // Keep the pointer: a swipe ends above or below the handle itself.
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
       onPointerUp={(e) => {
         const dy = y0.current === null ? 0 : e.clientY - y0.current;
         y0.current = null;
