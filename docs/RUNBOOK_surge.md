@@ -27,7 +27,7 @@ Supabase (database, egress, connections, realtime), the free AI router and web p
 
 | Switch | Turn on | Undo | Notes |
 |---|---|---|---|
-| Captcha (Turnstile) | `node --env-file=.env.local scripts/auth-captcha.mjs enable` | `... auth-captcha.mjs disable` | Ready now. Stops bots from using up the email cap. |
+| Captcha (Turnstile) | `node --env-file=.env.local scripts/auth-captcha.mjs enable` | `... auth-captcha.mjs disable` | **ON since 2026-11-25.** Stops bots from using up the email cap. |
 | Auth mail on Brevo (300 a day) | `node --env-file=.env.local scripts/configure-auth-smtp.mjs --provider brevo --rate 60 --apply` | `... configure-auth-smtp.mjs --provider resend --apply` | Needs `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY` and `BREVO_FROM_EMAIL` in `.env.local` (Brevo > SMTP & API > SMTP). Shares Brevo's 300 a day with member email. |
 | Autoconfirm (no email at signup) | `node --env-file=.env.local scripts/auth-surge.mjs autoconfirm-on` | `... auth-surge.mjs autoconfirm-off` | Refuses unless the live build carries #1174. Addresses go unproven, so undo it once the rush is over. |
 
