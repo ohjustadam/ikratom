@@ -192,7 +192,7 @@ export async function listPendingIntelTips() {
   const supabase = createServiceRoleClient();
   const { data: tips } = await supabase
     .from("policy_alerts")
-    .select("id, kind, severity, title, body, locality, source_url, occurs_at, action_required, submitted_by_user_id, is_anonymous, public_byline, created_at")
+    .select("id, kind, severity, title, body, locality, source_url, occurs_at, action_required, submitted_by_user_id, is_anonymous, public_byline, moderation_note, created_at")
     .eq("moderation_status", "pending")
     .order("created_at", { ascending: false })
     .limit(100);
