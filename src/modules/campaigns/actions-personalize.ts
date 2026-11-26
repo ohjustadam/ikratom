@@ -14,15 +14,14 @@ import { getSafeMode } from "./safe-mode";
  * voice. Returns the personalized text for the user to review +
  * edit before sending — never auto-sends.
  *
- * Privacy: the user's story is sent to the AI provider in-flight
- * but never stored on the AI side. We strip address + ZIP from the
- * prompt (only state stays, which is needed for narrative weight).
+ * Privacy: the user's name and story go to Groq and no other AI
+ * (`only: ["groq"]`, owner 2026-11-26): other free tiers may train on, or read,
+ * what they receive. We strip address + ZIP from the prompt (only state
+ * stays, which is needed for narrative weight).
  *
  * Rate-limited 8/hour per user to keep costs predictable.
  *
- * Uses the multi-provider router so Mistral / Cloudflare / Groq /
- * Gemini share the load with cooldown handling. Falls back to
- * returning the original template if all providers fail.
+ * If Groq can't answer, the member keeps their original letter.
  */
 
 const SYSTEM_PROMPT = `You rewrite advocacy emails to sound like the real person sending them.
@@ -146,12 +145,14 @@ export async function personalizeCampaignBody(input: {
       // tier "member": the Groq model kept for members. The background jobs spend
       // the main model's daily allowance by mid-morning (198,983 of 200,000 used
       // on 10-31), which is why Personalize failed for Paul nearly every time.
-      // hedgeMs: a member is waiting, so a slow provider gets a second one racing it.
+      // hedgeMs: a member is waiting, so Groq gets one more try even when an
+      // earlier throttle has it parked.
+      // only: the prompt holds the member's name and story.
       // reasoningEffort "low": a rewrite needs little thinking, and gpt-oss's
       // thinking tokens share Groq's per-minute budget with the reply.
       aiRouter({
         systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1200, maxWaitMs: 0, verbose: false,
-        tier: "member", hedgeMs: 3_000, reasoningEffort: "low",
+        tier: "member", hedgeMs: 3_000, reasoningEffort: "low", only: ["groq"],
       }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("PERSONALIZE_TIMEOUT")), 9_000)),
     ]);
@@ -173,7 +174,7 @@ export async function personalizeCampaignBody(input: {
     // he could act on, so it goes to the log and he gets the same plain answer.
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[personalize] AI router failed:", msg.slice(0, 200));
-    return { error: "The free AI writers are busy right now. Your letter is unchanged: try again in a minute, or add a line about yourself and send it." };
+    return { error: "The free AI writer is busy right now. Your letter is unchanged: try again in a minute, or add a line about yourself and send it." };
   }
 }
 

@@ -9,12 +9,11 @@ import { useEffect } from "react";
  * level so any client component can call `posthog.capture(…)` or
  * `usePostHog()` to identify the user.
  *
- * Privacy posture:
- *   - All inputs masked by default (mask_all_inputs)
- *   - Session replay sampling at 25% — covers free-tier 5k recordings
+ * Privacy posture (/privacy promises these; tests/privacy-claims.test.ts holds them):
+ *   - Do Not Track is honored: such a browser sends no analytics
+ *   - No session replay
  *   - Auto-pageview tracking (we want to see funnel drop-off)
- *   - Persistence in localStorage (no cookie banner needed since we
- *     don't use 3rd-party trackers; posthog respects opt-out)
+ *   - A random ID is kept in the browser; no cross-site tracking
  *
  * If NEXT_PUBLIC_POSTHOG_KEY is unset, init is a no-op and the
  * Provider passes children through harmlessly.
@@ -33,20 +32,17 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       person_profiles: "identified_only", // anonymous users don't get profiles
       capture_pageview: "history_change",
       capture_pageleave: true,
-      // audit #7: pages render user PII as text (campaign templates show
-      // full_name + home city/state/zip), and session replay would ship it to
-      // a third party. Mask replay text by DEFAULT; opt specific non-PII regions
-      // back in rather than the reverse.
+      respect_dnt: true,
+      disable_session_recording: true,
+      // audit #7: pages render user PII as text (campaign templates show full_name
+      // + home city/state/zip), so click capture masks text by default.
       mask_all_text: true,
+      // Only matters if replay is ever switched on; /privacy must say so first.
       session_recording: {
         maskAllInputs: true,            // never record what users type
         maskTextSelector: ".sensitive", // any element marked .sensitive is masked
       },
       autocapture: true,
-      disable_session_recording: false,
-      // Sample replay: 25% of sessions get recorded; covers free tier easily
-      // and gives us enough debug visibility (Marshall-style "what did the user
-      // see?" investigation).
     });
     initialized = true;
   }, []);
