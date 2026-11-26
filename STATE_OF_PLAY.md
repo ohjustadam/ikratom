@@ -681,6 +681,38 @@ older daily drafts (11-18 to 11-24) are superseded, so don't publish them.
   `scraper_runs`, or the staleness check calls it silent. That happened to
   `classify_bop_findings_ai`, fixed in #1200.
 
+## The 2026-11-26 merge windows
+
+Two production builds, both fired by the trunk through the Netlify API:
+
+- **20:11 UTC (`4b2168bd`):** the Share it box (#1208, migration 0335), the
+  leader walkthrough (#1209), the Coming-next box on ledger notes (#1210), the
+  election re-checks (#1207), and the error-report scrub (#1212): Sentry events
+  no longer carry cookies, IP addresses or query strings. The 2026-11-25 note
+  was updated and its alert went to every member.
+- **22:12 UTC (`37c21b58`):** the Lounge controls, B8 phase 1 (#1213, migration
+  0336). A closed or backgrounded Lounge drops its realtime socket, because the
+  free Supabase plan allows 200 at once.
+
+What the day taught:
+
+- **A ledger note shows only its ledger and its "Coming next" section.** Body
+  text outside that section never renders (#1210), so member-facing lines go in
+  `patch_note_items`.
+- **`tests/rls.test.ts` is opt-in** (#1214, `RLS_TEST_DB=1`). Run against
+  production, it left 10 fake "User A / User B, Sandbox, OK" members behind,
+  because deleting a user times out there. Use `scripts/rls-pentest.mjs`.
+- **Deleting an account times out** at the 10-second statement limit: 67 foreign
+  keys to users and profiles have no index. The index fix waits for the owner.
+- **Name `anon` when you revoke a function** (#1215, migration 0337). Supabase
+  grants EXECUTE on new functions to `anon` by name, so `from public` leaves
+  them callable signed-out. The advisor baseline is now 129, and
+  `tests/migration-anon-execute.test.ts` fails a migration that repeats it.
+- **Members' details go to Groq only** (#1211, merged, owner decision 11-26).
+  The scheduled jobs follow it from merge. The site and the rewritten
+  `/privacy` follow at the next build, which waits for the 12-05 credit reset
+  (85% spent after these two builds).
+
 ## The smart link box (2026-11-25)
 
 One big box and a "Share it" button, under the homepage headline, as the top
