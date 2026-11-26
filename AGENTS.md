@@ -130,7 +130,7 @@ npm run build           # full Next.js build, ~33s  ← only when checking deplo
 
 **This runs on the owner's own PC, alongside other sessions.** `verify` and `verify:full` go through `scripts/run-heavy.mjs`. It runs at below-normal priority and allows ONE heavy job per machine: a second session waits for the first. Local vitest is also capped at 4 forks (owner, 2026-11-16: parallel suites pinned all 12 cores). Don't call `vitest run`, `tsc` or `eslint` directly in parallel, and run `npm run build` locally only when you must.
 
-`verify` excludes `tests/rls.test.ts` because that test creates real Supabase users via service role — works in CI with a dedicated test project, fails locally because dev `.env.local` points at prod which rate-limits user creation. Run it explicitly when needed: `npx vitest run tests/rls.test.ts`.
+`verify` excludes `tests/rls.test.ts` because that test creates real Supabase users via service role — and `.env.local` points at production. Every run against it that died before cleanup left a fake "User A / User B, Sandbox, OK" member in /admin/users (10 from 7 runs by 2026-11-26), and production sign-in now needs a CAPTCHA token. So it is opt-in: it only runs with `RLS_TEST_DB=1` and an env pointing at a throwaway project. **Never run it against production**; use `node --env-file=.env.local scripts/rls-pentest.mjs` instead (rolled back, no side effects). A plain `npx vitest run` with no exclude no longer picks it up.
 
 ### Coverage is a number now, not a claim
 
