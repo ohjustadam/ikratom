@@ -5,6 +5,7 @@ import { PendingQueueClient } from "./PendingQueueClient";
 import { CampaignAutoApprovePolicyPanel } from "./CampaignAutoApprovePolicyPanel";
 import { getCampaignAutoApprovePolicy, listRecentAutoDecisions } from "@/modules/admin/campaign-autoapprove-actions";
 import ResolveQueue from "@/app/admin/_components/ResolveQueue";
+import { WalkthroughHint } from "@/modules/admin/components/WalkthroughHint";
 
 export const metadata = { title: "Campaigns awaiting review" };
 export const dynamic = "force-dynamic";
@@ -122,6 +123,7 @@ export default async function PendingCampaignsPage({
       <a href="/admin" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Admin
       </a>
+      <div className="mt-3"><WalkthroughHint screen="campaigns-pending" part={3} text="Campaign drafts wait here until someone approves them. A draft marked 🔗 link box came from a member's link, and only a person can publish it." /></div>
       <header className="mt-2 mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold">Campaigns awaiting review</h1>
