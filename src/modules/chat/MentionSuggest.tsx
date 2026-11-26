@@ -16,14 +16,14 @@ export function MentionSuggest({
 }) {
   if (options.length === 0) return null;
   return (
-    <ul role="listbox" aria-label="Mention someone" className="mb-1.5 overflow-hidden rounded-md border border-zinc-800 bg-zinc-900 text-sm">
+    <ul role="listbox" aria-label="Mention someone" className="mb-1.5 overflow-hidden rounded-md border border-[var(--lc-border)] bg-[var(--lc-surface)] text-[length:var(--lc-size)]">
       {options.map((h, i) => (
         <li key={h} role="option" aria-selected={i === active}>
           <button
             type="button"
             // mousedown, not click: keeps focus (and the caret) in the textarea.
             onMouseDown={(e) => { e.preventDefault(); onPick(h); }}
-            className={`block w-full px-3 py-1.5 text-left ${i === active ? "bg-emerald-950/60 text-emerald-200" : "text-zinc-300 hover:bg-zinc-800"}`}
+            className={`block min-h-10 w-full px-3 py-1.5 text-left ${i === active ? "bg-[var(--lc-mention)] text-[var(--lc-name)]" : "text-[var(--lc-text)] hover:bg-[var(--lc-bg)]"}`}
           >
             @{h}
           </button>
