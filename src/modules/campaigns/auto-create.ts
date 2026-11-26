@@ -74,7 +74,7 @@ function pickCurrentSessions(
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-type Bill = {
+export type Bill = {
   id: string;
   state: string;
   bill_number: string;
@@ -101,7 +101,7 @@ const slugify = (s: string): string =>
     .replace(/^-|-$/g, "")
     .slice(0, 80);
 
-function buildCampaign(bill: Bill) {
+export function buildCampaign(bill: Bill) {
   const stateLc = bill.state.toLowerCase();
   const numLc = (bill.bill_number || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const slug = `stop-${stateLc}-${numLc || slugify(bill.title ?? "bill")}`.slice(0, 80);

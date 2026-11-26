@@ -34,7 +34,11 @@ export type TaskKind =
   /** Lounge chat ABUSE safety net (harassment/hate/threat/sexual/spam —
    *  never viewpoint). Runs in a Vercel server action, so Groq-first (no
    *  localhost Ollama), mirroring email_stance_screen. */
-  | "chat_moderate";
+  | "chat_moderate"
+  /** Smart link box: read one member-shared news link (kind, place,
+   *  whether there is something to act on). Server action, so Groq-first
+   *  with Gemini behind it, no Ollama. */
+  | "link_classify";
 
 /**
  * Caller-supplied constraints. Empty defaults are fine for most tasks;

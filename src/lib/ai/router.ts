@@ -75,6 +75,9 @@ const TASK_DEFAULTS: Record<TaskKind, ProviderName[]> = {
   // messages are already community-visible, so cloud inference isn't a privacy
   // regression; Groq is inference-only (no training).
   chat_moderate: ["groq", "gemini"],
+  // Smart link box (2026-11-25): runs in a server action on the host, so the
+  // owner box's Ollama is out of reach. The link is public news, not private.
+  link_classify: ["groq", "gemini"],
 };
 
 /**

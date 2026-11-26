@@ -51,6 +51,8 @@ async function buildCampaignPlan(sb: SupabaseClient, aiCap: number): Promise<Pla
     .from("campaigns")
     .select("id,title,state,bill_id,blurb,created_at,bills(status)")
     .eq("review_state", "pending_review")
+    // A link-box draft waits for a person; "Auto-resolve all" leaves it (mig 0335).
+    .eq("hold_for_person", false)
     .order("created_at", { ascending: false })
     .limit(200);
   const rows = data ?? [];
