@@ -3,6 +3,7 @@ import { getAdminContext } from "@/modules/admin/actions";
 import { listPendingIntelTips } from "@/modules/alerts/actions";
 import { ModerateIntelRow } from "./ModerateIntelRow";
 import ResolveQueue from "@/app/admin/_components/ResolveQueue";
+import { WalkthroughHint } from "@/modules/admin/components/WalkthroughHint";
 
 export const metadata = { title: "Intel queue" };
 export const dynamic = "force-dynamic";
@@ -49,6 +50,7 @@ export default async function IntelQueuePage() {
       <a href="/admin" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Admin
       </a>
+      <div className="mt-3"><WalkthroughHint screen="intel-queue" part={3} text="These are news tips from members, waiting for a person. Open the link, check it's real and about kratom, then press Approve + publish or Reject." /></div>
       <header className="mt-2 mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold">Intel queue</h1>

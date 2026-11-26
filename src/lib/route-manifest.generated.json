@@ -148,6 +148,7 @@
     {"route":"/glossary","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/how-it-works","dynamic":false,"forceDynamic":false,"revalidate":3600,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/how-it-works/for-leaders","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
+    {"route":"/how-it-works/for-leaders/walkthrough","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/i/[code]","dynamic":true,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":true},
     {"route":"/install","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},
     {"route":"/install/android","dynamic":false,"forceDynamic":false,"revalidate":null,"usesSearchParams":false,"loginGated":false,"redirectOnly":false},

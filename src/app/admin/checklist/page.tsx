@@ -128,7 +128,7 @@ export default async function ChecklistPage() {
         <Check n={4} tone={pendCampaigns > 0 ? "warn" : "ok"} title="Campaign review queue"
           status={pendCampaigns === 0 ? "Empty" : `${pendCampaigns} campaign${pendCampaigns === 1 ? "" : "s"} waiting`}
           tools={[["/admin/moderation", "Moderation hub — one-click Auto-resolve"], ["/admin/campaigns/pending", "Review by hand"]]}
-          ifRed="Click Auto-resolve in the Moderation hub (dedup → supersede, junk → reject, verified-real → approve). A nightly janitor does the same automatically — a small morning queue is normal, a growing one isn't." />
+          ifRed="Click Auto-resolve in the Moderation hub (dedup → supersede, junk → reject, verified-real → approve). A nightly janitor does the same automatically — a small morning queue is normal, a growing one isn't. Drafts marked 🔗 link box are left for you on purpose: neither ever publishes them." />
 
         <Check n={5} tone={pendAlerts > 0 ? "warn" : "ok"} title="Intel alert queue"
           status={pendAlerts === 0 ? "Empty" : `${pendAlerts} alert${pendAlerts === 1 ? "" : "s"} pending`}
@@ -192,8 +192,9 @@ export default async function ChecklistPage() {
       </ManualGroup>
 
       <ManualGroup title="📥 Review queues">
-        <Tool href="/admin/campaigns/pending" name="Campaign review" what="Auto-generated campaigns held for approval." when="Step 4. Approving publishes + notifies matching users — be sure." />
-        <Tool href="/admin/intel-queue" name="Intel queue" what="Advocate tips + scraper alerts pending moderation." when="Step 5. Action-required approvals spawn campaigns; news-only approvals just publish." />
+        <Tool href="/admin/campaigns/pending" name="Campaign review" what="Auto-generated campaigns held for approval. Drafts marked 🔗 link box came from a member's shared link and only a person can publish them." when="Step 4. Approving publishes + notifies matching users — be sure." />
+        <Tool href="/admin/intel-queue" name="Intel queue" what="Advocate tips + scraper alerts pending moderation. A blue 🔗 line means a member shared it with the Share it box, with the free AI's reading." when="Step 5. Action-required approvals spawn campaigns; news-only approvals just publish." />
+        <Tool href="/how-it-works/for-leaders/walkthrough" name="Step-by-step walkthrough" what="Plain tick-as-you-go guide for leaders and admins: share a link, write a campaign, review the queues." when="Send it to a new leader or admin. The campaign and intel screens link to it too." />
         <Tool href="/admin/forum" name="Forum moderation" what="Flagged posts/threads." when="Step 6. Hide abuse, leave anger at policy alone, escalate hard calls." />
         <Tool href="/admin/lounge" name="Lounge moderation" what="Live-chat message deletion + mutes." when="Step 6." />
         <Tool href="/admin/stories" name="Story moderation" what="User-submitted advocacy stories." when="Step 6. These appear on the public homepage — read fully before approving." />
