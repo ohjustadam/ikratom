@@ -172,9 +172,9 @@ Return STRICT JSON:
 
 /**
  * AI-drafted email to a specific official — the uniform "✨ Draft with AI"
- * behind every compose surface. Free-tier router only (Groq → Ollama →
- * Gemini via completeStructured). Falls back to the deterministic letter so
- * the button always produces something.
+ * behind every compose surface. Free-tier router only (Groq → Ollama; the
+ * prompt holds the member's name and story, so never Gemini). Falls back to the
+ * deterministic letter so the button always produces something.
  */
 export async function draftOfficialEmail(input: {
   official: OfficialInput;

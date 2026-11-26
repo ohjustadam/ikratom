@@ -8,6 +8,11 @@
  *   4. preferSpeed → groq primary, ollama fallback
  *   5. else → ollama primary (free, unlimited), groq fallback, gemini last
  *
+ * MEMBER DATA (owner, 2026-11-26): a lane that can carry a member's name,
+ * story, letter, chat message or transcript never lists gemini. Gemini's free
+ * tier may train on, and let people read, what it receives.
+ * tests/member-data-ai.test.ts holds the list of public lanes.
+ *
  * Each call:
  *   - tries the picked provider
  *   - on rate limit / network error, tries the next-best per the rules
@@ -60,21 +65,20 @@ const TASK_DEFAULTS: Record<TaskKind, ProviderName[]> = {
   moderate_chat: ["ollama", "groq"],
   news_enrich: ["ollama", "groq", "gemini"],
   story_moderate: ["ollama", "groq"],
-  general: ["ollama", "groq", "gemini"],
+  // Letter drafting and rebuttals travel on this lane: no gemini (member data).
+  // Public-only work that wants the extra backup uses a public lane.
+  general: ["ollama", "groq"],
   // Reasoning / self-critique route through Groq (US-hosted, free tier)
   // with a reasoning-capable model override (see TASK_MODEL_OVERRIDES).
   // Gemini stays as grounded-fact-check fallback.
   reasoning: ["groq", "gemini", "ollama"],
   self_critique: ["groq", "gemini"],
-  // Anti-weaponization stance screen. Runs in server actions on Vercel, so
-  // Ollama (localhost-only) is intentionally excluded — Groq primary, Gemini
-  // fallback. Both are cloud free-tier, US-hosted, inference-only.
-  email_stance_screen: ["groq", "gemini"],
-  // Lounge chat abuse moderation (D4). Same Vercel-server-action constraint as
-  // email_stance_screen — Groq-first, Gemini fallback, no Ollama. Lounge
-  // messages are already community-visible, so cloud inference isn't a privacy
-  // regression; Groq is inference-only (no training).
-  chat_moderate: ["groq", "gemini"],
+  // Anti-weaponization stance screen, run on the host (no Ollama there). It
+  // reads a member's own letter or campaign draft: Groq only (member data).
+  email_stance_screen: ["groq"],
+  // Lounge chat abuse moderation (D4). Members' messages: Groq only. If Groq is
+  // down the screen fails open and the message posts.
+  chat_moderate: ["groq"],
   // Smart link box (2026-11-25): runs in a server action on the host, so the
   // owner box's Ollama is out of reach. The link is public news, not private.
   link_classify: ["groq", "gemini"],

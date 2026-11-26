@@ -16,9 +16,8 @@ import type { PromptInput, StructuredSchema } from "@/lib/ai/types";
  * (Stance screening — "does this message undermine kratom" — applies ONLY to
  * OUTBOUND campaign email, where iKratom is the sender: see screen-content.ts.)
  *
- * Free-tier only: routes via the `chat_moderate` task → Groq primary, Gemini
- * fallback (no Ollama — this runs in a Vercel server action). Lounge messages
- * are already community-visible, so cloud inference is not a privacy regression.
+ * Free-tier only: routes via the `chat_moderate` task → Groq only (no Ollama
+ * on the host, and members' messages never go to Gemini: owner, 2026-11-26).
  *
  * FAIL OPEN: the caller screens BEFORE insert and only diverts a message on a
  * confident abuse verdict. If the screener errors or times out, `flagged` is

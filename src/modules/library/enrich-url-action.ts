@@ -110,7 +110,7 @@ async function enrichYouTube(url: string): Promise<EnrichResult> {
   const warnings: string[] = [];
   try {
     const res = await complete(
-      "general",
+      "news_enrich",
       [
         {
           role: "system",
@@ -211,7 +211,7 @@ async function enrichGenericWeb(url: string): Promise<EnrichResult> {
     if (title) {
       try {
         const res = await complete(
-          "general",
+          "news_enrich",
           [
             {
               role: "system",
