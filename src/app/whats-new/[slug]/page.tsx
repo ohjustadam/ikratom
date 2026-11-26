@@ -5,6 +5,7 @@ import { getPatchNote, patchNoteFileSlugs } from "@/lib/patch-notes";
 import Scoreboard from "./Scoreboard";
 import AreaBars from "./AreaBars";
 import Ledger from "./Ledger";
+import { comingNextSection } from "@/lib/patch-note-coming-next";
 
 /**
  * A patch note, from either source (see src/lib/patch-notes.ts).
@@ -66,6 +67,9 @@ export default async function PatchNotePage({ params }: { params: Promise<{ slug
   // ledger. Every other note renders its markdown exactly as before.
   const ledger = note.items.length > 0;
   const html = ledger ? "" : await marked.parse(note.bodyMd, { gfm: true, breaks: false });
+  // A ledger note hides its body, except a "Coming next" section (see the helper).
+  const coming = ledger ? comingNextSection(note.bodyMd) : null;
+  const comingHtml = coming ? await marked.parse(coming, { gfm: true, breaks: false }) : "";
 
   return (
     <div className={`mx-auto px-4 py-10 sm:px-6 lg:px-8 ${ledger ? "max-w-5xl" : "max-w-3xl"}`}>
@@ -87,6 +91,12 @@ export default async function PatchNotePage({ params }: { params: Promise<{ slug
           <Scoreboard items={note.items} figures={note.figures} />
           <AreaBars items={note.items} />
           <Ledger items={note.items} />
+          {comingHtml && (
+            <section
+              className="briefing-md mt-8 rounded-lg border border-zinc-800 p-4"
+              dangerouslySetInnerHTML={{ __html: comingHtml }}
+            />
+          )}
           <p className="mt-6 border-t border-zinc-800 pt-4 text-xs text-zinc-500">
             &ldquo;Member report&rdquo; marks a change that started with something a member
             told us. Member names never appear. PR numbers link to the public code history.

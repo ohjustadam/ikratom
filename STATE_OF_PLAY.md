@@ -818,7 +818,7 @@ open that page. Code: `src/modules/link-box/`, pure rules in
    captcha setting is on, and then it rejects every call WITHOUT a token. The
    site key is baked in at build time, so the order is: keys in Netlify, a
    production build, `node --env-file=.env.local scripts/auth-captcha.mjs status`
-   says Ready, then `... enable`. `... disable` is the rollback. Every admin write
+   says Ready, then `... enable`. `... disable` is the rollback. **ON since 2026-11-25** (owner yes): a call without a token now gets `captcha_failed`, and a real visitor gets a token with nothing to click. Every admin write
    calls `requireMfaForMutation` (#1166; `tests/admin-mfa-coverage.test.ts` fails CI
    on an ungated one), and admins and the owner with no 2FA factor are blocked
    (`ADMIN_MFA_ENFORCED` in `src/modules/admin/mfa.ts`, owner go 2026-11-25, live
