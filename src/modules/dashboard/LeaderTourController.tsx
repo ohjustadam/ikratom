@@ -74,7 +74,7 @@ const TOUR_PAGES: PageSteps[] = [
       {
         title: "Your dashboard",
         description:
-          "Your dashboard stays the same as every member's. Your leader tools live on the Leader workshop, linked from the menu. Next: campaigns.",
+          "Your dashboard stays the same as every member's. The Share it box at the top is the fastest way to bring in news: paste a link and we tell you if we already have it. Your leader tools live on the Leader workshop, linked from the menu. Next: campaigns.",
       },
     ],
   },
@@ -87,7 +87,7 @@ const TOUR_PAGES: PageSteps[] = [
       {
         title: "📣 Writing campaigns",
         description:
-          "Write a call to action for any state: who should get the letter, and the letter itself. Placeholders like {{full_name}}, {{city}} and {{legislator_name}} fill in for each member who sends it. When you submit, an admin checks it before it goes live. You can't publish on your own, and that's on purpose.",
+          "Write a call to action for any state: who should get the letter, and the letter itself. Placeholders like {{full_name}}, {{city}} and {{legislator_name}} fill in for each member who sends it. When you submit, an admin checks it before it goes live. You can't publish on your own, and that's on purpose. Want it slower? Step-by-step help is linked at the top of each campaign screen.",
       },
       {
         title: "What you can target",

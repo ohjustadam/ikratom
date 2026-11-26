@@ -697,6 +697,14 @@ open that page. Code: `src/modules/link-box/`, pure rules in
   300 KB.
 - **No phone widget:** a real home-screen widget needs a native app, which is
   parked. The shortcut plus the share sheet is the free equivalent.
+- **Walkthrough for leaders and admins:** `/how-it-works/for-leaders/walkthrough`,
+  three tick-as-you-go checklists (share a link, write a campaign, review the
+  queues) with the box built in; ticks live in the browser only. A first-visit
+  "New here?" box (`WalkthroughHint`) on `/admin/campaigns`, `/new`, `/pending`
+  and `/admin/intel-queue` points there, then shrinks to a "Step-by-step help"
+  link. Linked from the leader playbook, the leader tour and `/admin/checklist`.
+  No Academy lesson: the Academy is the kratom science course with an exam, not
+  a how-to-use-the-site guide.
 
 ---
 
