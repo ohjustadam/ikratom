@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { CampaignWizard } from "@/modules/admin/components/CampaignWizard";
 
 import Link from "@/components/Link";
+import { WalkthroughHint } from "@/modules/admin/components/WalkthroughHint";
 export const metadata = { title: "New campaign" };
 
 export default async function NewCampaignPage({
@@ -70,6 +71,7 @@ export default async function NewCampaignPage({
       <Link href="/admin/campaigns" className="text-xs text-zinc-500 hover:text-emerald-400">
         ← Campaigns
       </Link>
+      <div className="mt-3"><WalkthroughHint screen="campaigns-new" part={2} text="Three short steps: Basics, Where + Who, then the letter. An admin checks every campaign before it goes live, so you can't break anything." /></div>
       <header className="mt-2 mb-8">
         <h1 className="text-3xl font-bold">New campaign</h1>
         <p className="mt-2 text-sm text-zinc-400">

@@ -4,6 +4,7 @@
 // covered for actual errors. Bump tracesSampleRate when we want perf data.
 
 import * as Sentry from "@sentry/nextjs";
+import { scrubEvent } from "./src/lib/sentry-scrub";
 
 const DSN = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
@@ -13,26 +14,15 @@ if (DSN) {
     environment: process.env.NODE_ENV,
     tracesSampleRate: 0,
     replaysSessionSampleRate: 0,
-    replaysOnErrorSampleRate: 0.1,
+    replaysOnErrorSampleRate: 0,
     // Don't capture noisy expected errors
     ignoreErrors: [
       "ResizeObserver loop limit exceeded",
       "ResizeObserver loop completed with undelivered notifications",
       "Non-Error promise rejection captured",
     ],
-    // Strip query strings + hash to reduce PII leakage
-    beforeSend(event) {
-      if (event.request?.url) {
-        try {
-          const u = new URL(event.request.url);
-          u.search = "";
-          u.hash = "";
-          event.request.url = u.toString();
-        } catch {
-          /* no-op */
-        }
-      }
-      return event;
-    },
+    // Cookies, IP headers, bodies and query strings never leave (src/lib/sentry-scrub.ts).
+    sendDefaultPii: false,
+    beforeSend: scrubEvent,
   });
 }

@@ -55,6 +55,14 @@ export default async function LeaderHowItWorksPage() {
             ✓ You have leader access. Every link below works for you.
           </div>
         )}
+        <p className="mt-6">
+          <a
+            href="/how-it-works/for-leaders/walkthrough"
+            className="inline-block rounded-md bg-emerald-500 px-5 py-3 text-base font-semibold text-zinc-950 hover:bg-emerald-400"
+          >
+            New to this? Follow it step by step →
+          </a>
+        </p>
       </header>
 
       {/* Sections: each checked against the real permission gates (2026-11-17). */}

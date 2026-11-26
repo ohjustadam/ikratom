@@ -35,6 +35,11 @@ html[data-theme="light"] {
   --color-zinc-800: #e4e4e7;
   --color-zinc-900: #f4f4f5;
   --color-zinc-950: #fafafa;
+
+  /* The Lounge's "Standard" theme names and accents (src/lib/chat-prefs.ts):
+     emerald-400 / amber-400 are too faint on a light surface. */
+  --lc-std-name: #047857;
+  --lc-std-admin: #b45309;
 }
 
 @theme inline {

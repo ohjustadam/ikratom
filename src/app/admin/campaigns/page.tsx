@@ -6,6 +6,7 @@ import { computePriority } from "@/lib/campaign-priority";
 import { AdminCampaignTable, type AdminCampaignRow } from "./AdminCampaignTable";
 
 import Link from "@/components/Link";
+import { WalkthroughHint } from "@/modules/admin/components/WalkthroughHint";
 export const metadata = { title: "Admin · Campaigns" };
 
 const TERMINAL = new Set(["dead", "enacted", "vetoed", "failed", "withdrawn"]);
@@ -85,6 +86,7 @@ export default async function AdminCampaignsPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
       <a href="/admin" className="text-xs text-zinc-500 hover:text-emerald-400">← Admin</a>
+      <div className="mt-3"><WalkthroughHint screen="campaigns" part={2} text="This is every campaign on iKratom. To start one, press New campaign. The easiest way to bring in news is to share its link with the Share it box." /></div>
       <header className="mt-2 mb-6 flex items-end justify-between">
         <div>
           <h1 className="text-3xl font-bold">Campaigns</h1>

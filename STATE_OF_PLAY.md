@@ -581,6 +581,19 @@ one automatically.
 while it's on screen, at most every 2 seconds, skips hidden tabs, and tells the
 chat bubble through the `ikratom:lounge-seen` event.
 
+**The floating Lounge** (`src/modules/chat/ChatPopup.tsx`, B8 phase 1, mig 0336)
+holds a realtime socket only while it is open, the member is signed in and the
+tab has been visible in the last minute. Closed, minimized or in a background
+tab, it drops the channel, supabase-js closes the socket (free Supabase allows
+200 at once), and the launcher's `/api/me` badge carries the news. Each reopen
+reads the latest 25 messages straight from Supabase, not through a server
+function. Settings ("keep open across pages", text size, easy-read font, high
+contrast, 4 themes) live in `lounge_prefs` (self-only RLS) with a per-member
+copy in localStorage. Window place and size are per device. Reactions are a
+fixed list of 6 (`chat_reactions`, a CHECK that a test holds equal to
+`src/lib/chat-reactions.ts`). Formatting is `**bold**` / `*italic*`, rendered
+as React elements, never as HTML.
+
 **January.** A campaign's targets come from the live roster, and sends cool down
 after 7 days, so new officials show as not yet written with no reset needed.
 `scripts/remind-new-officials.mjs --since YYYY-MM-DD` tells members about them. It
@@ -697,6 +710,14 @@ open that page. Code: `src/modules/link-box/`, pure rules in
   300 KB.
 - **No phone widget:** a real home-screen widget needs a native app, which is
   parked. The shortcut plus the share sheet is the free equivalent.
+- **Walkthrough for leaders and admins:** `/how-it-works/for-leaders/walkthrough`,
+  three tick-as-you-go checklists (share a link, write a campaign, review the
+  queues) with the box built in; ticks live in the browser only. A first-visit
+  "New here?" box (`WalkthroughHint`) on `/admin/campaigns`, `/new`, `/pending`
+  and `/admin/intel-queue` points there, then shrinks to a "Step-by-step help"
+  link. Linked from the leader playbook, the leader tour and `/admin/checklist`.
+  No Academy lesson: the Academy is the kratom science course with an exam, not
+  a how-to-use-the-site guide.
 
 ---
 
