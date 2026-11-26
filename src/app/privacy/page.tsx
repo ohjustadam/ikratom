@@ -7,7 +7,7 @@ export default function PrivacyPage() {
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
       <header className="mb-8">
         <h1 className="text-3xl font-bold">Privacy Policy</h1>
-        <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-11-25</p>
+        <p className="mt-2 text-sm text-zinc-500">Last updated: 2026-11-26</p>
       </header>
 
       <div className="space-y-6 text-sm leading-relaxed text-zinc-300">
@@ -15,8 +15,8 @@ export default function PrivacyPage() {
           <h2 className="mb-2 text-lg font-semibold text-emerald-300">In one paragraph</h2>
           <p>
             We collect what we need to match you to your specific elected officials and run the
-            platform — name, email, address, optional role tags. We do not sell, share with
-            advertisers, or use any third-party tracking. Your direct messages are end-to-end
+            platform — name, email, address, optional role tags. We do not sell your data, share it with
+            advertisers, or track you across other sites. Your direct messages are end-to-end
             encrypted; we literally cannot read them. Your address is never shown publicly.
             You can export or delete everything anytime.
           </p>
@@ -43,6 +43,11 @@ export default function PrivacyPage() {
               <strong>Role tags</strong> — shop owner / medical professional / advocate leader. Used
               to surface relevant features. Shown publicly on your profile (badge only — never
               identifying details).
+            </li>
+            <li>
+              <strong>Your story</strong> (optional) — years using kratom, what a ban would cost you,
+              and your story in your own words. Used to help write letters you ask for; not shown on
+              your profile.
             </li>
             <li>
               <strong>Public key</strong> — for end-to-end encrypted DMs. Generated on your device.
@@ -79,18 +84,23 @@ export default function PrivacyPage() {
               your account settings, which deletes the stored token.
             </li>
             <li>
+              <strong>Other mailbox sign-in</strong> (only if you connect one over SMTP) — your
+              address and app password, stored encrypted and used only to send the emails you ask
+              for. Disconnecting deletes them.
+            </li>
+            <li>
               <strong>Web push subscription</strong> (only if you enable notifications) — the browser
               push endpoint + its encryption keys, so we can deliver the alerts you opted into. Stored
               only while notifications are on; removed when you turn them off.
             </li>
             <li>
-              <strong>Product analytics</strong> — we use PostHog (first-party product analytics) and
-              Vercel performance metrics to see how the app is used and where it&apos;s slow. Page
-              views and clicks are captured; a sampled minority of sessions are replayed for debugging
-              with <strong>all form inputs masked</strong> (we never record what you type). Anonymous
-              visitors get no analytics profile. No third-party ad networks, no cross-site tracking,
-              and we never sell data. You can opt out in your browser&apos;s Do-Not-Track / our
-              settings.
+              <strong>Product analytics</strong> — we use PostHog to see how the app is used. It
+              captures page views and clicks, keeps a random ID in your browser, and records your IP
+              address and the rough location that points to (city and postal area). We never record
+              what you type, and we do not record your screen. Anonymous visitors get no analytics
+              profile. No third-party ad networks, no cross-site tracking, and we never sell data. If
+              your browser sends <strong>Do Not Track</strong>, we collect no
+              analytics from it.
             </li>
           </ul>
         </section>
@@ -98,9 +108,9 @@ export default function PrivacyPage() {
         <section>
           <h2 className="mb-2 text-lg font-semibold text-zinc-100">What we do NOT collect</h2>
           <ul className="list-disc space-y-1 pl-6">
-            <li>Third-party ad/tracking networks or cross-site trackers (no Google Analytics, no Facebook Pixel, no ad cookies). Our product analytics (PostHog/Vercel, above) are first-party and never sold or shared.</li>
-            <li>Browser fingerprints or device IDs</li>
-            <li>Location beyond the address you voluntarily entered</li>
+            <li>Third-party ad/tracking networks or cross-site trackers (no Google Analytics, no Facebook Pixel, no ad cookies). Our product analytics (PostHog, above) are first-party and never sold or shared.</li>
+            <li>Browser fingerprints</li>
+            <li>Precise location — we never ask your browser or phone where you are (analytics sees only what your IP address suggests, above)</li>
             <li>Contents of your DMs (literally cannot — they&apos;re encrypted before they leave your device)</li>
             <li>Anything from your Gmail beyond what we send on your behalf</li>
           </ul>
@@ -113,7 +123,7 @@ export default function PrivacyPage() {
             <li>All data encrypted at rest (Supabase managed Postgres)</li>
             <li>Row-level security: you can only read your own profile + sent messages</li>
             <li>Direct messages encrypted client-side with libsodium (Curve25519 + XChaCha20-Poly1305)</li>
-            <li>No advertising partners, no data brokers, no third-party sharing</li>
+            <li>No advertising partners, no data brokers, and we never sell your data</li>
           </ul>
         </section>
 
@@ -122,9 +132,28 @@ export default function PrivacyPage() {
           <p>For the platform to function we rely on:</p>
           <ul className="mt-2 list-disc space-y-1 pl-6">
             <li><strong>Supabase</strong> — database + auth (your data lives here)</li>
-            <li><strong>{siteConfig.infra.host}</strong> — application hosting; <strong>{siteConfig.infra.edge}</strong> — the network in front of it (speed and abuse protection)</li>
-            <li><strong>OpenStates, congress-legislators, Census</strong> — public legislator data sources we sync from (no data flows the other way)</li>
-            <li><strong>Google Gemini</strong> — when admins use AI-suggest local officials or news scraping (we send queries, never user data)</li>
+            <li><strong>{siteConfig.infra.host}</strong> — application hosting; <strong>{siteConfig.infra.edge}</strong> — the network in front of it (speed and abuse protection) and storage for uploaded images</li>
+            <li><strong>OpenStates, congress-legislators</strong> — public legislator data we sync from (nothing about you is sent)</li>
+            <li><strong>US Census Geocoder</strong>, with <strong>OpenStreetMap</strong> as a backup — your address is sent to them to find your districts</li>
+            <li><strong>Resend and Brevo</strong> — deliver our emails (sign-up, password resets, notices)</li>
+            <li><strong>PostHog</strong> — product analytics, described above</li>
+            <li><strong>Sentry</strong> — error reports when something breaks. Sign-in cookies, query strings and IP address details are stripped from a report before it is sent</li>
+            <li>
+              <strong>Groq</strong> — a free AI service, and the only outside AI that receives your
+              details. When you ask for a drafted or personalized letter, it receives your name, city
+              and state (never street or ZIP) and your story details. The text of a letter you send
+              is checked by it, for threats and for requests to ban natural kratom. Lounge and chat
+              room messages are sent to it to be screened for abuse, and call transcripts you submit
+              are sent to it to be summarized (dictation is done by your browser&apos;s speech
+              service). Direct messages are never sent.
+            </li>
+            <li>
+              <strong>Google (Gemini) and other free AI services</strong> — for public material only,
+              such as news, bills, links, tips and posts everyone can read, which they may check,
+              sort or translate. Your name, street address, profile story, letters, chat messages and
+              call transcripts are not sent to them.
+            </li>
+            <li><strong>Discord</strong> — only if you link your account</li>
             <li><strong>Google OAuth + Gmail API</strong> — only if you connect Gmail. Only <code className="text-xs">gmail.send</code> scope.</li>
           </ul>
         </section>

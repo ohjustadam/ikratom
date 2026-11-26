@@ -888,15 +888,20 @@ export async function aiRouter({
   // "low" | "medium" | "high" for reasoning models that take it (Groq gpt-oss).
   // null = the host's default. Other providers ignore it.
   reasoningEffort = /** @type {"low" | "medium" | "high" | null} */ (null),
+  // Restrict the pool, e.g. ["groq"] for a prompt holding a member's details.
+  // Nothing outside the list is tried, whatever fails. null = the whole pool.
+  only = /** @type {string[] | null} */ (null),
 }) {
   await ensureHealthLoaded();
-  const key = cacheTtlHours > 0 ? cacheKey({ systemPrompt, userPrompt, maxTokens, tier }) : null;
+  // A restricted prompt holds private text, so it is never cached.
+  const key = cacheTtlHours > 0 && !only ? cacheKey({ systemPrompt, userPrompt, maxTokens, tier }) : null;
   if (key) {
     const hit = await recall(key);
     if (hit) return { ...hit, elapsedMs: 0, cached: true };
   }
 
-  const list = availableProviders();
+  const list = only ? availableProviders().filter((p) => only.includes(p)) : availableProviders();
+  if (list.length === 0) throw new Error(`NO_AI_PROVIDER: none of [${only?.join(", ")}] is configured`);
   // Each provider's park on THIS tier's lane (see laneOf). A member lane still
   // honors a hard-failure park on the provider itself: a dead key is dead for both.
   const parkedUntil = (p) => Math.max(
@@ -1027,7 +1032,7 @@ export async function aiRouter({
       if (verbose) console.log(`    ⏸ every provider is cooling — waiting ${Math.ceil(waitMs / 1000)}s rather than giving up`);
       await new Promise((r) => setTimeout(r, waitMs + 250));
       return aiRouter({
-        systemPrompt, userPrompt, maxTokens, providerOverride, modelOverride, verbose, tier, hedgeMs, cacheTtlHours, reasoningEffort,
+        systemPrompt, userPrompt, maxTokens, providerOverride, modelOverride, verbose, tier, hedgeMs, cacheTtlHours, reasoningEffort, only,
         // One wait per call, never a chain of them.
         maxWaitMs: 0,
       });
