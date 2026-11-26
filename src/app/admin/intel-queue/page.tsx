@@ -31,6 +31,8 @@ type Tip = {
   action_required: boolean;
   submitted_by_user_id: string | null;
   is_anonymous: boolean;
+  /** On a pending tip: the smart link box's AI reading and the bill it found. */
+  moderation_note?: string | null;
   created_at: string;
   _submitter_tier?: string;
   _submitter_approved?: number;
@@ -152,6 +154,12 @@ export default async function IntelQueuePage() {
                   </span>
                 )}
               </div>
+
+              {t.moderation_note?.startsWith("Link box.") && (
+                <p className="mt-2 rounded border border-sky-900/60 bg-sky-950/20 px-2 py-1 text-xs text-sky-200">
+                  🔗 {t.moderation_note}
+                </p>
+              )}
 
               <div className="mt-4">
                 <ModerateIntelRow

@@ -12,6 +12,7 @@ import { HomeCommunityStrip } from "@/components/HomeCommunityStrip";
 import { StateLegalMap } from "@/components/StateLegalMap";
 import { HomeOnboarding } from "@/components/HomeOnboarding";
 import { HomeDonateBand } from "@/components/HomeDonateBand";
+import { SmartLinkBox } from "@/components/link-box/SmartLinkBox";
 import { readLocale } from "@/modules/auth/actions-locale";
 import { getMessages } from "@/i18n/messages";
 
@@ -212,6 +213,13 @@ export default async function HomePage() {
         <p className="mt-3 max-w-2xl text-base leading-relaxed text-zinc-400">
           {t.hero.sub}
         </p>
+
+        {/* The smart link box (owner 2026-11-25): one box, one button, right
+            under the headline. Signed-out visitors are asked to sign in when
+            they press it. */}
+        <div className="mt-6 max-w-2xl">
+          <SmartLinkBox />
+        </div>
 
         {/* Mission stat strip — concrete answer to 'what is at stake'.
             Each tile is a link to the page that opens up the underlying

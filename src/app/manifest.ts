@@ -106,9 +106,10 @@ export default function manifest(): MetadataRoute.Manifest {
     // Web Share Target — registers iKratom in the OS share sheet as
     // "Share to iKratom". Sharing a link/article from a browser or app
     // GET-navigates to /alerts/submit with the shared title/text/url as
-    // query params, which the page reads to prefill the intel form so an
-    // advocate can flag a news item in two taps. (Android/Chromium TWA +
-    // desktop PWA honor this; iOS ignores it, which is fine.)
+    // query params. The page's smart link box checks the link at once ("we
+    // already have this, here it is") and one tap adds a new one; the full
+    // tip form below it is prefilled too. (Android/Chromium TWA + desktop
+    // PWA honor this; iOS ignores it, which is fine.)
     share_target: {
       action: "/alerts/submit",
       method: "GET",
@@ -120,6 +121,16 @@ export default function manifest(): MetadataRoute.Manifest {
       },
     },
     shortcuts: [
+      {
+        // Long-press the app icon → "Share a link" opens the smart link box.
+        // A real home-screen widget needs a native app (parked); this shortcut
+        // plus the share sheet above is the free equivalent (2026-11-25).
+        name: "Share a link",
+        short_name: "Share a link",
+        description: "Paste a link about kratom. We'll check if we already have it.",
+        url: "/alerts/submit?from=shortcut",
+        icons: [{ src: "/icon", sizes: "512x512", type: "image/png" }],
+      },
       {
         name: "Active campaigns",
         short_name: "Campaigns",

@@ -171,7 +171,10 @@ await runWithLogging({ source: "clear_review_queues", supabase: sb }, async () =
     .eq("moderation_status", "pending").order("created_at", { ascending: false }).limit(LIMIT);
   const { data: camps = [] } = await sb.from("campaigns")
     .select("id, title, state, slug, bill_id, mobilization_type, created_at")
-    .eq("review_state", "pending_review").order("created_at", { ascending: false }).limit(LIMIT);
+    .eq("review_state", "pending_review")
+    // A link-box draft waits for a person: never auto-approve or auto-reject it (mig 0335).
+    .eq("hold_for_person", false)
+    .order("created_at", { ascending: false }).limit(LIMIT);
 
   console.log(`Intel queue pending: ${intel.length}    Campaign queue pending: ${camps.length}`);
   if (!AI) {

@@ -650,6 +650,36 @@ older daily drafts (11-18 to 11-24) are superseded, so don't publish them.
   `scraper_runs`, or the staleness check calls it silent. That happened to
   `classify_bop_findings_ai`, fixed in #1200.
 
+## The smart link box (2026-11-25)
+
+One big box and a "Share it" button, under the homepage headline, as the top
+card on the dashboard, and as the whole of `/alerts/submit`. The phone's share
+sheet and the app icon's "Share a link" shortcut (manifest `shortcuts`) both
+open that page. Code: `src/modules/link-box/`, pure rules in
+`src/lib/link-box.ts` (tested in `tests/link-box.test.ts`).
+
+- **Duplicate check first.** It looks for the link as given (no tracking
+  parameters), the Google News link decoded, where its redirects end, and the
+  page's canonical. It checks `news_items.url`/`resolved_url`, every
+  `policy_alerts.source_url` (pending tips count), the bills' own pages, and
+  the same headline within a year. Only a link that matches nothing creates
+  anything.
+- **New links** become a PENDING intel tip in the member's name. The free
+  router (`link_classify`: Groq, then Gemini, 8 s cap) writes the summary, and
+  its reading goes in `moderation_note`. `action_required` is always false, so
+  the tip can't start a campaign by itself.
+- **A campaign draft** is made only for a live state bill that restricts
+  kratom and has no campaign yet (`draftWorthy`: not settled, session not
+  ended, moved within 120 days). It is `pending_review`, inactive and
+  `hold_for_person = true` (migration 0335). The grounded cron, "Auto-resolve
+  all" and the hourly engine all skip held drafts, so only a person can publish
+  one.
+- **Limits:** 30 checks an hour per member, 60 a day per network, 6 new links
+  an hour and 20 a day. The page fetch is SSRF-safe (`safeFetch`) and capped at
+  300 KB.
+- **No phone widget:** a real home-screen widget needs a native app, which is
+  parked. The shortcut plus the share sheet is the free equivalent.
+
 ---
 
 ## Things that will bite you
@@ -780,10 +810,829 @@ older daily drafts (11-18 to 11-24) are superseded, so don't publish them.
    captcha setting is on, and then it rejects every call WITHOUT a token. The
    site key is baked in at build time, so the order is: keys in Netlify, a
    production build, `node --env-file=.env.local scripts/auth-captcha.mjs status`
+# State of play
+
+**The in-repo cold-start brief. Read this first.**
+
+The owner's working plan lives in `private/PLAN_OF_ACTION.md` on his own
+machine (`AGENTS.md` tells you to start there). `private/` is gitignored, so it
+does not exist in a fresh clone — which means it does not exist for any session
+running anywhere else. Cloud
+sessions have repeatedly had to re-derive the state of the platform from
+scratch, and one of them re-derived it wrongly.
+
+This file is the public half of that brief: everything a new session needs
+that is safe to commit to a public repository. It carries no secrets, no
+owner PII, and nothing about an unannounced plan. What only the owner can do
+lives in ONE list, `private/OWNER_TODO.md` on his machine (2026-10-23; the old
+public root copy was absorbed into it). A session without `private/` asks
+him for nothing outside its task, and lists what only he can do in its PR body.
+When the private plan is present it wins on any conflict, but when it is not
+there, this file is the map. On the owner's machine, the session mesh
+(`scripts/session-mesh.mjs`, AGENTS.md rule 11) also tells you which other
+sessions are working right now.
+
+It lives at the repository root on purpose. `netlify.toml`'s build `ignore`
+rule skips a build for top-level markdown (`:(exclude,glob)*.md`, and git's
+glob magic stops `*` at a `/`), so changing this file costs nothing. A file
+under `docs/` would be free too; one under `src/` would not.
+
+_Last hand-verified: 2026-10-17, against `main` at f2ecac3._
+_For the live picture — which jobs ran, what is stale — run
+`node --env-file=.env.local scripts/generate-state-of-play.mjs`._
+
+---
+
+## What this is
+
+A nonpartisan civic-action platform for the kratom community. The product
+rules in `CLAUDE.md` are hard constraints, not preferences: nonpartisan,
+one-click, free-tier only, real synced data, public anonymity.
+
+Scale, on this branch: 215 pages, 127 `CREATE TABLE` statements across 253
+migrations, 194 scripts, 17 GitHub workflows, 104 monitored job sources.
+(`scripts/generate-state-of-play.mjs --repo-only` reprints these from the tree,
+so they cannot quietly rot.)
+
+The `CLAUDE.md` "v1 scope" section describes a product that shipped long ago.
+Do not read it as the current state — it is the original brief, kept for its
+rules.
+
+---
+
+## Where it runs
+
+| Thing | Reality | Note |
+|---|---|---|
+| Hosting | **Netlify**, `netlify.toml`, behind Cloudflare | Older docs said Vercel; corrected 2026-10-17 |
+| Cron | **GitHub Actions**, started on time by Supabase `pg_cron` (migration 0263) | `vercel.json` `crons` is `[]`; workflow `schedule:` is a deduped fallback |
+| Request middleware | **Disabled** — `src/proxy.disabled.ts` | Since 2026-07-26 |
+| Bot blocking | **Cloudflare Bot Fight Mode** + anonymous page caching | The UA blocklist left with the proxy |
+| Public page reads | **Cloudflare R2 snapshots** (#990, #994, #996) | Legislator, briefing, State HQ, bill, research pages read Supabase at most once per 12h |
+| Database | Supabase Postgres, RLS on every table | — |
+| AI | Free providers only, via `scripts/lib/ai-router.mjs` | See `docs/AI_PROVIDERS.md` for which keys exist |
+
+The proxy was renamed, not deleted, when the Netlify adapter could not bundle
+Next 16 middleware. Security headers and CSP were unaffected — they are
+enforced from `next.config.ts`. Two things it used to do have **not** been
+restored:
+
+- the account-lock / force-password-change redirect (data is still
+  RLS-protected; this was the UX bounce to `/locked`)
+
+Attribution capture was **not** one of them, contrary to what reading the
+proxy's comment block suggests. PR #845 rebuilt it as a client island plus
+`src/app/api/attribution/route.ts`. Partner QR scans were silently rejected
+there until 2026-09-18 (a hostname regex demanded a dot, and shop slugs have
+none); release #928 fixed it and restored the 60-day window.
+
+**The lesson outlives the bug:** a rejected referral is indistinguishable from
+a visitor who arrived without one. Nothing logged, nothing alerted, and it
+survived seven weeks. Verify attribution by exercising it, not by reading it.
+
+---
+
+## What survives 60 days untouched
+
+The standing goal is that the platform keeps working with nobody watching and
+no dependency on the owner's PC being powered on. As of 2026-09-18 that is
+almost true.
+
+**Refreshes on its own:** the site itself, bills and votes and sponsors, the
+news and alerts pipeline, campaign and wave delivery, the money and intel
+scrapers, local officials and meetings, translations, portraits.
+
+**Still needs the owner's PC** — `system: "local-box"` in
+`scripts/lib/cron-pager-registry.mjs`:
+
+- `session_prep` — writes a brief into the owner's own checkout. It has no
+  user-facing effect, so its silence is not an outage. Arguably it should not
+  be in the pager at all.
+- `bill_embeddings` — bill-similarity clusters. A cloud path exists via
+  `scripts/lib/embed-router.mjs` but the cutover is dispatch-only, pending a
+  provider decision.
+
+`topic_bill_discovery` **was** box-only on the stated grounds that LegiScan's
+query API refuses GitHub Actions IPs. That note was stale: re-probed from a
+runner on 2026-09-17, `getSearch` answered 3/3. It runs in CI now. Re-measure
+with `scripts/diagnose-cloud-gaps.mjs` rather than trusting a comment — this
+one cost weeks.
+
+**The real 60-day risk is budget, not compute.** Both limits have brakes.
+
+---
+
+## Money, and the one number that keeps being wrong
+
+The Netlify allowance is **1000 credits a month**, not the 300 that `AGENTS.md`
+and `scripts/lib/netlify-credits.mjs` claimed until 2026-09-17. That figure
+came from a comment and was quoted as fact for weeks. The live reading that
+day was 369/1000 projected.
+
+A production build still costs 15 credits, and a squash-merge to `main` *is*
+that build, so batching merges is still right. But **read the gate before
+telling anyone they are near a ceiling**: `npm run credits`, or the CI
+"Netlify credit budget" check, which fetches the real allowance every run.
+
+Supabase egress has its own load-shedding gate (`scripts/egress-gate.mjs`),
+which defers deferrable cron jobs rather than failing them.
+
+**Database space is the next free-plan wall (500 MB, counted over all
+databases).** 2026-11-18: 337 MB after a reindex took back 29 MB of dead index
+entries. Since 2026-11-19, `scripts/db-reindex.mjs` runs weekly
+(cron-weekly). The nightly `prune-retention.mjs` drops expired rate-limit
+windows. Deleting rows frees space for reuse but does not lower the number;
+only a rebuild (REINDEX, VACUUM FULL) does. **What grows with members is
+`notifications`:** every broadcast writes one row per member, ~74 per member
+per month, 94% never read. That is ~1 GB a month at 30,000 members, so no
+retention window fixes it; broadcasts must be stored once.
+
+**2026-10-02: the credit gate was right and the site still went down.** One
+rented server replayed ~440 server-rendered URLs about 28 times each for 25
+minutes. Those renders (~6.5s each, 30s on timeout) burned ~635 credits, the
+account hit its cap three days before reset, and Netlify disabled the site. The
+gate's estimate was accurate for the baseline. It cannot see a burst: it models
+compute from bandwidth (which stayed flat) and is sampled once a day by a
+GitHub schedule that runs hours late. Three things follow, and none of them are
+fixed by a better estimate:
+
+- **The true meter is readable now, but only after the fact.** Since
+  2026-10-03 `scripts/lib/netlify-credits.mjs` reads Netlify's billing
+  endpoint (CI prints `TRUE METER`); it still samples, so it cannot stop a
+  burst mid-flight. Netlify's emails at 50/75/100% are not configurable.
+- **The evidence lives in Cloudflare.** `scripts/cf-origin-report.mjs` ranks
+  who is spending origin time; Netlify's function logs keep 24h and will not
+  load while the site is paused. Since 2026-11-16 `scripts/flood-alarm.mjs`
+  (its own job in `cron-hourly.yml`, source `flood_alarm`) reads it for every
+  5-minute bucket since its last scan and pages the owner when bots spend the
+  origin far above the last 7 days, naming the window, user agents, paths, IP
+  count, max per IP and the share Cloudflare challenged. A residential-proxy
+  crawler (~1,000-1,200 IPs, ≤30 requests each, Chrome/120 + Firefox/121)
+  hit around 12:25-13:45Z on most days of 11-05..11-16; `/api/me` was 63% of its
+  server time on 11-11.
+- **Prevention has to happen before the origin.** A per-IP rate limit at
+  Cloudflare would have stopped this outright, and caching a page for anonymous
+  visitors bounds a replay to one render per URL per TTL
+  (`scripts/cloudflare-cache-setup.mjs`, `LONG_TTL_PATTERNS`).
+
+**2026-11-10: crawls hit each URL once, so cache can't save them; only a
+cheaper render can.** 839 of 840 `/legislators/*` URLs crawled in a day were
+fetched exactly once, each a ~4 s cold ISR render. A timing probe on a draft
+deploy (`console.log` lines are readable through Netlify's request logs)
+found the cost. `generateMetadata` and the page each ran the snapshot chain,
+and each chain waited on an R2 PUT of 1.1–1.6 s. React `cache()` around the
+getter plus a background R2 write took a cold render from 3.7 s to 1.0 s
+(#1149). Two traps for the next measurement. Netlify's runtime
+sends no `x-nextjs-cache`: read `Cache-Status: "Netlify Durable"`
+(`uri-miss; stored`, then `hit`) instead. And TTFB on a dynamic page measures
+only the streamed `loading.tsx` shell, so time the full response.
+
+---
+
+## State intel: every state watched like Oklahoma (2026-10-23/24)
+
+- **Agency watch, every state + DC.** Each state's health department and
+  attorney-general newsrooms and its state register / notice-of-intent page
+  are `bop_sources`, verified from GitHub's IPs by
+  `scripts/register-state-intel-sources.mjs` (candidates in
+  `scripts/data/state-intel-sources.json`; run `intel-sources-verify.yml`).
+  Only official .gov / state .us domains are accepted. Florida's AG and
+  register and New Mexico's health department are official but not .gov, so
+  they are left out.
+- **The BoP engine's alert path had never worked.** Its trigger inserted an
+  alert kind the database forbids. Fixed in migration 0279: kind follows the
+  source (`rule_filed`, `news_break`, `bop_hearing`). A source's first walk is
+  marked `is_baseline`, and backlog or press-release hits go to the review
+  queue. Unrelated non-PDF links are no longer stored, and PDFs are classified
+  in full, not just the first 50KB.
+- **Campaign staleness gate** (migration 0278). The alert-to-campaign trigger
+  skips an expired alert, a past hearing, a sine-die bill, or a story more
+  than 21 days old. `alertStaleReason()` in `scripts/lib/campaign-eligibility.mjs`
+  mirrors it.
+- **News state tagging.** A story was filed under whichever state's query found
+  it, so a Tennessee explainer landed under LA. `scripts/lib/news-state.mjs`
+  now tags by the headline at insert, and 1,302 past stories were retagged.
+- **Playbook matches.** `scripts/playbook-match-alerts.mjs` runs daily after
+  bill embeddings. A live restrictive bill that takes the same approach as
+  another state's bill becomes a `watch` alert in the review queue. Any two
+  kratom bills score about 0.75, so the threshold is 0.88.
+- **Legal status** was re-checked against primary sources on 2026-10-23/24.
+  Seven rows had gone stale since June: TN (now banned), WY, OH, VA, DE, RI
+  and ND. A "takes effect July 1" note does not update itself, so re-check any
+  dated note once its date passes.
+- **One finding per press release (2026-10-29, #1083).** A newsroom item used to
+  be stored twice, once as a link and once as the heading or table row around
+  it, and both copies alerted. The extractor now drops the url-less copy.
+  Also fixed: the Cloudflare AI lane returned the API envelope as the answer
+  when Gemma 4's thinking used up `max_tokens`, so 12 kratom findings were
+  stamped "classified" with an empty verdict and never alerted. Watch for
+  `ai_classified_at` set with `ai_relevance` null: that is this bug again.
+- **Sources that block GitHub's IPs** run in the Playwright lane
+  (`adapter = playwright_browser`): TN Health, TN AG, AK public notices, AL
+  pharmacy board. The TX Register fails in both lanes and still needs a
+  different URL.
+- **News bodies behind Akamai (2026-10-29, #1092).** TEGNA's TV sites (KING5,
+  WWLTV, WKYC, 11Alive…), HHS.gov and GlobeNewswire serve Akamai's "Access
+  Denied" page to plain fetch and to headless Chromium, even from a home IP.
+  329 stories showed that page as their body. The extractor now rejects it and
+  stamps those stories with no body. Their reader page links out to the source.
+  Never clear `news_items.body_extracted_at` to force a re-extract: every news
+  feed lists only rows that have it. Clearing `body_paragraphs` is enough.
+  Since 2026-11-05 a 403 or timeout also counts toward the retry cap once a
+  story is a day old, so paywalled Reuters and NYT stories reach the feeds.
+  Since 2026-11-06 a story with no text shows its headline as its summary,
+  because AI summaries of a headline alone invented facts. `summarize-news`
+  waits for extraction to finish, and `enrich-news` only scores stories.
+- **News twins (2026-11-24, migration 0330).** One story arrives under several
+  Google News URLs and only collapses once `resolve-news-urls` fills
+  `resolved_url`. The insert-time dedupe never saw it, so 7,511 twin rows
+  (30% of `news_items`) piled up. Now a row that resolves to a URL another story
+  already has becomes that story's duplicate (database trigger, all writers),
+  so feeds list it once and the extractor skips it. An error page
+  (`chrome-error://…`, Google consent/sorry, Akamai) is stored as NULL and
+  retried, never kept as the answer. The old twins are cleared by
+  `scripts/dedupe-news-resolved.mjs`: dry-run by default, `--mark` hides them
+  (reversible), and `--apply` deletes them on the owner's yes, writing an undo
+  file to `private/backups/`. 2,060 twins carry their own intel alert because
+  `classify-news-policy` makes one alert per row, so those are kept as
+  duplicates rather than deleted.
+- **Legal status re-check, 2026-10-29/30.** The 43 rows without a recent
+  confirmation were checked against primary sources and stamped, so all 51
+  are confirmed. Four were wrong:
+  - **MA is banned**: 105 CMR 726.000 puts the plant in Schedule I from Aug 28,
+    2026, for one year.
+  - **KS leaf is legal**: the enrolled HB 2365 schedules only 7-OH, although
+    the legislature's own summary says mitragynine too.
+  - **FL 7-OH is restricted**: Emergency Rule 2ER25-1/-2 covers only 7-OH
+    concentrated above 1%.
+  - **NC is legal, not restricted**: the under-18 bill we cited (HB 747, 2016)
+    never became law, and the General Assembly's own analysis calls kratom
+    unregulated.
+
+  The last five needed sources that bill trackers miss: Arkansas's rule on
+  codeofarrules.arkansas.gov, the 2026 Indiana Code, DC's 22-B DCMR 1201 (a
+  .doc behind a "View Text" button on dcregs.dc.gov), and CDPH's Jan 9, 2026
+  letter (cdph.ca.gov answers 403 to scripts, but a browser loads it).
+  Re-check KY on Jan 1, 2027 (the HB 757 sales ban, Acts Ch. 161 §136) and MA
+  on Aug 28, 2027.
+- **A confirmed status shows only confirmed values.** Until 2026-10-30 the
+  state hub's status header (and the dashboard's district widget) filled a
+  blank 7-OH status with the nightly derivation. In 27 states that put a
+  guessed 7-OH label next to "✓ confirmed", and in MI, NJ and NY the guess was
+  "Banned", taken from bills that never passed. A blank now reads "Not yet
+  classified". A bill is cited as the basis only when it is enacted law that
+  agrees with the confirmed status.
+- **One status, everywhere.** `state_status.admin_leaf_status` is the confirmed
+  status. The home page counts, the maps, `/banned` and the state hubs read it.
+  Until 2026-10-29, the forum state pages, `/admin/legislators` and the
+  briefing generator read the legacy `states.kratom_status`, which had drifted
+  for 23 states. As a result, the AI briefings told readers kratom "remains
+  legal" in CT, MA and TN, all three of which ban it. Two fixes went in:
+  - Migration 0303 adds a trigger that copies every confirm into the legacy
+    column.
+  - The briefing prompt now opens with the confirmed status, because the
+    critic reads only the first 4000 chars. A text check
+    (`scripts/lib/briefing-status-check.mjs`) blocks saving any draft whose
+    Snapshot contradicts it.
+
+  All 51 active briefings passed that check after a regeneration the same
+  night.
+- **State-status audit rows were never written.** `admin_audit_log.target_id`
+  is a uuid column and every confirm passed a state code, so the insert failed
+  and nobody read the error. `recordAdminAction` now moves a non-uuid id into
+  `details.target` and logs insert errors. The 46 B2 confirms were re-recorded.
+- **Live-node audit, 2026-10-29** (`/admin/intel-health/states`): 3 of 51 states
+  pass all four checks (MI, OH, OK). Intel coverage, legislator email reach and
+  status pass almost everywhere. The open gap is people: only CA, MI, OH and OK
+  have 3+ advocates.
+
+## How the platform watches itself
+
+`scripts/check-cron-staleness.mjs` compares every source in
+`scripts/lib/cron-pager-registry.mjs` against `scraper_runs` and pushes the
+owner once per silent period at 3× the expected interval. A sleeping PC
+coalesces into one alert instead of nine. `tests/cron-pager-registry.test.ts`
+guards the registry in both directions — every registered source must have a
+real writer, and every writer must be registered.
+
+Four budget and uptime guards sit alongside it: egress, Netlify credits, a
+live-URL watchdog, and the staleness pager itself.
+
+**It can also reflect, on request.** `scripts/weekly-self-review.mjs --dry-run`
+prints what moved, what decayed and what it would do next. It catches what the
+pager cannot: a job that runs on time and writes nothing. Its Sunday job is
+paused (2026-11-06) because CI output on this repo is public, so run it on the
+owner's machine. Nothing acts on its proposals automatically.
+
+---
+
+## Officials turnover (built 2026-10-21 → 10-23)
+
+Promise to members: nobody emails someone who has left office, and nobody is
+dropped before they leave. One daily job (cron-daily `roster-diff`) runs, in
+order:
+
+| Step | Script | Rule |
+|---|---|---|
+| Roster diffs | `sync-state-roster-diff.mjs`, `sync-congress-roster-diff.mjs` | exact openstates / bioguide ids |
+| State contacts | `sync-state-legislator-contacts.mjs` | email / phone / office address of sitting members from openstates/people; never clears, never steps an official email down to a personal one; **over 25 changed rows it holds** for the owner's yes (`--allow-bulk`) |
+| Roster emails (weekly) | `check-legislator-rosters.mjs` | each chamber's own member list beats openstates/people (MI Fairbairn bounced off the upstream spelling). Swaps only when the page lists ≥90% of the chamber and exactly one address carries the member's own name; 60-90% pages and anything else are reported, never cleared. Most chambers show emails only on detail pages, so ~19 of 100 can be checked. Over 25 swaps hold |
+| Swap on the handover day | `turnover-swap.mjs` | retires the incumbent only when openstates/people or congress-legislators shows the successor **in office**; the record is kept |
+| Election results | `ingest-election-results.mjs` | Election Day +1 to +60; a winner lands only when a **later day's** reading names the same person |
+| Seat watch | `sync-seat-watch.mjs` (every 3 days) | `term_calendar` + `seat_elections` (migration 0277) |
+
+Where the facts come from, all free and keyless:
+- **Seats up:** NCSL's per-chamber table. For staggered chambers, the Wikipedia
+  election article's district list, accepted only when its count equals NCSL's.
+- **Handover day:** a term-start rule that must reproduce the openstates/people
+  start dates of the two latest cycles.
+- **State `term_end_date`** is set from the SEAT's handover day, never from
+  start date + term length, which is wrong for every appointee.
+
+**Contacts were never refreshed until 2026-11-11.** Every state legislator row
+was last written by the one-off API seed on 2026-05-04 (7,294 of 7,337 active
+rows), so letters bounced off typos openstates/people had already fixed
+(MI Reps. DeBoyer and Neyer, PJ 11-11). The first nationwide pass ran 11-11
+with the owner's yes: 389 rows changed (116 emails, 199 phones, 196 addresses,
+most of them filling empty fields), 6,946 confirmed unchanged, 0 failed. Only
+MO Sen. Travis Fitzwater is still unmatched: his openstates id is not in the
+current roster. openstates/people can be wrong too: MI Rep.
+Fairbairn's `parker.fairbairn@` is not on house.mi.gov's own roster
+(`ParkerFairbairn@`), and only that page caught it.
+
+First run (10-23): 6,616 seats flagged on the Nov 3 ballot. Active officials
+with a term end went from 1,170 to 6,675 of 13,112.
+
+**Who won, and how much of it we can read (measured 2026-10-27).** Legislative
+winners come from each chamber's Wikipedia election article; statewide
+offices come from the single-race article's infobox ("Elected Governor"). On
+the 2022 pages the reader found 20/20 governors, 18/18 attorneys general and
+14/14 secretaries of state. Most 2026 chamber pages carry an "Elected" column
+the reader parses. Some have no table it can read yet: the IL, IN, ME, MO, SD
+and VT houses, the ME/SD/UT/NH/NV senates, and the PA chambers' per-candidate
+layout. Seats there get no reading. Their profiles stop saying "Results pending"
+on the handover day, and the daily roster diffs retire whoever left, once
+openstates/people shows it. Several states' terms begin on or right after
+Election Day: FL, TN and HI on Nov 3; AL, IN, NV and DE on Nov 4; SC on Nov 9.
+
+Known gaps, surfaced on `/admin/local-rep-requests`, never guessed:
+- Seat lists unverified: the CO, HI, IN and NV senates, and DC's council.
+- No proven handover day: CO, the IA senate, ME, the MN house, WI.
+- Local results: there is no machine-readable source. Local rosters rely on
+  `refresh-local-rosters.mjs` re-queuing a locality after a term end passes.
+
+**Match people with `samePerson`, never surname alone.** congress-legislators
+lists Sen. Darline Graham Nordone as "Darline Graham", and a surname match
+"confirmed" her as Lindsey Graham, the senator she replaced.
+
+---
+
+## Groups (coalitions), built 2026-10-21 → 10-25
+
+Groups are how a local community organizes. Module `src/modules/coalitions`,
+pages under `/coalitions/[slug]`, migrations 0153, 0273, 0274,
+0283_coalition_events and 0284.
+The first real community is "Rein In Chaos Coalition" (MI, private).
+
+- **Join:** one reusable group link + QR per group (single-use links stalled the
+  first group: 6 made, 0 used). Public groups also take "Ask to join".
+- **Home:** a cover theme (preset gradients, no uploads), member faces, a one-tap
+  Invite through the phone's share sheet, and Home / Events / Members / About tabs.
+- **Act together:** "this week's group action" with a members-acted bar, and a
+  "wins" card (`coalition_wins()`). Both show counts only, never who.
+- **Events and call-in days** (`coalition_events`, `coalition_event_rsvps`):
+  organizers post them, and members RSVP and add them to a calendar (private
+  `.ics` or a Google link). Reminders go to RSVPs the day before and again
+  within 2 h. The hourly `fire-waves` route inserts notification rows, and
+  `fanoutPushNotifications` delivers them.
+- **Welcome checklist:** derived from what people actually did. Members: join,
+  introduce yourself, take the action, invite one. Organizers: share the link,
+  pin a welcome post, pick the action, plan an event.
+- **Board:** private threads + replies, with one organizer-pinned post; a trigger
+  stops anyone else from pinning.
+
+Privacy, everywhere: `@handle` only. A private group 404s for outsiders. RSVPs
+are own-row-only, and everyone else sees counts.
+
+Images (2026-11-06): a group post can carry one image, a `member_photos` row of
+kind `group`, stored on R2. `get_media_object` serves it only to members of the
+group whose post holds it, and only while that post stands. The post's author
+must own the photo, so nobody can attach another member's image to read it. Each
+member gets 100. Nothing screens the picture itself.
+
+"Officials the group wrote to" counts letters sent after a member joined
+(`coalition_top_legislators`). A member who just joined and has a batch still
+draining will see those letters land in the group's count, which is right.
+
+Members report group content with the shared report button. A site moderator
+outside the group gets a read-only view, and Handled in
+`/admin/moderation/reports` takes down a group post, thread or event
+(`groupRemoval()`). Chat lines and resources have no soft delete, so organizers
+remove those.
+
+**Group notifications (checked end to end 2026-11-17).** Every notice is an
+ordinary `notifications` row, so push (the fan-out cron, by each member's
+cadence and quiet hours) and the email digest follow the inbox. The digest's
+"Your groups" section is built but **OFF** until the 12-05 build ships the
+setting that mutes it: `GROUPS_IN_DIGEST` in `scripts/lib/digest-sections.mjs`,
+flipped to `true` by the trunk in that build's merge window.
+
+| Event | Who gets it | Kind | Muted by "Your groups"? |
+|---|---|---|---|
+| New discussion | every other member | `coalition_discussion` | yes |
+| Reply | the thread's earlier posters | `coalition_discussion` | yes |
+| New event, reminders | members; RSVPs for reminders | `coalition_event` | yes |
+| Group action picked | members | `coalition_action` | yes |
+| Chat @mention | the named member, if in the group | `mention` | no |
+| Join request, approval | organizers; the requester | `coalition_join_request` | no |
+
+The toggle is `notification_preferences.notify_groups` (0327), enforced by the
+SQL before-insert gate, so a muted member gets no row, no push and no email.
+`tests/group-notifications.test.ts` scans the code for every group kind and fails
+if one skips the digest or the toggle.
+
+**Fewer clicks.** Start a group from the name box on `/coalitions`, then land on
+it. The header's ✍ Post opens the board composer with the cursor in it, and the
+title is optional (`threadTitle()`: the first line stands in).
+
+Not built yet: editing an event's time (cancel and re-post), and a real cover
+photo. Ideas, ranked: `private/SOCIAL_IDEAS.md`.
+
+---
+
+## Forum bot, letter subjects, Media Persuasion (2026-11-06)
+
+A member's report in November led to four changes.
+
+- **One bot thread per state.** `forum_threads.is_state_digest` marks it, and
+  federal bills go in state `US`. `scripts/auto-post-bills-to-forum.mjs` adds a
+  comment when `bills.forum_update_key` (status plus last-action date) changes,
+  25 per run. Old per-bill bot threads stay in the table, and the state page
+  lists one only if someone replied to it.
+- **Bill statuses.** A LegiScan code counts only through `legiscanSessionFits`,
+  because reused ids can point at another session's bill. `dead` never overrides
+  a terminal status. `backfill-bill-status.mjs --actions-only` runs nightly; the
+  `--legiscan` pass spends API quota, so it runs by hand.
+- **Session ended.** A bill whose session adjourned while it was still open reads
+  "Session ended" on its page, on `/bills` and on state hubs, through
+  `billDisplayStatus()`. A terminal status always beats the label.
+  `sessionFlag()` (`scripts/lib/review-dates.mjs`) decides `session_sine_die`, and
+  `review-lapsed-items.mjs` applies it nightly to every open bill, in both
+  directions. Three things it refuses on purpose: city and county rows have no
+  session; a bill waiting on the governor hasn't lapsed; and a last action outside
+  the matched session means the row carries another bill's data. LegiScan calls
+  Illinois's General Assembly adjourned in spring, but it sits until January, so
+  Illinois is held open until its term ends.
+- **Subjects.** `memberSubject()` (`src/lib/letter-subject.ts`) picks a short
+  subject from a hash of member and campaign, so one office doesn't get a hundred
+  identical lines. A stored subject of 40 characters or fewer joins the rotation.
+- **Media Persuasion.** `/media`, plus reply buttons on `/news/[id]` and
+  `/research/[id]`, let a member answer a writer or researcher from their own
+  mailbox through the shared composer. `scripts/find-press-contacts.mjs` fills
+  `press_contacts` nightly with printed addresses only, never guessed ones.
+  That table has no member policy: `getPressContact` is the only way to an
+  address, at 10 a day, so the list can't be read out in bulk. Don't aim a
+  campaign or wave at it.
+
+---
+
+## Reused bill numbers (2026-11-08)
+
+Every session reuses bill numbers, and LegiScan search matches the number
+alone. So a row from an old session could pick up a newer, unrelated bill's
+actions, sponsors, votes and text. NE LB 972 (108th, indefinitely postponed in
+2024) read as an enacted kratom ban using a 2026 motor-vehicle bill, and Nebraska's
+derived 7-OH status said "banned" because of it.
+
+- **The sync's guard** is `sessionMismatch()` in `scripts/lib/bill-session.mjs`.
+  It reads a session label three ways: as a LegiScan session id, as an assembly
+  number ("101st", "89R", "136"), or as years. The old guard read years only,
+  so a third of the labels had no reading and passed, and it let the next
+  biennium through. A one-year label may still be a year off: Oklahoma's
+  OpenStates labels use the end year, and Virginia relabels continued bills.
+  `sync-bills-via-legiscan.mjs` saves a searched LegiScan id only once the
+  guard accepts it.
+- **The repair** is `audit-bill-session-drift.mjs --restore <ids> [--apply]`.
+  It reads each row's own bill from the session its label names, holds any row
+  it can't confirm, and clears the text and AI summaries built from the other
+  bill. `active` is only changed for a live row whose own bill died with its
+  session. The OpenStates sweep (`sync-bills.mjs`) also rewrites an old row's
+  status and last action from its own session, so another bill can survive
+  only in the LegiScan id, actions or sponsors. The restore counts those as
+  evidence too. It keeps the row's own last action when that is newer than
+  LegiScan's, and keeps a terminal status the row already has unless a
+  stronger one is proven.
+- **Done 2026-11-10 (owner's yes):** 23 rows, read back clean. They were 12
+  Illinois rows, GA SR 832, SR 783, HR 1159 and HR 1160, ID H 168 and H 567,
+  LA HB 14, MD HB 1229, MN SF 2578, NE LB 972 and TN HB 861. NE LB 972 and
+  TN HB 861 now read dead; MD HB 1229 and MN SF 2578 now read enacted.
+  ID H 168, ID H 567, IL HB 622 and TN HB 861 have no LegiScan id, because
+  a twin row of the same bill holds it.
+- **Still to check:** 20 inactive rows whose label doesn't fit their last action
+  (FL, IN, KS, LA, ME, MI, MN, MS and GA HB 181, which may just be an effective
+  date). Several read "enacted". Also merge the four twin pairs.
+
+---
+
+## Forum roles, spam limits and member posts (2026-11-06)
+
+**Who can do what** lives in one place: `forumRights()` in
+`src/lib/forum-permissions.ts`. Change it there, not in a page. Ranks are member,
+leader, admin, owner.
+
+- A member edits or deletes their own post. A removed post can't be edited, and
+  neither can anything in a locked thread, though a member can still delete there.
+- Anyone with `moderate_forum` can hide a post by someone below their rank. Leaders
+  hide but never rewrite. Only an admin or the owner can change someone else's
+  words, and the post then reads "edited by a moderator".
+- Two admins can't act on each other. That goes to the owner.
+- The bill bot counts as a leader, so only an admin or the owner can touch it.
+
+**The database refuses forum body and title changes from anything but the service
+role**, moderators included (migration 0317). Every edit goes through
+`src/modules/forum/edit-actions.ts`, which writes the old text to `forum_edits`
+first. A new write path must do the same, or it will fail silently as zero rows.
+
+**Spam limits** (`postingBlock()` in `src/modules/forum/actions.ts`): under 72
+hours old, 3 threads a day and 10 posts an hour. The same words within 10 minutes
+are refused. Locked accounts can't post. 30 edits an hour. Author edits run the
+same screens as a new post.
+
+**Reports** always reach a moderator. A post hides only at three different
+reporters who are a week old or staff. `/admin/forum` reads through the service
+role, because the old RLS read showed leaders an empty queue, and it now lists
+reported posts that are still visible, plus recent edits and old bill threads.
+
+**Member posts come first.** `memberFeedItems()` drops bot posts, and the forum
+home shows "New from members" and "New in your groups", the second one limited to
+groups the viewer belongs to, because admins can read them all. The state page
+puts the bot's thread in a card above member threads. A bill thread with no action
+in 180 days (`isStaleBill`) gets a banner. Separately, `/admin/forum` lists bill
+threads with member replies that have been quiet for 90 days. Nothing deletes
+one automatically.
+
+**The Lounge counter** clears through `useLoungeSeen`. It marks the chat as seen
+while it's on screen, at most every 2 seconds, skips hidden tabs, and tells the
+chat bubble through the `ikratom:lounge-seen` event.
+
+**January.** A campaign's targets come from the live roster, and sends cool down
+after 7 days, so new officials show as not yet written with no reset needed.
+`scripts/remind-new-officials.mjs --since YYYY-MM-DD` tells members about them. It
+dry-runs by default, isn't on a schedule, and `--apply` is a mass notice that needs
+the owner's yes.
+
+## Roles, badges and leader invites (2026-11-17)
+
+**What each role can do** is the catalog in `src/modules/admin/permissions.ts`.
+`/roles` is the public explanation, and `/how-it-works/for-leaders` describes
+the same powers. Change the catalog first, then both pages.
+
+- **Leaders could not save a campaign from #847 (2026-07-26) until this fix.**
+  The create action asked for `edit_campaigns`, which leaders don't hold. It now
+  asks for `author_campaigns`. A leader edits and schedules waves only on their
+  own campaigns (`canEditCampaign`, matching the 0204 RLS), and every campaign
+  from a non-admin goes to review with the AI screen's verdict attached.
+- **Leader invites** (migration 0324, `leader_invites`). When the owner promotes
+  someone who isn't verified yet, `/admin/users` shows what's missing and offers
+  "Invite to lead". The member gets a notice and a checklist at `/leader/invite`.
+  The role turns on by itself at their next dashboard visit once
+  `verifyUserForPromotion` passes (`applyLeaderInviteIfReady`, audit-logged):
+  confirmed email, full name and address, 48 hours. 2FA is recommended, not
+  required, for leaders (owner, 2026-11-17).
+- **Public role tags** come from `publicRole()` beside `publicHandle()`, rendered
+  by `src/components/RoleTag.tsx`, fed only by `get_public_profile(s)`. They show
+  in the forum, the Lounge, group posts, chat and members, walls and profiles.
+  The owner's tag reads Admin. The member feed and friend lists carry no role
+  flags yet, so they show no tag.
+
+---
+
+## Search and the brand (2026-11-17)
+
+Google indexes us and ranks ikratom.org first on a verbatim search, but rewrites
+the query "ikratom" to "kratom". Crawl access is fine; the gap is brand signals.
+The home page now states the name in WebSite + Organization JSON-LD
+(`src/lib/seo.ts`), hubs carry canonicals, and private pages are noindex. The
+evidence, the owner's Search Console / Bing steps and the weekly check are in
+`docs/SEO_BRAND.md`.
+
+The owner picked the "ik" mark on 2026-11-24: an i whose dot is a veined kratom
+leaf, beside a k. It is one drawing, `public/brand/ik-mark.svg`, used in the header,
+every icon, the push badge, link previews and email headers. `docs/BRAND.md` has
+the usage rules and how to change it (`node scripts/brand-icons.mjs`).
+
+---
+
+## The crawl block is a staged switch (2026-11-24)
+
+`robots.txt` has blocked bills, research, legislators and twelve more families
+since 2026-09-01 to save Netlify credits, which also keeps them out of Google.
+The block no longer lifts on a date. It is `site_config.crawl_stage` (0 to 3,
+migration 0332), read hourly by `robots.ts` and `sitemap.ts`, so it changes with
+no deploy. **Stage 0 is the default and anything unreadable is 0**: merging the
+code opens nothing. Stage 1 opens bills and research, 2 adds legislators and
+briefings, 3 adds library and topics. Member content, alerts, campaigns and intel
+never open (`NEVER_LIFTED_PATHS` in `src/lib/crawl-policy.ts`).
+
+Only a human raises it (`scripts/crawl-stage.mjs`, which refuses at 80% of
+credits). The hourly `crawl_brake` job lowers it to 0 at 90% or on a spike, and
+`private/scripts/cf-bot-brake.mjs` cuts verified search crawlers off at once,
+because Googlebot and Bingbot skip every Cloudflare rule and cache robots.txt for
+about a day. Check a family with `scripts/crawl-lift-check.mjs` before opening it.
+**Do not raise it before the 12-05 credit reset.** The build carrying the signup
+fix (#1174) went live on 2026-11-25. Runbook: `docs/RUNBOOK_crawl_lift.md`.
+
+## The 2026-11-25 merge window
+
+One production build (18:42 UTC, `cbb0ef7b`) carried everything merged since
+11-17 except #1166. That included the ik mark, the media Top 5, link sharing,
+the signup queue, roles, and the group and DM fixes. Patch note:
+`/whats-new/2026-11-25-update`, published from the database with its ledger. The
+older daily drafts (11-18 to 11-24) are superseded, so don't publish them.
+
+- **The digest switches are on** (#1201): `GROUPS_IN_DIGEST` and
+  `CADENCE_LINKS_LIVE` waited for that build.
+- **Retired AI providers are skipped** (#1199, `scripts/lib/ai-retired.mjs`):
+  Cerebras, Mistral and GitHub Models. Name one in `AI_PROVIDER_ORDER` to bring
+  it back. Cloudflare answers again with `enable_thinking: false`.
+- **Local news:** the federal news queries now include city council, ordinance
+  and county commission searches, because local papers often never name their
+  state.
+- **A quiet run is still a run:** a job with nothing to do must still write
+  `scraper_runs`, or the staleness check calls it silent. That happened to
+  `classify_bop_findings_ai`, fixed in #1200.
+
+## The smart link box (2026-11-25)
+
+One big box and a "Share it" button, under the homepage headline, as the top
+card on the dashboard, and as the whole of `/alerts/submit`. The phone's share
+sheet and the app icon's "Share a link" shortcut (manifest `shortcuts`) both
+open that page. Code: `src/modules/link-box/`, pure rules in
+`src/lib/link-box.ts` (tested in `tests/link-box.test.ts`).
+
+- **Duplicate check first.** It looks for the link as given (no tracking
+  parameters), the Google News link decoded, where its redirects end, and the
+  page's canonical. It checks `news_items.url`/`resolved_url`, every
+  `policy_alerts.source_url` (pending tips count), the bills' own pages, and
+  the same headline within a year. Only a link that matches nothing creates
+  anything.
+- **New links** become a PENDING intel tip in the member's name. The free
+  router (`link_classify`: Groq, then Gemini, 8 s cap) writes the summary, and
+  its reading goes in `moderation_note`. `action_required` is always false, so
+  the tip can't start a campaign by itself.
+- **A campaign draft** is made only for a live state bill that restricts
+  kratom and has no campaign yet (`draftWorthy`: not settled, session not
+  ended, moved within 120 days). It is `pending_review`, inactive and
+  `hold_for_person = true` (migration 0335). The grounded cron, "Auto-resolve
+  all" and the hourly engine all skip held drafts, so only a person can publish
+  one.
+- **Limits:** 30 checks an hour per member, 60 a day per network, 6 new links
+  an hour and 20 a day. The page fetch is SSRF-safe (`safeFetch`) and capped at
+  300 KB.
+- **No phone widget:** a real home-screen widget needs a native app, which is
+  parked. The shortcut plus the share sheet is the free equivalent.
+
+---
+
+## Things that will bite you
+
+1. **The changelog no longer lives in the repo.** As of 2026-09-18, patch
+   notes are rows in `patch_notes` (migration 0250), drafted by the daily and
+   Sunday jobs and published from `/admin/whats-new`. The 33 markdown files
+   under `src/content/patch-notes/` are the back-catalogue and still render. Do
+   not add a new `.md` note — it would cost a build, which is the whole reason
+   this moved. Publishing sends nothing, and no job pushes a note: a push is
+   `scripts/broadcast-whats-new.mjs`, run by hand after the owner says yes.
+   The page carries only changes a member can see: Publish refuses internal or
+   security wording, and CI holds the files to the same list.
+   Since 2026-11-17 a note can also carry ledger items (`patch_note_items`,
+   one row per change) and number tiles (`patch_note_figures`), migration
+   0323. With at least one item, `/whats-new/[slug]` shows a scoreboard, a
+   chart by area and a searchable ledger instead of the markdown, and the
+   index card shows the counts. The generator drafts the items with the note;
+   the owner edits them under each note at `/admin/whats-new`, and Publish
+   checks them like the body. A note's ledger can also be loaded from
+   `scripts/data/patch-notes/<slug>.json` with `scripts/fill-patch-note-ledger.mjs`
+   (`--undo` removes it). The areas have no slot for internal work, by design.
+2. **A branch that looks unlanded may already be merged by content.** Release
+   PRs squash several branches at once, so GitHub never marks the sources
+   merged and they stay permanently "ahead". Test-merge into `origin/main` and
+   read the *resulting* diff before concluding anything.
+3. **`next build --webpack` must not come back.** It OOM'd the Netlify
+   container at ~2034MB and froze the site. The history is in the comment at
+   `netlify.toml:68`.
+4. **Generator output is never publishable copy.** Raw commit subjects once
+   shipped an editor instruction onto the public page. Anything a model writes
+   for a public surface gets a human read first.
+5. **Parallel sessions share one checkout.** Run `npm run preflight` before
+   every commit. See standing rules 8 and 10 in `AGENTS.md`.
+6. **Letters get their iKratom lines at send time, never in templates.**
+   The recorder's clip line ("Listen to my 30-second message: <url>") is added
+   to the member's own text (`src/modules/campaigns/letter-extras.ts`). The
+   footer lives in `src/lib/email/letter-footer.ts`: plain "Sent via iKratom —
+   https://www.ikratom.org" for mailto/compose, and the iK logo plus a link in
+   the HTML part. `sendOnUserBehalf` sends every letter as text + HTML with
+   both, so a new one-click path gets the footer without asking; a new
+   compose path must call `withLetterFooter` (`tests/letter-extras.test.ts`
+   lists the paths). The logo is `public/ikratom-icon-180.png`: renaming it
+   breaks the image in every letter already sent. The clip recorder needs
+   `camera=(self), microphone=(self)` in the Permissions-Policy
+   (`next.config.ts`): with `()` it silently did nothing from 2026-05 to
+   2026-10-24.
+7. **Recipient chips show the official record, never a stance label.** They
+   read sponsorships and votes (`src/lib/kratom-record.ts`), not
+   `legislator_stance`, whose champion/hostile labels no human reviewed.
+8. **Member emails count clicks through `/e/<kind>/<page>`.** The route
+   `src/app/e/[kind]/[[...path]]` 302s to `<page>` (only ever an iKratom
+   page: `clickTarget` blocks open redirects), and `scripts/email-clicks.mjs` counts the
+   redirects in Cloudflare's analytics (the free plan sees paths, not query
+   strings; it keeps ~31 days). The sender checks the redirect at the Netlify
+   origin before every run and sends plain links if it fails ("links plain" in
+   the `scraper_runs` note), so never tag a link outside `emailLink()`. The
+   numbers decide how much of a story an email carries (owner, 2026-10-29).
+9. **Row rules check who wrote a row, not what it says.** A policy like
+   `author_id = auth.uid()` still lets a member write any value into the
+   counters and moderation columns of their own row. Migration 0302 closes this
+   with BEFORE INSERT/UPDATE triggers that reset those columns for
+   non-moderators (`guard_member_content_insert`, `guard_story_update`). Any new
+   member-writable table with counts, pins or a review status needs the same
+   guard, plus a case in `scripts/rls-pentest.mjs`. That script runs weekly in
+   `cron-weekly.yml` (source `rls_pentest`). It attacks production as a real
+   member and as a visitor, inside transactions that always roll back.
+10. **The background jobs spend Groq's main model every day, so members get
+    their own.** Groq limits tokens per day for each model separately. On
+    2026-10-31 the jobs (all on the `large` tier) had used 198,983 of
+    `openai/gpt-oss-120b`'s 200,000, while `openai/gpt-oss-20b` sat idle, and
+    Personalize was failing for members nearly every time. Calls a member waits
+    on now pass `tier: "member"`: Groq's `openai/gpt-oss-20b`, with a cooldown
+    of its own (`groq:member`), so a throttle on the jobs' model can't park it.
+    The `small` tier defaults to that same model, and nothing runs on `small`
+    today. Before moving a job to `small` (or setting `AI_TIER_DEFAULT=small`),
+    give members a model of their own with `GROQ_MODEL_MEMBER`. Otherwise the
+    job spends the members' allowance too. Mistral, Cloudflare and OpenRouter
+    meter per key, not per model, so the jobs drain those for everyone.
+    Two more follow from the same limit. The website's own Groq calls (letter
+    and campaign screening, chat moderation, in `src/lib/ai/providers/groq.ts`)
+    run on the members' model too, and a model that answers 429 falls back to
+    it. A job whose Groq model is out of daily tokens (the 429 says "per day")
+    retries once on `qwen/qwen3.8-27b` (`GROQ_MODEL_OVERFLOW`), with at most
+    1,000 output tokens, because that model allows 1,000 a minute. The
+    overflow never takes the members' model.
+11. **An official's email comes from their own page, never from the model.**
+    "550 5.4.1 Recipient address rejected" from a .gov server means the mailbox
+    does not exist, not that the server blocks us. On 2026-11-03 that was an
+    AI-guessed address: sites that mask addresses with Cloudflare show
+    "[email protected]", and the model filled the gap. `page-text.mjs` decodes
+    the mask, `emailOnPage()` keeps only addresses on the page, and
+    `scripts/verify-official-emails.mjs` re-checks saved ones. `legislators.email`
+    also holds contact-form URLs by design, so every send path asks
+    `isMailbox()` (`src/lib/mailbox.ts`), never `startsWith("http")`.
+12. **The `SUPABASE_ACCESS_TOKEN` repo secret starts with a byte-order mark.**
+    `fetch()` refuses it in a header, which is how the weekly RLS pentest
+    crashed every run from #1088 to #1106. Any script that reads a repo secret
+    into a header strips `﻿` and trims first, as `db-snapshot-api.mjs` does.
+13. **Auth emails are our templates, and they link to `/auth/confirm`.** Since
+    2026-11-10 the signup, reset and magic-link emails send a `token_hash` to
+    `/auth/confirm` (`scripts/lib/auth-email-templates.mjs`), which signs the
+    person in from any browser or mail app. Supabase's default link is a PKCE
+    `?code=` that only the browser that asked can redeem, and signup sent no
+    redirect, so for months confirm links landed on the homepage signed out.
+    Templates are editable only while Auth SMTP is custom (Resend). Check
+    drift with `node --env-file=.env.local scripts/auth-email-templates.mjs --check`;
+    `--rollback` restores Supabase's defaults. A second signup never changes
+    the password (Supabase keeps the first), and the username a new member
+    types is stamped with the service role, because they have no session yet:
+    as `anon`, any profiles query trips the owner policies, and since
+    migration 0310 that ERRORS ("permission denied for function is_owner").
+    From Nov 5 to Nov 10 every signup showed that error after the account
+    had been created.
+14. **Every GitHub job is pinned to `ubuntu-24.04`, not `ubuntu-latest`.**
+    On 2026-11-16 around 13:00 UTC, `ubuntu-latest` became Ubuntu 26.04.
+    `playwright-chromium`'s install step refuses that OS, so `npm ci` failed
+    in every job: CI, the hourly and daily crons, the send drain and backups.
+    `tests/workflow-runner-pin.test.ts` fails if a workflow goes back to
+    `ubuntu-latest`. Unpin only once Playwright supports the new image and a
+    draft run proves it.
+
+---
+
+15. **Sign-in captcha: code first, switch second (2026-11-16).** Every
+   Supabase Auth call forwards a Cloudflare Turnstile token (`src/lib/captcha.ts`,
+   `src/components/auth/useTurnstile.ts`), but Supabase only checks it once its
+   captcha setting is on, and then it rejects every call WITHOUT a token. The
+   site key is baked in at build time, so the order is: keys in Netlify, a
+   production build, `node --env-file=.env.local scripts/auth-captcha.mjs status`
+<<<<<<< HEAD
    says Ready, then `... enable`. `... disable` is the rollback. **ON since 2026-11-25** (owner yes): a call without a token now gets `captcha_failed`, and a real visitor gets a token with nothing to click. Blocking admins
    and the owner who have no 2FA factor is built but OFF (`ADMIN_MFA_ENFORCED` in
    `src/modules/admin/mfa.ts`): members were told it starts Mon 2026-11-23, and
    the admin 2FA sweep flips it after the owner's go/no-go that day.
+=======
+   says Ready, then `... enable`. `... disable` is the rollback. Every admin write
+   calls `requireMfaForMutation` (#1166; `tests/admin-mfa-coverage.test.ts` fails CI
+   on an ungated one), and admins and the owner with no 2FA factor are blocked
+   (`ADMIN_MFA_ENFORCED` in `src/modules/admin/mfa.ts`, owner go 2026-11-25, live
+   from the first production build after #1166). Leaders keep the grace rule.
 
 ## Where the forward plan is declared
 

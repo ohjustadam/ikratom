@@ -2,6 +2,7 @@
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 /**
@@ -30,6 +31,8 @@ export type DiagResult =
 export async function testDiscordWebhook(integrationId: string): Promise<DiagResult> {
   const ctx = await getAdminContext({ require: "run_data_diagnostics" });
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   const sb = svc();
   if (!sb) return { ok: false, error: "Service-role env not configured." };

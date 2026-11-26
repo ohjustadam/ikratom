@@ -29,6 +29,7 @@ import { PolicyPulseWidget } from "@/modules/dashboard/widgets/PolicyPulseWidget
 import { PushOptInBanner } from "@/components/PushOptInBanner";
 import { listMyPushSubscriptions } from "@/modules/auth/actions-push";
 import { LeaderInviteCard } from "@/modules/dashboard/LeaderInviteCard";
+import { SmartLinkBox } from "@/components/link-box/SmartLinkBox";
 import type { WidgetId } from "@/modules/dashboard/widgets/types";
 
 import Link from "@/components/Link";
@@ -276,6 +277,11 @@ export default async function DashboardPage({
         vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null}
         userState={profile?.state ?? null}
       />
+
+      {/* The smart link box: the top card, one paste and one tap (2026-11-25). */}
+      <div className="mt-6">
+        <SmartLinkBox compact heading="Seen something about kratom? Share the link." />
+      </div>
 
       {/* Render widgets in saved order. Falsey nodes (e.g. profile
           banner when profile is complete) silently render nothing. */}

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { recordAdminAction } from "@/lib/audit";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { isSafePublicUrl } from "@/lib/url-safety";
 
 /**
@@ -18,6 +19,8 @@ export async function updateBopSource(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!input.sourceId) return { error: "Missing source id." };
 
   const patch: Record<string, string | null> = {};
@@ -62,6 +65,8 @@ export async function setBopSourceEnabled(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -84,6 +89,8 @@ export async function setBopSourceEnabled(input: {
 export async function runBopSourceNow(input: { sourceId: string }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const sr = createServiceRoleClient();
   // Load just this source and walk it directly. Reuse the engine but
@@ -163,6 +170,8 @@ export async function reviewBopFinding(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -194,6 +203,8 @@ export async function reviewBopFinding(input: {
 export async function emitBopAlert(input: { findingId: string }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const supabase = await createClient();
   const { data: finding, error: fErr } = await supabase

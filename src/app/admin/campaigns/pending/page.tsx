@@ -27,6 +27,8 @@ export type PendingRow = {
   bill_id: string | null;
   mobilization_type: string | null;
   auto_generated: boolean | null;
+  /** A link-box draft: only a person may approve it (mig 0335). */
+  hold_for_person: boolean | null;
   review_state: string | null;
   reviewed_by: string | null;
   review_reason: string | null;
@@ -65,7 +67,7 @@ export default async function PendingCampaignsPage({
   let q = supabase
     .from("campaigns")
     .select(
-      "id, slug, title, blurb, state, bill_id, mobilization_type, auto_generated, " +
+      "id, slug, title, blurb, state, bill_id, mobilization_type, auto_generated, hold_for_person, " +
       "review_state, reviewed_by, review_reason, created_at, " +
       "bills(bill_number, status, kratom_relevance, relevance_confidence, official_url)",
       { count: "exact" }

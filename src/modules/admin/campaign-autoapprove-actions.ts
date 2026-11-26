@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext, getCreatorContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 /**
@@ -87,6 +88,8 @@ export async function setCampaignAutoApprovePolicy(input: {
 }) {
   const ctx = await getAdminContext({ require: "approve_campaigns" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const mode = (["off", "shadow", "live"].includes(input.mode) ? input.mode : "shadow") as
     "off" | "shadow" | "live";
@@ -139,6 +142,8 @@ export async function setCampaignAutoApprovePolicy(input: {
 export async function emergencyStopCampaignAutoApprove() {
   const ctx = await getAdminContext({ require: "approve_campaigns" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const sb = await createClient();
   const { error } = await sb
     .from("site_config")
@@ -191,6 +196,8 @@ export async function listRecentAutoDecisions(limit = 30): Promise<AutoDecisionR
 export async function reactivateRejectedCampaigns(ids: string[]) {
   const ctx = await getCreatorContext({ require: "approve_campaigns" });
   if (!ctx.ok) return { error: "Admin or leader only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const clean = (ids ?? []).filter((s) => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s)).slice(0, 500);
   if (clean.length === 0) return { error: "Nothing selected." };
   const sb = await createClient();

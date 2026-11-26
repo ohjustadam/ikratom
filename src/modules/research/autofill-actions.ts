@@ -31,6 +31,7 @@
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import { complete } from "@/lib/ai/router";
 import { lookupByDoi, extractDoi, isAbstractPlaceholder } from "@/lib/research-doi-lookup";
@@ -55,6 +56,8 @@ const MAX_ABSTRACT_LEN = 4000;
 export async function autofillResearchPaperAbstract(paperId: string): Promise<AutofillResult> {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { ok: false, error: "Admin required." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { ok: false, error: mfaErr };
 
   const db = admin();
   const { data: paper, error: fetchErr } = await db
