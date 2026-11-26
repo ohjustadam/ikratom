@@ -14,6 +14,8 @@
  *   - an active official's term_end_date has passed
  *   - the freshest check is older than STALE_DAYS (150, ahead of the UI's 180)
  *   - a hearing there is approved within 30 days and the check is 60+ days old
+ *   - January to March after an even-year general: the roster predates the new
+ *     terms (scripts/lib/local-roster-sweep.mjs)
  * auto-fulfill-pending-local-reps.mjs then re-confirms (bumps the check date),
  * adds newcomers, and retires departed members only on strong evidence.
  * Capped per run so the shared pipeline drains it over days.
@@ -22,10 +24,12 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { noCountyGovernment } from "./lib/no-county-government.mjs";
+import { postElectionSweep } from "./lib/local-roster-sweep.mjs";
 
 const DRY = process.argv.includes("--dry-run");
 const maxAt = process.argv.indexOf("--max");
-const MAX = maxAt > 0 ? Number(process.argv[maxAt + 1]) || 8 : 8;
+const sweep = postElectionSweep(Date.now());
+const MAX = maxAt > 0 ? Number(process.argv[maxAt + 1]) || 8 : sweep?.max ?? 8;
 const STALE_DAYS = 150;
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const startedAt = new Date().toISOString();
@@ -62,6 +66,7 @@ const due = [...locs.values()].map((l) => {
   const reason = l.termEnded > 0 ? `${l.termEnded} term(s) ended`
     : hearingSoon.has(l.locality) && l.ageDays >= 60 ? `hearing within 30 days, checked ${Math.round(l.ageDays)}d ago`
     : l.ageDays >= STALE_DAYS ? `checked ${Math.round(l.ageDays)}d ago`
+    : sweep && now - l.ageDays * DAY < sweep.since ? "new terms have begun since the last check"
     : null;
   // Order: ended terms first, then upcoming hearings, then plain staleness (oldest first).
   const rank = l.termEnded > 0 ? 0 : hearingSoon.has(l.locality) ? 1 : 2;

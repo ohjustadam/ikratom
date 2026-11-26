@@ -326,7 +326,7 @@ order:
 | State contacts | `sync-state-legislator-contacts.mjs` | email / phone / office address of sitting members from openstates/people; never clears, never steps an official email down to a personal one; **over 25 changed rows it holds** for the owner's yes (`--allow-bulk`) |
 | Roster emails (weekly) | `check-legislator-rosters.mjs` | each chamber's own member list beats openstates/people (MI Fairbairn bounced off the upstream spelling). Swaps only when the page lists ≥90% of the chamber and exactly one address carries the member's own name; 60-90% pages and anything else are reported, never cleared. Most chambers show emails only on detail pages, so ~19 of 100 can be checked. Over 25 swaps hold |
 | Swap on the handover day | `turnover-swap.mjs` | retires the incumbent only when openstates/people or congress-legislators shows the successor **in office**; the record is kept |
-| Election results | `ingest-election-results.mjs` | Election Day +1 to +60; a winner lands only when a **later day's** reading names the same person |
+| Election results | `ingest-election-results.mjs` | Election Day +1 to +60; a winner lands only when a **later day's** reading names the same person. Called seats are re-read daily: a changed winner goes back to review, over 40 in one run is held as a parser fault. `--audit` lists called seats the sources no longer support, read-only |
 | Seat watch | `sync-seat-watch.mjs` (every 3 days) | `term_calendar` + `seat_elections` (migration 0277) |
 
 Where the facts come from, all free and keyless:
@@ -336,6 +336,24 @@ Where the facts come from, all free and keyless:
   start dates of the two latest cycles.
 - **State `term_end_date`** is set from the SEAT's handover day, never from
   start date + term length, which is wrong for every appointee.
+
+**The 2026 general, as of 2026-11-25:** 4,738 of 6,679 seats called (3,593
+re-elected, 1,145 successors), 1,764 not yet read, 166 in review. Most of the
+review queue is turnover-swap holding seats whose handover passed (FL, IN, TN,
+SC, AL, DE, HI, OK) until openstates/people shows the successor; it drains as
+upstream updates. Unread chambers are the ones Wikipedia hasn't tabled yet (PA,
+IL, WV, WA, RI, SD, ID, NV House, VT, MT Senate). Only the first commit of
+#1133 landed on 11-16, so the cron ran without the later fixes until #1207. An
+audit that day found 19 of 4,728 calls the sources no longer supported (pages
+corrected after two readings, typos, one wrong hand review), which is why
+called seats are now re-read. Handover days that no rule fitted were set from
+the law or the chamber's calendar: MN 2027-01-12 (the 95th Legislature's
+convening, not the first-Tuesday rule), IA Senate 2027-01-02 (Iowa Code 39.8),
+ME 2026-12-02, WI 2027-01-04, CO 2027-01-11. HI Senate's seat list is still
+unverified (the page lists 15 districts, NCSL 13), so it has no seat rows.
+**Statewide executives follow openstates/people**, which still lists Dave Yost
+as Ohio AG after his June 2026 resignation; `sync-state-executives.mjs` would
+undo a local fix, so the seat sits in review until upstream changes.
 
 **Contacts were never refreshed until 2026-11-11.** Every state legislator row
 was last written by the one-off API seed on 2026-05-04 (7,294 of 7,337 active

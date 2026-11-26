@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseWikiResults, parseInfoboxResult, parseFloridaResults, rowKey } from "../scripts/lib/election-results.mjs";
+import { parseWikiResults, parseInfoboxResult, parseFloridaResults, parseMinnesotaResults, rowKey, decideSeat } from "../scripts/lib/election-results.mjs";
 
 /**
  * Winner extraction from Wikipedia election tables (officials turnover, part c).
@@ -192,5 +192,154 @@ describe("election results: Florida's results file", () => {
 
   it("ignores offices we don't track", () => {
     expect(parseFloridaResults(file(row("CFO", "Chief Financial Officer", "HIL", "Lee", "Ann", 5))).size).toBe(0);
+  });
+});
+
+describe("election results: more district shapes", () => {
+  const head = (d: string) => `<tr>${d}<th>Incumbent</th><th>Party</th><th>Elected Representative</th><th>Outcome</th></tr>`;
+
+  it("reads Idaho's seat column", () => {
+    const html = wrap(head("<th>District</th><th>Seat</th>"), "<tr><td>2</td><td>A</td><td>Heather Scott</td><td>Rep</td><td>Heather Scott</td><td>Hold</td></tr>");
+    expect(parseWikiResults(html).get("2a")?.[0].winners).toEqual(["Heather Scott"]);
+  });
+
+  it("reads New Hampshire's county and number columns", () => {
+    const html = wrap(head('<th colspan="2">District</th>'), "<tr><td>Rockingham</td><td>29</td><td>Ann Example</td><td>Rep</td><td>Ann Example</td><td>Hold</td></tr>");
+    expect(parseWikiResults(html).has("rockingham 29")).toBe(true);
+  });
+
+  it("a district cell spanning both columns stays one district", () => {
+    const html = wrap(head('<th colspan="2">District</th>'), '<tr><td colspan="2">12</td><td>Ann Example</td><td>Rep</td><td>Ann Example</td><td>Hold</td></tr>');
+    expect(parseWikiResults(html).has("12")).toBe(true);
+  });
+
+  it("our 'Third Suffolk' is the page's '3rd Suffolk'", () => {
+    expect(rowKey("Third Suffolk", "district")).toBe("3rd suffolk");
+    expect(rowKey("3rd Suffolk", "district")).toBe("3rd suffolk");
+  });
+
+  it("drops the tick a page leaves in front of a name", () => {
+    const html = wrap(head("<th>District</th>"), "<tr><td>92</td><td>Forrest Bennett</td><td>Dem</td><td>Y Sam Grimaldo</td><td>Hold</td></tr>");
+    expect(parseWikiResults(html).get("92")?.[0].winners).toEqual(["Sam Grimaldo"]);
+  });
+
+  const closed = `<table class="wikitable"><tr><th colspan="2">Party</th><th>Candidate</th><th>Votes</th><th>%</th></tr>
+    <tr><td></td><td>Dem</td><td><b><a>Ann Example</a></b></td><td>9</td><td>90</td></tr><tr><td colspan="5">Democratic hold</td></tr></table>`;
+
+  it("reads a vote box under a named district", () => {
+    expect(parseWikiResults(`<h2>Results</h2><h3>Addison</h3><h4>Results</h4>${closed}`).get("addison")?.[0].winners).toEqual(["Ann Example"]);
+  });
+
+  it("headings inside a district don't become districts", () => {
+    const html = `<h2>Results</h2><h3>District 20</h3><h4>Republican primary</h4><h5>Eliminated in primary</h5><h4>General election</h4>${closed}`;
+    const m = parseWikiResults(html);
+    expect(m.get("20")?.[0].winners).toEqual(["Ann Example"]);
+    expect(m.size).toBe(1);
+    const named = `<h2>Results</h2><h3>Windsor</h3><h4>Results</h4>${closed}<h4>Progressive primary</h4>${closed}<h5>Withdrawn</h5>${closed}`;
+    expect([...parseWikiResults(named).keys()]).toEqual(["windsor"]);
+  });
+
+  it("a special election's box is not this election's result", () => {
+    expect(parseWikiResults(`<h2>Special elections</h2><h3>District 5</h3>${closed}`).has("5")).toBe(false);
+    expect(parseWikiResults(`<h3>2026 special election: 1st Middlesex</h3>${closed}`).size).toBe(0);
+  });
+});
+
+describe("election results: deciding a seat", () => {
+  const seat = (incumbent_name: string, extra = {}) => ({ incumbent_name, seat: "", ...extra });
+
+  it("the page's own incumbent winning is a re-election under another name", () => {
+    expect(decideSeat(seat("Eric Crawford"), [{ incumbent: "Rick Crawford", winners: ["Rick Crawford"] }]))
+      .toEqual({ decision: "incumbent_reelected", winner: "Rick Crawford" });
+  });
+
+  it("a district listed twice reads as one result", () => {
+    const rows = [{ incumbent: "Marc LaHood", winners: [] }, { incumbent: "Marc LaHood", winners: ["Zack Dunn"] }];
+    expect(decideSeat(seat("Marc LaHood"), rows)).toEqual({ decision: "successor_elected", winner: "Zack Dunn" });
+  });
+
+  it("two rows naming two winners decide nothing", () => {
+    const rows = [{ incumbent: "Ann Lee", winners: ["Bo Cruz"] }, { incumbent: "Ann Lee", winners: ["Sam Hill"] }];
+    expect(decideSeat(seat("Ann Lee"), rows).decision).toBeNull();
+  });
+
+  it("an earlier special's row can't stand in for the general", () => {
+    const rows = [{ incumbent: "Zohran Mamdani", winners: ["Diana Moreno"] }, { incumbent: "Diana Moreno", winners: [] }];
+    expect(decideSeat(seat("Diana Moreno"), rows).decision).toBeNull();
+  });
+
+  it("a typo in the winner goes to review, not a departure", () => {
+    expect(decideSeat(seat("John Burkel"), [{ incumbent: "John Burkel", winners: ["John Burkey"] }]).decision).toBe("ambiguous");
+  });
+
+  it("a relative who shares the surname goes to review", () => {
+    expect(decideSeat(seat("Jesús García"), [{ incumbent: "Jesús García", winners: ["Patty García"] }]).decision).toBe("ambiguous");
+  });
+
+  it("our incumbent winning under another listed incumbent is a re-election", () => {
+    expect(decideSeat(seat("Jerry Tillett"), [{ incumbent: "Bobby Hanig", winners: ["Jerry Tillett"] }]).decision).toBe("incumbent_reelected");
+  });
+
+  it("someone else listed as incumbent means our roster may be behind", () => {
+    const out = decideSeat(seat("Dave Yost"), [{ incumbent: "Andy Wilson", winners: ["John Kulewicz"] }]);
+    expect(out.decision).toBe("ambiguous");
+    expect(out.reason).toContain("Andy Wilson");
+  });
+
+  it("no winner yet decides nothing", () => {
+    expect(decideSeat(seat("Ann Lee"), [{ incumbent: "Ann Lee", winners: [] }]).decision).toBeNull();
+    expect(decideSeat(seat("Ann Lee"), []).decision).toBeNull();
+  });
+
+  it("a multi-member district waits for every row", () => {
+    const s = seat("Ann Lee", { seat: "uuid" });
+    expect(decideSeat(s, [{ incumbent: "Ann Lee", winners: ["Ann Lee"] }, { incumbent: "Bo Cruz", winners: [] }]).decision).toBeNull();
+    expect(decideSeat(s, [{ incumbent: "Ann Lee", winners: ["Ann Lee"] }, { incumbent: "Bo Cruz", winners: ["Sam Hill"] }]).decision).toBe("incumbent_reelected");
+    expect(decideSeat(seat("Bo Cruz", { seat: "uuid" }), [{ incumbent: "Ann Lee", winners: ["Ann Lee"] }, { incumbent: "Bo Cruz", winners: ["Sam Hill"] }]))
+      .toEqual({ decision: "successor_elected", winner: "Sam Hill" });
+  });
+});
+
+describe("election results: Minnesota's files", () => {
+  const row = (office: string, d: string, name: string, votes: number, reporting = 174) =>
+    `MN;;;0188;${office} District ${d};${d};0301;${name};;;R;${reporting};174;${votes};50;0`;
+
+  it("reads both chambers", () => {
+    const m = parseMinnesotaResults([
+      row("State Representative", "1A", "John Burkel", 13223), row("State Representative", "1A", "Leanna Sandahl", 5205),
+      row("State Senator", "1", "Mark Johnson", 24014), row("State Senator", "1", "Bjorn Solberg", 11278),
+    ].join("\r\n"));
+    expect(m.get("state_house-1a")?.[0].winners).toEqual(["John Burkel"]);
+    expect(m.get("state_senate-1")?.[0].winners).toEqual(["Mark Johnson"]);
+  });
+
+  it("waits for every precinct and skips write-ins", () => {
+    const m = parseMinnesotaResults([
+      row("State Senator", "2", "Ann Lee", 900, 170), row("State Senator", "2", "Bo Cruz", 100, 170), row("State Senator", "3", "WRITE-IN", 2), row("State Senator", "3", "Sam Hill", 90), row("State Senator", "3", "Al Fox", 10),
+    ].join("\n"));
+    expect(m.get("state_senate-2")?.[0].winners).toEqual([]);
+    expect(m.get("state_senate-3")?.[0].winners).toEqual(["Sam Hill"]);
+  });
+});
+
+describe("election results: an incumbent moved by redistricting", () => {
+  it("winning another district is a re-election, not a departure", () => {
+    const rows = [{ incumbent: "Kevin Kiley", winners: ["Richard Pan"] }];
+    expect(decideSeat({ incumbent_name: "Ami Bera", seat: "" }, rows, ["Ami Bera", "Doris Matsui"]))
+      .toEqual({ decision: "incumbent_reelected", winner: "Ami Bera" });
+  });
+
+  it("a seat with no row of its own still reads", () => {
+    expect(decideSeat({ incumbent_name: "Blake Moore", seat: "" }, [], ["Blake Moore"]).decision).toBe("incumbent_reelected");
+  });
+
+  it("a neighbour with the same initial and surname is someone else", () => {
+    const rows = [{ incumbent: "Jasmine Clark", winners: ["Rahim Asani"] }];
+    expect(decideSeat({ incumbent_name: "Jasmine Clark", seat: "" }, rows, ["Josh Clark"]).decision).toBe("successor_elected");
+  });
+
+  it("a namesake's win elsewhere doesn't save a losing incumbent", () => {
+    const rows = [{ incumbent: "Tim Kennedy", winners: ["Ann Lee"] }];
+    expect(decideSeat({ incumbent_name: "Tim Kennedy", seat: "" }, rows, ["Mike Kennedy"]).decision).toBe("successor_elected");
   });
 });
