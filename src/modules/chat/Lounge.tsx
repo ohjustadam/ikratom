@@ -8,7 +8,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { postChatMessage, deleteChatMessage, type ChatMessage } from "./actions";
 import { ReportButton } from "@/modules/reports/components/ReportButton";
 import { useChromeMe } from "@/components/chrome/ChromeProvider";
-import { MentionText } from "./MentionText";
+import { FormattedText } from "./FormattedText";
 import { useLoungeSeen } from "./use-lounge-seen";
 import { isSendKey } from "@/lib/enter-to-send";
 
@@ -242,7 +242,7 @@ export function Lounge({
                 <RoleTag role={author?.role ?? (author?.isAdmin ? "admin" : null)} />
               </a>
               <span className="text-zinc-600">: </span>
-              <span className="whitespace-pre-wrap text-zinc-200"><MentionText body={m.body} me={myUsername} /></span>
+              <span className="whitespace-pre-wrap text-zinc-200"><FormattedText body={m.body} me={myUsername} /></span>
               <span className="ml-2 whitespace-nowrap text-[10px] text-zinc-700">
                 {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>

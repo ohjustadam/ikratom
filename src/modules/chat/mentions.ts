@@ -2,6 +2,7 @@ import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { extractMentions } from "@/lib/mentions";
+import { stripChatFormat } from "@/lib/chat-format";
 import { fanoutPushNotifications } from "@/modules/notifications/push-fanout";
 
 /**
@@ -34,7 +35,8 @@ export async function notifyLoungeMentions(input: {
   return notifyMentions({
     senderId: input.senderId,
     senderUsername: input.senderUsername,
-    body: input.body,
+    // The Lounge supports **bold** and *italic*; a notification shows words.
+    body: stripChatFormat(input.body),
     where: "the Lounge",
     link: `/?lounge=${input.messageId}`,
   });
