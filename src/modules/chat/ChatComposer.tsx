@@ -57,9 +57,10 @@ export function ChatComposer({
     edit(r.text, r.start, r.end);
   }
 
+  // After the selection, never over it: picking an emoji must not delete words.
   function insertEmoji(emoji: string) {
-    const { s, e } = selection();
-    edit(draft.slice(0, s) + emoji + draft.slice(e), s + emoji.length);
+    const { e } = selection();
+    edit(draft.slice(0, e) + emoji + draft.slice(e), e + emoji.length);
   }
 
   function pickMention(handle: string) {
@@ -98,7 +99,7 @@ export function ChatComposer({
           onKeyDown={onKeyDown}
           onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
           onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-          placeholder="Say hi… type @ to mention someone"
+          placeholder="Say hi… (@ to mention)"
           aria-label="Your message"
           rows={1}
           maxLength={MAX_BODY}
