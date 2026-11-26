@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 /**
@@ -252,6 +253,8 @@ export async function approveIntelTip(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const supabase = await createClient();
 
   const update: Record<string, unknown> = {
@@ -312,6 +315,8 @@ export async function approveIntelTip(input: {
 export async function rejectIntelTip(input: { alertId: string; note: string }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const supabase = await createClient();
 
   // Same pending-only guard as approve: don't re-reject / churn an alert that

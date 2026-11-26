@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 import type { ExtCategory } from "./labels";
 import { CATEGORIES as VALID_CATEGORIES } from "./labels";
@@ -105,6 +106,8 @@ export async function createExternalCommunity(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const err = validate(input);
   if (err) return { error: err };
 
@@ -146,6 +149,8 @@ export async function updateExternalCommunity(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   if (!input.id) return { error: "Missing id." };
   const err = validate(input);
   if (err) return { error: err };
@@ -196,6 +201,8 @@ export async function deleteExternalCommunity(input: {
 }) {
   const ctx = await getAdminContext();
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const supabase = await createClient();
 
   const { data: existing, error: readErr } = await supabase

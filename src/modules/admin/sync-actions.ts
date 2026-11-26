@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { syncStateLegislators } from "@/lib/sync/openstates";
 import { recordAdminAction } from "@/lib/audit";
 import { getAdminContext } from "./actions";
+import { requireMfaForMutation } from "./mfa";
 
 /**
  * Re-sync legislators for one state from OpenStates.
@@ -13,6 +14,8 @@ import { getAdminContext } from "./actions";
 export async function syncOneStateLegislators(state: string) {
   const ctx = await getAdminContext({ require: "sync_legislators" });
   if (!ctx.ok) return { error: "Admin only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const abbr = state.trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(abbr)) return { error: "Invalid state code." };

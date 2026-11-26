@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCreatorContext } from "@/modules/admin/actions";
+import { requireMfaForMutation } from "@/modules/admin/mfa";
 import { recordAdminAction } from "@/lib/audit";
 
 import { EVENT_TYPE_LABELS } from "./labels";
@@ -13,6 +14,8 @@ const VALID_TYPES = Object.keys(EVENT_TYPE_LABELS);
 export async function createEvent(formData: FormData) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Admin or leader only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
 
   const cap = (s: string, n: number) => s.slice(0, n).trim();
   const stateRaw = cap(String(formData.get("state") ?? ""), 2).toUpperCase();
@@ -76,6 +79,8 @@ export async function createEvent(formData: FormData) {
 export async function cancelEvent(eventId: string) {
   const ctx = await getCreatorContext();
   if (!ctx.ok) return { error: "Admin or leader only." };
+  const mfaErr = requireMfaForMutation(ctx);
+  if (mfaErr) return { error: mfaErr };
   const supabase = await createClient();
   const { error } = await supabase
     .from("legislator_events")

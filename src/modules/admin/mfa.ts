@@ -6,10 +6,10 @@ export const ADMIN_MFA_ENROLL_MESSAGE =
 
 /**
  * Whether an admin or owner with NO verified factor is blocked from mutating.
- * Off for now: flipped by the admin 2FA sweep after the Nov 23 go/no-go;
- * members were told Nov 23 (email + bell note, 2026-11-16).
+ * On since the owner's go on 2026-11-25 (members were told Nov 23 by email +
+ * bell note on 2026-11-16). Setting it false restores the grace rule.
  */
-export const ADMIN_MFA_ENFORCED = false;
+export const ADMIN_MFA_ENFORCED = true;
 
 /**
  * MFA gate for sensitive admin mutations.
@@ -19,10 +19,8 @@ export const ADMIN_MFA_ENFORCED = false;
  *
  *   - Backup-code bypass cookie (signed, 1 hour): allowed.
  *   - Admin or owner with NO verified factor (`aalNext !== "aal2"`): blocked
- *     and told to enroll at /account/security, but only once
- *     ADMIN_MFA_ENFORCED is on (owner deadline Mon 2026-11-23). Until then
- *     they keep the grace rule. The owner has a factor, so this cannot lock
- *     him out.
+ *     and told to enroll at /account/security (ADMIN_MFA_ENFORCED, on since
+ *     2026-11-25). The owner has a factor, so this cannot lock him out.
  *   - Anyone WITH a factor whose session is still aal1: blocked until they
  *     enter their code (/login/mfa or the inline prompt).
  *   - Otherwise allowed. A plain leader acting on a granted permission keeps

@@ -10,8 +10,11 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  */
 
 // Mockable state
-let mockCtx: { ok: boolean; isOwner: boolean; isAdmin?: boolean; userId?: string; email?: string } = {
-  ok: true, isOwner: true, isAdmin: true, userId: "owner-id", email: "owner@example.com",
+type Aal = "aal1" | "aal2" | null;
+let mockCtx: {
+  ok: boolean; isOwner: boolean; isAdmin?: boolean; userId?: string; email?: string; aal?: Aal; aalNext?: Aal; enforce?: boolean;
+} = {
+  ok: true, isOwner: true, isAdmin: true, userId: "owner-id", email: "owner@example.com", aal: "aal2", aalNext: "aal2",
 };
 let mockRpcResult: { data: unknown; error: { message: string } | null } = { data: [], error: null };
 const recordedActions: Array<{ action: string; details?: Record<string, unknown> }> = [];
@@ -44,7 +47,7 @@ async function loadActions() {
 
 describe("runSqlQuery — safety rails", () => {
   beforeEach(() => {
-    mockCtx = { ok: true, isOwner: true, isAdmin: true, userId: "owner-id", email: "owner@example.com" };
+    mockCtx = { ok: true, isOwner: true, isAdmin: true, userId: "owner-id", email: "owner@example.com", aal: "aal2", aalNext: "aal2" };
     mockRpcResult = { data: [{ ok: 1 }], error: null };
     recordedActions.length = 0;
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
@@ -59,6 +62,24 @@ describe("runSqlQuery — safety rails", () => {
     if (!r.ok) expect(r.error).toMatch(/admin/i);
   });
 
+  it("refuses an owner with no 2FA factor before running anything (#1159 sweep)", async () => {
+    // enforce: true pins the block on, whatever ADMIN_MFA_ENFORCED says.
+    mockCtx = { ...mockCtx, aal: "aal1", aalNext: "aal1", enforce: true };
+    const { runSqlQuery } = await loadActions();
+    const r = await runSqlQuery({ query: "select 1" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("/account/security");
+    expect(recordedActions).toEqual([]);
+  });
+
+  it("asks an enrolled owner at aal1 for the code instead", async () => {
+    mockCtx = { ...mockCtx, aal: "aal1", aalNext: "aal2" };
+    const { runSqlQuery } = await loadActions();
+    const r = await runSqlQuery({ query: "select 1" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/^Two-factor verification required/);
+  });
+
   it("accepts a simple SELECT for the owner", async () => {
     const { runSqlQuery } = await loadActions();
     const r = await runSqlQuery({ query: "select count(*) from bills" });
@@ -66,7 +87,7 @@ describe("runSqlQuery — safety rails", () => {
   });
 
   it("rejects a SELECT for a non-owner admin (console is owner-only)", async () => {
-    mockCtx = { ok: true, isOwner: false, isAdmin: true, userId: "admin-id", email: "admin@example.com" };
+    mockCtx = { ok: true, isOwner: false, isAdmin: true, userId: "admin-id", email: "admin@example.com", aal: "aal2", aalNext: "aal2" };
     const { runSqlQuery } = await loadActions();
     const r = await runSqlQuery({ query: "select count(*) from bills" });
     expect(r.ok).toBe(false);
@@ -152,7 +173,7 @@ describe("runSqlQuery — safety rails", () => {
   });
 
   it("UPDATE refused for non-owner admin even with acknowledge", async () => {
-    mockCtx = { ok: true, isOwner: false, isAdmin: true, userId: "admin-id", email: "admin@example.com" };
+    mockCtx = { ok: true, isOwner: false, isAdmin: true, userId: "admin-id", email: "admin@example.com", aal: "aal2", aalNext: "aal2" };
     const { runSqlQuery } = await loadActions();
     const r = await runSqlQuery({
       query: "UPDATE bills SET active = false WHERE id = 'foo'",
@@ -202,7 +223,7 @@ describe("runSqlQuery — safety rails", () => {
 
 describe("flushCacheTag — auth", () => {
   beforeEach(() => {
-    mockCtx = { ok: true, isOwner: true, isAdmin: true, userId: "owner-id", email: "owner@example.com" };
+    mockCtx = { ok: true, isOwner: true, isAdmin: true, userId: "owner-id", email: "owner@example.com", aal: "aal2", aalNext: "aal2" };
     recordedActions.length = 0;
   });
 
@@ -230,7 +251,7 @@ describe("flushCacheTag — auth", () => {
 
 describe("revalidateAdminPath — path validation", () => {
   beforeEach(() => {
-    mockCtx = { ok: true, isOwner: true, isAdmin: true, userId: "owner-id", email: "owner@example.com" };
+    mockCtx = { ok: true, isOwner: true, isAdmin: true, userId: "owner-id", email: "owner@example.com", aal: "aal2", aalNext: "aal2" };
     recordedActions.length = 0;
   });
 
