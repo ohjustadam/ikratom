@@ -100,9 +100,11 @@ as $$
   select col1, col2 from public.<t> where id = p_id;
 $$;
 
+revoke all on function public.get_X(uuid) from public, anon;
 grant execute on function public.get_X(uuid) to authenticated;
-revoke all on function public.get_X(uuid) from public;
 ```
+
+Name `anon` in the revoke. Supabase grants EXECUTE on every new function to `anon` by name, so `from public` alone leaves it callable signed-out (0337 fixed four that way). If signed-out visitors need it, grant `to anon, authenticated` instead. `tests/migration-anon-execute.test.ts` fails a migration that grants to `authenticated` only and leaves anon open.
 
 Always specify `set search_path = public` — without it, a malicious schema can shadow tables.
 
