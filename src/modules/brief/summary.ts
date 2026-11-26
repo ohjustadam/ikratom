@@ -122,7 +122,7 @@ export async function getOrGenerateBriefSummary(
   //    if every provider fails (the brief is still useful without it).
   try {
     const prompt = PROMPT.replace("{{INPUT}}", renderInput(signals));
-    const result = await complete("general", prompt, {}, { maxTokens: 220, temperature: 0.3 });
+    const result = await complete("news_enrich", prompt, {}, { maxTokens: 220, temperature: 0.3 });
     const summary = result.text.trim();
     if (!summary || summary.length < 20) return null;
 

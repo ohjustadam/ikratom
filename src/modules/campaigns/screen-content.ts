@@ -14,9 +14,9 @@ import { explicitBanAsk } from "@/lib/letter-stance";
  * at scale is campaign AUTHORSHIP — we screen the template there.
  *
  * Free-tier only (platform policy): routes via the AI router's
- * `email_stance_screen` task → Groq primary, Gemini fallback, never a paid
- * API. Ollama is excluded for prod safety (server actions on Vercel can't
- * reach a localhost model).
+ * `email_stance_screen` task → Groq only (the text is a member's own, so no
+ * Gemini: owner, 2026-11-26), never a paid API. Ollama is excluded for prod
+ * safety (a server action on the host can't reach a localhost model).
  *
  * Philosophy: SOFT gate. We never silently block speech — a flagged template
  * is routed to the human review queue, and an unreachable screener fails SAFE

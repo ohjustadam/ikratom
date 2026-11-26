@@ -21,6 +21,10 @@ describe("/privacy matches the code", () => {
     expect(analytics).toContain("disable_session_recording: true");
   });
 
+  it("says Groq alone receives a member's details (held by member-data-ai.test.ts)", () => {
+    expect(page).toContain("the only outside AI that receives your details");
+  });
+
   it("names every outside AI provider the web app can call", () => {
     const registry = read("src/lib/ai/router.ts").match(/const REGISTRY[^=]*=\s*\{([\s\S]*?)\n\};/)?.[1] ?? "";
     // `name,` is a wired provider; `name: null` is not; ollama is self-hosted.

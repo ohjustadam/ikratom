@@ -10,7 +10,9 @@
  *   3. legislator_position — the stated position as a queryable enum, so the
  *                        board can roll up "what is government saying" by state.
  *
- * Provider chain: Groq, then each configured Gemini key, JSON mode.
+ * Groq only, JSON mode: a transcript is a member's own record of a call, so it
+ * never goes to Gemini (owner, 2026-11-26). Two Groq models stand in for each
+ * other, because each has its own daily allowance.
  *
  * A plain server-only module, NOT "use server": it is called only from
  * actions.ts, and as a server action every export would be an endpoint
@@ -28,11 +30,8 @@ import {
 } from "./summary-format";
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
-// Each Google Cloud project has its own free quota, so a depleted key falls
-// through to the next one.
-const GEMINI_KEYS = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2].filter(
-  (k): k is string => Boolean(k),
-);
+// The members' model first: the background jobs spend gpt-oss-120b's day.
+const MODELS = [process.env.GROQ_MODEL_MEMBER ?? "openai/gpt-oss-20b", "openai/gpt-oss-120b"];
 
 const SYSTEM = `You summarize a single phone call between a kratom advocate and a US legislator (or their staff).
 The transcript is rough — speech recognition introduces typos, dropped words, speaker switches mid-sentence.
@@ -58,20 +57,22 @@ Return JSON with these fields:
 
 Return ONLY the JSON. No prose around it.`;
 
-async function callGroq(transcript: string, ctx: string): Promise<{ parsed: SummaryParsed; provider: string } | null> {
+async function callGroq(transcript: string, ctx: string, model: string): Promise<{ parsed: SummaryParsed; provider: string } | null> {
   if (!GROQ_KEY) return null;
   try {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "openai/gpt-oss-120b", // llama-3.3-70b-versatile retired by Groq (2026-10)
+        model,
         messages: [
           { role: "system", content: SYSTEM },
           { role: "user", content: `${ctx}\n\nTRANSCRIPT:\n${transcript}` },
         ],
         temperature: 0.2,
-        max_tokens: 800,
+        // gpt-oss thinks first and those tokens count against max_tokens.
+        max_tokens: 1_500,
+        ...(/gpt-oss/.test(model) ? { reasoning_effort: "low" } : {}),
         response_format: { type: "json_object" },
       }),
       signal: AbortSignal.timeout(30_000),
@@ -81,35 +82,6 @@ async function callGroq(transcript: string, ctx: string): Promise<{ parsed: Summ
     const raw = data.choices?.[0]?.message?.content;
     if (!raw) return null;
     return { parsed: JSON.parse(raw) as SummaryParsed, provider: "groq" };
-  } catch {
-    return null;
-  }
-}
-
-async function callGemini(transcript: string, ctx: string, key: string): Promise<{ parsed: SummaryParsed; provider: string } | null> {
-  try {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: `${ctx}\n\nTRANSCRIPT:\n${transcript}` }] }],
-          systemInstruction: { parts: [{ text: SYSTEM }] },
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 800,
-            responseMimeType: "application/json",
-          },
-        }),
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-    if (!r.ok) return null;
-    const data = await r.json();
-    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!raw) return null;
-    return { parsed: JSON.parse(raw) as SummaryParsed, provider: "gemini" };
   } catch {
     return null;
   }
@@ -132,12 +104,8 @@ export async function aiSummarizeCall(args: {
     `Role: ${args.recipient_role ?? "(unknown)"}\n` +
     `State: ${args.state ?? "(unknown)"}\n`;
 
-  const providers: Array<() => Promise<{ parsed: SummaryParsed; provider: string } | null>> = [
-    () => callGroq(args.transcript_md, ctx),
-    ...GEMINI_KEYS.map((key) => () => callGemini(args.transcript_md, ctx, key)),
-  ];
-  for (const fn of providers) {
-    const r = await fn();
+  for (const model of MODELS) {
+    const r = await callGroq(args.transcript_md, ctx, model);
     if (r) {
       return {
         summary_md: formatSummaryMd(r.parsed),

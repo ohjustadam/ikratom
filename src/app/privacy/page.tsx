@@ -139,14 +139,19 @@ export default function PrivacyPage() {
             <li><strong>PostHog</strong> — product analytics, described above</li>
             <li><strong>Sentry</strong> — error reports when something breaks. Sign-in cookies, query strings and IP address details are stripped from a report before it is sent</li>
             <li>
-              <strong>Groq and Google (Gemini)</strong> — free AI services; Groq is tried first and
-              Google is the backup. When you ask for a drafted or personalized letter, they receive
-              your name, city and state (never street or ZIP) and your story details. Lounge and chat
-              room messages are sent to be screened for abuse, and call transcripts you submit are
-              sent to be summarized (dictation is done by your browser&apos;s speech service). Direct messages are never sent. Google says it may use what its free
-              service receives to improve its products, and that people there may review it. Public
-              posts, links and tips may also be checked, sorted or translated by these and other free
-              AI services.
+              <strong>Groq</strong> — a free AI service, and the only outside AI that receives your
+              details. When you ask for a drafted or personalized letter, it receives your name, city
+              and state (never street or ZIP) and your story details. The text of a letter you send
+              is checked by it, for threats and for requests to ban natural kratom. Lounge and chat
+              room messages are sent to it to be screened for abuse, and call transcripts you submit
+              are sent to it to be summarized (dictation is done by your browser&apos;s speech
+              service). Direct messages are never sent.
+            </li>
+            <li>
+              <strong>Google (Gemini) and other free AI services</strong> — for public material only,
+              such as news, bills, links, tips and posts everyone can read, which they may check,
+              sort or translate. Your name, street address, profile story, letters, chat messages and
+              call transcripts are not sent to them.
             </li>
             <li><strong>Discord</strong> — only if you link your account</li>
             <li><strong>Google OAuth + Gmail API</strong> — only if you connect Gmail. Only <code className="text-xs">gmail.send</code> scope.</li>
