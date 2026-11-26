@@ -313,6 +313,11 @@ export function PendingQueueClient({ rows, totalCount, stateCounts, currentParam
                           🤖 auto
                         </div>
                       )}
+                      {c.hold_for_person && (
+                        <div className="mt-1 text-[10px] uppercase tracking-wider text-sky-300" title={c.review_reason ?? undefined}>
+                          🔗 link box · needs a person
+                        </div>
+                      )}
                     </td>
                     <td className="p-2 align-top text-[11px]">
                       {c.review_state === "superseded" ? (

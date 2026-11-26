@@ -102,6 +102,8 @@ for (let from = 0; from < 3000; from += 1000) {
     .select("id, slug, title, state, bill_id, created_at, target_legislator_ids, subject_template, body_template")
     .eq("review_state", "pending_review")
     .eq("auto_generated", true)
+    // Belt and braces: a draft held for a person is never the engine's (mig 0335).
+    .eq("hold_for_person", false)
     .order("created_at", { ascending: true })
     .range(from, from + 999);
   if (error) { console.error("candidate query failed:", error.message); await tag("error", 0); process.exit(1); }

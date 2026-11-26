@@ -4,6 +4,7 @@ import { createAnonClient } from "@/lib/supabase/anon";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { linkVariants } from "@/lib/shared-link";
+import { liveCampaignsFor } from "@/modules/news/story-campaigns";
 
 /**
  * "Do we already have this story, and is there something to do about it?"
@@ -48,11 +49,7 @@ export async function findStoryByLink(raw: string): Promise<LinkMatch> {
     story = (data as Row | null) ?? hits[0];
   }
 
-  // Its bill's live campaigns first; failing that, the live campaigns in its state.
-  const live = () => sb.from("campaigns").select("slug, title").eq("active", true).order("created_at", { ascending: false }).limit(3);
-  let campaigns: { slug: string; title: string }[] = [];
-  if (story.bill_id) campaigns = ((await live().eq("bill_id", story.bill_id)).data ?? []) as typeof campaigns;
-  if (!campaigns.length && story.state) campaigns = ((await live().eq("state", story.state)).data ?? []) as typeof campaigns;
+  const campaigns = await liveCampaignsFor(sb, { billId: story.bill_id, state: story.state });
 
   return { story: { id: story.id, title: story.title, source: story.source_name }, campaigns };
 }

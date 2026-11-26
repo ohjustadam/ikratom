@@ -668,6 +668,36 @@ older daily drafts (11-18 to 11-24) are superseded, so don't publish them.
   `scraper_runs`, or the staleness check calls it silent. That happened to
   `classify_bop_findings_ai`, fixed in #1200.
 
+## The smart link box (2026-11-25)
+
+One big box and a "Share it" button, under the homepage headline, as the top
+card on the dashboard, and as the whole of `/alerts/submit`. The phone's share
+sheet and the app icon's "Share a link" shortcut (manifest `shortcuts`) both
+open that page. Code: `src/modules/link-box/`, pure rules in
+`src/lib/link-box.ts` (tested in `tests/link-box.test.ts`).
+
+- **Duplicate check first.** It looks for the link as given (no tracking
+  parameters), the Google News link decoded, where its redirects end, and the
+  page's canonical. It checks `news_items.url`/`resolved_url`, every
+  `policy_alerts.source_url` (pending tips count), the bills' own pages, and
+  the same headline within a year. Only a link that matches nothing creates
+  anything.
+- **New links** become a PENDING intel tip in the member's name. The free
+  router (`link_classify`: Groq, then Gemini, 8 s cap) writes the summary, and
+  its reading goes in `moderation_note`. `action_required` is always false, so
+  the tip can't start a campaign by itself.
+- **A campaign draft** is made only for a live state bill that restricts
+  kratom and has no campaign yet (`draftWorthy`: not settled, session not
+  ended, moved within 120 days). It is `pending_review`, inactive and
+  `hold_for_person = true` (migration 0335). The grounded cron, "Auto-resolve
+  all" and the hourly engine all skip held drafts, so only a person can publish
+  one.
+- **Limits:** 30 checks an hour per member, 60 a day per network, 6 new links
+  an hour and 20 a day. The page fetch is SSRF-safe (`safeFetch`) and capped at
+  300 KB.
+- **No phone widget:** a real home-screen widget needs a native app, which is
+  parked. The shortcut plus the share sheet is the free equivalent.
+
 ---
 
 ## Things that will bite you
@@ -798,7 +828,7 @@ older daily drafts (11-18 to 11-24) are superseded, so don't publish them.
    captcha setting is on, and then it rejects every call WITHOUT a token. The
    site key is baked in at build time, so the order is: keys in Netlify, a
    production build, `node --env-file=.env.local scripts/auth-captcha.mjs status`
-   says Ready, then `... enable`. `... disable` is the rollback. Every admin write
+   says Ready, then `... enable`. `... disable` is the rollback. **ON since 2026-11-25** (owner yes): a call without a token now gets `captcha_failed`, and a real visitor gets a token with nothing to click. Every admin write
    calls `requireMfaForMutation` (#1166; `tests/admin-mfa-coverage.test.ts` fails CI
    on an ungated one), and admins and the owner with no 2FA factor are blocked
    (`ADMIN_MFA_ENFORCED` in `src/modules/admin/mfa.ts`, owner go 2026-11-25, live

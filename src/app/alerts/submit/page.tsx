@@ -1,8 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { SubmitIntelForm } from "./SubmitIntelForm";
+import { SmartLinkBox } from "@/components/link-box/SmartLinkBox";
 
 import Link from "@/components/Link";
-export const metadata = { title: "Submit intel" };
+export const metadata = { title: "Share a link" };
 
 /**
  * Advocate intel-submission form. Authenticated users can flag a
@@ -19,7 +20,7 @@ export default async function SubmitIntelPage({
 }: {
   // Populated by the PWA Web Share Target (see manifest.ts share_target):
   // sharing a link/article into iKratom GET-navigates here with these.
-  searchParams: Promise<{ title?: string; text?: string; url?: string }>;
+  searchParams: Promise<{ title?: string; text?: string; url?: string; details?: string }>;
 }) {
   const sp = await searchParams;
   // Many Android apps drop the URL into `text` rather than `url`; pull a
@@ -53,11 +54,19 @@ export default async function SubmitIntelPage({
           My submitted tips →
         </Link>
       </div>
-      <header className="mt-2 mb-6">
-        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-          Field intel
-        </p>
-        <h1 className="mt-1 text-3xl font-bold">Did you spot something?</h1>
+      {/* The smart link box is the page now (2026-11-25): the phone's share
+          sheet and the app icon's "Share a link" shortcut both land here.
+          A shared link is checked at once; adding it takes the member's tap. */}
+      <div className="mt-3">
+        <SmartLinkBox initialUrl={sharedUrl} autoCheck={!!sharedUrl} heading="Share a link with iKratom" />
+      </div>
+
+      <details id="details" open={sp.details === "1"} className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950/30 p-4">
+        <summary className="cursor-pointer text-lg font-semibold text-zinc-200">
+          Want to write it up yourself? Open the full form (optional)
+        </summary>
+      <header className="mt-4 mb-6">
+        <h1 className="text-2xl font-bold">Did you spot something?</h1>
         <p className="mt-3 text-sm text-zinc-400">
           City council agenda dropping a kratom item? AG quoted in a
           regional paper? Local cops doing a smoke-shop sweep? Tell us —
@@ -118,6 +127,7 @@ export default async function SubmitIntelPage({
         initialBody={sharedBody}
         initialUrl={sharedUrl}
       />
+      </details>
     </div>
   );
 }
