@@ -325,8 +325,9 @@ order:
 | Roster diffs | `sync-state-roster-diff.mjs`, `sync-congress-roster-diff.mjs` | exact openstates / bioguide ids |
 | State contacts | `sync-state-legislator-contacts.mjs` | email / phone / office address of sitting members from openstates/people; never clears, never steps an official email down to a personal one; **over 25 changed rows it holds** for the owner's yes (`--allow-bulk`) |
 | Roster emails (weekly) | `check-legislator-rosters.mjs` | each chamber's own member list beats openstates/people (MI Fairbairn bounced off the upstream spelling). Swaps only when the page lists ≥90% of the chamber and exactly one address carries the member's own name; 60-90% pages and anything else are reported, never cleared. Most chambers show emails only on detail pages, so ~19 of 100 can be checked. Over 25 swaps hold |
-| Swap on the handover day | `turnover-swap.mjs` | retires the incumbent only when openstates/people or congress-legislators shows the successor **in office**; the record is kept |
-| Election results | `ingest-election-results.mjs` | Election Day +1 to +60; a winner lands only when a **later day's** reading names the same person. Called seats are re-read daily: a changed winner goes back to review, over 40 in one run is held as a parser fault. `--audit` lists called seats the sources no longer support, read-only |
+| Official rosters | `check-official-rosters.mjs` (daily; `--discover` weekly) | each state chamber's OWN member list (migrations 0339, 0340). A page counts only when it lists 85% of the members we expect to stay. A seat past its handover whose winner is listed and whose outgoing member is not gets `official-roster:<day>`, plus the address the chamber prints. Members missing from a vouched list go in `official_roster_checks` (review only, never retired). Pages that work are remembered in `official_roster_pages`; the weekly run crawls home pages for chambers it can't read, so a moved site or a new session's URL is re-found. 57 of 100 chambers readable (2026-11-27) |
+| Swap on the handover day | `turnover-swap.mjs` | retires the incumbent only when openstates/people, congress-legislators or the chamber's own list (above) shows the successor **in office**; the record is kept. Confirmed by the chamber's list alone, the successor's row is added from the seat and the roster diff links it to openstates/people later |
+| Election results | `ingest-election-results.mjs` | Election Day +1 to +100 (outlasts the Jan 13-20 handovers); a winner lands only when a **later day's** reading names the same person. Called seats are re-read daily: a changed winner goes back to review, over 40 in one run is held as a parser fault. `--audit` lists called seats the sources no longer support, read-only |
 | Seat watch | `sync-seat-watch.mjs` (every 3 days) | `term_calendar` + `seat_elections` (migration 0277) |
 
 Where the facts come from, all free and keyless:
@@ -351,6 +352,17 @@ the law or the chamber's calendar: MN 2027-01-12 (the 95th Legislature's
 convening, not the first-Tuesday rule), IA Senate 2027-01-02 (Iowa Code 39.8),
 ME 2026-12-02, WI 2027-01-04, CO 2027-01-11. HI Senate's seat list is still
 unverified (the page lists 15 districts, NCSL 13), so it has no seat rows.
+**2026-11-27: the chambers' own lists.** openstates/people had not touched FL,
+IN, TN, SC, AL, DE, HI or OK since October, so 167 seats sat past their
+handover with the outgoing member still active. The official-roster step
+confirmed 127 of them the day it shipped (FL, IN, TN, SC, DE); turnover-swap
+retired those members and added 127 newcomers (19 with the address the chamber
+prints, the rest fill in when openstates/people catches up). Still held: AL
+(the site times out), OK (the Senate site refuses us), HI (its pages still list
+the outgoing members). The same day the reader learned Pennsylvania's table
+(one candidate per row, a bare "Reelected"): 212 first readings, and the
+re-check caught PA Senate 36, called for James Malone off a stale box, which
+Tom Jones won.
 **Statewide executives follow openstates/people**, which still lists Dave Yost
 as Ohio AG after his June 2026 resignation; `sync-state-executives.mjs` would
 undo a local fix, so the seat sits in review until upstream changes.

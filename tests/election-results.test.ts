@@ -343,3 +343,26 @@ describe("election results: an incumbent moved by redistricting", () => {
     expect(decideSeat({ incumbent_name: "Tim Kennedy", seat: "" }, rows, ["Mike Kennedy"]).decision).toBe("successor_elected");
   });
 });
+
+describe("parseWikiResults: one candidate per row (Pennsylvania 2026)", () => {
+  const th = (cells: string[]) => `<tr>${cells.map((c) => `<th>${c}</th>`).join("")}</tr>`;
+  const html = `<table class="wikitable">${th(["District", "Party", "Incumbent", "Status", "Party", "Candidate", "Votes", "%"])}
+    <tr><td rowspan="1">1</td><td>Democratic</td><td rowspan="1">Pat Harkins</td><td rowspan="1">Reelected</td><td>Democratic</td><td>Pat Harkins</td><td>13,875</td><td>100.0%</td></tr>
+    <tr><td rowspan="2">36</td><td rowspan="2">Democratic</td><td rowspan="2">James Malone</td><td rowspan="2">Defeated</td><td>Republican</td><td>Tom Jones</td><td>65,325</td><td>54.5%</td></tr>
+    <tr><td>Democratic</td><td>James Malone</td><td>54,579</td><td>45.5%</td></tr>
+    <tr><td rowspan="2">40</td><td rowspan="2">Republican</td><td rowspan="2">Rosemary Brown</td><td rowspan="2">Retired</td><td>Republican</td><td>Ann Lee</td><td>5,000</td><td>50.0%</td></tr>
+    <tr><td>Democratic</td><td>Bo Pratt</td><td>5,000</td><td>50.0%</td></tr></table>
+    <table class="wikitable">${th(["District", "Candidates", "Votes", "Percent"])}<tr><td>36</td><td>Tom Jones</td><td>19,055</td><td>80.43%</td></tr></table>`;
+  const out = parseWikiResults(html, "district");
+  const winners = (k: string) => (out.get(k) ?? []).flatMap((e: { winners: string[] }) => e.winners);
+
+  it("a bare Reelected status is the incumbent", () => {
+    expect(winners("1")).toContain("Pat Harkins");
+  });
+  it("a defeated incumbent's seat goes to the top share", () => {
+    expect(winners("36")).toEqual(["Tom Jones"]);
+  });
+  it("a tie is not a result, and a primary table with no status is ignored", () => {
+    expect(winners("40")).toEqual([]);
+  });
+});

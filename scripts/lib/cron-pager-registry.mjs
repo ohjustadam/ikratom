@@ -213,6 +213,7 @@ export const REGISTRY = [
   // Its two daily siblings in the same job; both write a row every run, even
   // when nothing is due (before Election Day, or no handover today).
   { source: "election_results", interval_hours: 36, system: "github-actions", cadence: "daily" },
+  { source: "official_rosters", interval_hours: 36, system: "github-actions", cadence: "daily" },
   { source: "turnover_swap", interval_hours: 36, system: "github-actions", cadence: "daily" },
   // Nightly cloud chassis (cron-nightly-cloud.yml @ 08:30 UTC).
   { source: "state_executives_sync", interval_hours: 216, system: "github-actions", cadence: "weekly" },

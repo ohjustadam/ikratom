@@ -93,7 +93,8 @@ export function winnersFromRow(row, cols) {
   if (ticked.length) return [...new Set(ticked)];
 
   const status = at(cols.status);
-  if (/\bincumbent\s+re-?elected\b/i.test(status)) {
+  // "Incumbent reelected", or a bare "Reelected" (the 2026 Pennsylvania House page).
+  if (/\bincumbent\s+re-?elected\b|^\s*re-?elected\b/i.test(status)) {
     const inc = tidy(at(cols.incumbent));
     // A stale status beside a candidate list that eliminates the incumbent
     // (2026 OK Senate D20, seen 2026-10-23) is a contradiction: no winner.
@@ -157,6 +158,27 @@ export function parseWikiResults(html, mode = "district") {
     const grid = tableGrid(table);
     const cols = columnRoles(grid);
     if (cols.district < 0 || (cols.elected < 0 && cols.candidates < 0 && cols.status < 0)) continue;
+    // One candidate per row with a "%" cell (Pennsylvania House 2026): when the
+    // status says the seat changed or was left open, the top share won.
+    const pct = (grid[cols.headerRows - 1] ?? []).findIndex((c) => /^(%|percent(age)?)$/i.test(clean(c?.text)));
+    const top = new Map();
+    for (const row of grid.slice(cols.headerRows)) {
+      if (pct < 0 || cols.candidates < 0 || cols.status < 0) break;
+      const status = clean(row[cols.status]?.text);
+      if (!/\b(defeated|lost|retired|elected|hold|gain|open)\b/i.test(status) || /re-?elected|running|seeking/i.test(status)) continue;
+      const key = rowKey(clean(row[cols.district]?.text), mode);
+      const name = tidy(row[cols.candidates]?.text ?? ""), share = Number(clean(row[pct]?.text).replace(/%$/, ""));
+      if (!key || !NAME_OK(name) || !Number.isFinite(share) || share <= 0) continue;
+      const best = top.get(key);
+      if (!best || share > best.share) top.set(key, { share, name, incumbent: tidy(row[cols.incumbent]?.text ?? ""), second: best?.share ?? 0 });
+      else if (share > best.second) best.second = share;
+    }
+    for (const [key, b] of top) {
+      if (b.share === b.second) continue; // a tie is not a result
+      const list = out.get(key) ?? [];
+      list.push({ incumbent: b.incumbent, winners: [b.name] });
+      out.set(key, list);
+    }
     for (const row of grid.slice(cols.headerRows)) {
       const main = clean(row[cols.district]?.text);
       const sub = cols.districtSub >= 0 ? clean(row[cols.districtSub]?.text).replace(/^Seat\s+/i, "") : "";

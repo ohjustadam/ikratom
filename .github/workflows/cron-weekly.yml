@@ -162,6 +162,17 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/check-legislator-rosters.mjs --apply
 
+      # The daily official-roster census (cron-daily) reads the member lists it
+      # remembers. Weekly, a chamber it can't read gets its home page crawled
+      # for a new one, so a moved site or a new session's URL is re-found
+      # without anyone editing code (first run 2026-11-27: 41 -> 57 chambers).
+      - name: Find chambers' official member lists
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-official-rosters.mjs --apply --discover
+
       # Try to break the row rules as a member and as a visitor, in transactions
       # that always roll back (security sweep 10-30, migration 0302). A table
       # added without its guard fails here instead of in public.
