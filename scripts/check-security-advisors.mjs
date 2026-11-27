@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * check-security-advisors.mjs — the weekly read of Supabase's security advisor.
+ * check-security-advisors.mjs — the weekly read of Supabase's security advisor,
+ * and of the indexes that account deletion depends on.
  *
  * Comparing it to the baseline was a manual step, so it only happened when a
  * session remembered. This fails the run and tells the owner when the count
@@ -15,6 +16,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { BASELINE_TOTAL, judgeAdvisors } from "./lib/advisor-baseline.mjs";
 import { alertOwner } from "./lib/owner-alert.mjs";
+import { USER_LINKS_SQL, judgeUserLinks } from "./lib/user-link-indexes.mjs";
 
 const SOURCE = "check_security_advisors";
 const startedAt = new Date().toISOString();
@@ -34,9 +36,19 @@ const lints = Array.isArray(body.lints) ? body.lints : [];
 const verdict = judgeAdvisors(lints);
 const readFailed = !r.ok || verdict.readNothing;
 
-const summary = readFailed
+const linkRead = await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`, {
+  method: "POST",
+  headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ query: USER_LINKS_SQL, read_only: true }),
+  signal: AbortSignal.timeout(60_000),
+});
+const links = judgeUserLinks(await linkRead.json().catch(() => null));
+const ok = verdict.ok && links.ok;
+
+const advisorSummary = readFailed
   ? `could not read the advisor (HTTP ${r.status})`
   : `${verdict.total} findings against a baseline of ${BASELINE_TOTAL}, ${verdict.newTypes.length} new kind(s)`;
+const summary = `${advisorSummary}; ${links.summary}`;
 console.log(summary);
 
 if (!verdict.ok) {
@@ -53,8 +65,18 @@ if (!verdict.ok) {
   });
 }
 
+if (!links.ok) {
+  await alertOwner({
+    title: links.readNothing ? "Weekly check couldn't read the user links" : "Account deletion could time out",
+    body: [links.summary, ...links.missing, "Ask a session to look (see migration 0338). Don't post this anywhere public."].join("\n"),
+    priority: "high",
+    tags: ["warning"],
+    sb,
+  });
+}
+
 await sb?.from("scraper_runs").insert({
   source: SOURCE, started_at: startedAt, finished_at: new Date().toISOString(),
-  status: verdict.ok ? "success" : "error", rows_updated: 0, notes: summary,
+  status: ok ? "success" : "error", rows_updated: 0, notes: summary,
 });
-process.exitCode = verdict.ok ? 0 : 1;
+process.exitCode = ok ? 0 : 1;

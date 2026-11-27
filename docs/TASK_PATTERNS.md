@@ -17,8 +17,9 @@ Recipes for common tasks. Copy-paste-friendly. New AI sessions: this file is you
    ```
 3. **Idempotent:** prefer `create table if not exists`, `add column if not exists`, `create or replace function`, `drop policy if exists` before recreating. Re-running a migration must not error.
 4. RLS on every new table: `alter table X enable row level security;` then policies. **Also grant explicitly:** from 2026-10-30 Supabase gives new `public` tables NO default grants, so a table with a policy but no `grant select … to anon, authenticated` (or the role it needs) is unreadable. Column-level grants make `select("*")` error for that role, so grant the whole table or list columns in the query.
-5. Apply: `npm run db:push` (calls `scripts/db-push.mjs`, which uses Supabase Management API).
-6. Commit migration file. The `_ikratom_migrations` table tracks applied migrations server-side; new env starts from blank and applies all.
+5. **A foreign key to `auth.users` or `profiles` needs its own index** in the same migration (`create index … on <table> (<col>) where <col> is not null;`). Without it, deleting an account reads the whole table and can time out (migration 0338). The weekly security check fails when one is missing.
+6. Apply: `npm run db:push` (calls `scripts/db-push.mjs`, which uses Supabase Management API).
+7. Commit migration file. The `_ikratom_migrations` table tracks applied migrations server-side; new env starts from blank and applies all.
 
 ---
 
