@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const sendTransactionalEmail = vi.fn(async (_input: { to: string; tag?: string }) => ({ ok: true, id: "e1" }));
+const sendTransactionalEmail = vi.fn(async (input: { to: string; tag?: string }) => ({ ok: true, id: `sent-to-${input.to}` }));
 vi.mock("@/lib/email/transactional", () => ({
   sendTransactionalEmail,
   brandedHtml: (i: { headline: string }) => `<html>${i.headline}</html>`,
