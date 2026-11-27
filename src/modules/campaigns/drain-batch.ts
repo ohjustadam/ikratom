@@ -5,6 +5,7 @@ import {
   markEmailIntegrationRevoked,
   EmailTokenRevokedError,
 } from "@/lib/email/user-send";
+import { LINK_PAUSE_REASONS, linkDropNoticeDue, noticeMailLinkDropped } from "./mail-link-notice";
 import { capForNewAccount, resolveLimits } from "@/lib/email/provider-limits";
 import { buildVars, renderTemplate, unfilledPlaceholders } from "./templates";
 import { withLetterFooter } from "./letter-extras";
@@ -40,6 +41,7 @@ export type DrainBatchRow = {
   total_count: number | null;
   sent_count: number | null;
   failed_count: number | null;
+  pause_reason?: string | null;
 };
 
 export type DrainResult = { sent: number; failed: number; more: boolean };
@@ -58,8 +60,13 @@ export async function drainBatch(
     // Disconnected mid-flight. Pause rather than fail — the queued work is
     // still valid and resumes the moment they reconnect.
     await supabase.from("campaign_send_batches")
-      .update({ status: "paused", pause_reason: "Email account disconnected. Reconnect in /account to resume." })
+      .update({ status: "paused", pause_reason: LINK_PAUSE_REASONS.disconnected })
       .eq("id", batch.id);
+    // The pause text alone reached no one (11-14: a top sender stalled 11 days).
+    if (linkDropNoticeDue(batch)) {
+      const waiting = (batch.total_count ?? 0) - (batch.sent_count ?? 0) - (batch.failed_count ?? 0);
+      await noticeMailLinkDropped(supabase, batch.user_id, waiting);
+    }
     return { sent, failed, more };
   }
 
@@ -209,8 +216,12 @@ export async function drainBatch(
         await supabase.from("campaign_send_batch_items")
           .update({ error: msg }).eq("id", item.id);
         await supabase.from("campaign_send_batches")
-          .update({ status: "paused", pause_reason: "Your email connection was revoked. Reconnect in /account and this batch resumes where it stopped." })
+          .update({ status: "paused", pause_reason: LINK_PAUSE_REASONS.revoked })
           .eq("id", batch.id);
+        // Fires once per drop: after this the link is marked revoked, so later
+        // runs take the disconnected branch above, which sees the link pause.
+        const waiting = (batch.total_count ?? 0) - (batch.sent_count ?? 0) - sent - (batch.failed_count ?? 0) - failed;
+        await noticeMailLinkDropped(supabase, batch.user_id, waiting);
         break;
       }
 

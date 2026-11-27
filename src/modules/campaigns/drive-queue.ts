@@ -20,7 +20,7 @@ import { acquireDrainLease } from "./drain-lease";
 export const ACTIVE_BATCH_STATUSES = ["queued", "sending", "paused"];
 
 export const DRAIN_BATCH_COLUMNS =
-  "id, user_id, campaign_id, subject_template, body_template, status, total_count, sent_count, failed_count";
+  "id, user_id, campaign_id, subject_template, body_template, status, total_count, sent_count, failed_count, pause_reason";
 
 export type DriveResult = { busy: boolean; sent: number; failed: number };
 
