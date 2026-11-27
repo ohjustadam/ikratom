@@ -31,6 +31,7 @@
 import { createClient } from "@supabase/supabase-js";
 import yaml from "js-yaml";
 import { PEOPLE_TARBALL, collectFromTarball, toIsoDay, currentRole } from "./lib/openstates-people.mjs";
+import { normalizeDistrict, samePerson } from "./lib/term-calendar.mjs";
 
 const args = process.argv.slice(2);
 const DRY = args.includes("--dry-run");
@@ -119,7 +120,7 @@ console.log(`departed: ${departed.length} (held for review in: ${[...held].join(
 for (const r of departed.slice(0, 25)) console.log(`  - leaving: ${r.state} ${r.full_name} (end ${retired.get(r.openstates_id).end ?? "?"})${held.has(r.state) ? " [HELD]" : ""}`);
 for (const [, c] of newcomers.slice(0, 25)) console.log(`  + new: ${c.state} ${c.doc.name} (${c.role.type} ${c.role.district}, from ${toIsoDay(c.role.start_date) ?? "?"})`);
 
-let deactivated = 0, added = 0, failed = 0;
+let deactivated = 0, added = 0, linked = 0, failed = 0;
 const errors = [];
 if (!DRY) {
   for (const r of departed) {
@@ -135,14 +136,28 @@ if (!DRY) {
   // A newcomer may already be on our roster WITHOUT an openstates id (added by
   // hand or another sync). Same state + same name means skip, never duplicate.
   const norm = (s) => String(s ?? "").toLowerCase().replace(/[^a-z]/g, "");
-  const { data: noId } = await sb.from("legislators").select("state, full_name")
+  const { data: noId } = await sb.from("legislators").select("id, state, role, district, full_name, email, phone, party, verified_sources_md")
     .eq("level", "state").eq("active", true).is("openstates_id", null).limit(5000);
   const existingNames = new Set((noId ?? []).map((r) => `${r.state}|${norm(r.full_name)}`));
+  const dkey = (d) => normalizeDistrict(d) ?? String(d ?? "").toLowerCase();
   for (const [ocd, c] of newcomers) {
     const d = c.doc;
-    if (existingNames.has(`${c.state}|${norm(d.name)}`)) continue;
     const party = Array.isArray(d.party) ? d.party.find((p) => !p.end_date)?.name ?? d.party[0]?.name : null;
     const office = Array.isArray(d.offices) ? d.offices.find((o) => o.classification === "capitol") ?? d.offices[0] : null;
+    // turnover-swap adds a newcomer from the chamber's own member list when
+    // openstates/people is behind. Same seat, same person: link that row.
+    const role = ROLE_MAP[String(c.role.type).toLowerCase()] ?? "state_house";
+    const mine = (noId ?? []).find((r) => r.state === c.state && r.role === role && dkey(r.district) === dkey(c.role.district) && samePerson(r.full_name, d.name));
+    if (mine) {
+      const { error } = await sb.from("legislators").update({
+        openstates_id: ocd, email: mine.email ?? d.email ?? null, phone: mine.phone ?? office?.voice ?? null, party: mine.party ?? party,
+        last_synced_at: new Date().toISOString(),
+        verified_sources_md: [mine.verified_sources_md, `- Linked to openstates/people (${ocd}) by sync-state-roster-diff ${today}.`].filter(Boolean).join("\n"),
+      }).eq("id", mine.id).is("openstates_id", null);
+      if (error) failed++; else linked++;
+      continue;
+    }
+    if (existingNames.has(`${c.state}|${norm(d.name)}`)) continue;
     const { error } = await sb.from("legislators").insert({
       state: c.state, level: "state", role: ROLE_MAP[String(c.role.type).toLowerCase()] ?? "state_house",
       district: c.role.district != null ? String(c.role.district) : null,
@@ -156,6 +171,6 @@ if (!DRY) {
 }
 for (const e of errors) console.log(`  ! ${e}`);
 
-const summary = `${DRY ? "DRY " : ""}departed ${departed.length} (applied ${deactivated}, held states: ${[...held].join(",") || "none"}) · new ${newcomers.length} (added ${added}) · orphans ${orphans.length} · failed ${failed} · ${Math.round((Date.now() - t0) / 1000)}s`;
+const summary = `${DRY ? "DRY " : ""}departed ${departed.length} (applied ${deactivated}, held states: ${[...held].join(",") || "none"}) · new ${newcomers.length} (added ${added}, linked ${linked}) · orphans ${orphans.length} · failed ${failed} · ${Math.round((Date.now() - t0) / 1000)}s`;
 console.log(summary);
 await telemetry(failed > 0 || held.size > 0 ? "error" : deactivated + added > 0 ? "success" : "empty", summary, deactivated + added);

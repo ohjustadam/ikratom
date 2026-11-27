@@ -593,6 +593,17 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/sync-congress-roster-diff.mjs
+      # Each state chamber's OWN member list (scripts/check-official-rosters.mjs):
+      # the handover's second source when openstates/people is behind (after
+      # the 2026 general it was, for weeks, in 8 states: 167 seats stuck), and
+      # a daily census of members we list who are missing from it. Before the
+      # swap, which acts on the official-roster tags this writes.
+      - name: Official chamber rosters
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --import=./scripts/lib/egress-meter.mjs scripts/check-official-rosters.mjs --apply
       # On the handover day: retire the outgoing official (record kept) once a
       # second, independent roster shows the successor in office. After the
       # roster diffs, so the successor's row already exists.
@@ -602,7 +613,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node --import=./scripts/lib/egress-meter.mjs scripts/turnover-swap.mjs
-      # Who won each seat (Election Day + 1 to + 60). A reading lands only when
+      # Who won each seat (Election Day + 1 to + 100). A reading lands only when
       # a later day's reading names the same winner.
       - name: Election results
         continue-on-error: true

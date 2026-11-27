@@ -10,13 +10,20 @@
  *   SECOND SOURCE. The successor must appear IN OFFICE in an independent
  *   roster: openstates/people's current role for that chamber and district
  *   (state legislatures), or unitedstates/congress-legislators' current term
- *   for that state and district (Congress). The election result alone never
- *   retires anyone.
+ *   for that state and district (Congress). For a state chamber, the
+ *   chamber's OWN member list counts too: check-official-rosters.mjs tags the
+ *   seat official-roster:<day> when that list, vouched for by nearly every
+ *   member who stays, shows the winner and no longer shows the outgoing
+ *   member (2026-11-27: openstates/people was weeks behind on 8 states). The
+ *   election result alone never retires anyone.
  *   Confirmed → the incumbent goes active = false, with a dated line in
  *   verified_sources_md (the record is kept, never deleted). Campaigns target
  *   on `active`, so nobody emails them again. The successor's row (added by
  *   the daily roster diffs, matched on openstates_id / bioguide_id) is linked
- *   as winner_id and the seat becomes swapped.
+ *   as winner_id and the seat becomes swapped. Confirmed by the official list
+ *   only, with no record anywhere yet: the successor's row is ADDED here from
+ *   the seat (name, district, the address the chamber printed), so the seat is
+ *   never empty; the roster diff links it to openstates/people later.
  *   Not confirmed three days after the handover → needs_review, listed on
  *   /admin/local-rep-requests. The incumbent stays active: a wrong departure
  *   is worse than a late one, and the roster diffs still catch it.
@@ -88,7 +95,7 @@ for (const [day, ids] of keptByDay) {
 if (termsCleared) console.log(`  re-elected: ${termsCleared} ended term(s) cleared`);
 
 const due = await readAll(() => sb.from("seat_elections")
-  .select("id, state, office, district, kind, election_date, handover_date, incumbent_id, incumbent_name, winner_name, winner_id, result_sources, status")
+  .select("id, state, office, district, kind, election_date, handover_date, incumbent_id, incumbent_name, winner_name, winner_id, winner_email, winner_source_url, result_sources, status")
   .in("status", ["successor_elected", "needs_review"]).not("winner_name", "is", null)
   .or(`handover_date.lte.${today},and(handover_date.is.null,kind.eq.special)`));
 const ready = PROBE
@@ -123,12 +130,18 @@ if (needFed) {
   }
 }
 const dkey = (d) => normalizeDistrict(d) ?? String(d ?? "").toLowerCase();
+// The chamber's own member list, read on or after the handover day.
+const officialRoster = (seat) => (seat.result_sources ?? []).some((t) => {
+  const day = /^official-roster:(\d{4}-\d{2}-\d{2})$/.exec(t)?.[1];
+  return day && seat.handover_date && day >= seat.handover_date;
+});
 
 function confirm(seat) {
   const names = String(seat.winner_name).split(/,\s*/);
   if (CHAMBER[seat.office]) {
     const hit = osCurrent.find((p) => p.state === seat.state && CHAMBER[seat.office].has(p.type) && dkey(p.district) === dkey(seat.district) && names.some((n) => samePerson(n, p.name)));
-    return hit ? { source: "openstates", openstates_id: hit.id } : null;
+    if (hit) return { source: "openstates", openstates_id: hit.id };
+    return officialRoster(seat) ? { source: "official-roster" } : null;
   }
   if (seat.office === "us_house" || seat.office === "us_senate") {
     const type = seat.office === "us_house" ? "rep" : "sen";
@@ -138,7 +151,15 @@ function confirm(seat) {
   return undefined; // statewide executive: not this job's to confirm
 }
 
-let swapped = 0, retiredOnly = 0, flagged = 0, failed = 0;
+let swapped = 0, retiredOnly = 0, flagged = 0, failed = 0, added = 0;
+
+// An active row already holding the seat in the winner's name (added by hand,
+// or by an earlier run): never a second one.
+async function sameSeatRow(seat) {
+  const { data } = await sb.from("legislators").select("id, full_name, district")
+    .eq("state", seat.state).eq("role", seat.office).eq("active", true).neq("id", seat.incumbent_id ?? "00000000-0000-0000-0000-000000000000");
+  return (data ?? []).find((r) => dkey(r.district) === dkey(seat.district) && samePerson(seat.winner_name, r.full_name))?.id ?? null;
+}
 const plan = [];
 for (const seat of ready) {
   const c = confirm(seat);
@@ -162,11 +183,15 @@ if (plan.length > MAX_SWAPS) {
 
 for (const { seat, c } of plan) {
   let successor = null;
-  const col = c.openstates_id ? "openstates_id" : "bioguide_id";
-  const { data: s } = await sb.from("legislators").select("id").eq(col, c.openstates_id ?? c.bioguide_id).eq("active", true).maybeSingle();
-  successor = s?.id ?? null;
-  console.log(`  ⇄ ${seat.state} ${seat.office} ${seat.district}: ${seat.incumbent_name} → ${seat.winner_name} (${c.source}${successor ? "" : ", successor row pending"})`);
-  if (DRY) { successor ? swapped++ : retiredOnly++; continue; }
+  if (c.source === "official-roster") successor = seat.winner_id ?? await sameSeatRow(seat);
+  else {
+    const col = c.openstates_id ? "openstates_id" : "bioguide_id";
+    const { data: s } = await sb.from("legislators").select("id").eq(col, c.openstates_id ?? c.bioguide_id).eq("active", true).maybeSingle();
+    successor = s?.id ?? null;
+  }
+  const add = c.source === "official-roster" && !successor && !String(seat.winner_name).includes(",");
+  console.log(`  ⇄ ${seat.state} ${seat.office} ${seat.district}: ${seat.incumbent_name} → ${seat.winner_name} (${c.source}${successor ? "" : add ? ", adding their record" : ", successor row pending"})`);
+  if (DRY) { successor || add ? swapped++ : retiredOnly++; if (add) added++; continue; }
 
   if (seat.incumbent_id) {
     const { data: inc } = await sb.from("legislators").select("verified_sources_md, active").eq("id", seat.incumbent_id).maybeSingle();
@@ -179,6 +204,21 @@ for (const { seat, c } of plan) {
       if (e) { failed++; continue; }
     }
   }
+  if (add) {
+    const { data: inc } = seat.incumbent_id ? await sb.from("legislators").select("district").eq("id", seat.incumbent_id).maybeSingle() : { data: null };
+    const { data: row, error: e3 } = await sb.from("legislators").insert({
+      state: seat.state, level: "state", role: seat.office, district: inc?.district ?? seat.district,
+      full_name: seat.winner_name, email: seat.winner_email ?? null, active: true,
+      term_start_date: seat.handover_date, last_synced_at: new Date().toISOString(),
+      verified_sources_md: [
+        `- Source: ${seat.winner_source_url ?? "the chamber's official member list"} (the chamber's own member list, ${today})`,
+        `- Added by turnover-swap ${today}: won ${seat.office === "state_senate" ? "Senate" : "House"} district ${seat.district} on ${seat.election_date} (${(seat.result_sources ?? []).join(", ")}).`,
+        ...(seat.winner_email ? [`- Email printed on that list: ${seat.winner_email}`] : []),
+      ].join("\n"),
+    }).select("id").single();
+    if (e3) { failed++; console.log(`  ! ${seat.state} ${seat.district} ${seat.winner_name}: ${e3.message}`); }
+    else { successor = row.id; added++; }
+  }
   const { error: e2 } = await sb.from("seat_elections").update({
     status: successor ? "swapped" : "successor_elected", winner_id: successor, updated_at: new Date().toISOString(),
     result_sources: [...new Set([...(seat.result_sources ?? []), c.source])],
@@ -187,7 +227,7 @@ for (const { seat, c } of plan) {
   if (e2) failed++; else if (successor) swapped++; else retiredOnly++;
 }
 
-const summary = `${DRY ? "DRY " : ""}due ${ready.length} · swapped ${swapped} · incumbent retired, successor pending ${retiredOnly} · needs review ${flagged} · re-elected term ends cleared ${termsCleared} · failed ${failed}`;
+const summary = `${DRY ? "DRY " : ""}due ${ready.length} · swapped ${swapped} (new records ${added}) · incumbent retired, successor pending ${retiredOnly} · needs review ${flagged} · re-elected term ends cleared ${termsCleared} · failed ${failed}`;
 console.log(summary);
 await telemetry(failed ? "error" : swapped + retiredOnly + flagged + termsCleared ? "success" : "empty", summary, swapped + retiredOnly + termsCleared);
 if (failed) process.exit(1);

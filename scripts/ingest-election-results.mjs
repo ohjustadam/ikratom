@@ -56,7 +56,11 @@ const t0 = Date.now();
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
 const CYCLE = Number(args.includes("--cycle") ? args[args.indexOf("--cycle") + 1] : new Date().getUTCFullYear() - (new Date().getUTCFullYear() % 2));
 const ELECTION = electionDay(CYCLE);
-const WINDOW_DAYS = 60;
+// Long enough to outlast the last handover: Illinois and Maryland seat their
+// legislatures on Jan 13 and Maryland's lieutenant governor on Jan 20, and the
+// big chambers' pages fill in slowly (2026: Pennsylvania's 203 House seats were
+// still unread at day 24). Day 60 (Jan 2) would have stopped short of them.
+const WINDOW_DAYS = 100;
 const UA = "iKratomBot/1.0 (https://www.ikratom.org; contact@ikratom.org)";
 const OPEN = ["on_ballot", "needs_review"];
 const DECIDED = ["incumbent_reelected", "successor_elected"];
