@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const sendTransactionalEmail = vi.fn(async (input: { to: string; tag?: string }) => ({ ok: true, id: `sent-to-${input.to}` }));
+const { sendTransactionalEmail } = vi.hoisted(() => ({ sendTransactionalEmail: vi.fn() }));
 vi.mock("@/lib/email/transactional", () => ({
   sendTransactionalEmail,
   brandedHtml: (i: { headline: string }) => `<html>${i.headline}</html>`,
@@ -35,7 +35,10 @@ describe("linkDropNoticeDue", () => {
 });
 
 describe("noticeMailLinkDropped", () => {
-  beforeEach(() => sendTransactionalEmail.mockClear());
+  beforeEach(() => {
+    sendTransactionalEmail.mockReset();
+    sendTransactionalEmail.mockResolvedValue({ ok: true, id: "e1" });
+  });
 
   it("sends one in-app notice and one email, pointing at /account", async () => {
     const { sb, inserts } = fakeSupabase();
