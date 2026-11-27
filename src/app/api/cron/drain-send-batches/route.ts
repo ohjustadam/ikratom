@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
   try {
     const { data: batches } = await supabase
       .from("campaign_send_batches")
-      .select("id, user_id, campaign_id, subject_template, body_template, status, total_count, sent_count, failed_count")
+      .select("id, user_id, campaign_id, subject_template, body_template, status, total_count, sent_count, failed_count, pause_reason")
       // 'paused' MUST be included. A batch paused for "daily limit reached"
       // promises it "resumes automatically tomorrow" — if the worker never
       // picked paused rows back up, that promise would be a lie and the batch
